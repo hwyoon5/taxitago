@@ -1,13 +1,6 @@
-/** @type {import('next').NextConfig} */
+/** @type {import('next').Next.jsConfig} */
 const nextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: '/:path*',
-        destination: '/',
-      },
-    ];
-  },
+  output: 'export',
 };
 
 export default nextConfig;
