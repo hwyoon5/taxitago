@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run build",
+   "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "deploy": "next build && echo. > out/.nojekyll && copy /y out\\index.html out\\404.html && npx gh-pages -d out"
