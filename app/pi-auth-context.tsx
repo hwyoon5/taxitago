@@ -73,6 +73,15 @@ export function usePiAuth(): PiAuthState | null {
         if (active) setState(null);
       }
     }
+            sdk,
+            products: sdk.products ?? [],
+            restoredPurchases: sdk.restoredPurchases ?? null,
+          });
+        }
+      } catch (catchError) {
+        if (active) setState(null);
+      }
+    }
     initializePi()
     return () => {
       active = false
