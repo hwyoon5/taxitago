@@ -48,22 +48,31 @@ export function usePiAuth(): PiAuthState | null {
   useEffect(() => {
     let active = true
 
-    async function initializePi() {
-      if (!window.SDKLite) return
+   async function initializePi() {
+      let retries = 0;
+      while (!window.SDKLite && retries < 15) {
+        await new Promise((r) => setTimeout(r, 300));
+        retries++;
+      }
+
+      if (!window.SDKLite) {
+        if (active) setState(null);
+        return;
+      }
+
       try {
-        const sdk = await window.SDKLite.init()
+        const sdk = await window.SDKLite.init();
         if (active) {
           setState({
             sdk,
             products: sdk.products ?? [],
             restoredPurchases: sdk.restoredPurchases ?? null,
-          })
+          });
         }
-      } catch {
-        if (active) setState(null)
+      } catch (catchError) {
+        if (active) setState(null);
       }
     }
-
     initializePi()
     return () => {
       active = false
