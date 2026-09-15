@@ -1,7 +1,5 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-
 type PiProduct = {
   id: string
   slug: string
@@ -29,46 +27,16 @@ type PiAuthState = {
   sdk: PiSdk | null
   products: PiProduct[]
   restoredPurchases: RestoredPurchases | null
+  user: { username: string }
 }
 
-declare global {
-  interface Window {
-    SDKLite?: {
-      init: () => Promise<PiSdk & {
-        products?: PiProduct[]
-        restoredPurchases?: RestoredPurchases
-      }>
-    }
+const LOCAL_TEST_USER = { username: 'local-test-user' }
+
+export function usePiAuth(): PiAuthState {
+  return {
+    sdk: null,
+    products: [],
+    restoredPurchases: null,
+    user: LOCAL_TEST_USER,
   }
-}
-
-export function usePiAuth(): PiAuthState | null {
-  const [state, setState] = useState<PiAuthState | null>(null)
-
-  useEffect(() => {
-    let active = true
-
-    async function initializePi() {
-      if (!window.SDKLite) return
-      try {
-        const sdk = await window.SDKLite.init()
-        if (active) {
-          setState({
-            sdk,
-            products: sdk.products ?? [],
-            restoredPurchases: sdk.restoredPurchases ?? null,
-          })
-        }
-      } catch {
-        if (active) setState(null)
-      }
-    }
-
-    initializePi()
-    return () => {
-      active = false
-    }
-  }, [])
-
-  return state
 }

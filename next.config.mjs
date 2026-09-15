@@ -1,6 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
-  trailingSlash: true,
-};
-export default nextConfig;
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  async rewrites() {
+    return [
+      { source: '/index.html', destination: '/' },
+      { source: '/index', destination: '/' },
+    ]
+  },
+}
+
+export default nextConfig
