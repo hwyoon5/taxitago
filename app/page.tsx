@@ -9,51 +9,25 @@ declare global {
 import { useState, useEffect } from 'react';
 
 export default function Home() {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>({ username: "TestUser (Guest)" });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    async function handleAuthenticate() {
-      if (typeof window === 'undefined') return;
-
-      const Pi = (window as any).Pi;
-      if (!Pi) {
-        setError('Pi SDK가 감지되지 않습니다.');
-        setLoading(false);
-        return;
+    // Pi SDK 초기화 시도 (에러 나더라도 화면이 안 멈추게 처리)
+    try {
+      if (typeof window !== 'undefined' && (window as any).Pi) {
+        (window as any).Pi.init({ version: "2.0", sandbox: true });
       }
-
-      try {
-        Pi.init({ version: "2.0", sandbox: true });
-
-        const scopes = ['username', 'payments'];
-        function onIncompletePaymentFound(payment: any) {
-          console.log('Incomplete payment found:', payment);
-        }
-
-        // 인증이 5초 이상 응답 없으면 무한로딩을 깨고 강제로 로딩 해제
-        const authPromise = Pi.authenticate(scopes, onIncompletePaymentFound);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('인증 시간 초과 (Timeout)')), 5000)
-        );
-
-        const auth: any = await Promise.race([authPromise, timeoutPromise]);
-        setUser(auth.user);
-      } catch (err: any) {
-        setError(err.message || '인증 중 오류가 발생했습니다.');
-      } finally {
-        setLoading(false);
-      }
+    } catch (e) {
+      console.log("Pi init skip:", e);
     }
-
-    handleAuthenticate();
   }, []);
 
   const handlePayment = () => {
     const Pi = (window as any).Pi;
     if (!Pi) {
-      alert('Pi SDK가 없습니다.');
+      alert('Pi SDK가 감지되지 않았습니다. 파이 브라우저에서 실행 중인지 확인해주세요.');
       return;
     }
 
