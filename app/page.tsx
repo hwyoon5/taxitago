@@ -1,4 +1,4 @@
-'use client';
+'use client'
 
 declare global {
   interface Window {
@@ -25,14 +25,20 @@ export default function Home() {
       }
 
       try {
-       Pi.init({ version: "2.0", sandbox: true });
+        Pi.init({ version: "2.0", sandbox: true });
 
         const scopes = ['username', 'payments'];
         function onIncompletePaymentFound(payment: any) {
           console.log('Incomplete payment found:', payment);
         }
 
-        const auth = await Pi.authenticate(scopes, onIncompletePaymentFound);
+        // 인증이 5초 이상 응답 없으면 무한로딩을 깨고 강제로 로딩 해제
+        const authPromise = Pi.authenticate(scopes, onIncompletePaymentFound);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('인증 시간 초과 (Timeout)')), 5000)
+        );
+
+        const auth: any = await Promise.race([authPromise, timeoutPromise]);
         setUser(auth.user);
       } catch (err: any) {
         setError(err.message || '인증 중 오류가 발생했습니다.');
@@ -97,7 +103,7 @@ export default function Home() {
       },
       onError: (error: any, payment: any) => {
         alert('결제 오류 발생: ' + (error?.message || JSON.stringify(error)));
-      },
+      }
     };
 
     try {
@@ -108,16 +114,15 @@ export default function Home() {
   };
 
   return (
-    <main style={{ padding: '20px', fontFamily: 'sans-serif', color: '#fff' }}>
+    <main style={{ padding: '20px', fontFamily: 'sans-serif', color: '#fff', backgroundColor: '#000', minHeight: '100vh' }}>
       <h1>Taxitago</h1>
       {loading && <p>로딩 중...</p>}
       {error && <p style={{ color: 'red' }}>{error}</p>}
       {user && (
         <div>
           <p>환영합니다, <strong>{user.username}</strong>님!</p>
-          
           <div style={{ marginTop: '20px' }}>
-            <button 
+            <button
               onClick={handlePayment}
               style={{ padding: '10px 20px', backgroundColor: '#f0b90b', color: '#000', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer' }}
             >
