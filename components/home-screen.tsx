@@ -6,7 +6,7 @@ import { notices, type Notice } from '@/lib/notices'
 import MoreMenu from '@/components/more/more-menu'
 import { serviceIllustrations } from '@/components/service-illustrations'
 
-const LOCAL_TEST_USER = { username: 'local-test-user' }
+const LOCAL_TEST_USER = { username: 'taxitago' }
 
 type ServiceLabel = keyof typeof serviceIllustrations
 type Service = { label: ServiceLabel }
@@ -94,9 +94,52 @@ function virtualPickupAddress(lat: number, lng: number) {
   return `${nearest.area.name} ${street} 인근 선택지점`
 }
 
+function formatMapAddress(data: {
+  display_name?: string
+  address?: {
+    city?: string
+    province?: string
+    county?: string
+    borough?: string
+    suburb?: string
+    town?: string
+    village?: string
+    road?: string
+    neighbourhood?: string
+    quarter?: string
+    city_district?: string
+  }
+}) {
+  const detail = data.address
+  if (detail) {
+    const region = detail.province || detail.city || detail.county || ''
+    const district = detail.borough || detail.city_district || detail.suburb || detail.town || detail.village || ''
+    const road = detail.road || detail.neighbourhood || detail.quarter || ''
+    const parts = [region, district, road].filter(Boolean)
+    if (parts.length) return parts.join(' ')
+  }
+  return data.display_name?.split(',').slice(0, 3).join(' ').replace(/\s+/g, ' ').trim() || ''
+}
+
+async function lookupMapAddress(lat: number, lng: number) {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=ko`,
+      { headers: { Accept: 'application/json' } },
+    )
+    if (!response.ok) return virtualPickupAddress(lat, lng)
+    const data = (await response.json()) as Parameters<typeof formatMapAddress>[0]
+    return formatMapAddress(data) || virtualPickupAddress(lat, lng)
+  } catch {
+    return virtualPickupAddress(lat, lng)
+  }
+}
+
 function LocationTileMap({
   lat,
   lng,
+  pinLat,
+  pinLng,
   className,
   interactive = false,
   pulsePin = false,
@@ -105,6 +148,8 @@ function LocationTileMap({
 }: {
   lat: number
   lng: number
+  pinLat?: number
+  pinLng?: number
   className?: string
   interactive?: boolean
   pulsePin?: boolean
@@ -118,6 +163,7 @@ function LocationTileMap({
   const skipClick = useRef(false)
   const activeZoom = interactive ? zoom : 15
   const tile = latLngToTile(lat, lng, activeZoom)
+  const pinTile = latLngToTile(pinLat ?? lat, pinLng ?? lng, activeZoom)
   const centerX = Math.floor(tile.x)
   const centerY = Math.floor(tile.y)
   const cells = [-1, 0, 1].flatMap((dy) =>
@@ -126,8 +172,8 @@ function LocationTileMap({
       src: `https://tile.openstreetmap.org/${activeZoom}/${centerX + dx}/${centerY + dy}.png`,
     })),
   )
-  const pinLeft = ((1 + (tile.x - centerX)) / 3) * 100
-  const pinTop = ((1 + (tile.y - centerY)) / 3) * 100
+  const pinLeft = ((1 + (pinTile.x - centerX)) / 3) * 100
+  const pinTop = ((1 + (pinTile.y - centerY)) / 3) * 100
   const clampZoom = (value: number) => Math.min(18, Math.max(12, value))
   const changeZoom = (next: number) => setZoom(clampZoom(next))
   const pickFromPoint = (clientX: number, clientY: number) => {
@@ -180,8 +226,16 @@ function LocationTileMap({
         const next = pinchZoom.current + Math.round(Math.log2(gap / pinchGap.current) * 2)
         changeZoom(next)
       }}
-      onTouchEnd={() => {
+      onTouchEnd={(event) => {
+        const pinched = pinchGap.current != null
         pinchGap.current = null
+        if (pinched || skipClick.current) {
+          skipClick.current = false
+          return
+        }
+        if (!interactive || event.changedTouches.length !== 1 || event.touches.length > 0) return
+        skipClick.current = true
+        pickFromPoint(event.changedTouches[0].clientX, event.changedTouches[0].clientY)
       }}
     >
       <div className="grid h-full w-full grid-cols-3 grid-rows-3">
@@ -194,15 +248,15 @@ function LocationTileMap({
         style={{ left: `${pinLeft}%`, top: `${pinTop}%`, transform: pulsePin ? 'translate(-50%, -50%)' : undefined }}
       >
         {pulsePin ? (
-          <span className="relative flex h-16 w-16 items-center justify-center overflow-visible">
-            <span className="absolute h-14 w-14 animate-ping rounded-full bg-[#3B82F6]/35" />
-            <span className="absolute h-9 w-9 animate-pulse rounded-full bg-[#60A5FA]/45" />
-            <span className="relative h-3.5 w-3.5 rounded-full bg-[#2563EB] ring-2 ring-white shadow-[0_4px_10px_rgba(37,99,235,0.45)]" />
-            <span className="absolute bottom-[calc(100%+6px)] left-1/2 flex w-max -translate-x-1/2 flex-col items-center">
-              <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-[#1E1B4B] px-2.5 py-[5px] text-[11px] font-black leading-none tracking-tight text-white shadow-md">
+          <span className="relative flex h-20 w-20 items-center justify-center overflow-visible">
+            <span className="absolute h-16 w-16 animate-ping rounded-full bg-[#3B82F6]/35" />
+            <span className="absolute h-11 w-11 animate-pulse rounded-full bg-[#60A5FA]/45" />
+            <span className="relative h-4 w-4 rounded-full bg-[#2563EB] ring-[3px] ring-white shadow-[0_4px_12px_rgba(37,99,235,0.5)]" />
+            <span className="absolute bottom-[calc(100%+8px)] left-1/2 flex w-max -translate-x-1/2 flex-col items-center">
+              <span className="inline-flex shrink-0 whitespace-nowrap rounded-2xl bg-[#1E1B4B] px-4 py-2.5 text-base font-bold leading-none tracking-tight text-white shadow-lg">
                 출발
               </span>
-              <span className="h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-[#1E1B4B]" />
+              <span className="h-0 w-0 border-x-[8px] border-t-[8px] border-x-transparent border-t-[#1E1B4B]" />
             </span>
           </span>
         ) : (
@@ -228,9 +282,30 @@ function LocationTileMap({
 
 function LocationMapModal({ onClose }: { onClose: () => void }) {
   const [gpsPending, setGpsPending] = useState(true)
-  const [place, setPlace] = useState({ ...SEOUL_CITY_HALL, source: 'fallback' as 'fallback' | 'gps' })
+  const [addressPending, setAddressPending] = useState(true)
+  const [mapCenter, setMapCenter] = useState(SEOUL_CITY_HALL)
+  const [pin, setPin] = useState({ lat: SEOUL_CITY_HALL.lat, lng: SEOUL_CITY_HALL.lng })
+  const [address, setAddress] = useState(virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng))
+  const [source, setSource] = useState<'fallback' | 'gps' | 'pick'>('fallback')
+  const lookupSeq = useRef(0)
+
+  const applyPoint = (lat: number, lng: number, nextSource: 'fallback' | 'gps' | 'pick', recenter = false) => {
+    const seq = lookupSeq.current + 1
+    lookupSeq.current = seq
+    setPin({ lat, lng })
+    if (recenter) setMapCenter({ lat, lng, label: nextSource === 'gps' ? '현재 위치' : '선택 위치' })
+    setSource(nextSource)
+    setAddressPending(true)
+    setAddress(virtualPickupAddress(lat, lng))
+    void lookupMapAddress(lat, lng).then((nextAddress) => {
+      if (lookupSeq.current !== seq) return
+      setAddress(nextAddress)
+      setAddressPending(false)
+    })
+  }
 
   useEffect(() => {
+    applyPoint(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng, 'fallback', true)
     if (!navigator.geolocation) {
       setGpsPending(false)
       return
@@ -239,12 +314,7 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         window.clearTimeout(timer)
-        setPlace({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          label: '현재 위치',
-          source: 'gps',
-        })
+        applyPoint(position.coords.latitude, position.coords.longitude, 'gps', true)
         setGpsPending(false)
       },
       () => {
@@ -256,40 +326,64 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
     return () => window.clearTimeout(timer)
   }, [])
 
+  const statusLabel = gpsPending
+    ? 'GPS로 현재 위치를 확인하는 중이에요.'
+    : source === 'pick'
+      ? '지도를 터치한 지점의 주소입니다.'
+      : source === 'gps'
+        ? '스마트폰 GPS 기준 현재 위치입니다.'
+        : '위치 권한이 없어 서울시청을 기준으로 표시했어요.'
+
   return (
     <div className="fixed inset-0 z-[90] flex items-end bg-[#1e293b]/45 sm:items-center sm:p-4" onClick={onClose}>
       <section className="mx-auto w-full max-w-md overflow-hidden rounded-t-[30px] bg-white shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-start justify-between px-5 pb-3 pt-4">
-          <div>
-            <p className="text-xs font-black text-[#4C1FB8]">MY LOCATION</p>
-            <h2 className="mt-1 text-xl font-black text-[#0F172A]">내 위치</h2>
-            <p className="mt-1 text-xs font-bold text-[#475569]">
-              {gpsPending
-                ? '지도를 열었고, GPS 권한을 확인하는 중이에요.'
-                : place.source === 'gps'
-                  ? '스마트폰 GPS로 현재 위치를 표시했어요.'
-                  : '위치 권한이 없어 서울시청을 기준으로 표시했어요.'}
-            </p>
+        <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold tracking-[0.14em] text-[#3b1d8f]">MY LOCATION</p>
+            <h2 className="mt-1 text-[26px] font-semibold leading-tight text-[#0f172a]">내 위치</h2>
+            <p className="mt-1.5 text-sm font-medium leading-relaxed text-[#334155]">{statusLabel}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="지도 닫기">
+          <button type="button" onClick={onClose} className="shrink-0 rounded-full bg-[#F1F5F9] p-2 text-[#0f172a]" aria-label="지도 닫기">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="relative mx-4 overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
-          <LocationTileMap lat={place.lat} lng={place.lng} />
-          <div className="pointer-events-none absolute left-3 top-3 rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
-            <p className="flex items-center gap-1.5 text-xs font-black text-[#0F172A]">
-              <MapPin className="h-3.5 w-3.5 text-[#4C1FB8]" />
-              {place.label}
-              {gpsPending ? <span className="text-[10px] font-bold text-[#4C1FB8]">GPS 확인 중</span> : null}
+        <div className="px-5 pb-3">
+          <div className="rounded-2xl border-2 border-[#334155] bg-[#f8fafc] px-3.5 py-3">
+            <p className="text-xs font-semibold text-[#3b1d8f]">{source === 'pick' ? '선택한 주소' : '현재 위치 주소'}</p>
+            <p className="mt-1 text-base font-semibold leading-snug text-[#0f172a]">
+              {addressPending ? '주소를 불러오는 중…' : address}
             </p>
-            <p className="mt-1 font-mono text-[10px] font-bold text-[#64748B]">
-              {place.lat.toFixed(5)}, {place.lng.toFixed(5)}
+          </div>
+        </div>
+        <div className="relative mx-4 overflow-hidden rounded-[24px] border-2 border-[#334155] bg-[#E2E8F0]">
+          <LocationTileMap
+            lat={mapCenter.lat}
+            lng={mapCenter.lng}
+            pinLat={pin.lat}
+            pinLng={pin.lng}
+            className="h-[340px]"
+            interactive
+            onPick={(lat, lng) => applyPoint(lat, lng, 'pick')}
+          />
+          <div className="pointer-events-none absolute inset-x-3 top-3">
+            <div className="rounded-2xl bg-white/95 px-3 py-2.5 shadow-[0_8px_18px_rgba(15,23,42,0.14)]">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-[#3b1d8f]">
+                <MapPin className="h-3.5 w-3.5" />
+                {source === 'pick' ? '터치한 위치' : '현재 위치'}
+              </p>
+              <p className="mt-1 text-sm font-semibold leading-snug text-[#0f172a]">
+                {addressPending ? '주소를 불러오는 중…' : address}
+              </p>
+            </div>
+          </div>
+          <div className="pointer-events-none absolute inset-x-3 bottom-8">
+            <p className="rounded-xl bg-[#0f172a]/90 px-3 py-2 text-center text-sm font-medium leading-snug text-white">
+              지도를 터치하면 핀이 이동하고 주소가 바뀝니다
             </p>
           </div>
         </div>
         <div className="px-5 pb-6 pt-4">
-          <button type="button" onClick={onClose} className="w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_10px_22px_rgba(76,31,184,0.35)]">
+          <button type="button" onClick={onClose} className="w-full rounded-2xl bg-[#3b1d8f] py-3.5 text-base font-semibold text-white">
             닫기
           </button>
         </div>
@@ -743,9 +837,9 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
 
   return (
     <section className="rounded-[26px] border-2 border-[#CBD5E1] bg-white p-4 shadow-[0_14px_32px_rgba(15,23,42,0.14)]">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-black text-[#0F172A]">어디로 갈까요?</p>
-        <span className="text-[11px] font-bold text-[#475569]">목적지 검색</span>
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <p className="text-[22px] font-bold leading-tight text-[#0f172a]">어디로 갈까요?</p>
+        <span className="shrink-0 pb-0.5 text-xs font-semibold text-[#334155]">목적지 검색</span>
       </div>
       <button
         type="button"
@@ -1868,9 +1962,9 @@ function DaeriCallSetupSheet({
         <div
           className={`absolute inset-x-0 bottom-0 z-20 px-3 pb-5 transition-all duration-300 ease-out ${mapPicker && pendingPick ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-8 opacity-0'}`}
         >
-          <div className="rounded-[24px] bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.18)]">
-            <p className="text-[10px] font-black text-[#2563EB]">선택한 위치</p>
-            <p className="mt-1 text-sm font-black leading-5 text-[#0F172A]">{pendingPick?.address ?? ''}</p>
+          <div className="rounded-[26px] border-2 border-[#334155] bg-white px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.18)]">
+            <p className="text-sm font-semibold text-[#1d4ed8]">선택한 위치</p>
+            <p className="mt-1.5 text-lg font-bold leading-snug text-[#0f172a]">{pendingPick?.address ?? ''}</p>
             <button
               type="button"
               onClick={() => {
@@ -1878,7 +1972,7 @@ function DaeriCallSetupSheet({
                 setPickup(pendingPick.address)
                 closePicker()
               }}
-              className="mt-4 w-full rounded-2xl bg-[#2563EB] py-4 text-base font-black text-white shadow-[0_10px_22px_rgba(37,99,235,0.38)]"
+              className="mt-4 w-full rounded-2xl bg-[#2563EB] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(37,99,235,0.38)]"
             >
               출발지로 설정
             </button>
@@ -1997,7 +2091,11 @@ function Home({ destination, onDestination, onService, onReceipt }: { destinatio
           </div>
         </div>
       </section>
-      <button type="button" onClick={() => onService('택시')} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
+      <button
+        type="button"
+        onClick={() => onService('택시')}
+        className="mt-5 flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#162033] py-4 text-[17px] font-bold tracking-tight text-[#F8FAFC] shadow-[0_10px_22px_rgba(15,23,42,0.22)] transition hover:bg-[#121A2A] active:scale-[0.99] active:bg-[#0F172A]"
+      >
         택시 호출하기
       </button>
       <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-5 w-full rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 text-left text-[#0F172A] shadow-[0_14px_28px_rgba(15,23,42,0.14)] transition hover:border-[#4C1FB8] active:scale-[0.99]">
@@ -3176,13 +3274,13 @@ export default function HomeScreen() {
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#E2E8F0] shadow-2xl">
         <header className="flex items-start justify-between border-b-2 border-[#CBD5E1] bg-white px-5 pb-4 pt-7 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
           <div>
-            <p className="text-[13px] font-extrabold text-[#475569]">파이 모빌리티 · {user.username}</p>
+            <p className="text-[13px] font-semibold text-[#334155]">파이 모빌리티 · {user.username}</p>
             <h1 className="mt-1 text-[30px] font-black text-[#0F172A]">{driverMode ? '파트너 대시보드' : '택시타고'}</h1>
             <button onClick={openWallet} className="mt-2 rounded-full border-2 border-[#B9A3F7] bg-[#E8DCFF] px-2.5 py-1 text-[11px] font-black text-[#3B16A8] transition hover:bg-[#DDD0FF] active:scale-95">
               Pi 잔액 {walletBalance.toFixed(2)} Pi
             </button>
           </div>
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex flex-col items-end gap-3.5">
             <div className="flex items-center gap-2">
               <button onClick={() => setHeaderModal('activity')} className="flex h-9 w-9 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-[0_6px_14px_rgba(76,31,184,0.4)] transition hover:bg-[#3B16A8] active:scale-90" aria-label="시간별 활동 기록">
                 <Bell className="h-4 w-4" />
@@ -3191,6 +3289,7 @@ export default function HomeScreen() {
                 <UserRound className="h-4 w-4" />
               </button>
             </div>
+            <div className="flex w-[108px] flex-col items-stretch gap-3">
             <button
               onClick={() => {
                 const nextMode = !driverMode
@@ -3198,20 +3297,21 @@ export default function HomeScreen() {
                 setTab('홈')
                 showNotice(nextMode ? 'Driver mode enabled' : '승객 모드로 전환했어요.')
               }}
-              className={`flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-black shadow-sm transition active:scale-95 ${driverMode ? 'bg-[#4C1FB8] text-white shadow-[0_6px_14px_rgba(76,31,184,0.35)]' : 'border-2 border-[#94A3B8] bg-white text-[#0F172A]'}`}
+              className={`box-border flex h-6 w-full items-center justify-center gap-1 rounded-full px-2 text-[10px] font-black leading-none ${driverMode ? 'bg-[#4C1FB8] text-white shadow-[0_6px_14px_rgba(76,31,184,0.35)]' : 'border border-[#94A3B8] bg-white text-[#0F172A]'}`}
             >
-              <span className={`h-2 w-2 rounded-full ${driverMode ? 'bg-[#BBF7D0]' : 'bg-[#64748B]'}`} />
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${driverMode ? 'bg-[#BBF7D0]' : 'bg-[#64748B]'}`} />
               {driverMode ? '승객 모드' : '기사/파트너'}
             </button>
             {!driverMode ? (
               <button
                 type="button"
                 onClick={() => setPartnerSignupOpen(true)}
-                className="rounded-full border-2 border-[#4C1FB8] bg-[#EDE5FF] px-3 py-2 text-[10px] font-black leading-tight text-[#3B16A8] shadow-[0_6px_14px_rgba(76,31,184,0.16)] transition hover:bg-[#E0D4FF] active:scale-95"
+                className="box-border flex h-6 w-full items-center justify-center rounded-full border border-[#4C1FB8] bg-[#EDE5FF] px-2 text-[10px] font-black leading-none text-[#3B16A8] shadow-[0_4px_10px_rgba(76,31,184,0.14)] transition hover:bg-[#E0D4FF] active:scale-95"
               >
-                기사/파트너 회원가입
+                <span className="block origin-center scale-[0.82] whitespace-nowrap tracking-tight">기사/파트너 회원가입</span>
               </button>
             ) : null}
+            </div>
           </div>
         </header>
         {driverMode ? (
