@@ -1,13 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { notices, type Notice } from '@/lib/notices'
 import MoreMenu from '@/components/more/more-menu'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
+import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
+import MyPage from '@/components/my-page'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
 
@@ -58,7 +60,6 @@ function ServiceIconButton({
   )
 }
 
-const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978, label: '서울시청' }
 
 const VIRTUAL_AREAS = [
   { name: '서울특별시 중구 태평로', lat: 37.5665, lng: 126.978 },
@@ -72,21 +73,6 @@ const VIRTUAL_AREAS = [
   { name: '광주광역시 동구 충장로', lat: 35.15, lng: 126.917 },
   { name: '경기도 성남시 분당구 정자동', lat: 37.36, lng: 127.108 },
 ]
-
-function latLngToTile(lat: number, lng: number, zoom: number) {
-  const n = 2 ** zoom
-  const x = ((lng + 180) / 360) * n
-  const latRad = (lat * Math.PI) / 180
-  const y = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n
-  return { x, y }
-}
-
-function tileToLatLng(x: number, y: number, zoom: number) {
-  const n = 2 ** zoom
-  const lng = (x / n) * 360 - 180
-  const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)))
-  return { lat: (latRad * 180) / Math.PI, lng }
-}
 
 function virtualPickupAddress(lat: number, lng: number) {
   const nearest = VIRTUAL_AREAS.reduce((best, area) => {
@@ -136,158 +122,6 @@ async function lookupMapAddress(lat: number, lng: number) {
   } catch {
     return virtualPickupAddress(lat, lng)
   }
-}
-
-function LocationTileMap({
-  lat,
-  lng,
-  pinLat,
-  pinLng,
-  className,
-  interactive = false,
-  pulsePin = false,
-  hidePin = false,
-  showZoom = false,
-  onPick,
-  onActivate,
-}: {
-  lat: number
-  lng: number
-  pinLat?: number
-  pinLng?: number
-  className?: string
-  interactive?: boolean
-  pulsePin?: boolean
-  hidePin?: boolean
-  showZoom?: boolean
-  onPick?: (lat: number, lng: number) => void
-  onActivate?: () => void
-}) {
-  const [zoom, setZoom] = useState(15)
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const pinchGap = useRef<number | null>(null)
-  const pinchZoom = useRef(15)
-  const skipClick = useRef(false)
-  const zoomable = interactive || showZoom
-  const activeZoom = zoomable ? zoom : 15
-  const tile = latLngToTile(lat, lng, activeZoom)
-  const pinTile = latLngToTile(pinLat ?? lat, pinLng ?? lng, activeZoom)
-  const centerX = Math.floor(tile.x)
-  const centerY = Math.floor(tile.y)
-  const cells = [-1, 0, 1].flatMap((dy) =>
-    [-1, 0, 1].map((dx) => ({
-      key: `${activeZoom}-${centerX + dx}-${centerY + dy}`,
-      src: `https://tile.openstreetmap.org/${activeZoom}/${centerX + dx}/${centerY + dy}.png`,
-    })),
-  )
-  const pinLeft = ((1 + (pinTile.x - centerX)) / 3) * 100
-  const pinTop = ((1 + (pinTile.y - centerY)) / 3) * 100
-  const clampZoom = (value: number) => Math.min(18, Math.max(12, value))
-  const changeZoom = (next: number) => setZoom(clampZoom(next))
-  const pickFromPoint = (clientX: number, clientY: number) => {
-    const box = wrapRef.current?.getBoundingClientRect()
-    if (!box || !onPick) return
-    const tileX = centerX - 1 + ((clientX - box.left) / box.width) * 3
-    const tileY = centerY - 1 + ((clientY - box.top) / box.height) * 3
-    const point = tileToLatLng(tileX, tileY, activeZoom)
-    onPick(point.lat, point.lng)
-  }
-
-  useEffect(() => {
-    const node = wrapRef.current
-    if (!zoomable || !node) return
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault()
-      changeZoom(zoom + (event.deltaY < 0 ? 1 : -1))
-    }
-    node.addEventListener('wheel', onWheel, { passive: false })
-    return () => node.removeEventListener('wheel', onWheel)
-  }, [zoomable, zoom])
-
-  return (
-    <div
-      ref={wrapRef}
-      className={`relative overflow-hidden bg-[#d7e3ea] ${className ?? 'h-[320px]'} ${zoomable ? 'touch-none' : ''}`}
-      onClick={(event) => {
-        if (!interactive || skipClick.current) {
-          skipClick.current = false
-          return
-        }
-        if (onActivate) {
-          onActivate()
-          return
-        }
-        pickFromPoint(event.clientX, event.clientY)
-      }}
-      onTouchStart={(event) => {
-        if (!zoomable || event.touches.length !== 2) return
-        const [first, second] = [event.touches[0], event.touches[1]]
-        pinchGap.current = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY)
-        pinchZoom.current = zoom
-      }}
-      onTouchMove={(event) => {
-        if (!zoomable || event.touches.length !== 2 || pinchGap.current == null) return
-        event.preventDefault()
-        skipClick.current = true
-        const [first, second] = [event.touches[0], event.touches[1]]
-        const gap = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY)
-        const next = pinchZoom.current + Math.round(Math.log2(gap / pinchGap.current) * 2)
-        changeZoom(next)
-      }}
-      onTouchEnd={(event) => {
-        const pinched = pinchGap.current != null
-        pinchGap.current = null
-        if (pinched || skipClick.current) {
-          skipClick.current = false
-          return
-        }
-        if (!interactive || event.changedTouches.length !== 1 || event.touches.length > 0) return
-        skipClick.current = true
-        pickFromPoint(event.changedTouches[0].clientX, event.changedTouches[0].clientY)
-      }}
-    >
-      <div className="grid h-full w-full grid-cols-3 grid-rows-3">
-        {cells.map((cell) => (
-          <img key={cell.key} src={cell.src} alt="" className="h-full w-full object-cover" draggable={false} />
-        ))}
-      </div>
-      {!hidePin ? (
-      <span
-        className="pointer-events-none absolute -translate-x-1/2"
-        style={{ left: `${pinLeft}%`, top: `${pinTop}%`, transform: pulsePin ? 'translate(-50%, -50%)' : undefined }}
-      >
-        {pulsePin ? (
-          <span className="relative flex h-20 w-20 items-center justify-center overflow-visible">
-            <span className="absolute h-16 w-16 animate-ping rounded-full bg-[#3B82F6]/35" />
-            <span className="absolute h-11 w-11 animate-pulse rounded-full bg-[#60A5FA]/45" />
-            <span className="relative h-4 w-4 rounded-full bg-[#2563EB] ring-[3px] ring-white shadow-[0_4px_12px_rgba(37,99,235,0.5)]" />
-            <span className="absolute bottom-[calc(100%+8px)] left-1/2 flex w-max -translate-x-1/2 flex-col items-center">
-              <span className="inline-flex shrink-0 whitespace-nowrap rounded-2xl bg-[#1E1B4B] px-4 py-2.5 text-base font-bold leading-none tracking-tight text-white shadow-lg">
-                출발
-              </span>
-              <span className="h-0 w-0 border-x-[8px] border-t-[8px] border-x-transparent border-t-[#1E1B4B]" />
-            </span>
-          </span>
-        ) : (
-          <span className="flex h-10 w-10 -translate-y-full items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-[0_8px_18px_rgba(76,31,184,0.45)]">
-            <MapPin className="h-5 w-5" />
-          </span>
-        )}
-      </span>
-      ) : null}
-      {showZoom || interactive ? (
-        <div className="absolute right-3 top-5 z-20 flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-md">
-          <button type="button" onClick={(event) => { event.stopPropagation(); changeZoom(zoom + 1) }} className="flex h-9 w-9 items-center justify-center text-[#4A82B8]" aria-label="지도 확대">
-            <Plus className="h-4 w-4" />
-          </button>
-          <button type="button" onClick={(event) => { event.stopPropagation(); changeZoom(zoom - 1) }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4A82B8]" aria-label="지도 축소">
-            <Minus className="h-4 w-4" />
-          </button>
-        </div>
-      ) : null}
-      <p className="absolute bottom-2 right-2 rounded-full bg-white/90 px-2 py-1 text-[9px] font-bold text-[#475569]">© OpenStreetMap</p>
-    </div>
-  )
 }
 
 function LocationMapModal({ onClose }: { onClose: () => void }) {
@@ -405,6 +239,7 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
 const FAVORITES_KEY = 'taxitago-favorite-places'
 const WALLET_KEY = 'taxitago-pi-wallet'
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
+const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
 const PI_ACCOUNT_KEY = 'taxitago-pi-account-linked'
 const READ_NOTICES_KEY = 'taxitago-read-notices'
 const RECENT_DEST_KEY = 'taxitago-recent-destinations'
@@ -550,6 +385,22 @@ function saveIsDriverRegistered(value: boolean) {
     return
   }
   window.localStorage.removeItem(DRIVER_REG_KEY)
+}
+
+function loadIsPartnerRegistered() {
+  try {
+    return window.localStorage.getItem(PARTNER_REG_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveIsPartnerRegistered(value: boolean) {
+  if (value) {
+    window.localStorage.setItem(PARTNER_REG_KEY, 'true')
+    return
+  }
+  window.localStorage.removeItem(PARTNER_REG_KEY)
 }
 
 function loadIsPiLinked() {
@@ -1010,37 +861,77 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
       <button
         type="button"
         onClick={() => setSearchOpen(true)}
-        className="flex w-full items-center gap-3 rounded-2xl border-2 border-[#94A3B8] bg-[#F8FAFC] px-4 py-3.5 text-left transition hover:border-[#4C1FB8] hover:bg-white"
+        className="group flex w-full items-stretch overflow-hidden rounded-2xl border-2 border-[#94A3B8] bg-[#F8FAFC] text-left transition hover:border-[#4C1FB8] hover:bg-white"
         aria-label="목적지 검색 열기"
       >
-        <Search className="h-5 w-5 shrink-0 text-[#4C1FB8]" />
-        <span className={`min-w-0 flex-1 truncate text-sm font-extrabold ${destination ? 'text-[#0F172A]' : 'text-[#64748B]'}`}>{destination || '목적지를 입력해 주세요'}</span>
-        <span className="pointer-events-none relative h-8 w-10 shrink-0 overflow-visible" aria-hidden>
+        <span className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3.5">
+          <Search className="h-5 w-5 shrink-0 text-[#4C1FB8]" />
+          <span className={`min-w-0 flex-1 truncate text-sm font-extrabold ${destination ? 'text-[#0F172A]' : 'text-[#64748B]'}`}>{destination || '목적지를 입력해 주세요'}</span>
+        </span>
+        <span className="pointer-events-none relative w-[8.5rem] shrink-0 self-stretch overflow-hidden border-0 outline-none ring-0" aria-hidden>
           <style>{`
-            @-webkit-keyframes tt-search-car-cruise-v7 {
-              0%, 100% { -webkit-transform: translateX(-10px); transform: translateX(-10px); }
-              50% { -webkit-transform: translateX(10px); transform: translateX(10px); }
+            @-webkit-keyframes tt-search-car-cruise-v11 {
+              0%, 100% { left: 0; -webkit-transform: translateX(0); transform: translateX(0); }
+              50% { left: 100%; -webkit-transform: translateX(-100%); transform: translateX(-100%); }
             }
-            @keyframes tt-search-car-cruise-v7 {
-              0%, 100% { transform: translateX(-10px); }
-              50% { transform: translateX(10px); }
+            @keyframes tt-search-car-cruise-v11 {
+              0%, 100% { left: 0; transform: translateX(0); }
+              50% { left: 100%; transform: translateX(-100%); }
             }
           `}</style>
+          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 160 56" preserveAspectRatio="none" aria-hidden>
+            <defs>
+              <linearGradient id="tt-search-sky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ECFEFF" />
+                <stop offset="36%" stopColor="#CFFAFE" />
+                <stop offset="64%" stopColor="#A5F3FC" />
+                <stop offset="100%" stopColor="#99F6E4" />
+              </linearGradient>
+              <linearGradient id="tt-search-hill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#6EE7B7" />
+                <stop offset="100%" stopColor="#2DD4BF" />
+              </linearGradient>
+              <linearGradient id="tt-search-road" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#64748B" />
+                <stop offset="38%" stopColor="#475569" />
+                <stop offset="100%" stopColor="#1E293B" />
+              </linearGradient>
+              <linearGradient id="tt-search-curb" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#FFF7ED" stopOpacity="0.95" />
+                <stop offset="100%" stopColor="#FDBA74" stopOpacity="0.35" />
+              </linearGradient>
+              <linearGradient id="tt-search-shade" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#F8FAFC" stopOpacity="0.78" />
+                <stop offset="16%" stopColor="#ECFEFF" stopOpacity="0" />
+                <stop offset="84%" stopColor="#0F766E" stopOpacity="0" />
+                <stop offset="100%" stopColor="#0F766E" stopOpacity="0.14" />
+              </linearGradient>
+            </defs>
+            <rect width="160" height="56" fill="url(#tt-search-sky)" />
+            <ellipse cx="28" cy="30" rx="34" ry="11" fill="url(#tt-search-hill)" opacity="0.55" />
+            <ellipse cx="118" cy="27" rx="42" ry="13" fill="#67E8F9" opacity="0.5" />
+            <ellipse cx="86" cy="32" rx="22" ry="7" fill="#FDE68A" opacity="0.42" />
+            <path d="M0 31.5C36 27.5 86 27.5 160 32.5V56H0Z" fill="url(#tt-search-road)" />
+            <path d="M0 31.5C36 27.5 86 27.5 160 32.5V36.2C86 31.4 36 31.4 0 35.2Z" fill="url(#tt-search-curb)" />
+            <path d="M0 47H160" stroke="#FDE68A" strokeOpacity="0.95" strokeWidth="2" strokeDasharray="7 6" strokeLinecap="round" />
+            <path d="M0 52H160" stroke="#0F172A" strokeOpacity="0.35" strokeWidth="3" />
+            <rect width="160" height="56" fill="url(#tt-search-shade)" />
+          </svg>
+          <span className="absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-[#F8FAFC] to-transparent group-hover:from-white" />
           <span
-            className="absolute left-1/2 top-1/2"
+            className="absolute inset-y-0"
             style={{
               display: 'block',
-              width: 48,
-              height: 30,
-              marginLeft: -24,
-              marginTop: -15,
-              willChange: 'transform',
-              WebkitAnimation: 'tt-search-car-cruise-v7 3.2s ease-in-out infinite',
-              animation: 'tt-search-car-cruise-v7 3.2s ease-in-out infinite',
+              height: '100%',
+              width: 'auto',
+              aspectRatio: '56 / 40',
+              willChange: 'left, transform',
+              WebkitAnimation: 'tt-search-car-cruise-v11 5.2s ease-in-out infinite',
+              animation: 'tt-search-car-cruise-v11 5.2s ease-in-out infinite',
             }}
           >
-            <svg viewBox="0 0 72 44" width={48} height={30} style={{ display: 'block', width: 48, height: 30, overflow: 'visible', filter: 'drop-shadow(0 2px 3px rgba(15,23,42,0.18))' }} fill="none">
-              <ellipse cx="36" cy="40.6" rx="22" ry="2.2" fill="#4C1FB8" opacity="0.12" />
+            <svg viewBox="10 2 56 40" preserveAspectRatio="xMidYMid meet" style={{ display: 'block', width: '100%', height: '100%', overflow: 'visible', filter: 'drop-shadow(0 2px 3px rgba(15,23,42,0.28))' }} fill="none">
+              <ellipse cx="36" cy="40.6" rx="22" ry="2.2" fill="#0F172A" opacity="0.18" />
               <path d="M14 24.5c.6-5.2 5.4-8.6 13.2-9.8 2.6-5.4 16.8-6.2 22.4-1.1 8.2.4 16.6 3.8 17.4 9.4 3.2 1.2 3.4 5.8-.4 7.6H16.2c-4.2.2-5.2-3.2-2.2-6.1Z" fill="#F5C400" />
               <path d="M16.4 23.2c.8-4.4 5.2-7.4 12.2-8.4 2.8-4.8 15.4-5.4 20.6-.6 7.2.2 14.6 3.2 15.2 8.2 2.6 1 2.6 4.8-.8 6.4H18.2c-3.6.1-4.4-2.8-1.8-5.6Z" fill="#FFD700" stroke="#EAB308" strokeWidth="1.1" strokeLinejoin="round" />
               <path d="M24.6 15.2c3.2-4.4 16.4-4.8 20.2.2-4.2 1.1-15.2 1.3-20.2-.2Z" fill="#BFDBFE" />
@@ -1600,119 +1491,6 @@ function DriverChatModal({ driverName, onClose }: { driverName: string; onClose:
   )
 }
 
-type TaxiLivePhase = 'arriving' | 'boarding' | 'moving'
-type TaxiMatchPhase = 'searching' | TaxiLivePhase
-
-function toTaxiLivePhase(phase: TaxiMatchPhase): TaxiLivePhase {
-  if (phase === 'boarding' || phase === 'moving') return phase
-  return 'arriving'
-}
-
-function pointOnRoute(points: number[][], t: number) {
-  const progress = Math.min(1, Math.max(0, t))
-  const segments = points.length - 1
-  const scaled = progress * segments
-  const index = Math.min(segments - 1, Math.floor(scaled))
-  const local = scaled - index
-  const from = points[index]
-  const to = points[index + 1]
-  return {
-    x: from[0] + (to[0] - from[0]) * local,
-    y: from[1] + (to[1] - from[1]) * local,
-    angle: (Math.atan2(to[1] - from[1], to[0] - from[0]) * 180) / Math.PI,
-  }
-}
-
-function TaxiLiveMap({
-  phase,
-  routeLabel,
-  statusLabel,
-  kind = 'taxi',
-}: {
-  phase: TaxiLivePhase
-  routeLabel: string
-  statusLabel: string
-  kind?: 'taxi' | 'daeri'
-}) {
-  const pickupRoute = [
-    [12, 84],
-    [22, 76],
-    [32, 66],
-    [44, 56],
-    [56, 46],
-    [70, 34],
-    [84, 24],
-  ]
-  const tripRoute = [
-    [16, 80],
-    [28, 68],
-    [40, 56],
-    [52, 44],
-    [64, 34],
-    [76, 24],
-    [88, 16],
-  ]
-  const points = phase === 'moving' ? tripRoute : pickupRoute
-  const [taxi, setTaxi] = useState(() => pointOnRoute(points, phase === 'boarding' ? 1 : 0))
-  const pathD = `M ${points.map((point) => point.join(' ')).join(' L ')}`
-  const start = points[0]
-  const end = points[points.length - 1]
-  const startLabel = phase === 'moving' ? '출발' : kind === 'daeri' ? '기사' : '기사'
-  const endLabel = phase === 'moving' ? '도착' : kind === 'daeri' ? '호출자' : '승객'
-  const walker = kind === 'daeri' && phase !== 'moving'
-  const MarkerIcon = walker ? UserRound : Car
-
-  useEffect(() => {
-    if (phase === 'boarding') {
-      setTaxi(pointOnRoute(pickupRoute, 1))
-      return
-    }
-    const duration = phase === 'moving' ? 24000 : 16000
-    const route = phase === 'moving' ? tripRoute : pickupRoute
-    let frame = 0
-    const started = performance.now()
-    const tick = (now: number) => {
-      const elapsed = (now - started) % duration
-      const t = elapsed / duration
-      setTaxi(pointOnRoute(route, t))
-      frame = window.requestAnimationFrame(tick)
-    }
-    frame = window.requestAnimationFrame(tick)
-    return () => window.cancelAnimationFrame(frame)
-  }, [phase])
-
-  return (
-    <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
-      <LocationTileMap lat={SEOUL_CITY_HALL.lat} lng={SEOUL_CITY_HALL.lng} hidePin showZoom className="h-[248px]" />
-      <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-        <path d={pathD} fill="none" stroke="#BFDBFE" strokeWidth="5.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" vectorEffect="non-scaling-stroke" />
-        <path className="taxi-live-dash" d={pathD} fill="none" stroke="#4A82B8" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-        <circle cx={end[0]} cy={end[1]} r="2.4" fill="#1D4ED8" stroke="white" strokeWidth="0.9" />
-        <circle cx={start[0]} cy={start[1]} r="2.2" fill="#0F172A" stroke="white" strokeWidth="0.8" />
-      </svg>
-      <span className="pointer-events-none absolute rounded-full bg-[#0F172A] px-1.5 py-0.5 text-[9px] font-bold text-white shadow" style={{ left: `${start[0]}%`, top: `${start[1]}%`, transform: 'translate(-50%, -140%)' }}>
-        {startLabel}
-      </span>
-      <span className="pointer-events-none absolute rounded-full bg-[#1D4ED8] px-1.5 py-0.5 text-[9px] font-bold text-white shadow" style={{ left: `${end[0]}%`, top: `${end[1]}%`, transform: 'translate(-50%, -140%)' }}>
-        {endLabel}
-      </span>
-      <span
-        className="pointer-events-none absolute z-[5]"
-        style={{ left: `${taxi.x}%`, top: `${taxi.y}%`, transform: `translate(-50%, -50%) rotate(${walker ? 0 : taxi.angle}deg)` }}
-      >
-        <MarkerIcon className="h-7 w-7 text-[#0F172A] drop-shadow-[0_1px_1px_rgba(255,255,255,0.95)]" strokeWidth={2.35} />
-      </span>
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-[15] mr-14 flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
-        <p className="truncate pr-2 text-xs font-bold text-[#0F172A]">{routeLabel}</p>
-        <span className="shrink-0 rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">{statusLabel}</span>
-      </div>
-      <div className="absolute bottom-3 left-3 z-[15] flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold text-[#334155] shadow-sm">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-[#4A82B8]" />
-        {phase === 'arriving' ? (kind === 'daeri' ? '기사 → 호출자 이동 중' : '기사 → 승객 이동 중') : phase === 'boarding' ? (kind === 'daeri' ? '호출자 위치 도착' : '픽업 지점 도착') : '출발지 → 목적지 주행 중'}
-      </div>
-    </div>
-  )
-}
 
 function TaxiMatchingSheet({
   destination,
@@ -2344,6 +2122,13 @@ function DaeriCallSetupSheet({
   const [mapPlace, setMapPlace] = useState(SEOUL_CITY_HALL)
   const [mapPicker, setMapPicker] = useState(false)
   const [pendingPick, setPendingPick] = useState<{ lat: number; lng: number; address: string } | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(true)
+  const [sheetHeight, setSheetHeight] = useState(360)
+  const [dragOffset, setDragOffset] = useState(0)
+  const [sheetDragging, setSheetDragging] = useState(false)
+  const sheetRef = useRef<HTMLElement>(null)
+  const dragRef = useRef({ active: false, startY: 0, pointerId: -1 })
+  const peekHeight = 72
   const plans = [
     { id: '착한요금' as const, fare: 2.1, caption: '합리적인 기본 요금' },
     { id: '빠른배정' as const, fare: 2.8, caption: '가까운 기사 우선 배정' },
@@ -2388,6 +2173,31 @@ function DaeriCallSetupSheet({
     setMapPicker(false)
     setPendingPick(null)
   }
+  useLayoutEffect(() => {
+    const node = sheetRef.current
+    if (!node) return
+    const measure = () => setSheetHeight(node.offsetHeight)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [pickup, dest, plan, mapPicker])
+  const collapsedY = Math.max(0, sheetHeight - peekHeight)
+  const sheetY = mapPicker ? sheetHeight + 48 : Math.min(collapsedY, Math.max(0, (sheetOpen ? 0 : collapsedY) + dragOffset))
+  const bottomInset = mapPicker ? 0 : Math.max(peekHeight, sheetHeight - sheetY)
+  const finishSheetDrag = (clientY: number) => {
+    if (!dragRef.current.active) return
+    const delta = clientY - dragRef.current.startY
+    dragRef.current.active = false
+    setSheetDragging(false)
+    setDragOffset(0)
+    if (Math.abs(delta) < 12) {
+      setSheetOpen((open) => !open)
+      return
+    }
+    if (sheetOpen && delta > 48) setSheetOpen(false)
+    else if (!sheetOpen && delta < -48) setSheetOpen(true)
+  }
   return (
     <div className="fixed inset-0 z-[52] bg-[#1e1033]/40">
       <div className="relative mx-auto h-full max-w-md overflow-hidden bg-[#E2E8F0]">
@@ -2397,6 +2207,7 @@ function DaeriCallSetupSheet({
           className="h-full"
           interactive
           pulsePin
+          bottomInset={bottomInset}
           onActivate={mapPicker ? undefined : () => setMapPicker(true)}
           onPick={mapPicker ? pickMapPoint : undefined}
         />
@@ -2429,8 +2240,30 @@ function DaeriCallSetupSheet({
           </div>
         </div>
         <section
-          className={`absolute inset-x-0 bottom-0 z-30 rounded-t-[28px] bg-white px-5 pb-7 pt-4 shadow-[0_-16px_32px_rgba(36,27,56,0.16)] transition-transform duration-300 ease-out ${mapPicker ? 'translate-y-[110%]' : 'translate-y-0'}`}
+          ref={sheetRef}
+          className={`absolute inset-x-0 bottom-0 z-30 rounded-t-[28px] bg-white px-5 pb-7 pt-1 shadow-[0_-16px_32px_rgba(36,27,56,0.16)] ${sheetDragging ? '' : 'transition-transform duration-300 ease-out'}`}
+          style={{ transform: `translateY(${sheetY}px)` }}
         >
+          <button
+            type="button"
+            aria-expanded={sheetOpen}
+            aria-label={sheetOpen ? '호출 창 접기' : '호출 창 펼치기'}
+            className="flex w-full touch-none flex-col items-center pb-2 pt-2"
+            onPointerDown={(event) => {
+              dragRef.current = { active: true, startY: event.clientY, pointerId: event.pointerId }
+              setSheetDragging(true)
+              event.currentTarget.setPointerCapture(event.pointerId)
+            }}
+            onPointerMove={(event) => {
+              if (!dragRef.current.active) return
+              setDragOffset(event.clientY - dragRef.current.startY)
+            }}
+            onPointerUp={(event) => finishSheetDrag(event.clientY)}
+            onPointerCancel={(event) => finishSheetDrag(event.clientY)}
+          >
+            <span className="h-1.5 w-12 rounded-full bg-[#D4D4D8]" />
+            <span className="mt-2 text-[11px] font-bold text-[#94A3B8]">{sheetOpen ? '아래로 밀어 지도를 더 보기' : '위로 밀어 호출 창 열기'}</span>
+          </button>
           <p className="text-xs font-black text-[#4C1FB8]">대리 호출 준비</p>
           <label className="mt-3 block">
             <span className="text-[10px] font-black text-[#8b8495]">출발지 주소</span>
@@ -2774,6 +2607,15 @@ function TabContent({
   onReceipt,
   readNoticeIds,
   onOpenInbox,
+  username,
+  driverMode,
+  isDriverRegistered,
+  isPartnerRegistered,
+  piLinked,
+  onToggleDriverMode,
+  onOpenDriverSignup,
+  onOpenPartnerSignup,
+  onNotice,
 }: {
   tab: string
   destination: string
@@ -2785,6 +2627,14 @@ function TabContent({
   onReceipt: (ride: RideReceipt) => void
   readNoticeIds: string[]
   onOpenInbox: (item: Notice) => void
+  username: string
+  driverMode: boolean
+  isDriverRegistered: boolean
+  isPartnerRegistered: boolean
+  piLinked: boolean
+  onToggleDriverMode: () => void
+  onOpenDriverSignup: () => void
+  onOpenPartnerSignup: () => void
 }) {
   if (tab === '전체보기') {
     return (
@@ -2810,38 +2660,22 @@ function TabContent({
     return <ActivityInbox tabRides={onReceipt} readNoticeIds={readNoticeIds} onOpenInbox={onOpenInbox} />
   }
   return (
-    <main className="flex-1 overflow-y-auto px-4 pb-28">
-      <h2 className="pt-3 text-2xl font-black">내 정보</h2>
-      <button onClick={onWallet} className="mt-4 w-full rounded-3xl bg-[#241b38] p-5 text-left text-white shadow-lg">
-        <div className="flex items-center gap-3">
-          <div className="rounded-full bg-white/15 p-3">
-            <CircleUserRound />
-          </div>
-          <div>
-            <p className="text-xs text-[#cfc5ec]">파이 모빌리티 회원</p>
-            <p className="font-black">안녕하세요, 승객님</p>
-          </div>
-        </div>
-        <div className="mt-5 flex items-center justify-between">
-          <span className="text-sm font-bold text-[#cfc5ec]">Pi 지갑 잔액 · 탭하여 관리</span>
-          <strong className="text-xl">{balance.toFixed(2)} Pi</strong>
-        </div>
-      </button>
-      <button type="button" onClick={onWallet} className="mt-3 w-full rounded-3xl border-2 border-[#CBD5E1] bg-white p-5 text-left shadow-[0_10px_24px_rgba(15,23,42,0.12)]">
-        <div className="flex items-center gap-3">
-          <WalletCards className="text-[#7046dc]" />
-          <p className="font-black">결제 설정</p>
-        </div>
-        <p className="mt-2 text-sm font-bold text-[#8b8495]">Pi 월렛 / 결제 관리 · 기본 결제수단</p>
-        <p className="mt-3 text-xs font-black text-[#4C1FB8]">탭하여 Pi 잔액 · 충전 · 결제 내역 보기 ›</p>
-      </button>
-      <section className="mt-3 rounded-3xl border-2 border-[#CBD5E1] bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.12)]">
-        <div className="flex items-center gap-3">
-          <ToggleRight className="text-[#7046dc]" />
-          <p className="font-black">기사/파트너 모드</p>
-        </div>
-      </section>
-    </main>
+    <div className="h-full min-h-0">
+    <MyPage
+      embedded
+      username={username}
+      balance={balance}
+      driverMode={driverMode}
+      isDriverRegistered={isDriverRegistered}
+      isPartnerRegistered={isPartnerRegistered}
+      piLinked={piLinked}
+      onOpenWallet={onWallet}
+      onToggleDriverMode={onToggleDriverMode}
+      onOpenDriverSignup={onOpenDriverSignup}
+      onOpenPartnerSignup={onOpenPartnerSignup}
+      onNotice={onNotice}
+    />
+    </div>
   )
 }
 
@@ -3221,7 +3055,7 @@ function HeaderModal({
   )
 }
 
-function PartnerSignupModal({ onClose, onDone, onRegistered }: { onClose: () => void; onDone: (message: string) => void; onRegistered: () => void }) {
+function PartnerSignupModal({ onClose, onDone, onRegistered }: { onClose: () => void; onDone: (message: string) => void; onRegistered: (role: '기사' | '파트너') => void }) {
   const [role, setRole] = useState<'기사' | '파트너'>('기사')
   const [serviceType, setServiceType] = useState<'택시' | '대리운전' | '택배'>('택시')
   const [facilityType, setFacilityType] = useState<'주차' | '자전거' | '킥보드' | 'EV 충전'>('주차')
@@ -3237,7 +3071,7 @@ function PartnerSignupModal({ onClose, onDone, onRegistered }: { onClose: () => 
   const submit = () => {
     if (!canSubmit) return
     setSubmitted(true)
-    onRegistered()
+    onRegistered(role)
     window.setTimeout(() => {
       onDone(`${role} 등록이 완료되었어요. 기사 모드로 전환합니다.`)
       onClose()
@@ -3787,6 +3621,7 @@ export default function HomeScreen() {
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
   const [driverGateOpen, setDriverGateOpen] = useState(false)
   const [isDriverRegistered, setIsDriverRegistered] = useState(false)
+  const [isPartnerRegistered, setIsPartnerRegistered] = useState(false)
   const [isPiLinked, setIsPiLinked] = useState(false)
   const [receiptRide, setReceiptRide] = useState<RideReceipt | null>(null)
   const [inboxItem, setInboxItem] = useState<Notice | null>(null)
@@ -3806,6 +3641,7 @@ export default function HomeScreen() {
     setTransactions(stored.transactions)
     setReadNoticeIds(loadReadNoticeIds())
     setIsDriverRegistered(loadIsDriverRegistered())
+    setIsPartnerRegistered(loadIsPartnerRegistered())
     setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
   }, [])
@@ -3894,16 +3730,24 @@ export default function HomeScreen() {
     }
     setDriverGateOpen(true)
   }
-  const completeDriverRegistration = () => {
-    setIsDriverRegistered(true)
-    saveIsDriverRegistered(true)
+  const completeDriverRegistration = (role: '기사' | '파트너' = '기사') => {
+    if (role === '파트너') {
+      setIsPartnerRegistered(true)
+      saveIsPartnerRegistered(true)
+    } else {
+      setIsDriverRegistered(true)
+      saveIsDriverRegistered(true)
+      setDriverMode(true)
+    }
     setDriverGateOpen(false)
-    setDriverMode(true)
-    setTab('홈')
+    setPartnerSignupOpen(false)
+    if (role !== '파트너') setTab('홈')
   }
   const withdrawDriverRegistration = () => {
     setIsDriverRegistered(false)
     saveIsDriverRegistered(false)
+    setIsPartnerRegistered(false)
+    saveIsPartnerRegistered(false)
     setDriverMode(false)
     setDriverOnline(false)
     setTab('홈')
@@ -3957,10 +3801,12 @@ export default function HomeScreen() {
           <Home destination={destination} onDestination={selectDestination} onService={openService} onReceipt={setReceiptRide} />
         )}
         {tab !== '홈' && (
-          <div className="fixed inset-0 z-30 flex items-end bg-[#241d35]/35" onClick={() => setTab('홈')}>
-            <div className="mx-auto max-h-[82vh] w-full max-w-md overflow-y-auto rounded-t-[30px] bg-[#f7f7fb] pt-3" onClick={(event) => event.stopPropagation()}>
-              <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-              <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} />
+          <div className="fixed inset-x-0 top-0 z-30 flex items-end bg-[#241d35]/35" style={{ bottom: '4.75rem' }} onClick={() => setTab('홈')}>
+            <div className="mx-auto flex h-[min(92dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[30px] bg-[#f7f7fb] pt-3" onClick={(event) => event.stopPropagation()}>
+              <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} />
+              </div>
             </div>
           </div>
         )}
@@ -4012,6 +3858,8 @@ export default function HomeScreen() {
               saveIsPiLinked(false)
               setIsDriverRegistered(false)
               saveIsDriverRegistered(false)
+              setIsPartnerRegistered(false)
+              saveIsPartnerRegistered(false)
               setDriverMode(false)
               setDriverOnline(false)
               setTab('홈')

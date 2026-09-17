@@ -1,0 +1,709 @@
+'use client'
+
+import { useEffect, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
+import { Car, MapPin, Minus, Plus, UserRound } from 'lucide-react'
+import {
+  applyMapBottomInset,
+  createDomMarker,
+  createHtmlOverlay,
+  hasNaverMapClientId,
+  loadNaverMaps,
+  refreshNaverMap,
+  trackMapPoint,
+  waitForMapSize,
+  type MapHtmlPin,
+  type NaverMapInstance,
+  type NaverMapsSdk,
+  type NaverMarker,
+  type NaverPolyline,
+} from '@/lib/naver-maps'
+
+export const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978, label: '서울시청' }
+
+const LIVE_BOUNDS = { north: 37.5728, south: 37.5602, west: 126.9682, east: 126.9878 }
+const TILE_SIZE = 256
+
+export type TaxiLivePhase = 'arriving' | 'boarding' | 'moving'
+export type TaxiMatchPhase = 'searching' | TaxiLivePhase
+
+export function toTaxiLivePhase(phase: TaxiMatchPhase): TaxiLivePhase {
+  if (phase === 'boarding' || phase === 'moving') return phase
+  return 'arriving'
+}
+
+function pctToLatLng(x: number, y: number) {
+  return {
+    lat: LIVE_BOUNDS.north - (y / 100) * (LIVE_BOUNDS.north - LIVE_BOUNDS.south),
+    lng: LIVE_BOUNDS.west + (x / 100) * (LIVE_BOUNDS.east - LIVE_BOUNDS.west),
+  }
+}
+
+function pointOnRoute(points: number[][], t: number) {
+  const progress = Math.min(1, Math.max(0, t))
+  const segments = points.length - 1
+  const scaled = progress * segments
+  const index = Math.min(segments - 1, Math.floor(scaled))
+  const local = scaled - index
+  const from = points[index]
+  const to = points[index + 1]
+  return {
+    x: from[0] + (to[0] - from[0]) * local,
+    y: from[1] + (to[1] - from[1]) * local,
+    angle: (Math.atan2(to[1] - from[1], to[0] - from[0]) * 180) / Math.PI,
+  }
+}
+
+const PICKUP_ROUTE = [
+  [12, 84],
+  [22, 76],
+  [32, 66],
+  [44, 56],
+  [56, 46],
+  [70, 34],
+  [84, 24],
+]
+const TRIP_ROUTE = [
+  [16, 80],
+  [28, 68],
+  [40, 56],
+  [52, 44],
+  [64, 34],
+  [76, 24],
+  [88, 16],
+]
+
+type MapViewProps = {
+  lat: number
+  lng: number
+  pinLat?: number
+  pinLng?: number
+  className?: string
+  interactive?: boolean
+  pulsePin?: boolean
+  hidePin?: boolean
+  showZoom?: boolean
+  bottomInset?: number
+  onPick?: (lat: number, lng: number) => void
+  onActivate?: () => void
+}
+
+function latLngToWorld(lat: number, lng: number, zoom: number) {
+  const n = 2 ** zoom
+  const x = ((lng + 180) / 360) * n * TILE_SIZE
+  const sin = Math.min(0.9999, Math.max(-0.9999, Math.sin((lat * Math.PI) / 180)))
+  const y = (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * n * TILE_SIZE
+  return { x, y }
+}
+
+function worldToLatLng(x: number, y: number, zoom: number) {
+  const n = 2 ** zoom * TILE_SIZE
+  const lng = (x / n) * 360 - 180
+  const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)))
+  return { lat: (latRad * 180) / Math.PI, lng }
+}
+
+function ZoomButtons({ onZoomIn, onZoomOut }: { onZoomIn: () => void; onZoomOut: () => void }) {
+  return (
+    <div className="absolute right-3 top-5 z-20 flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-md">
+      <button type="button" onClick={(event) => { event.stopPropagation(); onZoomIn() }} className="flex h-9 w-9 items-center justify-center text-[#4A82B8]" aria-label="지도 확대">
+        <Plus className="h-4 w-4" />
+      </button>
+      <button type="button" onClick={(event) => { event.stopPropagation(); onZoomOut() }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4A82B8]" aria-label="지도 축소">
+        <Minus className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
+function MapFrame({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <div className={`naver-map-shell relative w-full overflow-hidden bg-[#dbe7ee] ${className ?? 'h-[320px]'}`}>
+      {children}
+    </div>
+  )
+}
+
+function FallbackNotice({ message }: { message?: string }) {
+  if (!message) return null
+  return (
+    <p className="pointer-events-none absolute bottom-2 left-2 z-20 max-w-[78%] rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold leading-4 text-[#334155] shadow-sm">
+      {message}
+    </p>
+  )
+}
+
+function StartPulsePin() {
+  return (
+    <span className="tt-start-pin">
+      <span className="tt-start-halo" />
+      <span className="tt-start-dot" />
+      <span className="tt-start-balloon">출발</span>
+    </span>
+  )
+}
+
+function FixedMapPin({ pulse, x, y }: { pulse: boolean; x: number; y: number }) {
+  return (
+    <div
+      className="pointer-events-none absolute z-[6]"
+      style={{
+        left: x,
+        top: y,
+        transform: pulse ? 'translate(-50%, -50%)' : 'translate(-50%, -100%)',
+      }}
+    >
+      {pulse ? (
+        <StartPulsePin />
+      ) : (
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-md">
+          <MapPin className="h-5 w-5" />
+        </span>
+      )}
+    </div>
+  )
+}
+
+function markerHtml(walker: boolean) {
+  return walker
+    ? `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 1px 1px rgba(255,255,255,.95))"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>`
+    : `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 1px 1px rgba(255,255,255,.95))"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.5 2.8A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>`
+}
+
+function useNaverResize(mapsRef: MutableRefObject<NaverMapsSdk | null>, mapRef: MutableRefObject<NaverMapInstance | null>, hostRef: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const host = hostRef.current
+    const fire = () => refreshNaverMap(mapsRef.current, mapRef.current)
+    if (!host) return
+    const observer = new ResizeObserver(() => fire())
+    observer.observe(host)
+    window.addEventListener('orientationchange', fire)
+    window.visualViewport?.addEventListener('resize', fire)
+    const first = window.setTimeout(fire, 60)
+    const second = window.setTimeout(fire, 360)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('orientationchange', fire)
+      window.visualViewport?.removeEventListener('resize', fire)
+      window.clearTimeout(first)
+      window.clearTimeout(second)
+    }
+  }, [hostRef, mapRef, mapsRef])
+}
+
+function FallbackSlippyMap({
+  lat,
+  lng,
+  pinLat,
+  pinLng,
+  zoom,
+  hidePin,
+  pulsePin,
+  interactive,
+  showZoom,
+  bottomInset = 0,
+  onPick,
+  onActivate,
+  onZoomIn,
+  onZoomOut,
+  notice,
+  children,
+}: MapViewProps & { zoom: number; onZoomIn: () => void; onZoomOut: () => void; notice?: string; children?: ReactNode }) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    const node = wrapRef.current
+    if (!node) return
+    const measure = () => setSize({ width: node.clientWidth, height: node.clientHeight })
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  const center = latLngToWorld(lat, lng, zoom)
+  const pin = latLngToWorld(pinLat ?? lat, pinLng ?? lng, zoom)
+  const originX = center.x - size.width / 2
+  const originY = center.y - (size.height - bottomInset) / 2
+  const tiles: { key: string; src: string; left: number; top: number }[] = []
+  if (size.width > 0 && size.height > 0) {
+    const minTx = Math.floor(originX / TILE_SIZE)
+    const maxTx = Math.floor((originX + size.width) / TILE_SIZE)
+    const minTy = Math.floor(originY / TILE_SIZE)
+    const maxTy = Math.floor((originY + size.height) / TILE_SIZE)
+    const limit = 2 ** zoom
+    for (let ty = minTy; ty <= maxTy; ty += 1) {
+      for (let tx = minTx; tx <= maxTx; tx += 1) {
+        const wrappedX = ((tx % limit) + limit) % limit
+        if (ty < 0 || ty >= limit) continue
+        tiles.push({
+          key: `${zoom}-${wrappedX}-${ty}`,
+          src: `https://tile.openstreetmap.org/${zoom}/${wrappedX}/${ty}.png`,
+          left: tx * TILE_SIZE - originX,
+          top: ty * TILE_SIZE - originY,
+        })
+      }
+    }
+  }
+
+  const pickFromPoint = (clientX: number, clientY: number) => {
+    const box = wrapRef.current?.getBoundingClientRect()
+    if (!box || !onPick) return
+    const worldX = originX + (clientX - box.left)
+    const worldY = originY + (clientY - box.top)
+    const point = worldToLatLng(worldX, worldY, zoom)
+    onPick(point.lat, point.lng)
+  }
+
+  return (
+    <div
+      ref={wrapRef}
+      className="absolute inset-0 overflow-hidden"
+      onClick={(event) => {
+        if (!interactive) return
+        if (onActivate && !onPick) {
+          onActivate()
+          return
+        }
+        pickFromPoint(event.clientX, event.clientY)
+      }}
+    >
+      {tiles.map((tile) => (
+        <img
+          key={tile.key}
+          src={tile.src}
+          alt=""
+          draggable={false}
+          className="pointer-events-none absolute max-w-none"
+          style={{ left: tile.left, top: tile.top, width: TILE_SIZE, height: TILE_SIZE }}
+        />
+      ))}
+      {!hidePin ? (
+        <span
+          className="pointer-events-none absolute z-[5]"
+          style={{
+            left: pin.x - originX,
+            top: pin.y - originY,
+            transform: pulsePin ? 'translate(-50%, -50%)' : 'translate(-50%, -100%)',
+          }}
+        >
+          {pulsePin ? (
+            <StartPulsePin />
+          ) : (
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-md">
+              <MapPin className="h-5 w-5" />
+            </span>
+          )}
+        </span>
+      ) : null}
+      {children}
+      <FallbackNotice message={notice} />
+      {interactive || showZoom ? <ZoomButtons onZoomIn={onZoomIn} onZoomOut={onZoomOut} /> : null}
+    </div>
+  )
+}
+
+function NaverLocationMap(props: MapViewProps) {
+  const { lat, lng, pinLat, pinLng, className, interactive, pulsePin, hidePin, showZoom, bottomInset = 0, onPick, onActivate } = props
+  const hostRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<NaverMapInstance | null>(null)
+  const mapsRef = useRef<NaverMapsSdk | null>(null)
+  const pinRef = useRef<MapHtmlPin | null>(null)
+  const pickRef = useRef(onPick)
+  const activateRef = useRef(onActivate)
+  const insetRef = useRef(bottomInset)
+  const centerRef = useRef({ lat, lng, pinLat, pinLng })
+  const [mode, setMode] = useState<'loading' | 'naver' | 'fallback'>(hasNaverMapClientId() ? 'loading' : 'fallback')
+  const [zoom, setZoom] = useState(15)
+  const [pinScreen, setPinScreen] = useState<{ x: number; y: number } | null>(null)
+  const [loadNotice, setLoadNotice] = useState<string | undefined>()
+  pickRef.current = onPick
+  activateRef.current = onActivate
+  insetRef.current = bottomInset
+  centerRef.current = { lat, lng, pinLat, pinLng }
+  useNaverResize(mapsRef, mapRef, hostRef)
+
+  useEffect(() => {
+    if (!hasNaverMapClientId()) {
+      setMode('fallback')
+      return
+    }
+    const canvas = canvasRef.current
+    if (!canvas) return
+    let cancelled = false
+    let clickListener: unknown
+    let zoomListener: unknown
+    void (async () => {
+      await waitForMapSize(canvas)
+      const sdk = await loadNaverMaps()
+      if (cancelled || !canvasRef.current) return
+      if (!sdk?.Map) {
+        setLoadNotice('네이버 지도를 불러오지 못해 대체 지도를 표시합니다.')
+        setMode('fallback')
+        return
+      }
+      mapsRef.current = sdk
+      const center = centerRef.current
+      const map = new sdk.Map(canvasRef.current, {
+        center: new sdk.LatLng(center.lat, center.lng),
+        zoom: 15,
+        scaleControl: false,
+        mapDataControl: false,
+        zoomControl: false,
+        disableDoubleClickZoom: !interactive,
+        draggable: Boolean(interactive),
+        pinchZoom: Boolean(interactive || showZoom),
+        scrollWheel: Boolean(interactive || showZoom),
+        keyboardShortcuts: false,
+      })
+      mapRef.current = map
+      if (!hidePin) {
+        pinRef.current = trackMapPoint(sdk, map, center.pinLat ?? center.lat, center.pinLng ?? center.lng, (x, y) => {
+          if (!cancelled) setPinScreen({ x, y })
+        })
+      }
+      applyMapBottomInset(sdk, map, center.lat, center.lng, insetRef.current)
+      clickListener = interactive
+        ? sdk.Event.addListener(map, 'click', (event) => {
+            if (activateRef.current && !pickRef.current) {
+              activateRef.current()
+              return
+            }
+            pickRef.current?.(event.coord.lat(), event.coord.lng())
+          })
+        : undefined
+      zoomListener = sdk.Event.addListener(map, 'zoom_changed', () => pinRef.current?.draw?.())
+      refreshNaverMap(sdk, map)
+      window.setTimeout(() => refreshNaverMap(sdk, map), 80)
+      window.setTimeout(() => {
+        refreshNaverMap(sdk, map)
+        pinRef.current?.draw?.()
+      }, 400)
+      setMode('naver')
+    })()
+    return () => {
+      cancelled = true
+      if (clickListener && mapsRef.current) mapsRef.current.Event.removeListener(clickListener)
+      if (zoomListener && mapsRef.current) mapsRef.current.Event.removeListener(zoomListener)
+      pinRef.current?.setMap(null)
+      pinRef.current = null
+      mapRef.current?.destroy?.()
+      mapRef.current = null
+    }
+  }, [hidePin, interactive, pulsePin, showZoom])
+
+  useEffect(() => {
+    const map = mapRef.current
+    const sdk = mapsRef.current
+    if (!map || !sdk || mode !== 'naver') return
+    applyMapBottomInset(sdk, map, lat, lng, bottomInset)
+    refreshNaverMap(sdk, map)
+    pinRef.current?.draw?.()
+  }, [lat, lng, bottomInset, mode])
+
+  useEffect(() => {
+    pinRef.current?.setPosition(pinLat ?? lat, pinLng ?? lng)
+  }, [lat, lng, pinLat, pinLng])
+
+  const changeNaverZoom = (delta: number) => {
+    const map = mapRef.current
+    if (!map) return
+    map.setZoom(Math.min(19, Math.max(11, map.getZoom() + delta)))
+    refreshNaverMap(mapsRef.current, map)
+    pinRef.current?.draw?.()
+  }
+
+  return (
+    <MapFrame className={className}>
+      {mode !== 'fallback' ? (
+        <div ref={hostRef} className="naver-map-host absolute inset-0">
+          <div ref={canvasRef} className="naver-map-canvas h-full w-full" style={{ width: '100%', height: '100%' }} />
+          {!hidePin && pinScreen ? <FixedMapPin pulse={Boolean(pulsePin)} x={pinScreen.x} y={pinScreen.y} /> : null}
+        </div>
+      ) : (
+        <FallbackSlippyMap
+          {...props}
+          zoom={zoom}
+          onZoomIn={() => setZoom((value) => Math.min(18, value + 1))}
+          onZoomOut={() => setZoom((value) => Math.max(12, value - 1))}
+          notice={loadNotice}
+        />
+      )}
+      {mode === 'loading' ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#dbe7ee]/80">
+          <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">지도를 불러오는 중이에요</p>
+        </div>
+      ) : null}
+      {mode === 'naver' && (showZoom || interactive) ? <ZoomButtons onZoomIn={() => changeNaverZoom(1)} onZoomOut={() => changeNaverZoom(-1)} /> : null}
+    </MapFrame>
+  )
+}
+
+export function LocationTileMap(props: MapViewProps) {
+  return <NaverLocationMap {...props} />
+}
+
+function LiveFallbackOverlay({
+  phase,
+  kind,
+  taxi,
+  points,
+  lat,
+  lng,
+  zoom,
+  size,
+}: {
+  phase: TaxiLivePhase
+  kind: 'taxi' | 'daeri'
+  taxi: { x: number; y: number; angle: number }
+  points: number[][]
+  lat: number
+  lng: number
+  zoom: number
+  size: { width: number; height: number }
+}) {
+  const center = latLngToWorld(lat, lng, zoom)
+  const originX = center.x - size.width / 2
+  const originY = center.y - size.height / 2
+  const toPx = (x: number, y: number) => {
+    const geo = pctToLatLng(x, y)
+    const world = latLngToWorld(geo.lat, geo.lng, zoom)
+    return { left: world.x - originX, top: world.y - originY }
+  }
+  const path = points.map(([x, y]) => toPx(x, y))
+  const start = path[0]
+  const end = path[path.length - 1]
+  const mover = toPx(taxi.x, taxi.y)
+  const walker = kind === 'daeri' && phase !== 'moving'
+  const MarkerIcon = walker ? UserRound : Car
+  const d = path.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.left} ${point.top}`).join(' ')
+  if (size.width < 8) return null
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[6]">
+      <svg className="absolute inset-0 h-full w-full" aria-hidden>
+        <path d={d} fill="none" stroke="#BFDBFE" strokeWidth="8" strokeLinecap="round" />
+        <path d={d} fill="none" stroke="#4A82B8" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+      <span className="absolute rounded-full bg-[#0F172A] px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ left: start.left, top: start.top, transform: 'translate(-50%, -140%)' }}>
+        {phase === 'moving' ? '출발' : '기사'}
+      </span>
+      <span className="absolute rounded-full bg-[#1D4ED8] px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ left: end.left, top: end.top, transform: 'translate(-50%, -140%)' }}>
+        {phase === 'moving' ? '도착' : kind === 'daeri' ? '호출자' : '승객'}
+      </span>
+      <span className="absolute" style={{ left: mover.left, top: mover.top, transform: `translate(-50%, -50%) rotate(${walker ? 0 : taxi.angle}deg)` }}>
+        <MarkerIcon className="h-7 w-7 text-[#0F172A] drop-shadow-[0_1px_1px_rgba(255,255,255,0.95)]" strokeWidth={2.35} />
+      </span>
+    </div>
+  )
+}
+
+function NaverLiveRideMap({
+  phase,
+  kind,
+  taxi,
+  className,
+}: {
+  phase: TaxiLivePhase
+  kind: 'taxi' | 'daeri'
+  taxi: { x: number; y: number; angle: number }
+  className?: string
+}) {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<NaverMapInstance | null>(null)
+  const mapsRef = useRef<NaverMapsSdk | null>(null)
+  const moverRef = useRef<NaverMarker | null>(null)
+  const moverEl = useRef<HTMLDivElement | null>(null)
+  const lineRef = useRef<NaverPolyline | null>(null)
+  const walker = kind === 'daeri' && phase !== 'moving'
+  const points = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
+  const [mode, setMode] = useState<'loading' | 'naver' | 'fallback'>(hasNaverMapClientId() ? 'loading' : 'fallback')
+  const [zoom, setZoom] = useState(15)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  const [loadNotice, setLoadNotice] = useState<string | undefined>()
+  useNaverResize(mapsRef, mapRef, hostRef)
+
+  useEffect(() => {
+    const node = hostRef.current
+    if (!node) return
+    const measure = () => setSize({ width: node.clientWidth, height: node.clientHeight })
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [mode])
+
+  useEffect(() => {
+    if (!hasNaverMapClientId()) {
+      setMode('fallback')
+      return
+    }
+    const canvas = canvasRef.current
+    if (!canvas) return
+    let cancelled = false
+    void (async () => {
+      await waitForMapSize(canvas)
+      const sdk = await loadNaverMaps()
+      if (cancelled || !canvasRef.current) return
+      if (!sdk?.Map) {
+        setLoadNotice('네이버 지도를 불러오지 못해 대체 지도를 표시합니다.')
+        setMode('fallback')
+        return
+      }
+      mapsRef.current = sdk
+      const startPt = pctToLatLng(points[0][0], points[0][1])
+      const endPt = pctToLatLng(points[points.length - 1][0], points[points.length - 1][1])
+      const map = new sdk.Map(canvasRef.current, {
+        center: new sdk.LatLng((startPt.lat + endPt.lat) / 2, (startPt.lng + endPt.lng) / 2),
+        zoom: 15,
+        scaleControl: false,
+        mapDataControl: false,
+        zoomControl: false,
+        draggable: true,
+        pinchZoom: true,
+        scrollWheel: true,
+      })
+      mapRef.current = map
+      lineRef.current = new sdk.Polyline({
+        map,
+        path: points.map(([x, y]) => {
+          const point = pctToLatLng(x, y)
+          return new sdk.LatLng(point.lat, point.lng)
+        }),
+        strokeColor: '#4A82B8',
+        strokeWeight: 5,
+        strokeOpacity: 0.92,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+      })
+      const startLabel = document.createElement('div')
+      startLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#0F172A;color:#fff;padding:2px 6px;font-size:9px;font-weight:700'
+      startLabel.textContent = phase === 'moving' ? '출발' : '기사'
+      const endLabel = document.createElement('div')
+      endLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#1D4ED8;color:#fff;padding:2px 6px;font-size:9px;font-weight:700'
+      endLabel.textContent = phase === 'moving' ? '도착' : kind === 'daeri' ? '호출자' : '승객'
+      createHtmlOverlay(sdk, map, startLabel, startPt.lat, startPt.lng, 'translate(-50%, -120%)')
+      createHtmlOverlay(sdk, map, endLabel, endPt.lat, endPt.lng, 'translate(-50%, -120%)')
+      const mover = document.createElement('div')
+      mover.style.willChange = 'transform'
+      mover.innerHTML = markerHtml(walker)
+      moverEl.current = mover
+      moverRef.current = createDomMarker(sdk, map, mover, startPt.lat, startPt.lng, 14, 14)
+      refreshNaverMap(sdk, map)
+      window.setTimeout(() => refreshNaverMap(sdk, map), 80)
+      window.setTimeout(() => refreshNaverMap(sdk, map), 400)
+      setMode('naver')
+    })()
+    return () => {
+      cancelled = true
+      moverRef.current?.setMap(null)
+      moverRef.current = null
+      lineRef.current?.setMap(null)
+      lineRef.current = null
+      mapRef.current?.destroy?.()
+      mapRef.current = null
+    }
+  }, [kind, phase, walker, points])
+
+  useEffect(() => {
+    const marker = moverRef.current
+    const el = moverEl.current
+    const sdk = mapsRef.current
+    if (!marker || !sdk || mode !== 'naver') return
+    const geo = pctToLatLng(taxi.x, taxi.y)
+    if (el) el.style.transform = `rotate(${walker ? 0 : taxi.angle}deg)`
+    marker.setPosition(new sdk.LatLng(geo.lat, geo.lng))
+  }, [taxi, walker, mode])
+
+  return (
+    <MapFrame className={className}>
+      <div ref={hostRef} className="naver-map-host absolute inset-0">
+        {mode !== 'fallback' ? <div ref={canvasRef} className="naver-map-canvas h-full w-full" style={{ width: '100%', height: '100%' }} /> : null}
+        {mode === 'fallback' ? (
+          <FallbackSlippyMap
+            lat={SEOUL_CITY_HALL.lat}
+            lng={SEOUL_CITY_HALL.lng}
+            hidePin
+            zoom={zoom}
+            interactive
+            showZoom
+            onZoomIn={() => setZoom((value) => Math.min(18, value + 1))}
+            onZoomOut={() => setZoom((value) => Math.max(12, value - 1))}
+            notice={loadNotice}
+          >
+            <LiveFallbackOverlay phase={phase} kind={kind} taxi={taxi} points={points} lat={SEOUL_CITY_HALL.lat} lng={SEOUL_CITY_HALL.lng} zoom={zoom} size={size} />
+          </FallbackSlippyMap>
+        ) : null}
+      </div>
+      {mode === 'loading' ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#dbe7ee]/80">
+          <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">지도를 불러오는 중이에요</p>
+        </div>
+      ) : null}
+      {mode === 'naver' ? (
+        <ZoomButtons
+          onZoomIn={() => {
+            const map = mapRef.current
+            if (!map) return
+            map.setZoom(Math.min(19, Math.max(11, map.getZoom() + 1)))
+            refreshNaverMap(mapsRef.current, map)
+          }}
+          onZoomOut={() => {
+            const map = mapRef.current
+            if (!map) return
+            map.setZoom(Math.min(19, Math.max(11, map.getZoom() - 1)))
+            refreshNaverMap(mapsRef.current, map)
+          }}
+        />
+      ) : null}
+    </MapFrame>
+  )
+}
+
+export function TaxiLiveMap({
+  phase,
+  routeLabel,
+  statusLabel,
+  kind = 'taxi',
+}: {
+  phase: TaxiLivePhase
+  routeLabel: string
+  statusLabel: string
+  kind?: 'taxi' | 'daeri'
+}) {
+  const points = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
+  const [taxi, setTaxi] = useState(() => pointOnRoute(points, phase === 'boarding' ? 1 : 0))
+
+  useEffect(() => {
+    if (phase === 'boarding') {
+      setTaxi(pointOnRoute(PICKUP_ROUTE, 1))
+      return
+    }
+    const duration = phase === 'moving' ? 24000 : 16000
+    const route = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
+    let frame = 0
+    const started = performance.now()
+    const tick = (now: number) => {
+      const elapsed = (now - started) % duration
+      setTaxi(pointOnRoute(route, elapsed / duration))
+      frame = window.requestAnimationFrame(tick)
+    }
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
+  }, [phase])
+
+  return (
+    <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
+      <NaverLiveRideMap phase={phase} kind={kind} taxi={taxi} className="h-[248px]" />
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-[15] mr-14 flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
+        <p className="truncate pr-2 text-xs font-bold text-[#0F172A]">{routeLabel}</p>
+        <span className="shrink-0 rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">{statusLabel}</span>
+      </div>
+      <div className="absolute bottom-3 left-3 z-[15] flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold text-[#334155] shadow-sm">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-[#4A82B8]" />
+        {phase === 'arriving' ? (kind === 'daeri' ? '기사 → 호출자 이동 중' : '기사 → 승객 이동 중') : phase === 'boarding' ? (kind === 'daeri' ? '호출자 위치 도착' : '픽업 지점 도착') : '출발지 → 목적지 주행 중'}
+      </div>
+    </div>
+  )
+}
