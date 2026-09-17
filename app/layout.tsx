@@ -1,10 +1,14 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Geist_Mono, Noto_Sans_KR } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const notoSansKr = Noto_Sans_KR({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-noto-sans-kr',
+})
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
 export const metadata: Metadata = {
   title: '택시타고 TaxiTago',
@@ -35,8 +39,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="ko" className="bg-background">
-      <body className="font-sans antialiased">
+    <html lang="ko" className={`bg-background ${notoSansKr.variable} ${geistMono.variable}`}>
+      <body className={`${notoSansKr.className} font-medium text-[#0f172a] subpixel-antialiased`}>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
