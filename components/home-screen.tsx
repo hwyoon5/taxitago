@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { notices, type Notice } from '@/lib/notices'
 import MoreMenu from '@/components/more/more-menu'
+import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
+import { getPaymentPolicy } from '@/lib/payment-policy'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
 
@@ -394,6 +396,8 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
 
 const FAVORITES_KEY = 'taxitago-favorite-places'
 const WALLET_KEY = 'taxitago-pi-wallet'
+const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
+const PI_ACCOUNT_KEY = 'taxitago-pi-account-linked'
 const READ_NOTICES_KEY = 'taxitago-read-notices'
 const RECENT_DEST_KEY = 'taxitago-recent-destinations'
 
@@ -521,6 +525,38 @@ function writePiWallet(balance: number, transactions: PiTransaction[]) {
   window.localStorage.setItem(WALLET_KEY, JSON.stringify({ balance, transactions }))
 }
 
+function loadIsDriverRegistered() {
+  try {
+    return window.localStorage.getItem(DRIVER_REG_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveIsDriverRegistered(value: boolean) {
+  if (value) {
+    window.localStorage.setItem(DRIVER_REG_KEY, 'true')
+    return
+  }
+  window.localStorage.removeItem(DRIVER_REG_KEY)
+}
+
+function loadIsPiLinked() {
+  try {
+    return window.localStorage.getItem(PI_ACCOUNT_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveIsPiLinked(value: boolean) {
+  if (value) {
+    window.localStorage.setItem(PI_ACCOUNT_KEY, 'true')
+    return
+  }
+  window.localStorage.removeItem(PI_ACCOUNT_KEY)
+}
+
 function loadReadNoticeIds(): string[] {
   try {
     const raw = window.localStorage.getItem(READ_NOTICES_KEY)
@@ -572,7 +608,132 @@ const PLACE_CATALOG = [
   { name: '김포공항 국내선', address: '서울 강서구 하늘길 38', hint: '국내선' },
   { name: '성수역 카페거리', address: '서울 성동구 아차산로 100', hint: '성수동' },
   { name: '이태원역', address: '서울 용산구 이태원로 177', hint: '지하철 6호선' },
+  { name: '서면역 2번 출구', address: '부산 부산진구 중앙대로 672', hint: '부산 추천 · 1·2호선' },
+  { name: '부산역 KTX', address: '부산 동구 중앙대로 206', hint: '고속철도' },
+  { name: '해운대해수욕장', address: '부산 해운대구 해운대해변로 264', hint: '해운대' },
+  { name: '센텀시티역', address: '부산 해운대구 센텀동로 99', hint: '신세계 센텀' },
+  { name: '광안리해수욕장', address: '부산 수영구 광안해변로 219', hint: '광안대교' },
+  { name: '남포동 자갈치시장', address: '부산 중구 자갈치해안로 52', hint: '자갈치' },
+  { name: '사상역 서부터미널', address: '부산 사상구 사상로 201', hint: '서부시외버스터미널' },
+  { name: '주례역', address: '부산 사상구 백양대로 500', hint: '지하철 2호선' },
+  { name: '백양대로1050번길 26', address: '부산 사상구 백양대로1050번길 26', hint: '도로명 주소 · 사상구' },
+  { name: '백양대로1050번길 20', address: '부산 사상구 백양대로1050번길 20', hint: '인근 도로명' },
+  { name: '백양대로1050번길 32', address: '부산 사상구 백양대로1050번길 32', hint: '인근 도로명' },
+  { name: '백양대로 942', address: '부산 사상구 백양대로 942', hint: '주례동 일대' },
+  { name: '백양대로 1008', address: '부산 사상구 백양대로 1008', hint: '도로명 주소' },
+  { name: '주례동 주례사거리', address: '부산 사상구 주례동 3-15', hint: '지번 주소' },
+  { name: '주례동 119-8', address: '부산 사상구 주례동 119-8', hint: '지번 주소' },
+  { name: '사상구청', address: '부산 사상구 학감대로 242', hint: '행정복지센터' },
+  { name: '학장동 학장사거리', address: '부산 사상구 학장동 573-3', hint: '지번 주소' },
+  { name: '하단역', address: '부산 사하구 낙동대로 550', hint: '지하철 1호선' },
+  { name: '동래역', address: '부산 동래구 충렬대로 237', hint: '지하철 1·4호선' },
+  { name: '연산역', address: '부산 연제구 중앙대로 1001', hint: '시청 · 연산' },
+  { name: '김해국제공항', address: '부산 강서구 공항진입로 108', hint: '국내선' },
+] as const
+
+type PlaceItem = (typeof PLACE_CATALOG)[number] | { name: string; address: string; hint: string }
+
+const BUSAN_RECOMMENDED: PlaceItem[] = [
+  { name: '서면역 2번 출구', address: '부산 부산진구 중앙대로 672', hint: '부산 대표 장소' },
+  { name: '부산역 KTX', address: '부산 동구 중앙대로 206', hint: '부산 대표 장소' },
+  { name: '해운대해수욕장', address: '부산 해운대구 해운대해변로 264', hint: '부산 대표 장소' },
+  { name: '사상역 서부터미널', address: '부산 사상구 사상로 201', hint: '부산 대표 장소' },
+  { name: '주례역', address: '부산 사상구 백양대로 500', hint: '백양대로 인근' },
+  { name: '센텀시티역', address: '부산 해운대구 센텀동로 99', hint: '부산 대표 장소' },
 ]
+
+function compactAddress(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/서울특별시/g, '서울')
+    .replace(/부산광역시/g, '부산')
+    .replace(/인천광역시/g, '인천')
+    .replace(/\s+/g, '')
+    .replace(/번\s*길/g, '번길')
+    .replace(/[()[\].,·'"“”]/g, '')
+}
+
+function uniquePlaces(places: PlaceItem[]) {
+  const seen = new Set<string>()
+  return places.filter((place) => {
+    const key = compactAddress(`${place.name}|${place.address}`)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function queryTokens(raw: string) {
+  const spaced = raw
+    .replace(/([가-힣]+)(\d+)/g, '$1 $2')
+    .replace(/(\d+)([가-힣]+)/g, '$1 $2')
+    .trim()
+  const parts = spaced.split(/[\s,/]+/).filter(Boolean)
+  const compact = compactAddress(raw)
+  const extras = [
+    ...(compact.match(/[가-힣]+(?:대로|로|길)/g) ?? []),
+    ...(compact.match(/\d+번길\d*/g) ?? []),
+    ...(compact.match(/[가-힣]+동/g) ?? []),
+  ]
+  return [...new Set([compact, ...parts.map(compactAddress), ...extras].filter((token) => token.length >= 2))]
+}
+
+function scorePlace(place: PlaceItem, compact: string, tokens: string[]) {
+  const hay = compactAddress(`${place.name} ${place.address} ${place.hint}`)
+  let score = 0
+  if (hay.includes(compact)) score += compact.length >= 6 ? 140 : 90
+  if (compact.includes(hay) && hay.length >= 4) score += 40
+  for (const token of tokens) {
+    if (hay.includes(token)) score += token.length >= 4 ? 28 : 14
+  }
+  if (compact.length >= 3) {
+    let cursor = 0
+    for (const ch of hay) {
+      if (ch === compact[cursor]) cursor += 1
+      if (cursor === compact.length) {
+        score += 10
+        break
+      }
+    }
+  }
+  return score
+}
+
+function synthesizeFromQuery(raw: string): PlaceItem[] {
+  const cleaned = raw.replace(/\s+/g, ' ').trim()
+  const compact = compactAddress(cleaned)
+  if (compact.length < 2) return []
+  const road = compact.match(/[가-힣0-9]+(?:대로|로|길).*/)?.[0] ?? compact
+  const prettyRoad = cleaned
+  return [
+    { name: prettyRoad, address: `부산 사상구 ${road}`, hint: '입력한 도로명 주소' },
+    { name: `${prettyRoad} 인근`, address: `부산 사상구 ${road} 일대`, hint: '주변 지역' },
+    { name: '주례동 인근 지번', address: '부산 사상구 주례동 119-8', hint: '가까운 지번 주소' },
+    { name: '학장동 인근 지번', address: '부산 사상구 학장동 573-3', hint: '가까운 지번 주소' },
+  ]
+}
+
+function searchDestinationPlaces(raw: string) {
+  const keyword = raw.trim()
+  const compact = compactAddress(keyword)
+  if (!compact) return { items: [] as PlaceItem[], recommended: false }
+  const tokens = queryTokens(keyword)
+  const ranked = PLACE_CATALOG
+    .map((place) => ({ place, score: scorePlace(place, compact, tokens) }))
+    .filter((row) => row.score >= 14)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .map((row) => row.place)
+  const looksAddress = /대로|로|길|동|번지|번길|\d/.test(compact)
+  if (ranked.length > 0) {
+    const extras = looksAddress ? synthesizeFromQuery(keyword).slice(0, 2) : []
+    return { items: uniquePlaces([...ranked, ...extras]).slice(0, 12), recommended: false }
+  }
+  return {
+    items: uniquePlaces([...synthesizeFromQuery(keyword), ...BUSAN_RECOMMENDED]).slice(0, 10),
+    recommended: true,
+  }
+}
 
 function readRecentPlaces(): RecentPlace[] {
   try {
@@ -655,10 +816,8 @@ function DestinationSearchModal({
     const timer = window.setTimeout(() => inputRef.current?.focus(), 80)
     return () => window.clearTimeout(timer)
   }, [])
-  const keyword = query.trim().toLowerCase()
-  const results = keyword
-    ? PLACE_CATALOG.filter((place) => place.name.toLowerCase().includes(keyword) || place.address.toLowerCase().includes(keyword) || place.hint.toLowerCase().includes(keyword))
-    : []
+  const keyword = query.trim()
+  const { items: results, recommended } = keyword ? searchDestinationPlaces(keyword) : { items: [], recommended: false }
 
   const pick = (name: string, address?: string) => {
     onSelect(name, address)
@@ -694,28 +853,24 @@ function DestinationSearchModal({
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-8">
           {keyword ? (
             <div>
-              <p className="text-xs font-black text-[#4C1FB8]">검색 결과 {results.length}곳</p>
-              {results.length === 0 ? (
-                <div className="mt-4 rounded-[24px] border-2 border-dashed border-[#D8CCF5] bg-white p-6 text-center">
-                  <p className="font-black text-[#0F172A]">일치하는 장소가 없어요</p>
-                  <p className="mt-2 text-xs font-bold text-[#64748B]">다른 검색어를 입력하거나 즐겨찾기를 이용해 주세요.</p>
-                </div>
-              ) : (
-                <div className="mt-3 space-y-2">
-                  {results.map((place) => (
-                    <button key={`${place.name}-${place.address}`} type="button" onClick={() => pick(place.name, place.address)} className="flex w-full items-start gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.06)] active:scale-[0.99]">
-                      <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
-                        <MapPin className="h-5 w-5" />
-                      </span>
-                      <span className="min-w-0">
-                        <strong className="block text-sm font-black text-[#0F172A]">{place.name}</strong>
-                        <span className="mt-1 block text-xs font-bold text-[#64748B]">{place.address}</span>
-                        <span className="mt-1 block text-[11px] font-black text-[#4C1FB8]">{place.hint}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
+              <p className="text-xs font-black text-[#4C1FB8]">{recommended ? '가까운 추천 장소' : `검색 결과 ${results.length}곳`}</p>
+              {recommended ? (
+                <p className="mt-1 text-[11px] font-bold text-[#64748B]">입력하신 주소와 비슷한 도로명·지번·부산 대표 장소를 보여드려요.</p>
+              ) : null}
+              <div className="mt-3 space-y-2">
+                {results.map((place) => (
+                  <button key={`${place.name}-${place.address}`} type="button" onClick={() => pick(place.name, place.address)} className="flex w-full items-start gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.06)] active:scale-[0.99]">
+                    <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
+                      <MapPin className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0">
+                      <strong className="block text-sm font-black text-[#0F172A]">{place.name}</strong>
+                      <span className="mt-1 block text-xs font-bold text-[#64748B]">{place.address}</span>
+                      <span className="mt-1 block text-[11px] font-black text-[#4C1FB8]">{place.hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             <>
@@ -1530,10 +1685,26 @@ function TaxiMatchingSheet({
                   이동 시작
                 </button>
               )}
-              <button type="button" onClick={completeRide} className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
-                이용 완료
+              <PaymentHandler
+                service="택시"
+                amount={fare}
+                balance={balance}
+                place={route}
+                qrScanned={false}
+                parkingOption="postpaid"
+                prepaidSettled={false}
+                mode="notice"
+                onParkingOption={() => undefined}
+                onRequestQr={() => undefined}
+                onPay={onPay}
+                onNeedCharge={onNeedCharge}
+                onContinue={completeRide}
+                onPrepaidSettled={() => undefined}
+              />
+              <button type="button" onClick={completeRide} className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]">
+                이용 완료 · 후결제
               </button>
-              <p className="text-center text-[11px] font-bold text-[#8b8495]">목적지 도착 후 눌러 주세요 · 하차 완료</p>
+              <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 눌러 주세요 · 하차 완료</p>
               <button type="button" onClick={cancelRide} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
                 {phase === 'moving' ? '운행 취소' : '호출 취소'}
               </button>
@@ -1553,6 +1724,7 @@ function ServiceSheet({
   onNotice,
   balance,
   onPay,
+  onNeedCharge,
   onAskReview,
   initialPhase = 'idle',
   daeriTrip,
@@ -1571,7 +1743,12 @@ function ServiceSheet({
   const [deliveryVehicle, setDeliveryVehicle] = useState('오토바이')
   const [packageSize, setPackageSize] = useState('소형')
   const [selectedItem, setSelectedItem] = useState('')
+  const [qrOpen, setQrOpen] = useState(false)
+  const [qrScanned, setQrScanned] = useState(false)
+  const [parkingOption, setParkingOption] = useState<'prepaid' | 'postpaid'>('prepaid')
+  const [prepaidSettled, setPrepaidSettled] = useState(false)
   const finishedRef = useRef(false)
+  const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
   const vehicle = service === '자전거' || service === '킥보드'
   const more = service === '더보기'
@@ -1603,7 +1780,8 @@ function ServiceSheet({
   const catalog = service === '주차' ? parkingSpots : service === 'EV 충전' ? evStations : service === '자전거' ? bikes : scooters
   const selectedUsage = catalog.find((item) => item.name === selectedItem) ?? catalog[0]
   const deliveryFare = deliveryVehicle === '오토바이' ? (packageSize === '소형' ? 1.2 : 1.8) : deliveryVehicle === '다마스' ? 2.6 : 4.2
-  const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 0.4 : vehicle ? 0.3 : deliveryFare
+  const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 4 : vehicle ? 0.3 : deliveryFare
+  const settleTiming = service === '주차' ? parkingOption : paymentPolicy?.timing
   const place = ride && daeriTrip ? `${daeriTrip.pickup} → ${daeriTrip.dest}` : selectedItem || `서울시청 → ${service} 이용`
   const partner =
     ride
@@ -1616,15 +1794,23 @@ function ServiceSheet({
     onNotice(message)
     onClose()
   }
-  const startService = () => {
+  const startService = (scanned?: boolean) => {
+    const didScan = scanned ?? qrScanned
     if (!canStart) return
+    if (paymentPolicy?.requiresQr && !didScan) {
+      setQrOpen(true)
+      return
+    }
     setPhase('matching')
     onNotice(selfServe ? `${service} 이용을 시작했어요.` : `${service} 호출을 시작했어요.`)
   }
   const completeService = () => {
     if (finishedRef.current) return
     finishedRef.current = true
-    if (balance >= fare) onPay(fare, place, `${service} 이용`)
+    const skipCharge = settleTiming === 'prepaid' && prepaidSettled
+    if (!skipCharge && (settleTiming === 'postpaid' || settleTiming === 'qr_auto' || settleTiming === 'prepaid')) {
+      if (balance >= fare) onPay(fare, place, `${service} 이용`)
+    }
     onAskReview(partner)
     onClose()
   }
@@ -1699,10 +1885,26 @@ function ServiceSheet({
                 </div>
               </div>
             </div>
-            <button type="button" onClick={completeService} className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
-              이용 완료
+            <PaymentHandler
+              service={service}
+              amount={fare}
+              balance={balance}
+              place={place}
+              qrScanned={qrScanned}
+              parkingOption={parkingOption}
+              prepaidSettled={prepaidSettled}
+              mode="notice"
+              onParkingOption={setParkingOption}
+              onRequestQr={() => setQrOpen(true)}
+              onPay={onPay}
+              onNeedCharge={onNeedCharge}
+              onContinue={completeService}
+              onPrepaidSettled={() => setPrepaidSettled(true)}
+            />
+            <button type="button" onClick={completeService} className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]">
+              {settleTiming === 'qr_auto' ? '이용 완료 · 자동결제' : settleTiming === 'postpaid' ? '이용 완료 · 후결제' : '이용 완료'}
             </button>
-            <p className="text-center text-[11px] font-bold text-[#8b8495]">이용이 끝나면 눌러 주세요</p>
+            <p className="text-center text-[11px] font-bold text-[#64748B]">이용이 끝나면 눌러 주세요</p>
           </div>
         )}
         {!more && phase === 'assigned' && !selfServe && (
@@ -1754,7 +1956,7 @@ function ServiceSheet({
                 </div>
               </div>
             </div>
-            <button type="button" onClick={startService} className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
+            <button type="button" onClick={() => startService()} className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
               대리운전 호출하기
             </button>
             <p className="text-center text-[11px] font-bold text-[#8b8495]">호출 후 기사 배정이 시작됩니다.</p>
@@ -1784,9 +1986,32 @@ function ServiceSheet({
                 </button>
               ))}
             </div>
-            <button disabled={!selectedItem} type="button" onClick={startService} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
-              이용 시작
-            </button>
+            <PaymentHandler
+              service={service}
+              amount={fare}
+              balance={balance}
+              place={place}
+              qrScanned={qrScanned}
+              parkingOption={parkingOption}
+              prepaidSettled={prepaidSettled}
+              continueLabel={selectedItem ? '이용 시작' : '장소를 선택해 주세요'}
+              canProceed={Boolean(selectedItem)}
+              onParkingOption={setParkingOption}
+              onRequestQr={() => {
+                if (!selectedItem) {
+                  onNotice('먼저 장소를 선택해 주세요.')
+                  return
+                }
+                setQrOpen(true)
+              }}
+              onPay={onPay}
+              onNeedCharge={onNeedCharge}
+              onContinue={() => startService()}
+              onPrepaidSettled={() => {
+                setPrepaidSettled(true)
+                startService(true)
+              }}
+            />
           </div>
         )}
         {phase === 'idle' && vehicle && (
@@ -1817,9 +2042,32 @@ function ServiceSheet({
                 </button>
               ))}
             </div>
-            <button disabled={!selectedItem} type="button" onClick={startService} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
-              이용 시작
-            </button>
+            <PaymentHandler
+              service={service}
+              amount={fare}
+              balance={balance}
+              place={place}
+              qrScanned={qrScanned}
+              parkingOption={parkingOption}
+              prepaidSettled={prepaidSettled}
+              continueLabel={selectedItem ? '이용 시작' : '차량을 선택해 주세요'}
+              canProceed={Boolean(selectedItem)}
+              onParkingOption={setParkingOption}
+              onRequestQr={() => {
+                if (!selectedItem) {
+                  onNotice('먼저 차량을 선택해 주세요.')
+                  return
+                }
+                setQrOpen(true)
+              }}
+              onPay={onPay}
+              onNeedCharge={onNeedCharge}
+              onContinue={() => startService(true)}
+              onPrepaidSettled={() => {
+                setPrepaidSettled(true)
+                startService(true)
+              }}
+            />
           </div>
         )}
         {phase === 'idle' && service === '택배' && (
@@ -1853,7 +2101,7 @@ function ServiceSheet({
                 {deliveryVehicle} · {packageSize} · 30분 내 배차
               </p>
             </div>
-            <button type="button" onClick={startService} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white">
+            <button type="button" onClick={() => startService()} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white">
               배송 요청하기
             </button>
           </div>
@@ -1875,6 +2123,18 @@ function ServiceSheet({
           </div>
         )}
       </div>
+      {qrOpen ? (
+        <QrScanModal
+          service={service}
+          onClose={() => setQrOpen(false)}
+          onScanned={() => {
+            setQrScanned(true)
+            setQrOpen(false)
+            onNotice(`${service} QR 스캔이 완료되었어요.`)
+            if (paymentPolicy?.timing === 'qr_auto') startService(true)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -2094,7 +2354,7 @@ function Home({ destination, onDestination, onService, onReceipt }: { destinatio
       <button
         type="button"
         onClick={() => onService('택시')}
-        className="mt-5 flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#162033] py-4 text-[17px] font-bold tracking-tight text-[#F8FAFC] shadow-[0_10px_22px_rgba(15,23,42,0.22)] transition hover:bg-[#121A2A] active:scale-[0.99] active:bg-[#0F172A]"
+        className="mt-5 flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#4A82B8] py-4 text-[17px] font-bold tracking-tight text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] active:scale-[0.99] active:bg-[#386A9A]"
       >
         택시 호출하기
       </button>
@@ -2638,15 +2898,44 @@ function WalletModal({
   )
 }
 
-function HeaderModal({ kind, onClose }: { kind: 'activity' | 'account'; onClose: () => void }) {
+function HeaderModal({
+  kind,
+  username,
+  piLinked,
+  onClose,
+  onLinkPi,
+  onUnlinkPi,
+}: {
+  kind: 'activity' | 'account'
+  username: string
+  piLinked: boolean
+  onClose: () => void
+  onLinkPi: () => void
+  onUnlinkPi: () => void
+}) {
   const isActivity = kind === 'activity'
+  const [linking, setLinking] = useState(false)
+  const [unlinkConfirm, setUnlinkConfirm] = useState(false)
+  const showLinked = piLinked
+  const connect = () => {
+    if (linking || piLinked) return
+    setLinking(true)
+    window.setTimeout(() => {
+      onLinkPi()
+      setLinking(false)
+    }, 900)
+  }
+  const unlink = () => {
+    onUnlinkPi()
+    setUnlinkConfirm(false)
+  }
   return (
     <div className="fixed inset-0 z-[90] flex items-start justify-center bg-[#1e293b]/35 px-4 pt-24" onClick={onClose}>
-      <section className="w-full max-w-md rounded-[28px] border border-[#E2E8F0] bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <section className="w-full max-w-md rounded-[28px] border-2 border-[#CBD5E1] bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs font-black text-[#7046dc]">{isActivity ? 'ACTIVITY' : 'PI ACCOUNT'}</p>
-            <h2 className="mt-1 text-xl font-black text-[#1E293B]">{isActivity ? '시간별 활동 기록' : '파이 계정 연동'}</h2>
+            <p className="text-xs font-bold text-[#4A82B8]">{isActivity ? 'ACTIVITY' : 'PI ACCOUNT'}</p>
+            <h2 className="mt-1 text-xl font-bold text-[#0F172A]">{isActivity ? '시간별 활동 기록' : '파이 계정 연동'}</h2>
           </div>
           <button onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#64748B]" aria-label="닫기">
             <X className="h-5 w-5" />
@@ -2655,33 +2944,83 @@ function HeaderModal({ kind, onClose }: { kind: 'activity' | 'account'; onClose:
         {isActivity ? (
           <div className="mt-5 space-y-3">
             {[['14:00', '택시 결제 완료', '2.1 Pi'], ['12:00', 'Pi 충전 완료', '+10 Pi'], ['09:20', '기사님 호출 요청', '서울시청 → 강남역']].map(([time, label, detail]) => (
-              <div key={time} className="flex gap-3 rounded-2xl bg-[#F8FAFC] p-3">
-                <span className="font-mono text-xs font-black text-[#7046dc]">{time}</span>
+              <div key={time} className="flex gap-3 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+                <span className="font-mono text-xs font-bold text-[#4A82B8]">{time}</span>
                 <div>
-                  <p className="text-sm font-black text-[#1E293B]">{label}</p>
-                  <p className="mt-1 text-xs font-bold text-[#64748B]">{detail}</p>
+                  <p className="text-sm font-bold text-[#0F172A]">{label}</p>
+                  <p className="mt-1 text-xs font-medium text-[#64748B]">{detail}</p>
                 </div>
               </div>
             ))}
           </div>
-        ) : (
+        ) : showLinked ? (
           <div className="mt-5 space-y-4">
-            <div className="flex items-center gap-3 rounded-2xl bg-[#F8FAFC] p-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f0eaff] text-[#7046dc]">
+            <div className="flex items-center gap-3 rounded-2xl border-2 border-[#CBD5E1] bg-[#F8FAFC] p-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F1FA] text-[#4A82B8]">
                 <UserRound className="h-6 w-6" />
               </div>
               <div>
-                <p className="font-black text-[#1E293B]">택시타고 사용자</p>
-                <p className="text-xs font-bold text-[#64748B]">Pi Pioneer · 사용자</p>
+                <p className="font-bold text-[#0F172A]">{username}</p>
+                <p className="text-xs font-medium text-[#64748B]">Pi Pioneer · 회원가입 완료</p>
               </div>
             </div>
-            <div className="flex items-center justify-between rounded-2xl border border-[#bde8ce] bg-[#effbf3] p-4">
+            <div className="flex items-center justify-between rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] p-4">
               <div>
-                <p className="font-black text-[#1E293B]">Pi Network 계정 연동됨</p>
-                <p className="mt-1 text-xs font-bold text-[#398459]">안전하게 인증된 계정입니다.</p>
+                <p className="text-base font-bold text-[#0F172A]">Pi Network 계정 연동됨</p>
+                <p className="mt-1 text-xs font-medium text-[#047857]">안전하게 인증된 계정입니다.</p>
               </div>
-              <span className="h-3 w-3 rounded-full bg-[#36a76b]" />
+              <span className="h-3 w-3 rounded-full bg-[#10B981]" />
             </div>
+            <p className="px-1 text-sm font-semibold leading-6 text-[#B91C1C]">Pi 계정 연동을 해제하면 회원 탈퇴 처리됩니다.</p>
+            {unlinkConfirm ? (
+              <div className="rounded-2xl border-2 border-[#FECACA] bg-[#FEF2F2] p-4">
+                <p className="text-sm font-bold text-[#0F172A]">연동을 해제하고 탈퇴할까요?</p>
+                <p className="mt-1 text-xs font-medium leading-5 text-[#64748B]">비회원 상태로 돌아가며, 기사/파트너 권한도 함께 해제됩니다.</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setUnlinkConfirm(false)} className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-bold text-[#334155]">
+                    취소
+                  </button>
+                  <button type="button" onClick={unlink} className="rounded-2xl bg-[#B91C1C] py-3 text-sm font-bold text-white">
+                    탈퇴하기
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setUnlinkConfirm(true)}
+                className="flex min-h-12 w-full items-center justify-center rounded-2xl border-2 border-[#FECACA] bg-[#FEF2F2] px-3 py-3.5 text-sm font-bold text-[#B91C1C] transition hover:bg-[#FEE2E2] active:scale-[0.99]"
+              >
+                Pi 계정 연동 해제 (회원탈퇴)
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
+              <p className="text-lg font-bold leading-snug text-[#0F172A]">Pi 계정과 연동하시겠습니까?</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-[#334155]">연동을 시키면 바로 회원가입이 완료됩니다.</p>
+            </div>
+            <div className="flex items-center gap-3 rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F1FA] text-[#4A82B8]">
+                <UserRound className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="font-bold text-[#0F172A]">{username}</p>
+                <p className="text-xs font-medium text-[#64748B]">Pi Pioneer · 미연동</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={connect}
+              disabled={linking}
+              className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-[#4A82B8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] disabled:opacity-70"
+            >
+              {linking ? '연동 중…' : 'Pi 계정 연동하기'}
+            </button>
+            <button type="button" onClick={onClose} className="w-full py-2 text-sm font-bold text-[#64748B]">
+              나중에
+            </button>
           </div>
         )}
       </section>
@@ -2689,7 +3028,7 @@ function HeaderModal({ kind, onClose }: { kind: 'activity' | 'account'; onClose:
   )
 }
 
-function PartnerSignupModal({ onClose, onDone }: { onClose: () => void; onDone: (message: string) => void }) {
+function PartnerSignupModal({ onClose, onDone, onRegistered }: { onClose: () => void; onDone: (message: string) => void; onRegistered: () => void }) {
   const [role, setRole] = useState<'기사' | '파트너'>('기사')
   const [serviceType, setServiceType] = useState<'택시' | '대리운전' | '택배'>('택시')
   const [facilityType, setFacilityType] = useState<'주차' | '자전거' | '킥보드' | 'EV 충전'>('주차')
@@ -2705,8 +3044,9 @@ function PartnerSignupModal({ onClose, onDone }: { onClose: () => void; onDone: 
   const submit = () => {
     if (!canSubmit) return
     setSubmitted(true)
+    onRegistered()
     window.setTimeout(() => {
-      onDone(`${role} 회원가입 신청이 접수되었습니다.`)
+      onDone(`${role} 등록이 완료되었어요. 기사 모드로 전환합니다.`)
       onClose()
     }, 1400)
   }
@@ -2726,8 +3066,8 @@ function PartnerSignupModal({ onClose, onDone }: { onClose: () => void; onDone: 
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#4C1FB8] text-white">
               <Check className="h-8 w-8" strokeWidth={3} />
             </div>
-            <h2 className="mt-4 text-2xl font-black text-[#0F172A]">신청이 완료되었습니다</h2>
-            <p className="mt-2 text-sm font-bold text-[#475569]">심사 후 Pi 계정으로 안내를 보내 드릴게요.</p>
+            <h2 className="mt-4 text-2xl font-black text-[#0F172A]">등록이 완료되었습니다</h2>
+            <p className="mt-2 text-sm font-bold text-[#475569]">기사/파트너 권한이 활성화되었어요. 대시보드로 이동합니다.</p>
           </div>
         ) : (
           <>
@@ -2829,7 +3169,7 @@ function PartnerSignupModal({ onClose, onDone }: { onClose: () => void; onDone: 
               <input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="서울" className="mt-2 w-full rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]" />
             </label>
             <button type="button" onClick={submit} disabled={!canSubmit} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:cursor-not-allowed disabled:opacity-40">
-              회원가입 신청
+              회원가입 완료
             </button>
           </>
         )}
@@ -3089,24 +3429,50 @@ function PartnerStatSheet({ kind, onClose }: { kind: 'revenue' | 'trips'; onClos
   )
 }
 
-function DriverDashboard({ online, onToggleOnline, onPassengerMode, onNotice }: { online: boolean; onToggleOnline: () => void; onPassengerMode: () => void; onNotice: (message: string) => void }) {
+function DriverNeedSignupModal({ onClose, onSignup }: { onClose: () => void; onSignup: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[94] flex items-end bg-[#1e1033]/50 p-0 sm:items-center sm:p-4" onClick={onClose}>
+      <section className="mx-auto w-full max-w-md rounded-t-[32px] bg-white p-5 shadow-2xl sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+        <p className="text-xs font-bold text-[#4A82B8]">기사/파트너 모드</p>
+        <h2 className="mt-1 text-2xl font-bold text-[#0F172A]">먼저 회원가입이 필요해요</h2>
+        <p className="mt-2 text-sm font-medium leading-6 text-[#475569]">
+          등록을 마치면 콜 수락과 파트너 대시보드를 바로 이용할 수 있어요.
+        </p>
+        <button
+          type="button"
+          onClick={onSignup}
+          className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
+        >
+          회원가입 하러 가기
+        </button>
+        <button type="button" onClick={onClose} className="mt-2 w-full rounded-2xl py-3 text-sm font-bold text-[#64748B]">
+          나중에
+        </button>
+      </section>
+    </div>
+  )
+}
+
+function DriverDashboard({ online, onToggleOnline, onPassengerMode, onWithdraw, onNotice }: { online: boolean; onToggleOnline: () => void; onPassengerMode: () => void; onWithdraw: () => void; onNotice: (message: string) => void }) {
   const [requestVisible, setRequestVisible] = useState(true)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
+  const [withdrawOpen, setWithdrawOpen] = useState(false)
   return (
-    <main className="flex-1 overflow-y-auto px-4 pb-28">
-      <section className="rounded-[28px] bg-[#241b38] p-5 text-white shadow-[0_14px_32px_rgba(36,27,56,0.2)]">
+    <main className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
+      <section className="rounded-[28px] bg-[#243044] p-5 text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)]">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs font-bold text-[#cfc5ec]">기사/파트너 모드</p>
-            <h2 className="mt-1 text-2xl font-black">오늘도 안전 운행하세요</h2>
-            <p className="mt-2 text-xs font-bold text-[#d9f7e5]">근처 호출 요청을 실시간으로 확인하세요</p>
+            <p className="text-xs font-semibold text-[#93C5FD]">기사/파트너 모드</p>
+            <h2 className="mt-1 text-2xl font-bold tracking-tight">오늘도 안전 운행하세요</h2>
+            <p className="mt-2 text-xs font-medium text-[#CBD5E1]">근처 호출 요청을 실시간으로 확인하세요</p>
           </div>
-          <span className={`rounded-full px-3 py-1 text-[11px] font-black ${online ? 'bg-[#d9f7e5] text-[#23764a]' : 'bg-white/10 text-[#cfc5ec]'}`}>{online ? '영업 중' : '영업 종료'}</span>
+          <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${online ? 'bg-[#D1FAE5] text-[#047857]' : 'bg-white/10 text-[#CBD5E1]'}`}>{online ? '영업 중' : '영업 종료'}</span>
         </div>
-        <button onClick={onToggleOnline} className={`mt-5 flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-left ${online ? 'bg-[#7046dc]' : 'bg-white/10'}`}>
+        <button onClick={onToggleOnline} className={`mt-5 flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-left ${online ? 'bg-[#4A82B8]' : 'bg-white/10'}`}>
           <span>
-            <span className="block text-xs font-bold text-white/70">운행 상태</span>
-            <strong className="text-base">{online ? '영업 중 (Online)' : '영업 종료 (Offline)'}</strong>
+            <span className="block text-xs font-medium text-white/70">운행 상태</span>
+            <strong className="text-base font-bold">{online ? '영업 중 (Online)' : '영업 종료 (Offline)'}</strong>
           </span>
           <span className={`relative h-7 w-12 rounded-full p-1 transition ${online ? 'bg-white/25' : 'bg-black/20'}`}>
             <span className={`block h-5 w-5 rounded-full bg-white transition ${online ? 'translate-x-5' : ''}`} />
@@ -3114,31 +3480,31 @@ function DriverDashboard({ online, onToggleOnline, onPassengerMode, onNotice }: 
         </button>
       </section>
       <section className="mt-4 grid grid-cols-3 gap-2.5">
-        <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-2xl bg-white p-3 text-left shadow-[0_6px_18px_rgba(49,35,80,0.06)] transition active:scale-[0.98]">
-          <p className="text-[10px] font-bold text-[#8b8495]">오늘의 수익</p>
-          <p className="mt-2 text-lg font-black text-[#0F766E]">45.2 Pi</p>
-          <p className="mt-1 text-[10px] font-black text-[#0D9488]">상세 보기 ›</p>
+        <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 text-left shadow-[0_6px_18px_rgba(15,23,42,0.08)] transition active:scale-[0.98]">
+          <p className="text-[10px] font-semibold text-[#64748B]">오늘의 수익</p>
+          <p className="mt-2 text-lg font-bold text-[#0F766E]">45.2 Pi</p>
+          <p className="mt-1 text-[10px] font-bold text-[#0D9488]">상세 보기 ›</p>
         </button>
-        <button type="button" onClick={() => setStatSheet('trips')} className="rounded-2xl bg-white p-3 text-left shadow-[0_6px_18px_rgba(49,35,80,0.06)] transition active:scale-[0.98]">
-          <p className="text-[10px] font-bold text-[#8b8495]">8건 운행</p>
-          <p className="mt-2 text-lg font-black text-[#0F172A]">8건</p>
-          <p className="mt-1 text-[10px] font-black text-[#0369A1]">상세 보기 ›</p>
+        <button type="button" onClick={() => setStatSheet('trips')} className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 text-left shadow-[0_6px_18px_rgba(15,23,42,0.08)] transition active:scale-[0.98]">
+          <p className="text-[10px] font-semibold text-[#64748B]">8건 운행</p>
+          <p className="mt-2 text-lg font-bold text-[#0F172A]">8건</p>
+          <p className="mt-1 text-[10px] font-bold text-[#0369A1]">상세 보기 ›</p>
         </button>
-        <div className="rounded-2xl bg-white p-3 shadow-[0_6px_18px_rgba(49,35,80,0.06)]">
-          <p className="text-[10px] font-bold text-[#8b8495]">기사 평점</p>
-          <p className="mt-2 text-lg font-black">4.9</p>
+        <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 shadow-[0_6px_18px_rgba(15,23,42,0.08)]">
+          <p className="text-[10px] font-semibold text-[#64748B]">기사 평점</p>
+          <p className="mt-2 text-lg font-bold text-[#0F172A]">4.9</p>
         </div>
       </section>
       {online && requestVisible ? (
-        <section className="mt-4 rounded-[26px] border border-[#ddd2f7] bg-[#f7f3ff] p-5 shadow-[0_10px_24px_rgba(112,70,220,0.12)]">
+        <section className="mt-4 rounded-[26px] border-2 border-[#BFDBFE] bg-[#F8FAFC] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-black text-[#7046dc]">새로운 운행 요청</p>
-            <span className="animate-pulse rounded-full bg-[#7046dc] px-2 py-1 text-[10px] font-black text-white">방금 도착</span>
+            <p className="text-xs font-bold text-[#4A82B8]">새로운 운행 요청</p>
+            <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">방금 도착</span>
           </div>
-          <p className="mt-3 text-lg font-black">서울시청 → 강남역</p>
-          <div className="mt-2 flex justify-between text-sm font-bold text-[#77717f]">
+          <p className="mt-3 text-lg font-bold text-[#0F172A]">서울시청 → 강남역</p>
+          <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
             <span>승객까지 1.2 km</span>
-            <strong className="text-[#241d35]">3.4 Pi</strong>
+            <strong className="text-[#0F172A]">3.4 Pi</strong>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
@@ -3146,7 +3512,7 @@ function DriverDashboard({ online, onToggleOnline, onPassengerMode, onNotice }: 
                 setRequestVisible(false)
                 onNotice('운행 요청을 수락했어요.')
               }}
-              className="rounded-2xl bg-[#7046dc] py-3.5 font-black text-white"
+              className="rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white"
             >
               수락
             </button>
@@ -3155,21 +3521,56 @@ function DriverDashboard({ online, onToggleOnline, onPassengerMode, onNotice }: 
                 setRequestVisible(false)
                 onNotice('요청을 거절했어요.')
               }}
-              className="rounded-2xl bg-white py-3.5 font-black text-[#6d6479]"
+              className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-bold text-[#475569]"
             >
               거절
             </button>
           </div>
         </section>
       ) : (
-        <section className="mt-4 rounded-[26px] bg-white p-5 text-center shadow-[0_8px_22px_rgba(49,35,80,0.07)]">
-          <p className="font-black">{online ? '새로운 요청을 기다리는 중이에요' : '영업을 시작하면 요청을 받을 수 있어요'}</p>
-          <p className="mt-1 text-xs font-bold text-[#8b8495]">주변 승객의 호출이 이곳에 표시됩니다.</p>
+        <section className="mt-4 rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 text-center shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
+          <p className="font-bold text-[#0F172A]">{online ? '새로운 요청을 기다리는 중이에요' : '영업을 시작하면 요청을 받을 수 있어요'}</p>
+          <p className="mt-1 text-xs font-medium text-[#64748B]">주변 승객의 호출이 이곳에 표시됩니다.</p>
         </section>
       )}
-      <button onClick={onPassengerMode} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-[#ded6ed] bg-white py-3.5 font-black text-[#5f566d] shadow-sm">
+      <button onClick={onPassengerMode} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-bold text-[#334155] shadow-sm">
         승객 모드로 돌아가기
       </button>
+      <section className="mt-4 rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
+        <p className="text-xs font-bold text-[#4A82B8]">계정 설정</p>
+        <h3 className="mt-1 text-base font-bold text-[#0F172A]">기사/파트너 권한</h3>
+        <p className="mt-1.5 text-sm font-medium leading-6 text-[#64748B]">탈퇴하면 콜 수락과 파트너 대시보드를 이용할 수 없으며, 다시 이용하려면 회원가입이 필요해요.</p>
+        <button
+          type="button"
+          onClick={() => setWithdrawOpen(true)}
+          className="mt-4 w-full rounded-2xl border-2 border-[#FECACA] bg-[#FEF2F2] py-3.5 font-bold text-[#B91C1C] transition hover:bg-[#FEE2E2] active:scale-[0.99]"
+        >
+          회원탈퇴
+        </button>
+      </section>
+      {withdrawOpen ? (
+        <div className="fixed inset-0 z-[94] flex items-end bg-[#1e1033]/50 p-0 sm:items-center sm:p-4" onClick={() => setWithdrawOpen(false)}>
+          <section className="mx-auto w-full max-w-md rounded-t-[32px] bg-white p-5 shadow-2xl sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+            <p className="text-xs font-bold text-[#B91C1C]">기사 권한 해제</p>
+            <h2 className="mt-1 text-2xl font-bold text-[#0F172A]">기사/파트너를 탈퇴할까요?</h2>
+            <p className="mt-2 text-sm font-medium leading-6 text-[#475569]">권한이 해제되고 일반 승객 화면으로 돌아갑니다. 언제든 다시 가입할 수 있어요.</p>
+            <button
+              type="button"
+              onClick={() => {
+                setWithdrawOpen(false)
+                onWithdraw()
+              }}
+              className="mt-5 w-full rounded-2xl bg-[#B91C1C] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(185,28,28,0.22)]"
+            >
+              탈퇴하기
+            </button>
+            <button type="button" onClick={() => setWithdrawOpen(false)} className="mt-2 w-full rounded-2xl py-3 text-sm font-bold text-[#64748B]">
+              취소
+            </button>
+          </section>
+        </div>
+      ) : null}
       {statSheet ? <PartnerStatSheet kind={statSheet} onClose={() => setStatSheet(null)} /> : null}
     </main>
   )
@@ -3190,6 +3591,9 @@ export default function HomeScreen() {
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'activity' | 'account' | null>(null)
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
+  const [driverGateOpen, setDriverGateOpen] = useState(false)
+  const [isDriverRegistered, setIsDriverRegistered] = useState(false)
+  const [isPiLinked, setIsPiLinked] = useState(false)
   const [receiptRide, setReceiptRide] = useState<RideReceipt | null>(null)
   const [inboxItem, setInboxItem] = useState<Notice | null>(null)
   const [readNoticeIds, setReadNoticeIds] = useState<string[]>([])
@@ -3207,6 +3611,8 @@ export default function HomeScreen() {
     setWalletBalance(stored.balance)
     setTransactions(stored.transactions)
     setReadNoticeIds(loadReadNoticeIds())
+    setIsDriverRegistered(loadIsDriverRegistered())
+    setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
   }, [])
 
@@ -3268,6 +3674,42 @@ export default function HomeScreen() {
     setDestination(value)
     if (value) showNotice(`${value} 목적지를 선택했어요.`)
   }
+  const enterDriverMode = () => {
+    setDriverMode(true)
+    setTab('홈')
+    showNotice('기사 모드로 전환했어요.')
+  }
+  const leaveDriverMode = () => {
+    setDriverMode(false)
+    setTab('홈')
+    showNotice('승객 모드로 전환했어요.')
+  }
+  const toggleDriverMode = () => {
+    if (driverMode) {
+      leaveDriverMode()
+      return
+    }
+    if (isDriverRegistered) {
+      enterDriverMode()
+      return
+    }
+    setDriverGateOpen(true)
+  }
+  const completeDriverRegistration = () => {
+    setIsDriverRegistered(true)
+    saveIsDriverRegistered(true)
+    setDriverGateOpen(false)
+    setDriverMode(true)
+    setTab('홈')
+  }
+  const withdrawDriverRegistration = () => {
+    setIsDriverRegistered(false)
+    saveIsDriverRegistered(false)
+    setDriverMode(false)
+    setDriverOnline(false)
+    setTab('홈')
+    showNotice('기사/파트너 탈퇴가 완료되었습니다')
+  }
 
   return (
     <main className="min-h-screen bg-[#E2E8F0] text-[#0F172A]">
@@ -3291,18 +3733,14 @@ export default function HomeScreen() {
             </div>
             <div className="flex w-[108px] flex-col items-stretch gap-3">
             <button
-              onClick={() => {
-                const nextMode = !driverMode
-                setDriverMode(nextMode)
-                setTab('홈')
-                showNotice(nextMode ? 'Driver mode enabled' : '승객 모드로 전환했어요.')
-              }}
-              className={`box-border flex h-6 w-full items-center justify-center gap-1 rounded-full px-2 text-[10px] font-black leading-none ${driverMode ? 'bg-[#4C1FB8] text-white shadow-[0_6px_14px_rgba(76,31,184,0.35)]' : 'border border-[#94A3B8] bg-white text-[#0F172A]'}`}
+              type="button"
+              onClick={toggleDriverMode}
+              className={`box-border flex h-6 w-full items-center justify-center gap-1 rounded-full px-2 text-[10px] font-black leading-none ${driverMode ? 'bg-[#4A82B8] text-white shadow-[0_6px_14px_rgba(74,130,184,0.35)]' : 'border border-[#94A3B8] bg-white text-[#0F172A]'}`}
             >
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${driverMode ? 'bg-[#BBF7D0]' : 'bg-[#64748B]'}`} />
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${driverMode ? 'bg-[#BBF7D0]' : isDriverRegistered ? 'bg-[#4A82B8]' : 'bg-[#64748B]'}`} />
               {driverMode ? '승객 모드' : '기사/파트너'}
             </button>
-            {!driverMode ? (
+            {!driverMode && !isDriverRegistered ? (
               <button
                 type="button"
                 onClick={() => setPartnerSignupOpen(true)}
@@ -3315,7 +3753,7 @@ export default function HomeScreen() {
           </div>
         </header>
         {driverMode ? (
-          <DriverDashboard online={driverOnline} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={() => { setDriverMode(false); setTab('홈') }} onNotice={showNotice} />
+          <DriverDashboard online={driverOnline} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} />
         ) : (
           <Home destination={destination} onDestination={selectDestination} onService={openService} onReceipt={setReceiptRide} />
         )}
@@ -3359,8 +3797,45 @@ export default function HomeScreen() {
         </nav>
         {receiptRide && <ReceiptModal ride={receiptRide} onClose={() => setReceiptRide(null)} onNotice={showNotice} />}
         {inboxItem && <InboxDetailModal item={inboxItem} onClose={() => setInboxItem(null)} />}
-        {headerModal && <HeaderModal kind={headerModal} onClose={() => setHeaderModal(null)} />}
-        {partnerSignupOpen && <PartnerSignupModal onClose={() => setPartnerSignupOpen(false)} onDone={showNotice} />}
+        {headerModal && (
+          <HeaderModal
+            kind={headerModal}
+            username={user.username}
+            piLinked={isPiLinked}
+            onClose={() => setHeaderModal(null)}
+            onLinkPi={() => {
+              setIsPiLinked(true)
+              saveIsPiLinked(true)
+              showNotice('Pi 계정 연동이 완료되었습니다')
+            }}
+            onUnlinkPi={() => {
+              setIsPiLinked(false)
+              saveIsPiLinked(false)
+              setIsDriverRegistered(false)
+              saveIsDriverRegistered(false)
+              setDriverMode(false)
+              setDriverOnline(false)
+              setTab('홈')
+              showNotice('Pi 계정 연동이 해제되어 회원 탈퇴 처리되었습니다')
+            }}
+          />
+        )}
+        {partnerSignupOpen && (
+          <PartnerSignupModal
+            onClose={() => setPartnerSignupOpen(false)}
+            onRegistered={completeDriverRegistration}
+            onDone={showNotice}
+          />
+        )}
+        {driverGateOpen ? (
+          <DriverNeedSignupModal
+            onClose={() => setDriverGateOpen(false)}
+            onSignup={() => {
+              setDriverGateOpen(false)
+              setPartnerSignupOpen(true)
+            }}
+          />
+        ) : null}
         {walletOpen && <WalletModal balance={walletBalance} onClose={() => setWalletOpen(false)} onDeposit={depositWallet} onWithdraw={withdrawWallet} transactions={transactions} onNotice={showNotice} onReceipt={setReceiptRide} />}
         {destination && <DestinationSheet destination={destination} onClose={() => setDestination('')} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onNeedCharge={openWallet} onAskReview={setDriverReview} />}
         {daeriSetupOpen ? (
