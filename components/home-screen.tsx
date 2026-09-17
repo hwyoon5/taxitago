@@ -7,6 +7,7 @@ import MoreMenu from '@/components/more/more-menu'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { getPaymentPolicy } from '@/lib/payment-policy'
+import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
 
@@ -145,6 +146,8 @@ function LocationTileMap({
   className,
   interactive = false,
   pulsePin = false,
+  hidePin = false,
+  showZoom = false,
   onPick,
   onActivate,
 }: {
@@ -155,6 +158,8 @@ function LocationTileMap({
   className?: string
   interactive?: boolean
   pulsePin?: boolean
+  hidePin?: boolean
+  showZoom?: boolean
   onPick?: (lat: number, lng: number) => void
   onActivate?: () => void
 }) {
@@ -163,7 +168,8 @@ function LocationTileMap({
   const pinchGap = useRef<number | null>(null)
   const pinchZoom = useRef(15)
   const skipClick = useRef(false)
-  const activeZoom = interactive ? zoom : 15
+  const zoomable = interactive || showZoom
+  const activeZoom = zoomable ? zoom : 15
   const tile = latLngToTile(lat, lng, activeZoom)
   const pinTile = latLngToTile(pinLat ?? lat, pinLng ?? lng, activeZoom)
   const centerX = Math.floor(tile.x)
@@ -189,19 +195,19 @@ function LocationTileMap({
 
   useEffect(() => {
     const node = wrapRef.current
-    if (!interactive || !node) return
+    if (!zoomable || !node) return
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
       changeZoom(zoom + (event.deltaY < 0 ? 1 : -1))
     }
     node.addEventListener('wheel', onWheel, { passive: false })
     return () => node.removeEventListener('wheel', onWheel)
-  }, [interactive, zoom])
+  }, [zoomable, zoom])
 
   return (
     <div
       ref={wrapRef}
-      className={`relative overflow-hidden bg-[#d7e3ea] ${className ?? 'h-[320px]'} ${interactive ? 'touch-none' : ''}`}
+      className={`relative overflow-hidden bg-[#d7e3ea] ${className ?? 'h-[320px]'} ${zoomable ? 'touch-none' : ''}`}
       onClick={(event) => {
         if (!interactive || skipClick.current) {
           skipClick.current = false
@@ -214,13 +220,13 @@ function LocationTileMap({
         pickFromPoint(event.clientX, event.clientY)
       }}
       onTouchStart={(event) => {
-        if (!interactive || event.touches.length !== 2) return
+        if (!zoomable || event.touches.length !== 2) return
         const [first, second] = [event.touches[0], event.touches[1]]
         pinchGap.current = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY)
         pinchZoom.current = zoom
       }}
       onTouchMove={(event) => {
-        if (!interactive || event.touches.length !== 2 || pinchGap.current == null) return
+        if (!zoomable || event.touches.length !== 2 || pinchGap.current == null) return
         event.preventDefault()
         skipClick.current = true
         const [first, second] = [event.touches[0], event.touches[1]]
@@ -245,6 +251,7 @@ function LocationTileMap({
           <img key={cell.key} src={cell.src} alt="" className="h-full w-full object-cover" draggable={false} />
         ))}
       </div>
+      {!hidePin ? (
       <span
         className="pointer-events-none absolute -translate-x-1/2"
         style={{ left: `${pinLeft}%`, top: `${pinTop}%`, transform: pulsePin ? 'translate(-50%, -50%)' : undefined }}
@@ -267,12 +274,13 @@ function LocationTileMap({
           </span>
         )}
       </span>
-      {interactive ? (
-        <div className="absolute right-3 top-5 z-10 flex flex-col overflow-hidden rounded-2xl bg-white shadow-md">
-          <button type="button" onClick={(event) => { event.stopPropagation(); changeZoom(zoom + 1) }} className="flex h-9 w-9 items-center justify-center text-[#4C1FB8]" aria-label="지도 확대">
+      ) : null}
+      {showZoom || interactive ? (
+        <div className="absolute right-3 top-5 z-20 flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-md">
+          <button type="button" onClick={(event) => { event.stopPropagation(); changeZoom(zoom + 1) }} className="flex h-9 w-9 items-center justify-center text-[#4A82B8]" aria-label="지도 확대">
             <Plus className="h-4 w-4" />
           </button>
-          <button type="button" onClick={(event) => { event.stopPropagation(); changeZoom(zoom - 1) }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4C1FB8]" aria-label="지도 축소">
+          <button type="button" onClick={(event) => { event.stopPropagation(); changeZoom(zoom - 1) }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4A82B8]" aria-label="지도 축소">
             <Minus className="h-4 w-4" />
           </button>
         </div>
@@ -403,12 +411,13 @@ const RECENT_DEST_KEY = 'taxitago-recent-destinations'
 
 type FavoritePlace = { id: string; name: string; address: string }
 type RecentPlace = { id: string; name: string; address: string }
-type PiTransaction = { label: string; amount: number; detail: string; place: string; at: string }
+type PiTransaction = { label: string; amount: number; detail: string; place: string; at: string; estimated?: number }
 type RideReceipt = {
   route: string
   origin: string
   dest: string
   fare: string
+  estimatedFare?: string
   vehicle: string
   date: string
   distance: string
@@ -470,8 +479,9 @@ const SAMPLE_RIDES: RideReceipt[] = [
 
 function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
   const matched = SAMPLE_RIDES.find((ride) => ride.route === tx.place)
+  const estimatedFare = tx.estimated != null ? `${tx.estimated.toFixed(2)} Pi` : undefined
   if (matched) {
-    return { ...matched, fare: `${Math.abs(tx.amount).toFixed(1)} Pi`, date: tx.at, vehicle: tx.label }
+    return { ...matched, fare: `${Math.abs(tx.amount).toFixed(2)} Pi`, estimatedFare, date: tx.at, vehicle: tx.label }
   }
   const isRoute = tx.place.includes('→')
   const [origin, dest] = isRoute ? tx.place.split(' → ') : [tx.place, '']
@@ -481,6 +491,7 @@ function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
     origin: origin.trim() || tx.label,
     dest: (dest || (rideLike ? '목적지' : 'Pi 월렛')).trim(),
     fare: `${Math.abs(tx.amount).toFixed(2)} Pi`,
+    estimatedFare,
     vehicle: tx.label,
     date: tx.at,
     distance: rideLike ? '5.2 km' : '-',
@@ -1140,28 +1151,84 @@ function PiPayPanel({
   )
 }
 
+function InsufficientBalanceModal({ onConfirm }: { onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[96] flex items-end bg-[#1e293b]/50 sm:items-center sm:p-4">
+      <section className="mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#FEF2F2] text-[#BE123C]">
+          <WalletCards className="h-7 w-7" />
+        </div>
+        <h2 className="mt-4 text-2xl font-bold text-[#0F172A]">잔액 부족</h2>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">보유 잔액이 부족합니다. Pi 충전 후 다시 결제해 주세요.</p>
+        <button type="button" onClick={onConfirm} className="mt-6 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white">
+          확인
+        </button>
+      </section>
+    </div>
+  )
+}
+
 function PaymentDoneModal({
   amount,
   place,
   remaining,
+  estimated,
   onClose,
 }: {
   amount: number
   place: string
   remaining: number
+  estimated?: number
   onClose: () => void
 }) {
+  const adjusted = estimated != null && Math.round(estimated * 100) !== Math.round(amount * 100)
   return (
     <div className="fixed inset-0 z-[95] flex items-end bg-[#1e293b]/45 sm:items-center sm:p-4" onClick={onClose}>
       <section className="mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#4C1FB8] text-white">
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#4A82B8] text-white">
           <Check className="h-7 w-7" strokeWidth={3} />
         </div>
-        <h2 className="mt-4 text-2xl font-black text-[#0F172A]">Pi 결제 완료</h2>
-        <p className="mt-2 text-sm font-bold text-[#475569]">{place}</p>
-        <p className="mt-4 text-3xl font-black text-[#4C1FB8]">-{amount.toFixed(2)} Pi</p>
-        <p className="mt-2 text-sm font-black text-[#334155]">남은 잔액 {remaining.toFixed(2)} Pi</p>
-        <button type="button" onClick={onClose} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
+        <h2 className="mt-4 text-2xl font-bold text-[#0F172A]">Pi 결제 완료 및 영수증 확인</h2>
+        <p className="mt-2 text-sm font-semibold leading-6 text-[#334155]">정상적으로 후결제가 완료되었습니다</p>
+        <div className="mt-5 rounded-[22px] border-2 border-[#CBD5E1] bg-[#F8FAFC] p-4 text-left">
+          <p className="text-xs font-bold text-[#4A82B8]">영수증</p>
+          <p className="mt-2 text-sm font-semibold text-[#475569]">{place}</p>
+          {adjusted ? (
+            <>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-xs font-medium text-[#64748B]">호출 시 예상 요금</span>
+                <span className="text-sm font-semibold text-[#64748B] line-through">{estimated.toFixed(2)} Pi</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs font-bold text-[#0F172A]">실제 이용 요금</span>
+                <span className="text-xl font-bold text-[#0F172A]">{amount.toFixed(2)} Pi</span>
+              </div>
+              <div className="mt-3 rounded-2xl bg-white px-3 py-3">
+                <p className="text-[11px] font-semibold leading-5 text-[#334155]">실시간 주행 거리/시간에 따라 최종 요금이 산정되었습니다</p>
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#4A82B8]">최종 청구 금액</span>
+                  <span className="text-lg font-bold text-[#4A82B8]">{amount.toFixed(2)} Pi</span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="mt-3 flex items-center justify-between">
+              <span className="text-xs font-medium text-[#64748B]">결제 금액</span>
+              <span className="text-xl font-bold text-[#0F172A]">{amount.toFixed(2)} Pi</span>
+            </div>
+          )}
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs font-medium text-[#64748B]">결제 수단</span>
+            <span className="text-sm font-bold text-[#0F172A]">Pi Network</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs font-medium text-[#64748B]">남은 잔액</span>
+            <span className="text-sm font-bold text-[#334155]">{remaining.toFixed(2)} Pi</span>
+          </div>
+        </div>
+        <button type="button" onClick={onClose} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white">
           확인
         </button>
       </section>
@@ -1288,7 +1355,7 @@ function DestinationSheet({
   onClose: () => void
   onNotice: (message: string) => void
   balance: number
-  onPay: (amount: number, place: string, label: string) => boolean
+  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
@@ -1311,8 +1378,13 @@ function DestinationSheet({
   }
   const finishTrip = () => {
     if (finishedRef.current || matchState !== 'matched') return
+    const billed = isRidePayLabel(selectedService) ? settleRideFare(fare, `dest:${selectedService}:${place}`) : { estimate: fare, actual: fare }
+    if (isRidePayLabel(selectedService) && balance < billed.actual) {
+      onNeedCharge()
+      return
+    }
     finishedRef.current = true
-    if (balance >= fare) onPay(fare, place, selectedService)
+    if (balance >= billed.actual) onPay(billed.actual, place, selectedService, isRidePayLabel(selectedService) ? billed.estimate : undefined)
     onAskReview({
       name: '김파이',
       vehicle: selectedService === '프리미엄' ? '카카오 T 모범' : '카카오 T 일반',
@@ -1528,6 +1600,120 @@ function DriverChatModal({ driverName, onClose }: { driverName: string; onClose:
   )
 }
 
+type TaxiLivePhase = 'arriving' | 'boarding' | 'moving'
+type TaxiMatchPhase = 'searching' | TaxiLivePhase
+
+function toTaxiLivePhase(phase: TaxiMatchPhase): TaxiLivePhase {
+  if (phase === 'boarding' || phase === 'moving') return phase
+  return 'arriving'
+}
+
+function pointOnRoute(points: number[][], t: number) {
+  const progress = Math.min(1, Math.max(0, t))
+  const segments = points.length - 1
+  const scaled = progress * segments
+  const index = Math.min(segments - 1, Math.floor(scaled))
+  const local = scaled - index
+  const from = points[index]
+  const to = points[index + 1]
+  return {
+    x: from[0] + (to[0] - from[0]) * local,
+    y: from[1] + (to[1] - from[1]) * local,
+    angle: (Math.atan2(to[1] - from[1], to[0] - from[0]) * 180) / Math.PI,
+  }
+}
+
+function TaxiLiveMap({
+  phase,
+  routeLabel,
+  statusLabel,
+  kind = 'taxi',
+}: {
+  phase: TaxiLivePhase
+  routeLabel: string
+  statusLabel: string
+  kind?: 'taxi' | 'daeri'
+}) {
+  const pickupRoute = [
+    [12, 84],
+    [22, 76],
+    [32, 66],
+    [44, 56],
+    [56, 46],
+    [70, 34],
+    [84, 24],
+  ]
+  const tripRoute = [
+    [16, 80],
+    [28, 68],
+    [40, 56],
+    [52, 44],
+    [64, 34],
+    [76, 24],
+    [88, 16],
+  ]
+  const points = phase === 'moving' ? tripRoute : pickupRoute
+  const [taxi, setTaxi] = useState(() => pointOnRoute(points, phase === 'boarding' ? 1 : 0))
+  const pathD = `M ${points.map((point) => point.join(' ')).join(' L ')}`
+  const start = points[0]
+  const end = points[points.length - 1]
+  const startLabel = phase === 'moving' ? '출발' : kind === 'daeri' ? '기사' : '기사'
+  const endLabel = phase === 'moving' ? '도착' : kind === 'daeri' ? '호출자' : '승객'
+  const walker = kind === 'daeri' && phase !== 'moving'
+  const MarkerIcon = walker ? UserRound : Car
+
+  useEffect(() => {
+    if (phase === 'boarding') {
+      setTaxi(pointOnRoute(pickupRoute, 1))
+      return
+    }
+    const duration = phase === 'moving' ? 24000 : 16000
+    const route = phase === 'moving' ? tripRoute : pickupRoute
+    let frame = 0
+    const started = performance.now()
+    const tick = (now: number) => {
+      const elapsed = (now - started) % duration
+      const t = elapsed / duration
+      setTaxi(pointOnRoute(route, t))
+      frame = window.requestAnimationFrame(tick)
+    }
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
+  }, [phase])
+
+  return (
+    <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
+      <LocationTileMap lat={SEOUL_CITY_HALL.lat} lng={SEOUL_CITY_HALL.lng} hidePin showZoom className="h-[248px]" />
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+        <path d={pathD} fill="none" stroke="#BFDBFE" strokeWidth="5.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" vectorEffect="non-scaling-stroke" />
+        <path className="taxi-live-dash" d={pathD} fill="none" stroke="#4A82B8" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        <circle cx={end[0]} cy={end[1]} r="2.4" fill="#1D4ED8" stroke="white" strokeWidth="0.9" />
+        <circle cx={start[0]} cy={start[1]} r="2.2" fill="#0F172A" stroke="white" strokeWidth="0.8" />
+      </svg>
+      <span className="pointer-events-none absolute rounded-full bg-[#0F172A] px-1.5 py-0.5 text-[9px] font-bold text-white shadow" style={{ left: `${start[0]}%`, top: `${start[1]}%`, transform: 'translate(-50%, -140%)' }}>
+        {startLabel}
+      </span>
+      <span className="pointer-events-none absolute rounded-full bg-[#1D4ED8] px-1.5 py-0.5 text-[9px] font-bold text-white shadow" style={{ left: `${end[0]}%`, top: `${end[1]}%`, transform: 'translate(-50%, -140%)' }}>
+        {endLabel}
+      </span>
+      <span
+        className="pointer-events-none absolute z-[5]"
+        style={{ left: `${taxi.x}%`, top: `${taxi.y}%`, transform: `translate(-50%, -50%) rotate(${walker ? 0 : taxi.angle}deg)` }}
+      >
+        <MarkerIcon className="h-7 w-7 text-[#0F172A] drop-shadow-[0_1px_1px_rgba(255,255,255,0.95)]" strokeWidth={2.35} />
+      </span>
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-[15] mr-14 flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
+        <p className="truncate pr-2 text-xs font-bold text-[#0F172A]">{routeLabel}</p>
+        <span className="shrink-0 rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">{statusLabel}</span>
+      </div>
+      <div className="absolute bottom-3 left-3 z-[15] flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold text-[#334155] shadow-sm">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-[#4A82B8]" />
+        {phase === 'arriving' ? (kind === 'daeri' ? '기사 → 호출자 이동 중' : '기사 → 승객 이동 중') : phase === 'boarding' ? (kind === 'daeri' ? '호출자 위치 도착' : '픽업 지점 도착') : '출발지 → 목적지 주행 중'}
+      </div>
+    </div>
+  )
+}
+
 function TaxiMatchingSheet({
   destination,
   onClose,
@@ -1541,17 +1727,18 @@ function TaxiMatchingSheet({
   onClose: () => void
   onNotice: (message: string) => void
   balance: number
-  onPay: (amount: number, place: string, label: string) => boolean
+  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
-  const [phase, setPhase] = useState<'searching' | 'arriving' | 'boarding' | 'moving'>('searching')
+  const [phase, setPhase] = useState<TaxiMatchPhase>('searching')
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const finishedRef = useRef(false)
   const dest = destination.trim() || '강남역'
   const route = `서울시청 → ${dest}`
   const fare = 2.1
+  const billed = settleRideFare(fare, `taxi:${route}`)
   const driver = {
     name: '김민수',
     vehicle: dest === '회사' ? '현대 소나타' : '현대 아슬란',
@@ -1559,7 +1746,6 @@ function TaxiMatchingSheet({
     rating: '4.97',
     eta: '3분',
   }
-  const progress = phase === 'arriving' ? 28 : phase === 'boarding' ? 52 : 82
   const statusLabel = phase === 'arriving' ? '기사 이동 중' : phase === 'boarding' ? '탑승 중' : '이동 중'
   const statusCaption =
     phase === 'arriving'
@@ -1573,12 +1759,6 @@ function TaxiMatchingSheet({
     return () => window.clearTimeout(timer)
   }, [])
 
-  useEffect(() => {
-    if (phase !== 'moving') return
-    const timer = window.setTimeout(() => completeRide(), 4000)
-    return () => window.clearTimeout(timer)
-  }, [phase])
-
   const cancelRide = () => {
     onNotice(phase === 'searching' ? '택시 호출을 취소했어요.' : '배차를 취소했어요.')
     onClose()
@@ -1586,8 +1766,12 @@ function TaxiMatchingSheet({
 
   const completeRide = () => {
     if (finishedRef.current) return
+    if (balance < billed.actual) {
+      onNeedCharge()
+      return
+    }
     finishedRef.current = true
-    if (balance >= fare) onPay(fare, route, '택시 호출')
+    onPay(billed.actual, route, '택시 호출', billed.estimate)
     onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
     onClose()
   }
@@ -1625,22 +1809,7 @@ function TaxiMatchingSheet({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#E0D4FF] bg-[#E2E8F0]">
-              <LocationTileMap lat={SEOUL_CITY_HALL.lat} lng={SEOUL_CITY_HALL.lng} />
-              <div className="pointer-events-none absolute inset-x-3 top-3 flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
-                <p className="text-xs font-black text-[#0F172A]">{route}</p>
-                <span className="rounded-full bg-[#4C1FB8] px-2 py-1 text-[10px] font-black text-white">{statusLabel}</span>
-              </div>
-              <div className="absolute bottom-3 left-3 right-3 rounded-2xl bg-white/95 p-3 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
-                <div className="flex items-center justify-between text-[10px] font-black text-[#64748B]">
-                  <span>출발</span>
-                  <span>목적지</span>
-                </div>
-                <div className="mt-1 h-2 overflow-hidden rounded-full bg-[#EDE5FF]">
-                  <div className="h-full rounded-full bg-[#4C1FB8] transition-all duration-700" style={{ width: `${progress}%` }} />
-                </div>
-              </div>
-            </div>
+            <TaxiLiveMap kind="taxi" phase={toTaxiLivePhase(phase)} routeLabel={route} statusLabel={statusLabel} />
             <div className="mt-4 rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] font-black text-white">{driver.name.slice(0, 1)}</div>
@@ -1659,8 +1828,8 @@ function TaxiMatchingSheet({
                   <p className="mt-1 text-sm font-black text-[#4C1FB8]">{phase === 'arriving' ? `${driver.eta} 후` : phase === 'boarding' ? '탑승 확인' : '이동 중'}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">예상 요금</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{fare.toFixed(1)} Pi</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{phase === 'moving' ? '실제 이용 요금' : '예상 요금'}</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{(phase === 'moving' ? billed.actual : fare).toFixed(2)} Pi</p>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1687,7 +1856,7 @@ function TaxiMatchingSheet({
               )}
               <PaymentHandler
                 service="택시"
-                amount={fare}
+                amount={phase === 'moving' ? billed.actual : fare}
                 balance={balance}
                 place={route}
                 qrScanned={false}
@@ -1733,7 +1902,7 @@ function ServiceSheet({
   onClose: () => void
   onNotice: (message: string) => void
   balance: number
-  onPay: (amount: number, place: string, label: string) => boolean
+  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
@@ -1747,6 +1916,7 @@ function ServiceSheet({
   const [qrScanned, setQrScanned] = useState(false)
   const [parkingOption, setParkingOption] = useState<'prepaid' | 'postpaid'>('prepaid')
   const [prepaidSettled, setPrepaidSettled] = useState(false)
+  const [rideStage, setRideStage] = useState<'arriving' | 'moving'>('arriving')
   const finishedRef = useRef(false)
   const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
@@ -1783,6 +1953,8 @@ function ServiceSheet({
   const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 4 : vehicle ? 0.3 : deliveryFare
   const settleTiming = service === '주차' ? parkingOption : paymentPolicy?.timing
   const place = ride && daeriTrip ? `${daeriTrip.pickup} → ${daeriTrip.dest}` : selectedItem || `서울시청 → ${service} 이용`
+  const billed = ride ? settleRideFare(fare, `daeri:${place}`) : { estimate: fare, actual: fare, adjusted: false }
+  const chargeAmount = ride ? billed.actual : fare
   const partner =
     ride
       ? { name: '김민수', vehicle: '대리운전', plate: '파이 모빌리티' as string, kind: 'driver' as const }
@@ -1806,10 +1978,14 @@ function ServiceSheet({
   }
   const completeService = () => {
     if (finishedRef.current) return
+    if (ride && balance < chargeAmount) {
+      onNeedCharge()
+      return
+    }
     finishedRef.current = true
     const skipCharge = settleTiming === 'prepaid' && prepaidSettled
     if (!skipCharge && (settleTiming === 'postpaid' || settleTiming === 'qr_auto' || settleTiming === 'prepaid')) {
-      if (balance >= fare) onPay(fare, place, `${service} 이용`)
+      if (balance >= chargeAmount) onPay(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined)
     }
     onAskReview(partner)
     onClose()
@@ -1818,12 +1994,13 @@ function ServiceSheet({
     if (phase !== 'matching') return
     const timer = window.setTimeout(() => {
       setPhase('assigned')
+      if (ride) setRideStage('arriving')
       onNotice(selfServe ? `${service} 이용이 시작되었습니다.` : `${service} 배정이 완료되었습니다.`)
     }, 2200)
     return () => window.clearTimeout(timer)
   }, [phase, service, onNotice])
   useEffect(() => {
-    if (phase !== 'assigned') return
+    if (phase !== 'assigned' || ride) return
     const timer = window.setTimeout(() => completeService(), 8000)
     return () => window.clearTimeout(timer)
   }, [phase])
@@ -1834,10 +2011,10 @@ function ServiceSheet({
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-black text-[#4C1FB8]">
-              {phase === 'matching' ? (selfServe ? 'READY' : 'CALLING') : phase === 'assigned' ? (selfServe ? '이용 중' : '배정 완료') : 'TAXITAGO SERVICE'}
+              {phase === 'matching' ? (selfServe ? 'READY' : 'CALLING') : phase === 'assigned' ? (ride ? (rideStage === 'moving' ? '운행 중' : '배차 완료') : selfServe ? '이용 중' : '배정 완료') : 'TAXITAGO SERVICE'}
             </p>
             <h2 className="mt-1 text-2xl font-black">
-              {service} {phase === 'matching' ? (selfServe ? '준비 중' : '호출 중') : phase === 'assigned' ? '이용 중' : '이용하기'}
+              {ride && phase === 'assigned' ? (rideStage === 'moving' ? '목적지 이동 중' : '기사 이동 중') : `${service} ${phase === 'matching' ? (selfServe ? '준비 중' : '호출 중') : phase === 'assigned' ? '이용 중' : '이용하기'}`}
             </h2>
           </div>
           <button onClick={onClose} className="rounded-full bg-[#f4f1f8] p-2 text-[#5f566d]" aria-label="닫기">
@@ -1909,8 +2086,16 @@ function ServiceSheet({
         )}
         {!more && phase === 'assigned' && !selfServe && (
           <div className="mt-5 space-y-3">
+            {ride ? (
+              <TaxiLiveMap
+                kind="daeri"
+                phase={rideStage === 'moving' ? 'moving' : 'arriving'}
+                routeLabel={place}
+                statusLabel={rideStage === 'moving' ? '목적지 이동 중' : '기사 이동 중'}
+              />
+            ) : null}
             <div className="rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
-              <p className="text-xs font-black text-[#2d9a5e]">배정 완료</p>
+              <p className="text-xs font-black text-[#2d9a5e]">{ride ? (rideStage === 'moving' ? '운행 시작' : '배정 완료') : '배정 완료'}</p>
               <div className="mt-3 flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] font-black text-white">{partner.name.slice(0, 1)}</div>
                 <div>
@@ -1920,19 +2105,24 @@ function ServiceSheet({
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">예상 요금</p>
-                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{fare.toFixed(1)} Pi</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{ride && rideStage === 'moving' ? '실제 이용 요금' : '예상 요금'}</p>
+                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{(ride && rideStage === 'moving' ? billed.actual : fare).toFixed(2)} Pi</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">이용 상태</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">이동/이용 중</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{ride ? (rideStage === 'moving' ? '목적지 이동 중' : '호출자에게 이동 중') : '이동/이용 중'}</p>
                 </div>
               </div>
             </div>
+            {ride && rideStage === 'arriving' ? (
+              <button type="button" onClick={() => setRideStage('moving')} className="w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-base font-bold text-[#4A82B8]">
+                운행 시작
+              </button>
+            ) : null}
             <button type="button" onClick={completeService} className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
               이용 완료
             </button>
-            <p className="text-center text-[11px] font-bold text-[#8b8495]">도착 후 눌러 주세요 · 하차 완료</p>
+            <p className="text-center text-[11px] font-bold text-[#8b8495]">{ride && rideStage === 'arriving' ? '기사님이 도착하면 운행을 시작해 주세요' : '도착 후 눌러 주세요 · 하차 완료'}</p>
           </div>
         )}
         {phase === 'idle' && ride && (
@@ -1952,7 +2142,7 @@ function ServiceSheet({
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-bold text-[#8b8495]">예상 요금</p>
-                  <p className="text-lg font-black">2.1 Pi</p>
+                  <p className="text-lg font-black">{fare.toFixed(2)} Pi</p>
                 </div>
               </div>
             </div>
@@ -2401,8 +2591,11 @@ function ReceiptModal({ ride, onClose, onNotice }: { ride: RideReceipt; onClose:
           </button>
         </div>
         <div className="mt-4 rounded-[26px] bg-[#4C1FB8] p-5 text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)]">
-          <p className="text-xs font-bold text-white/75">결제된 총 금액</p>
+          <p className="text-xs font-bold text-white/75">실제 이용 요금</p>
           <p className="mt-1 text-3xl font-black">{ride.fare}</p>
+          {ride.estimatedFare && ride.estimatedFare !== ride.fare ? (
+            <p className="mt-2 text-xs font-bold leading-5 text-white/85">실시간 주행 거리/시간에 따라 최종 요금이 산정되었습니다 · 예상 {ride.estimatedFare}</p>
+          ) : null}
           <p className="mt-2 text-xs font-black text-[#E8DCFF]">결제 수단 · {ride.method}</p>
         </div>
         <div className="mt-4 rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
@@ -3588,6 +3781,7 @@ export default function HomeScreen() {
   const [notice, setNotice] = useState('')
   const [walletBalance, setWalletBalance] = useState(18.4)
   const [walletOpen, setWalletOpen] = useState(false)
+  const [chargePromptOpen, setChargePromptOpen] = useState(false)
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'activity' | 'account' | null>(null)
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
@@ -3597,7 +3791,7 @@ export default function HomeScreen() {
   const [receiptRide, setReceiptRide] = useState<RideReceipt | null>(null)
   const [inboxItem, setInboxItem] = useState<Notice | null>(null)
   const [readNoticeIds, setReadNoticeIds] = useState<string[]>([])
-  const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number } | null>(null)
+  const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number; estimated?: number } | null>(null)
   const [driverReview, setDriverReview] = useState<{ name: string; vehicle: string; plate: string; kind?: 'driver' | 'service' } | null>(null)
   const [transactions, setTransactions] = useState<PiTransaction[]>(DEFAULT_PI_TX)
 
@@ -3623,6 +3817,11 @@ export default function HomeScreen() {
 
   const unreadNoticeCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
   const openWallet = () => setWalletOpen(true)
+  const showChargePrompt = () => setChargePromptOpen(true)
+  const confirmChargePrompt = () => {
+    setChargePromptOpen(false)
+    setWalletOpen(true)
+  }
   const openInbox = (item: Notice) => {
     setInboxItem(item)
     setReadNoticeIds((ids) => {
@@ -3632,7 +3831,7 @@ export default function HomeScreen() {
       return next
     })
   }
-  const payWithPi = (amount: number, place: string, label: string) => {
+  const payWithPi = (amount: number, place: string, label: string, estimated?: number) => {
     if (walletBalance < amount) {
       showNotice('Pi 잔액이 부족합니다. 충전 후 다시 시도해 주세요.')
       setWalletOpen(true)
@@ -3641,8 +3840,8 @@ export default function HomeScreen() {
     const remaining = Math.round((walletBalance - amount) * 100) / 100
     const at = formatPiTime()
     setWalletBalance(remaining)
-    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at }, ...items])
-    setPaymentDone({ amount, place, remaining })
+    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
+    setPaymentDone({ amount, place, remaining, estimated })
     return true
   }
   const depositWallet = (amount: number) => {
@@ -3837,7 +4036,7 @@ export default function HomeScreen() {
           />
         ) : null}
         {walletOpen && <WalletModal balance={walletBalance} onClose={() => setWalletOpen(false)} onDeposit={depositWallet} onWithdraw={withdrawWallet} transactions={transactions} onNotice={showNotice} onReceipt={setReceiptRide} />}
-        {destination && <DestinationSheet destination={destination} onClose={() => setDestination('')} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onNeedCharge={openWallet} onAskReview={setDriverReview} />}
+        {destination && <DestinationSheet destination={destination} onClose={() => setDestination('')} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} />}
         {daeriSetupOpen ? (
           <DaeriCallSetupSheet
             destination={destination}
@@ -3849,7 +4048,7 @@ export default function HomeScreen() {
             }}
           />
         ) : null}
-        {selectedService === '택시' && <TaxiMatchingSheet destination={destination} onClose={() => setSelectedService(null)} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onNeedCharge={openWallet} onAskReview={setDriverReview} />}
+        {selectedService === '택시' && <TaxiMatchingSheet destination={destination} onClose={() => setSelectedService(null)} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} />}
         {selectedService && selectedService !== '택시' && (
           <ServiceSheet
             service={selectedService}
@@ -3860,28 +4059,31 @@ export default function HomeScreen() {
             onNotice={showNotice}
             balance={walletBalance}
             onPay={payWithPi}
-            onNeedCharge={openWallet}
+            onNeedCharge={showChargePrompt}
             onAskReview={setDriverReview}
             initialPhase={selectedService === '대리운전' && daeriTrip ? 'matching' : 'idle'}
             daeriTrip={selectedService === '대리운전' ? daeriTrip : null}
           />
         )}
-        {driverReview ? (
+        {paymentDone ? (
+          <PaymentDoneModal
+            amount={paymentDone.amount}
+            place={paymentDone.place}
+            remaining={paymentDone.remaining}
+            estimated={paymentDone.estimated}
+            onClose={() => setPaymentDone(null)}
+          />
+        ) : driverReview ? (
           <DriverReviewModal
             driver={driverReview}
-            onClose={() => {
-              setDriverReview(null)
-              setPaymentDone(null)
-            }}
+            onClose={() => setDriverReview(null)}
             onSubmit={() => {
               rewardReview()
               setDriverReview(null)
-              setPaymentDone(null)
             }}
           />
-        ) : paymentDone ? (
-          <PaymentDoneModal amount={paymentDone.amount} place={paymentDone.place} remaining={paymentDone.remaining} onClose={() => setPaymentDone(null)} />
         ) : null}
+        {chargePromptOpen ? <InsufficientBalanceModal onConfirm={confirmChargePrompt} /> : null}
         {notice && <div className="fixed bottom-20 left-1/2 z-[100] -translate-x-1/2 rounded-full bg-[#241d35] px-4 py-3 text-xs font-black text-white">{notice}</div>}
       </div>
     </main>

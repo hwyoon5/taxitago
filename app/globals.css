@@ -140,6 +140,32 @@
   }
 }
 
+@keyframes taxi-route-dash {
+  to { stroke-dashoffset: -56; }
+}
+
+.taxi-live-dash {
+  stroke-dasharray: 7 10;
+  animation: taxi-route-dash 1.15s linear infinite;
+}
+
+@keyframes taxi-live-pulse {
+  0%, 100% { opacity: 0.28; transform: scale(1); }
+  50% { opacity: 0.72; transform: scale(1.55); }
+}
+
+.taxi-live-pulse {
+  animation: taxi-live-pulse 1.6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taxi-live-dash,
+  .taxi-live-pulse {
+    animation: none;
+  }
+}
+
 @keyframes taxi-route-vehicle {
   0% { left: 15%; bottom: 18%; transform: translate(-50%, 50%) rotate(-8deg); }
   24% { left: 32%; bottom: 23%; transform: translate(-50%, 50%) rotate(-20deg); }
