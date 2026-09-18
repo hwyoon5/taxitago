@@ -2494,7 +2494,7 @@ function Home({
   const [sheetDragging, setSheetDragging] = useState(false)
   const sheetRef = useRef<HTMLElement>(null)
   const dragRef = useRef({ active: false, startX: 0, startY: 0, axis: null as null | 'x' | 'y', fromHandle: false })
-  const peekHeight = 72
+  const peekHeight = 118
 
   useEffect(() => {
     setFavorites(readFavoritePlaces())
@@ -2546,8 +2546,9 @@ function Home({
     return () => observer.disconnect()
   }, [destination, pickup, searchOpen])
 
-  const collapsedY = Math.max(0, sheetHeight - peekHeight)
-  const sheetY = Math.min(collapsedY, Math.max(0, (sheetOpen ? 0 : collapsedY) + dragOffset))
+  const maxSheetY = Math.max(0, sheetHeight - peekHeight)
+  const sheetOrigin = sheetOpen ? 0 : maxSheetY
+  const sheetY = Math.min(maxSheetY, Math.max(0, sheetOrigin + dragOffset))
 
   const finishSheetDrag = (clientY: number) => {
     if (!dragRef.current.active) return
@@ -2562,8 +2563,8 @@ function Home({
       if (fromHandle) setSheetOpen((open) => !open)
       return
     }
-    if (sheetOpen && delta > 36) setSheetOpen(false)
-    else if (!sheetOpen && delta < -36) setSheetOpen(true)
+    const projected = Math.min(maxSheetY, Math.max(0, sheetOrigin + delta))
+    setSheetOpen(projected < maxSheetY * 0.5)
   }
 
   const onSheetPointerDown = (event: React.PointerEvent<HTMLElement>, fromHandle = false) => {
@@ -2590,7 +2591,7 @@ function Home({
   }
 
   return (
-    <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden pb-[calc(4.75rem+0.75rem)]">
+    <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="absolute inset-0 z-0 bg-[#E2E8F0]">
         <LocationTileMap
           lat={gps.lat}
@@ -2605,8 +2606,8 @@ function Home({
       </div>
       <section
         ref={sheetRef}
-        className={`absolute inset-x-0 bottom-0 z-10 touch-pan-y overflow-hidden rounded-t-[22px] bg-white px-3 pb-3 pt-1 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] ${sheetDragging ? '' : 'transition-transform duration-300 ease-out'}`}
-        style={{ transform: `translateY(${sheetY}px)` }}
+        className={`absolute inset-x-0 z-10 overflow-hidden rounded-t-[22px] bg-white px-3 pb-3 pt-1 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] ${sheetDragging ? '' : 'transition-transform duration-300 ease-out'}`}
+        style={{ bottom: '5.5rem', minHeight: peekHeight, transform: `translateY(${sheetY}px)` }}
         onPointerDown={(event) => onSheetPointerDown(event, false)}
         onPointerMove={onSheetPointerMove}
         onPointerUp={(event) => finishSheetDrag(event.clientY)}

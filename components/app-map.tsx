@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
-import { Car, MapPin, Minus, Plus, UserRound } from 'lucide-react'
+import { Car, LocateFixed, MapPin, Minus, Plus, UserRound } from 'lucide-react'
 import {
   applyMapBottomInset,
   createDomMarker,
@@ -102,7 +102,15 @@ function worldToLatLng(x: number, y: number, zoom: number) {
   return { lat: (latRad * 180) / Math.PI, lng }
 }
 
-function ZoomButtons({ onZoomIn, onZoomOut }: { onZoomIn: () => void; onZoomOut: () => void }) {
+function MapControls({
+  onZoomIn,
+  onZoomOut,
+  onLocate,
+}: {
+  onZoomIn: () => void
+  onZoomOut: () => void
+  onLocate?: () => void
+}) {
   return (
     <div className="absolute right-3 top-5 z-20 flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-md">
       <button type="button" onClick={(event) => { event.stopPropagation(); onZoomIn() }} className="flex h-9 w-9 items-center justify-center text-[#4A82B8]" aria-label="지도 확대">
@@ -111,6 +119,11 @@ function ZoomButtons({ onZoomIn, onZoomOut }: { onZoomIn: () => void; onZoomOut:
       <button type="button" onClick={(event) => { event.stopPropagation(); onZoomOut() }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4A82B8]" aria-label="지도 축소">
         <Minus className="h-4 w-4" />
       </button>
+      {onLocate ? (
+        <button type="button" onClick={(event) => { event.stopPropagation(); onLocate() }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4C1FB8]" aria-label="내 위치 찾기">
+          <LocateFixed className="h-4 w-4" />
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -212,6 +225,8 @@ function FallbackSlippyMap({
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [view, setView] = useState({ lat, lng })
   const panRef = useRef({ active: false, x: 0, y: 0, lat, lng })
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = useRef(0)
 
   useEffect(() => {
     const node = wrapRef.current
@@ -265,28 +280,55 @@ function FallbackSlippyMap({
   return (
     <div
       ref={wrapRef}
-      className="absolute inset-0 overflow-hidden touch-none"
+      className="absolute inset-0 touch-none overflow-hidden"
       onWheel={(event) => {
-        if (!interactive && !showZoom) return
         event.preventDefault()
         if (event.deltaY < 0) onZoomIn()
         else onZoomOut()
       }}
       onPointerDown={(event) => {
         if (event.pointerType === 'mouse' && event.button !== 0) return
+        pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+        if (pointersRef.current.size >= 2) {
+          panRef.current.active = false
+          const pts = [...pointersRef.current.values()]
+          pinchRef.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+          return
+        }
         panRef.current = { active: true, x: event.clientX, y: event.clientY, lat: view.lat, lng: view.lng }
         event.currentTarget.setPointerCapture(event.pointerId)
       }}
       onPointerMove={(event) => {
+        if (pointersRef.current.has(event.pointerId)) {
+          pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+        }
+        if (pointersRef.current.size >= 2) {
+          const pts = [...pointersRef.current.values()]
+          const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+          if (pinchRef.current > 0) {
+            const ratio = dist / pinchRef.current
+            if (ratio > 1.12) {
+              onZoomIn()
+              pinchRef.current = dist
+            } else if (ratio < 0.88) {
+              onZoomOut()
+              pinchRef.current = dist
+            }
+          }
+          return
+        }
         if (!panRef.current.active) return
         const start = latLngToWorld(panRef.current.lat, panRef.current.lng, zoom)
-        const next = worldToLatLng(start.x - (event.clientX - panRef.current.x), start.y - (event.clientY - panRef.current.y), zoom)
-        setView(next)
+        setView(worldToLatLng(start.x - (event.clientX - panRef.current.x), start.y - (event.clientY - panRef.current.y), zoom))
       }}
-      onPointerUp={() => {
-        panRef.current.active = false
+      onPointerUp={(event) => {
+        pointersRef.current.delete(event.pointerId)
+        if (pointersRef.current.size < 2) pinchRef.current = 0
+        if (pointersRef.current.size === 0) panRef.current.active = false
       }}
-      onPointerCancel={() => {
+      onPointerCancel={(event) => {
+        pointersRef.current.delete(event.pointerId)
+        pinchRef.current = 0
         panRef.current.active = false
       }}
       onClick={(event) => {
@@ -329,7 +371,13 @@ function FallbackSlippyMap({
       ) : null}
       {children}
       <FallbackNotice message={notice} />
-      {interactive || showZoom ? <ZoomButtons onZoomIn={onZoomIn} onZoomOut={onZoomOut} /> : null}
+      {interactive || showZoom ? (
+        <MapControls
+          onZoomIn={onZoomIn}
+          onZoomOut={onZoomOut}
+          onLocate={() => setView({ lat: pinLat ?? lat, lng: pinLng ?? lng })}
+        />
+      ) : null}
     </div>
   )
 }
@@ -473,7 +521,19 @@ function NaverLocationMap(props: MapViewProps) {
           <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">지도를 불러오는 중이에요</p>
         </div>
       ) : null}
-      {mode === 'naver' ? <ZoomButtons onZoomIn={() => changeNaverZoom(1)} onZoomOut={() => changeNaverZoom(-1)} /> : null}
+      {mode === 'naver' ? (
+        <MapControls
+          onZoomIn={() => changeNaverZoom(1)}
+          onZoomOut={() => changeNaverZoom(-1)}
+          onLocate={() => {
+            const map = mapRef.current
+            const sdk = mapsRef.current
+            if (!map || !sdk) return
+            map.panTo(new sdk.LatLng(pinLat ?? lat, pinLng ?? lng))
+            pinRef.current?.draw?.()
+          }}
+        />
+      ) : null}
     </MapFrame>
   )
 }
@@ -680,7 +740,7 @@ function NaverLiveRideMap({
         </div>
       ) : null}
       {mode === 'naver' ? (
-        <ZoomButtons
+        <MapControls
           onZoomIn={() => {
             const map = mapRef.current
             if (!map) return
