@@ -78,6 +78,13 @@ type GpsFix = {
   lng: number
 }
 
+type PickupPlace = {
+  address: string
+  lat: number
+  lng: number
+  source: 'gps' | 'map'
+}
+
 const VIRTUAL_AREAS = [
   { name: '서울특별시 중구 태평로', lat: 37.5665, lng: 126.978 },
   { name: '서울특별시 강남구 역삼동', lat: 37.501, lng: 127.037 },
@@ -145,16 +152,20 @@ function FullscreenMapView({
   lat,
   lng,
   address,
+  pickupLat,
+  pickupLng,
   onClose,
   onConfirmPickup,
 }: {
   lat: number
   lng: number
   address: string
+  pickupLat: number
+  pickupLng: number
   onClose: () => void
   onConfirmPickup: (place: { lat: number; lng: number; address: string }) => void
 }) {
-  const [pin, setPin] = useState({ lat, lng })
+  const [pin, setPin] = useState({ lat: pickupLat, lng: pickupLng })
   const [pickedAddress, setPickedAddress] = useState<string | null>(null)
   const [addressPending, setAddressPending] = useState(false)
   const [askConfirm, setAskConfirm] = useState(false)
@@ -184,7 +195,7 @@ function FullscreenMapView({
   }
 
   const handlePopup = () => {
-    if (!pickedAddress || addressPending) return
+    if (!pickedAddress) return
     if (!askConfirm) {
       setAskConfirm(true)
       return
@@ -371,6 +382,7 @@ const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
 const PI_ACCOUNT_KEY = 'taxitago-pi-account-linked'
 const READ_NOTICES_KEY = 'taxitago-read-notices'
 const RECENT_DEST_KEY = 'taxitago-recent-destinations'
+const PICKUP_KEY = 'taxitago-pickup-place'
 
 type FavoritePlace = { id: string; name: string; address: string }
 type RecentPlace = { id: string; name: string; address: string }
@@ -560,6 +572,23 @@ function loadReadNoticeIds(): string[] {
 
 function saveReadNoticeIds(ids: string[]) {
   window.localStorage.setItem(READ_NOTICES_KEY, JSON.stringify(ids))
+}
+
+function readPickupPlace(): PickupPlace | null {
+  try {
+    const raw = window.localStorage.getItem(PICKUP_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<PickupPlace>
+    if (typeof parsed.address !== 'string' || typeof parsed.lat !== 'number' || typeof parsed.lng !== 'number') return null
+    if (parsed.source !== 'gps' && parsed.source !== 'map') return null
+    return { address: parsed.address, lat: parsed.lat, lng: parsed.lng, source: parsed.source }
+  } catch {
+    return null
+  }
+}
+
+function writePickupPlace(place: PickupPlace) {
+  window.localStorage.setItem(PICKUP_KEY, JSON.stringify(place))
 }
 
 function readFavoritePlaces(): FavoritePlace[] {
@@ -4062,7 +4091,8 @@ export default function HomeScreen() {
   const [walletOpen, setWalletOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
   const [fullscreenMapOpen, setFullscreenMapOpen] = useState(false)
-  const pickupLockedRef = useRef(false)
+  const [pickup, setPickup] = useState<PickupPlace | null>(null)
+  const pickupRef = useRef<PickupPlace | null>(null)
   const [gps, setGps] = useState<GpsFix>({
     status: 'pending',
     address: '현재 위치를 확인하는 중',
@@ -4089,6 +4119,12 @@ export default function HomeScreen() {
     window.setTimeout(() => setNotice(''), 2200)
   }
 
+  const applyPickup = (place: PickupPlace) => {
+    pickupRef.current = place
+    setPickup(place)
+    writePickupPlace(place)
+  }
+
   useEffect(() => {
     const stored = readPiWallet()
     setWalletBalance(stored.balance)
@@ -4098,21 +4134,29 @@ export default function HomeScreen() {
     setIsPartnerRegistered(loadIsPartnerRegistered())
     setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
+    const storedPickup = readPickupPlace()
+    if (storedPickup) {
+      pickupRef.current = storedPickup
+      setPickup(storedPickup)
+    }
   }, [])
 
   useEffect(() => {
+  useEffect(() => {
     if (!navigator.geolocation) {
-      if (pickupLockedRef.current) return
-      setGps({
-        status: 'denied',
+      if (pickupRef.current?.source === 'map') return
+      const fallback = {
+        status: 'denied' as const,
         address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
         lat: SEOUL_CITY_HALL.lat,
         lng: SEOUL_CITY_HALL.lng,
-      })
+      }
+      setGps(fallback)
+      applyPickup({ address: fallback.address, lat: fallback.lat, lng: fallback.lng, source: 'gps' })
       return
     }
     const timer = window.setTimeout(() => {
-      if (pickupLockedRef.current) return
+      if (pickupRef.current?.source === 'map') return
       setGps((current) =>
         current.status === 'pending'
           ? {
@@ -4127,20 +4171,24 @@ export default function HomeScreen() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         window.clearTimeout(timer)
-        if (pickupLockedRef.current) return
         const lat = position.coords.latitude
         const lng = position.coords.longitude
-        setGps({ status: 'ready', address: virtualPickupAddress(lat, lng), lat, lng })
+        const address = virtualPickupAddress(lat, lng)
+        setGps({ status: 'ready', address, lat, lng })
+        if (pickupRef.current?.source === 'map') return
+        applyPickup({ address, lat, lng, source: 'gps' })
       },
       () => {
         window.clearTimeout(timer)
-        if (pickupLockedRef.current) return
-        setGps({
-          status: 'denied',
+        if (pickupRef.current?.source === 'map') return
+        const fallback = {
+          status: 'denied' as const,
           address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
           lat: SEOUL_CITY_HALL.lat,
           lng: SEOUL_CITY_HALL.lng,
-        })
+        }
+        setGps(fallback)
+        applyPickup({ address: fallback.address, lat: fallback.lat, lng: fallback.lng, source: 'gps' })
       },
       { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
     )
@@ -4152,6 +4200,18 @@ export default function HomeScreen() {
     writePiWallet(walletBalance, transactions)
   }, [walletReady, walletBalance, transactions])
 
+  const origin: PickupPlace = pickup ?? {
+    address: gps.address,
+    lat: gps.lat,
+    lng: gps.lng,
+    source: 'gps',
+  }
+  const originGps: GpsFix = {
+    status: pickup?.source === 'map' ? 'ready' : gps.status,
+    address: origin.address,
+    lat: origin.lat,
+    lng: origin.lng,
+  }
   const unreadNoticeCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
   const openWallet = () => setWalletOpen(true)
   const showChargePrompt = () => setChargePromptOpen(true)
@@ -4297,16 +4357,24 @@ export default function HomeScreen() {
           </div>
           <div
             className={`mt-3 flex min-h-10 items-center gap-2 rounded-2xl px-3 py-2 text-[12px] font-bold ${
-              gps.status === 'ready'
-                ? 'bg-[#ECFDF5] text-[#047857]'
-                : gps.status === 'pending'
-                  ? 'bg-[#FFFBEB] text-[#B45309]'
-                  : 'bg-[#F1F5F9] text-[#475569]'
+              pickup?.source === 'map'
+                ? 'bg-[#EDE5FF] text-[#4C1FB8]'
+                : gps.status === 'ready'
+                  ? 'bg-[#ECFDF5] text-[#047857]'
+                  : gps.status === 'pending'
+                    ? 'bg-[#FFFBEB] text-[#B45309]'
+                    : 'bg-[#F1F5F9] text-[#475569]'
             }`}
           >
             <LocateFixed className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">
-              {gps.status === 'pending' ? 'GPS 위치를 수신하는 중이에요' : gps.status === 'ready' ? `현재 위치 · ${gps.address}` : `위치 권한 없음 · ${gps.address}`}
+              {pickup?.source === 'map'
+                ? `출발지 · ${pickup.address}`
+                : gps.status === 'pending'
+                  ? 'GPS 위치를 수신하는 중이에요'
+                  : gps.status === 'ready'
+                    ? `현재 위치 · ${origin.address}`
+                    : `위치 권한 없음 · ${origin.address}`}
             </span>
             <button
               type="button"
@@ -4336,12 +4404,12 @@ export default function HomeScreen() {
         ) : (
           <Home
             destination={destination}
-            pickup={gps.address}
-            gps={gps}
+            pickup={origin.address}
+            gps={originGps}
             onDestination={selectDestination}
             onService={openService}
             onReceipt={setReceiptRide}
-            onOpenMap={() => setMapOpen(true)}
+            onOpenMap={() => setFullscreenMapOpen(true)}
           />
         )}
         {tab !== '홈' && (
@@ -4389,11 +4457,13 @@ export default function HomeScreen() {
             lat={gps.lat}
             lng={gps.lng}
             address={gps.address}
+            pickupLat={origin.lat}
+            pickupLng={origin.lng}
             onClose={() => setFullscreenMapOpen(false)}
             onConfirmPickup={(place) => {
-              pickupLockedRef.current = true
-              setGps({ status: 'ready', address: place.address, lat: place.lat, lng: place.lng })
+              applyPickup({ ...place, source: 'map' })
               setFullscreenMapOpen(false)
+              showNotice('출발지를 지정했어요')
             }}
           />
         ) : null}
