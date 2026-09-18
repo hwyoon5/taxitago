@@ -1581,8 +1581,9 @@ function TaxiMatchingSheet({
   const finishedRef = useRef(false)
   const dest = destination.trim() || '강남역'
   const route = `서울시청 → ${dest}`
-  const fare = 2.1
-  const billed = settleRideFare(fare, `taxi:${route}`)
+  const fare = 2.34
+  const billed = { estimate: 2.1, actual: 2.34, adjusted: true }
+  const [piPaying, setPiPaying] = useState(false)
   const driver = {
     name: '김민수',
     vehicle: dest === '회사' ? '현대 소나타' : '현대 아슬란',
@@ -1606,6 +1607,66 @@ function TaxiMatchingSheet({
   const cancelRide = () => {
     onNotice(phase === 'searching' ? '택시 호출을 취소했어요.' : '배차를 취소했어요.')
     onClose()
+  }
+
+  const handleTaxiPostpay = () => {
+    if (piPaying) return
+    const pi = window.Pi
+    if (!pi?.createPayment || !pi.init) {
+      onNotice('Pi SDK(window.Pi)가 없습니다. Pi Browser에서 열어 주세요.')
+      return
+    }
+
+    pi.init({ version: '2.0', sandbox: process.env.NEXT_PUBLIC_PI_SANDBOX !== 'false' })
+    setPiPaying(true)
+
+    try {
+      pi.createPayment(
+        {
+          amount: 2.34,
+          memo: '택시비 결제',
+          metadata: { kind: 'taxi-postpay', route },
+        },
+        {
+          onReadyForServerApproval: (paymentId) => {
+            console.log('[Pi] onReadyForServerApproval', paymentId)
+            return fetch('/api/pi/approve', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paymentId }),
+            }).then((response) => {
+              if (!response.ok) throw new Error(`/api/pi/approve failed (${response.status})`)
+            })
+          },
+          onReadyForServerCompletion: (paymentId, txid) => {
+            console.log('[Pi] onReadyForServerCompletion', paymentId, txid)
+            return fetch('/api/pi/complete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paymentId, txid }),
+            }).then((response) => {
+              if (!response.ok) throw new Error(`/api/pi/complete failed (${response.status})`)
+              onSettle(2.34, route, '택시 호출', billed.estimate)
+              onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
+              onClose()
+            })
+          },
+          onCancel: () => {
+            setPiPaying(false)
+            onNotice('결제가 취소되었습니다.')
+          },
+          onError: (error) => {
+            setPiPaying(false)
+            console.error('[Pi] onError', error)
+            onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
+          },
+        },
+      )
+    } catch (error) {
+      setPiPaying(false)
+      console.error('[Pi] createPayment threw', error)
+      onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
+    }
   }
 
   return (
@@ -1702,21 +1763,14 @@ function TaxiMatchingSheet({
                 onContinue={() => undefined}
                 onPrepaidSettled={() => undefined}
               />
-              <PiCheckoutButton
-                amount={billed.actual}
-                memo="TaxiTago taxi fare"
-                metadata={{ kind: 'taxi-postpay', route }}
-                className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
-                onPaid={(result) => {
-                  if (!result.paymentId || !result.txid) return
-                  onSettle(billed.actual, route, '택시 호출', billed.estimate)
-                  onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
-                  onClose()
-                }}
-                onFailed={() => onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')}
+              <button
+                type="button"
+                onClick={handleTaxiPostpay}
+                disabled={piPaying}
+                className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] disabled:opacity-60"
               >
-                이용 완료 · 후결제
-              </PiCheckoutButton>
+                {piPaying ? 'Pi 결제 진행 중…' : '이용 완료 · 후결제'}
+              </button>
               <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 눌러 주세요 · 하차 완료</p>
               <button type="button" onClick={cancelRide} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
                 {phase === 'moving' ? '운행 취소' : '호출 취소'}
