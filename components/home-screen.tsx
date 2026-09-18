@@ -4360,28 +4360,21 @@ export default function HomeScreen() {
             </div>
           </div>
           <div
-            className={`mt-3 flex min-h-10 items-center gap-2 rounded-2xl px-3 py-2 ${
-              pickup?.source === 'map'
-                ? 'bg-[#EDE5FF] text-[#4C1FB8]'
-                : gps.status === 'ready'
-                  ? 'bg-[#ECFDF5] text-[#047857]'
-                  : gps.status === 'pending'
-                    ? 'bg-[#FFFBEB] text-[#B45309]'
-                    : 'bg-[#F1F5F9] text-[#475569]'
+            className={`mt-3 flex min-h-10 items-center gap-2 rounded-2xl px-3 py-2 text-[12px] font-bold ${
+              pickup?.source === 'map' || gps.status === 'ready'
+                ? 'bg-[#ECFDF5] text-[#047857]'
+                : gps.status === 'pending'
+                  ? 'bg-[#FFFBEB] text-[#B45309]'
+                  : 'bg-[#F1F5F9] text-[#475569]'
             }`}
           >
             <LocateFixed className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[10px] font-bold leading-none opacity-80">
-                {pickup?.source === 'map' ? '출발지' : gps.status === 'pending' && !pickup ? '위치 확인 중' : gps.status === 'ready' ? '현재 위치' : '위치 권한 없음'}
-              </span>
-              <span className="mt-0.5 block truncate text-[12px] font-black leading-tight">
-                {pickup?.source === 'map'
-                  ? pickup.address
-                  : gps.status === 'pending' && !pickup
-                    ? 'GPS 위치를 수신하는 중이에요'
-                    : origin.address}
-              </span>
+            <span className="min-w-0 flex-1 truncate">
+              {pickup?.source === 'map' || gps.status === 'ready'
+                ? `현재 위치 · ${origin.address}`
+                : gps.status === 'pending'
+                  ? 'GPS 위치를 수신하는 중이에요'
+                  : `위치 권한 없음 · ${origin.address}`}
             </span>
             <button
               type="button"
