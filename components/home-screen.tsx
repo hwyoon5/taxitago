@@ -1427,7 +1427,8 @@ function DestinationSheet({
               memo={`${selectedService} ${billed.actual} Pi`}
               metadata={{ kind: 'service-pay', place, label: selectedService }}
               className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
-              onPaid={() => {
+              onPaid={(result) => {
+                if (!result.paymentId || !result.txid) return
                 onSettle(billed.actual, place, selectedService, isRidePayLabel(selectedService) ? billed.estimate : undefined)
                 onAskReview({
                   name: '김파이',
@@ -1706,7 +1707,8 @@ function TaxiMatchingSheet({
                 memo="TaxiTago taxi fare"
                 metadata={{ kind: 'taxi-postpay', route }}
                 className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
-                onPaid={() => {
+                onPaid={(result) => {
+                  if (!result.paymentId || !result.txid) return
                   onSettle(billed.actual, route, '택시 호출', billed.estimate)
                   onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
                   onClose()
@@ -1908,7 +1910,8 @@ function ServiceSheet({
               memo={`${service} ${chargeAmount} Pi`}
               metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
               className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
-              onPaid={() => {
+              onPaid={(result) => {
+                if (!result.paymentId || !result.txid) return
                 onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined)
                 onAskReview(partner)
                 onClose()
@@ -1960,7 +1963,8 @@ function ServiceSheet({
               memo={`${service} ${(ride && rideStage === 'moving' ? billed.actual : fare)} Pi`}
               metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
               className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
-              onPaid={() => {
+              onPaid={(result) => {
+                if (!result.paymentId || !result.txid) return
                 const paid = ride && rideStage === 'moving' ? billed.actual : fare
                 onSettle(paid, place, `${service} 이용`, ride ? billed.estimate : undefined)
                 onAskReview(partner)
@@ -2891,7 +2895,8 @@ function WalletModal({
                 metadata={{ kind: 'wallet-charge' }}
                 disabled={Boolean(process)}
                 className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-60"
-                onPaid={() => {
+                onPaid={(result) => {
+                  if (!result.paymentId || !result.txid) return
                   onDeposit(chargeUnit)
                   setProcess({ kind: 'charge', phase: 'done', amount: chargeUnit })
                 }}
