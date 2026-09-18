@@ -1611,9 +1611,9 @@ function TaxiMatchingSheet({
 
   const handleTaxiPostpay = () => {
     if (piPaying) return
-    const pi = window.Pi
-    if (!pi?.createPayment || !pi.init) {
-      onNotice('Pi SDK(window.Pi)가 없습니다. Pi Browser에서 열어 주세요.')
+    const pi = typeof window !== 'undefined' ? window.Pi : undefined
+    if (typeof pi?.createPayment !== 'function' || typeof pi.init !== 'function') {
+      onNotice('Pi SDK(window.Pi.createPayment)가 없습니다. Pi Browser에서 열어 주세요.')
       return
     }
 
@@ -1621,6 +1621,7 @@ function TaxiMatchingSheet({
     setPiPaying(true)
 
     try {
+      console.log('[Pi] calling window.Pi.createPayment', { amount: 2.34, memo: '택시비 결제' })
       pi.createPayment(
         {
           amount: 2.34,
@@ -1634,21 +1635,32 @@ function TaxiMatchingSheet({
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ paymentId }),
-            }).then((response) => {
-              if (!response.ok) throw new Error(`/api/pi/approve failed (${response.status})`)
+            }).then(async (response) => {
+              const payload = (await response.json().catch(() => null)) as { ok?: unknown } | null
+              if (!response.ok || payload?.ok !== true) throw new Error('approve failed')
             })
           },
           onReadyForServerCompletion: (paymentId, txid) => {
             console.log('[Pi] onReadyForServerCompletion', paymentId, txid)
+            if (!paymentId || !txid) {
+              setPiPaying(false)
+              onNotice('Pi 결제 승인이 완료되지 않았습니다.')
+              return Promise.resolve()
+            }
             return fetch('/api/pi/complete', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ paymentId, txid }),
-            }).then((response) => {
-              if (!response.ok) throw new Error(`/api/pi/complete failed (${response.status})`)
+            }).then(async (response) => {
+              const payload = (await response.json().catch(() => null)) as { ok?: unknown } | null
+              if (!response.ok || payload?.ok !== true) throw new Error('complete failed')
               onSettle(2.34, route, '택시 호출', billed.estimate)
               onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
               onClose()
+            }).catch((error) => {
+              setPiPaying(false)
+              console.error('[Pi] complete failed', error)
+              onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
             })
           },
           onCancel: () => {
@@ -4028,7 +4040,7 @@ export default function HomeScreen() {
           />
         ) : null}
         {walletOpen && <WalletModal balance={walletBalance} onClose={() => setWalletOpen(false)} onDeposit={depositWallet} onWithdraw={withdrawWallet} transactions={transactions} onNotice={showNotice} onReceipt={setReceiptRide} />}
-        {destination && <DestinationSheet destination={destination} onClose={() => setDestination('')} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onSettle={settlePiLedger} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} />}
+        {destination && !selectedService ? <DestinationSheet destination={destination} onClose={() => setDestination('')} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onSettle={settlePiLedger} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} /> : null}
         {daeriSetupOpen ? (
           <DaeriCallSetupSheet
             destination={destination}

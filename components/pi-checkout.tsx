@@ -65,12 +65,14 @@ async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Rec
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    reportPiError(`${path} failed ${response.status}`, detail)
-    throw new Error(`${path} failed (${response.status})`)
+  const payload = (await response.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
+  if (!response.ok || payload?.ok !== true) {
+    const message = typeof payload?.error === 'string' ? payload.error : `${path} failed (${response.status})`
+    reportPiError(message, payload)
+    throw new Error(message)
   }
   console.log('[Pi]', path, 'ok', response.status)
+  return payload
 }
 
 export async function preparePiSdk() {
