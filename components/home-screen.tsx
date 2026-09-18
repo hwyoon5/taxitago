@@ -2823,18 +2823,13 @@ function Home({
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="mt-1.5 box-border w-full rounded-xl border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
-            style={{ paddingTop: 16, paddingBottom: 0, paddingLeft: 0, paddingRight: 0, overflow: 'visible' }}
+            className="mt-1.5 flex w-full overflow-hidden rounded-xl border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
+            style={{ WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
             aria-label={destination ? `목적지 ${destination}` : '목적지 검색 열기'}
           >
-            <span
-              className="block text-[#7C3AED]"
-              style={{ display: 'block', paddingLeft: 12, paddingRight: 12, margin: 0, fontSize: 12, lineHeight: '20px', fontWeight: 700 }}
-            >
-              목적지
-            </span>
-            <span className="mt-2 flex min-h-[44px] items-center">
-              <span className="flex min-w-0 flex-1 items-center gap-2 px-3 pb-3">
+            <span className="flex min-w-0 flex-1 flex-col gap-1 px-3 py-3">
+              <span className="block shrink-0 text-xs font-bold leading-5 text-[#7C3AED]">목적지</span>
+              <span className="flex min-h-8 items-center gap-2">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
                   <Search className="h-3.5 w-3.5" />
                 </span>
@@ -2842,8 +2837,8 @@ function Home({
                   {destination || '어디로 갈까요?'}
                 </span>
               </span>
-              <DestinationTaxiLoop className="h-11 w-[7.5rem] shrink-0 self-end overflow-hidden" />
             </span>
+            <DestinationTaxiLoop className="w-[7.5rem] shrink-0 self-stretch overflow-hidden" />
           </button>
         </div>
         <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
