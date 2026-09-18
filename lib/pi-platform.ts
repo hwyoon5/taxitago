@@ -8,26 +8,42 @@ function piApiKey() {
   return key
 }
 
-async function piPaymentsRequest(paymentId: string, method: 'GET' | 'POST', pathSuffix = '', body?: Record<string, string>) {
-  const response = await fetch(`${PI_API_BASE}/${encodeURIComponent(paymentId)}${pathSuffix}`, {
-    method,
-    headers: {
-      Authorization: `Key ${piApiKey()}`,
-      'Content-Type': 'application/json',
-    },
-    body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
-    cache: 'no-store',
-  })
+function piPaymentUrl(paymentId: string, pathSuffix = '') {
+  return `${PI_API_BASE}/${encodeURIComponent(paymentId)}${pathSuffix}`
+}
 
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) {
-    const message =
-      (payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
-        ? payload.message
-        : `Pi API ${response.status}`)
-    throw new Error(message)
+async function piPaymentsRequest(paymentId: string, method: 'GET' | 'POST', pathSuffix = '', body?: Record<string, string>) {
+  const url = piPaymentUrl(paymentId, pathSuffix)
+  const hasApiKey = Boolean((process.env.PI_API_KEY || '').trim())
+  console.log(`[Pi] ${method} ${url} (PI_API_KEY ${hasApiKey ? 'set' : 'missing'})`)
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Key ${piApiKey()}`,
+        'Content-Type': 'application/json',
+      },
+      body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+      cache: 'no-store',
+    })
+
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) {
+      const message =
+        (payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+          ? payload.message
+          : `Pi API ${response.status}`)
+      console.error(`[Pi] ${method} ${url} failed status=${response.status}`, message)
+      throw new Error(message)
+    }
+
+    console.log(`[Pi] ${method} ${url} success status=${response.status}`)
+    return payload
+  } catch (error) {
+    console.error(`[Pi] ${method} ${url} error`, error)
+    throw error
   }
-  return payload
 }
 
 export function getPiPayment(paymentId: string) {

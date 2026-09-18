@@ -31,17 +31,6 @@ export function initPiMainnet() {
   }
 }
 
-async function postPaymentStage(path: '/api/payments/approve' | '/api/payments/complete', body: Record<string, string>) {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    throw new Error(`${path} failed (${response.status})`)
-  }
-}
-
 export function createMainnetPiPayment(options: {
   amount: number
   memo: string
@@ -61,11 +50,40 @@ export function createMainnetPiPayment(options: {
         metadata: options.metadata ?? {},
       },
       {
-        onReadyForServerApproval: (paymentId) => postPaymentStage('/api/payments/approve', { paymentId }),
-        onReadyForServerCompletion: (paymentId, txid) =>
-          postPaymentStage('/api/payments/complete', { paymentId, txid })
-            .then(() => resolve({ simulated: false, paymentId, txid }))
-            .catch(reject),
+        onReadyForServerApproval: async (paymentId) => {
+          console.log('[Pi] onReadyForServerApproval', paymentId)
+          const response = await fetch('/api/pi/approve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paymentId }),
+          })
+          if (!response.ok) {
+            const detail = await response.text().catch(() => '')
+            console.error('[Pi] /api/pi/approve failed', response.status, detail)
+            throw new Error(`/api/pi/approve failed (${response.status})`)
+          }
+          console.log('[Pi] /api/pi/approve ok', response.status)
+        },
+        onReadyForServerCompletion: async (paymentId, txid) => {
+          console.log('[Pi] onReadyForServerCompletion', paymentId, txid)
+          try {
+            const response = await fetch('/api/pi/complete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paymentId, txid }),
+            })
+            if (!response.ok) {
+              const detail = await response.text().catch(() => '')
+              console.error('[Pi] /api/pi/complete failed', response.status, detail)
+              throw new Error(`/api/pi/complete failed (${response.status})`)
+            }
+            console.log('[Pi] /api/pi/complete ok', response.status)
+            resolve({ simulated: false, paymentId, txid })
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error('complete failed'))
+            throw error
+          }
+        },
         onCancel: () => reject(new Error('cancelled')),
         onError: (error) => reject(error),
       },
