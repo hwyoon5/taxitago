@@ -219,13 +219,20 @@ function FullscreenMapView({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#E2E8F0]" role="dialog" aria-modal="true" aria-label="전체화면 지도">
+    <div className="fixed inset-0 z-[100] bg-[#0B1220]" role="dialog" aria-modal="true" aria-label="전체화면 지도">
+      <style>{`
+        @keyframes ttMapRise {
+          from { opacity: 0; transform: translateY(18px) scale(0.985); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+      `}</style>
+      <div className="absolute inset-0 origin-bottom overflow-hidden" style={{ animation: 'ttMapRise 320ms cubic-bezier(0.22, 1, 0.36, 1) both' }}>
       <LocationTileMap
         lat={lat}
         lng={lng}
         pinLat={pin.lat}
         pinLng={pin.lng}
-        className="h-full min-h-0 w-full touch-none"
+        className="h-full min-h-0 w-full"
         interactive
         showZoom
         pulsePin
@@ -269,6 +276,7 @@ function FullscreenMapView({
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }
@@ -2721,7 +2729,6 @@ function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => v
 function Home({
   destination,
   pickup,
-  gps,
   onDestination,
   onService,
   onReceipt,
@@ -2729,7 +2736,6 @@ function Home({
 }: {
   destination: string
   pickup: string
-  gps: GpsFix
   onDestination: (value: string) => void
   onService: (value: string) => void
   onReceipt: (ride: RideReceipt) => void
@@ -2780,26 +2786,10 @@ function Home({
   }
 
   return (
-    <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="relative h-[min(32vh,13.5rem)] shrink-0 bg-[#E2E8F0]">
-        <LocationTileMap
-          lat={gps.lat}
-          lng={gps.lng}
-          pinLat={gps.lat}
-          pinLng={gps.lng}
-          className="h-full min-h-0 w-full"
-          interactive
-          showZoom
-          pulsePin
-        />
-      </div>
-      <section
-        className="relative z-10 -mt-4 min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-t-[22px] bg-white px-3 pb-[max(6.25rem,calc(5.25rem+env(safe-area-inset-bottom)))] pt-2 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] [-webkit-overflow-scrolling:touch]"
-        aria-label="홈 콘텐츠"
-      >
-        <div className="flex flex-col items-center pb-2 pt-1" aria-hidden>
-          <span className="h-1 w-10 rounded-full bg-[#D4D4D8]" />
-        </div>
+    <main
+      className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth bg-white px-3 pb-[max(6.25rem,calc(5.25rem+env(safe-area-inset-bottom)))] pt-2 [-webkit-overflow-scrolling:touch]"
+      aria-label="홈 콘텐츠"
+    >
         <div className="rounded-[18px] border border-[#E2E8F0] bg-[#F8FAFC] p-2.5">
           <button type="button" onClick={onOpenMap} className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-white px-2.5 py-2 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
@@ -2873,7 +2863,6 @@ function Home({
           <p className="text-[13px] font-black leading-tight">서울시청 → 강남역 · 3.2 Pi</p>
         </button>
         <HomeEventBanners onAction={onService} />
-      </section>
       {searchOpen ? (
         <DestinationSearchModal
           destination={destination}
@@ -4247,12 +4236,6 @@ export default function HomeScreen() {
     lng: gps.lng,
     source: 'gps',
   }
-  const originGps: GpsFix = {
-    status: pickup?.source === 'map' ? 'ready' : gps.status,
-    address: origin.address,
-    lat: origin.lat,
-    lng: origin.lng,
-  }
   const unreadNoticeCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
   const openWallet = () => setWalletOpen(true)
   const showChargePrompt = () => setChargePromptOpen(true)
@@ -4384,7 +4367,7 @@ export default function HomeScreen() {
   return (
     <main className="h-dvh overflow-hidden bg-[#E2E8F0] text-[#0F172A]">
       <div className="mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden bg-[#F8FAFC] shadow-2xl">
-        <header className="relative z-20 border-b border-[#E2E8F0] bg-white/95 px-4 pb-3 pt-[max(0.9rem,env(safe-area-inset-top))] backdrop-blur">
+        <header className="relative z-20 shrink-0 border-b border-[#E2E8F0] bg-white px-4 pb-2 pt-[max(0.9rem,env(safe-area-inset-top))]">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-bold tracking-wide text-[#7C3AED]">TAXI TAGO</p>
@@ -4448,7 +4431,6 @@ export default function HomeScreen() {
           <Home
             destination={destination}
             pickup={origin.address}
-            gps={originGps}
             onDestination={selectDestination}
             onService={openService}
             onReceipt={setReceiptRide}
