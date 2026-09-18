@@ -8,19 +8,19 @@ function errorStatus(message: string) {
 export async function handlePiApprove(request: Request) {
   const body = (await request.json().catch(() => null)) as { paymentId?: unknown } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
-  console.log('[Pi] /api/payments/approve incoming', { paymentId: paymentId || '(empty)' })
+  console.log('[Pi] /api/pi/approve incoming', { paymentId: paymentId || '(empty)' })
   if (!paymentId) {
-    console.error('[Pi] /api/payments/approve rejected: paymentId required')
+    console.error('[Pi] /api/pi/approve rejected: paymentId required')
     return NextResponse.json({ error: 'paymentId required' }, { status: 400 })
   }
 
   try {
     const payment = await approvePiPayment(paymentId)
-    console.log('[Pi] /api/payments/approve ok', { paymentId })
+    console.log('[Pi] /api/pi/approve ok', { paymentId })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'approve failed'
-    console.error('[Pi] /api/payments/approve error', { paymentId, message })
+    console.error('[Pi] /api/pi/approve error', { paymentId, message })
     return NextResponse.json({ error: message }, { status: errorStatus(message) })
   }
 }
@@ -29,19 +29,19 @@ export async function handlePiComplete(request: Request) {
   const body = (await request.json().catch(() => null)) as { paymentId?: unknown; txid?: unknown } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
-  console.log('[Pi] /api/payments/complete incoming', { paymentId: paymentId || '(empty)', txid: txid || '(empty)' })
+  console.log('[Pi] /api/pi/complete incoming', { paymentId: paymentId || '(empty)', txid: txid || '(empty)' })
   if (!paymentId || !txid) {
-    console.error('[Pi] /api/payments/complete rejected: paymentId and txid required')
+    console.error('[Pi] /api/pi/complete rejected: paymentId and txid required')
     return NextResponse.json({ error: 'paymentId and txid required' }, { status: 400 })
   }
 
   try {
     const payment = await completePiPayment(paymentId, txid)
-    console.log('[Pi] /api/payments/complete ok', { paymentId, txid })
+    console.log('[Pi] /api/pi/complete ok', { paymentId, txid })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'complete failed'
-    console.error('[Pi] /api/payments/complete error', { paymentId, txid, message })
+    console.error('[Pi] /api/pi/complete error', { paymentId, txid, message })
     return NextResponse.json({ error: message }, { status: errorStatus(message) })
   }
 }
