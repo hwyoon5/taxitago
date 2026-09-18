@@ -83,8 +83,10 @@ type MapViewProps = {
   hidePin?: boolean
   showZoom?: boolean
   bottomInset?: number
+  locatePlacement?: 'stacked' | 'bottom'
   onPick?: (lat: number, lng: number) => void
   onActivate?: () => void
+  onLocate?: () => void
 }
 
 function latLngToWorld(lat: number, lng: number, zoom: number) {
@@ -106,25 +108,48 @@ function MapControls({
   onZoomIn,
   onZoomOut,
   onLocate,
+  locatePlacement = 'stacked',
 }: {
   onZoomIn: () => void
   onZoomOut: () => void
   onLocate?: () => void
+  locatePlacement?: 'stacked' | 'bottom'
 }) {
+  const locateButton = onLocate ? (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        onLocate()
+      }}
+      className={
+        locatePlacement === 'bottom'
+          ? 'flex h-11 w-11 items-center justify-center rounded-2xl border border-[#E2E8F0] bg-white text-[#4C1FB8] shadow-md'
+          : 'flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4C1FB8]'
+      }
+      aria-label="내 위치 찾기"
+    >
+      <LocateFixed className="h-4 w-4" />
+    </button>
+  ) : null
+
   return (
-    <div className="absolute right-3 top-5 z-20 flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-md">
-      <button type="button" onClick={(event) => { event.stopPropagation(); onZoomIn() }} className="flex h-9 w-9 items-center justify-center text-[#4A82B8]" aria-label="지도 확대">
-        <Plus className="h-4 w-4" />
-      </button>
-      <button type="button" onClick={(event) => { event.stopPropagation(); onZoomOut() }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4A82B8]" aria-label="지도 축소">
-        <Minus className="h-4 w-4" />
-      </button>
-      {onLocate ? (
-        <button type="button" onClick={(event) => { event.stopPropagation(); onLocate() }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4C1FB8]" aria-label="내 위치 찾기">
-          <LocateFixed className="h-4 w-4" />
+    <>
+      <div className="absolute right-3 top-5 z-20 flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-md">
+        <button type="button" onClick={(event) => { event.stopPropagation(); onZoomIn() }} className="flex h-9 w-9 items-center justify-center text-[#4A82B8]" aria-label="지도 확대">
+          <Plus className="h-4 w-4" />
         </button>
+        <button type="button" onClick={(event) => { event.stopPropagation(); onZoomOut() }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4A82B8]" aria-label="지도 축소">
+          <Minus className="h-4 w-4" />
+        </button>
+        {onLocate && locatePlacement === 'stacked' ? locateButton : null}
+      </div>
+      {onLocate && locatePlacement === 'bottom' ? (
+        <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-3 z-20">
+          {locateButton}
+        </div>
       ) : null}
-    </div>
+    </>
   )
 }
 
@@ -214,8 +239,10 @@ function FallbackSlippyMap({
   interactive,
   showZoom,
   bottomInset = 0,
+  locatePlacement = 'stacked',
   onPick,
   onActivate,
+  onLocate,
   onZoomIn,
   onZoomOut,
   notice,
@@ -224,7 +251,7 @@ function FallbackSlippyMap({
   const wrapRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [view, setView] = useState({ lat, lng })
-  const panRef = useRef({ active: false, x: 0, y: 0, lat, lng })
+  const panRef = useRef({ active: false, x: 0, y: 0, lat, lng, moved: false })
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef(0)
 
@@ -295,7 +322,7 @@ function FallbackSlippyMap({
           pinchRef.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
           return
         }
-        panRef.current = { active: true, x: event.clientX, y: event.clientY, lat: view.lat, lng: view.lng }
+        panRef.current = { active: true, x: event.clientX, y: event.clientY, lat: view.lat, lng: view.lng, moved: false }
         event.currentTarget.setPointerCapture(event.pointerId)
       }}
       onPointerMove={(event) => {
@@ -318,27 +345,28 @@ function FallbackSlippyMap({
           return
         }
         if (!panRef.current.active) return
+        if (Math.abs(event.clientX - panRef.current.x) > 8 || Math.abs(event.clientY - panRef.current.y) > 8) {
+          panRef.current.moved = true
+        }
         const start = latLngToWorld(panRef.current.lat, panRef.current.lng, zoom)
         setView(worldToLatLng(start.x - (event.clientX - panRef.current.x), start.y - (event.clientY - panRef.current.y), zoom))
       }}
       onPointerUp={(event) => {
+        const tapped = panRef.current.active && !panRef.current.moved && pointersRef.current.size <= 1
         pointersRef.current.delete(event.pointerId)
         if (pointersRef.current.size < 2) pinchRef.current = 0
         if (pointersRef.current.size === 0) panRef.current.active = false
-      }}
-      onPointerCancel={(event) => {
-        pointersRef.current.delete(event.pointerId)
-        pinchRef.current = 0
-        panRef.current.active = false
-      }}
-      onClick={(event) => {
-        if (!interactive) return
-        if (panRef.current.active) return
+        if (!interactive || !tapped) return
         if (onActivate && !onPick) {
           onActivate()
           return
         }
         pickFromPoint(event.clientX, event.clientY)
+      }}
+      onPointerCancel={(event) => {
+        pointersRef.current.delete(event.pointerId)
+        pinchRef.current = 0
+        panRef.current.active = false
       }}
     >
       {tiles.map((tile) => (
@@ -375,7 +403,11 @@ function FallbackSlippyMap({
         <MapControls
           onZoomIn={onZoomIn}
           onZoomOut={onZoomOut}
-          onLocate={() => setView({ lat: pinLat ?? lat, lng: pinLng ?? lng })}
+          locatePlacement={locatePlacement}
+          onLocate={() => {
+            setView({ lat, lng })
+            onLocate?.()
+          }}
         />
       ) : null}
     </div>
@@ -383,7 +415,7 @@ function FallbackSlippyMap({
 }
 
 function NaverLocationMap(props: MapViewProps) {
-  const { lat, lng, pinLat, pinLng, className, interactive, pulsePin, hidePin, showZoom, bottomInset = 0, onPick, onActivate } = props
+  const { lat, lng, pinLat, pinLng, className, interactive, pulsePin, hidePin, showZoom, bottomInset = 0, locatePlacement = 'stacked', onPick, onActivate, onLocate } = props
   const hostRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<NaverMapInstance | null>(null)
@@ -525,12 +557,14 @@ function NaverLocationMap(props: MapViewProps) {
         <MapControls
           onZoomIn={() => changeNaverZoom(1)}
           onZoomOut={() => changeNaverZoom(-1)}
+          locatePlacement={locatePlacement}
           onLocate={() => {
             const map = mapRef.current
             const sdk = mapsRef.current
             if (!map || !sdk) return
-            map.panTo(new sdk.LatLng(pinLat ?? lat, pinLng ?? lng))
+            map.panTo(new sdk.LatLng(lat, lng))
             pinRef.current?.draw?.()
+            onLocate?.()
           }}
         />
       ) : null}

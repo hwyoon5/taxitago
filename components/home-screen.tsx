@@ -146,38 +146,108 @@ function FullscreenMapView({
   lng,
   address,
   onClose,
+  onConfirmPickup,
 }: {
   lat: number
   lng: number
   address: string
   onClose: () => void
+  onConfirmPickup: (place: { lat: number; lng: number; address: string }) => void
 }) {
+  const [pin, setPin] = useState({ lat, lng })
+  const [pickedAddress, setPickedAddress] = useState<string | null>(null)
+  const [addressPending, setAddressPending] = useState(false)
+  const [askConfirm, setAskConfirm] = useState(false)
+  const lookupSeq = useRef(0)
+
+  const resetToGps = () => {
+    lookupSeq.current += 1
+    setPin({ lat, lng })
+    setPickedAddress(null)
+    setAskConfirm(false)
+    setAddressPending(false)
+  }
+
+  const handlePick = (nextLat: number, nextLng: number) => {
+    const seq = lookupSeq.current + 1
+    lookupSeq.current = seq
+    setPin({ lat: nextLat, lng: nextLng })
+    setAskConfirm(false)
+    setAddressPending(true)
+    const fallback = virtualPickupAddress(nextLat, nextLng)
+    setPickedAddress(fallback)
+    void lookupMapAddress(nextLat, nextLng).then((nextAddress) => {
+      if (lookupSeq.current !== seq) return
+      setPickedAddress(nextAddress)
+      setAddressPending(false)
+    })
+  }
+
+  const handlePopup = () => {
+    if (!pickedAddress || addressPending) return
+    if (!askConfirm) {
+      setAskConfirm(true)
+      return
+    }
+    onConfirmPickup({ lat: pin.lat, lng: pin.lng, address: pickedAddress })
+  }
+
   return (
     <div className="fixed inset-0 z-[100] bg-[#E2E8F0]" role="dialog" aria-modal="true" aria-label="전체화면 지도">
       <LocationTileMap
         lat={lat}
         lng={lng}
-        pinLat={lat}
-        pinLng={lng}
+        pinLat={pin.lat}
+        pinLng={pin.lng}
         className="h-full min-h-0 w-full touch-none"
         interactive
         showZoom
         pulsePin
+        locatePlacement="bottom"
+        onPick={handlePick}
+        onLocate={resetToGps}
       />
       <button
         type="button"
         onClick={onClose}
-        className="absolute left-4 top-[max(0.9rem,env(safe-area-inset-top))] z-10 inline-flex min-h-10 items-center gap-0.5 rounded-full bg-white/95 px-3.5 pr-4 text-[13px] font-black text-[#0F172A] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
+        className="absolute left-4 top-[max(0.9rem,env(safe-area-inset-top))] z-30 inline-flex min-h-10 items-center gap-0.5 rounded-full bg-white/95 px-3.5 pr-4 text-[13px] font-black text-[#0F172A] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
         aria-label="뒤로가기"
       >
         <ChevronLeft className="h-5 w-5" />
         뒤로가기
       </button>
-      <div className="pointer-events-none absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-10">
-        <p className="rounded-2xl bg-white/95 px-3.5 py-2.5 text-[12px] font-bold leading-snug text-[#334155] shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
-          현재 위치 · {address}
-        </p>
-      </div>
+      {!pickedAddress ? (
+        <div className="pointer-events-none absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-30">
+          <p className="rounded-2xl bg-white/95 px-3.5 py-2.5 text-[12px] font-bold leading-snug text-[#334155] shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
+            현재 위치 · {address}
+          </p>
+        </div>
+      ) : (
+        <div className="absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-30 flex justify-center">
+          <button
+            type="button"
+            onClick={handlePopup}
+            disabled={addressPending}
+            className="w-full max-w-sm rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3 text-left shadow-[0_12px_28px_rgba(15,23,42,0.18)]"
+          >
+            {askConfirm ? (
+              <>
+                <span className="block text-[11px] font-bold text-[#7C3AED]">출발지 지정</span>
+                <span className="mt-1 block text-[15px] font-black leading-snug text-[#4C1FB8]">출발지로 할까요?</span>
+                <span className="mt-1 block text-[12px] font-bold leading-snug text-[#64748B]">{pickedAddress}</span>
+              </>
+            ) : (
+              <>
+                <span className="block text-[11px] font-bold text-[#7C3AED]">선택한 위치</span>
+                <span className="mt-1 block text-[14px] font-black leading-snug text-[#0F172A]">
+                  {addressPending ? '주소를 불러오는 중…' : pickedAddress}
+                </span>
+                {!addressPending ? <span className="mt-1 block text-[11px] font-bold text-[#94A3B8]">주소를 눌러 출발지로 지정</span> : null}
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -3992,6 +4062,7 @@ export default function HomeScreen() {
   const [walletOpen, setWalletOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
   const [fullscreenMapOpen, setFullscreenMapOpen] = useState(false)
+  const pickupLockedRef = useRef(false)
   const [gps, setGps] = useState<GpsFix>({
     status: 'pending',
     address: '현재 위치를 확인하는 중',
@@ -4031,6 +4102,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!navigator.geolocation) {
+      if (pickupLockedRef.current) return
       setGps({
         status: 'denied',
         address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
@@ -4040,6 +4112,7 @@ export default function HomeScreen() {
       return
     }
     const timer = window.setTimeout(() => {
+      if (pickupLockedRef.current) return
       setGps((current) =>
         current.status === 'pending'
           ? {
@@ -4054,12 +4127,14 @@ export default function HomeScreen() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         window.clearTimeout(timer)
+        if (pickupLockedRef.current) return
         const lat = position.coords.latitude
         const lng = position.coords.longitude
         setGps({ status: 'ready', address: virtualPickupAddress(lat, lng), lat, lng })
       },
       () => {
         window.clearTimeout(timer)
+        if (pickupLockedRef.current) return
         setGps({
           status: 'denied',
           address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
@@ -4315,6 +4390,11 @@ export default function HomeScreen() {
             lng={gps.lng}
             address={gps.address}
             onClose={() => setFullscreenMapOpen(false)}
+            onConfirmPickup={(place) => {
+              pickupLockedRef.current = true
+              setGps({ status: 'ready', address: place.address, lat: place.lat, lng: place.lng })
+              setFullscreenMapOpen(false)
+            }}
           />
         ) : null}
         {receiptRide && <ReceiptModal ride={receiptRide} onClose={() => setReceiptRide(null)} onNotice={showNotice} />}
