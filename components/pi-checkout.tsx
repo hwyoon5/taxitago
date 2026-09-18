@@ -93,7 +93,7 @@ export async function preparePiSdk() {
   return pi
 }
 
-/** Opens the official Pi payment popup and talks to our approve/complete APIs. */
+/** Opens the official Pi payment popup (must run from a click) and talks to approve/complete APIs. */
 export function startPiCheckout(options: {
   amount: number
   memo: string
@@ -102,42 +102,66 @@ export function startPiCheckout(options: {
   const amount = Math.round(options.amount * 1_000_000) / 1_000_000
   if (!(amount > 0)) return Promise.reject(new Error('invalid amount'))
 
-  return preparePiSdk().then(
-    (pi) =>
-      new Promise<PiCheckoutResult>((resolve, reject) => {
-        pi.createPayment(
-          {
-            amount,
-            memo: options.memo.slice(0, 25),
-            metadata: options.metadata ?? {},
-          },
-          {
-            onReadyForServerApproval: async (paymentId) => {
-              console.log('[Pi] onReadyForServerApproval', paymentId)
-              await postPiApi('/api/pi/approve', { paymentId })
-            },
-            onReadyForServerCompletion: async (paymentId, txid) => {
-              console.log('[Pi] onReadyForServerCompletion', paymentId, txid)
-              try {
-                await postPiApi('/api/pi/complete', { paymentId, txid })
-                resolve({ paymentId, txid })
-              } catch (error) {
-                reject(error instanceof Error ? error : new Error('complete failed'))
-                throw error
-              }
-            },
-            onCancel: (paymentId) => {
-              console.log('[Pi] onCancel', paymentId)
-              reject(new Error('cancelled'))
-            },
-            onError: (error, payment) => {
-              console.error('[Pi] onError', error, payment)
-              reject(error)
-            },
-          },
-        )
-      }),
-  )
+  const pi = typeof window !== 'undefined' ? window.Pi : undefined
+  if (!pi?.createPayment) {
+    return Promise.reject(new Error('Pi SDK not available. Open this app in Pi Browser.'))
+  }
+
+  if (!initialized) {
+    try {
+      pi.init({ version: '2.0', sandbox: false })
+    } catch {
+      /* already initialized */
+    }
+    initialized = true
+  }
+
+  if (!authPromise) {
+    authPromise = pi
+      .authenticate(['username', 'payments'], async (payment) => {
+        const paymentId = typeof payment.identifier === 'string' ? payment.identifier : ''
+        const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
+        if (paymentId && txid) await postPiApi('/api/pi/complete', { paymentId, txid })
+      })
+      .catch((error) => {
+        authPromise = null
+        throw error
+      })
+  }
+
+  return new Promise<PiCheckoutResult>((resolve, reject) => {
+    pi.createPayment(
+      {
+        amount,
+        memo: options.memo.slice(0, 25),
+        metadata: options.metadata ?? {},
+      },
+      {
+        onReadyForServerApproval: async (paymentId) => {
+          console.log('[Pi] onReadyForServerApproval', paymentId)
+          await postPiApi('/api/pi/approve', { paymentId })
+        },
+        onReadyForServerCompletion: async (paymentId, txid) => {
+          console.log('[Pi] onReadyForServerCompletion', paymentId, txid)
+          try {
+            await postPiApi('/api/pi/complete', { paymentId, txid })
+            resolve({ paymentId, txid })
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error('complete failed'))
+            throw error
+          }
+        },
+        onCancel: (paymentId) => {
+          console.log('[Pi] onCancel', paymentId)
+          reject(new Error('cancelled'))
+        },
+        onError: (error, payment) => {
+          console.error('[Pi] onError', error, payment)
+          reject(error)
+        },
+      },
+    )
+  })
 }
 
 export function PiCheckoutButton({
@@ -160,21 +184,17 @@ export function PiCheckoutButton({
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'type'>) {
   const [busy, setBusy] = useState(false)
 
-  const handleClick = async () => {
+  const handleClick = () => {
     if (busy || disabled) return
     setBusy(true)
-    try {
-      const result = await startPiCheckout({ amount, memo, metadata })
-      onPaid?.(result)
-    } catch (error) {
-      onFailed?.(error instanceof Error ? error : new Error('payment failed'))
-    } finally {
-      setBusy(false)
-    }
+    startPiCheckout({ amount, memo, metadata })
+      .then((result) => onPaid?.(result))
+      .catch((error) => onFailed?.(error instanceof Error ? error : new Error('payment failed')))
+      .finally(() => setBusy(false))
   }
 
   return (
-    <button type="button" {...buttonProps} disabled={busy || disabled} onClick={() => void handleClick()} className={className}>
+    <button type="button" {...buttonProps} disabled={busy || disabled} onClick={handleClick} className={className}>
       {busy ? 'Pi 결제 진행 중…' : children}
     </button>
   )

@@ -1305,6 +1305,7 @@ function DestinationSheet({
   onNotice,
   balance,
   onPay,
+  onSettle,
   onNeedCharge,
   onAskReview,
 }: {
@@ -1313,6 +1314,7 @@ function DestinationSheet({
   onNotice: (message: string) => void
   balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
+  onSettle: (amount: number, place: string, label: string, estimated?: number) => void
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
@@ -1325,6 +1327,7 @@ function DestinationSheet({
   const selectedPrice = options.find(([name]) => name === selectedService)?.[1] ?? '0'
   const fare = Number(selectedPrice)
   const place = `서울시청 → ${destination}`
+  const billed = isRidePayLabel(selectedService) ? settleRideFare(fare, `dest:${selectedService}:${place}`) : { estimate: fare, actual: fare }
   const callSelected = () => {
     if (!selectedService) return
     setMatchState('matching')
@@ -1333,27 +1336,6 @@ function DestinationSheet({
       onNotice('기사 매칭이 완료되었습니다.')
     }, 2000)
   }
-  const finishTrip = async () => {
-    if (finishedRef.current || matchState !== 'matched') return
-    const billed = isRidePayLabel(selectedService) ? settleRideFare(fare, `dest:${selectedService}:${place}`) : { estimate: fare, actual: fare }
-    finishedRef.current = true
-    const ok = await onPay(billed.actual, place, selectedService, isRidePayLabel(selectedService) ? billed.estimate : undefined)
-    if (!ok) {
-      finishedRef.current = false
-      return
-    }
-    onAskReview({
-      name: '김파이',
-      vehicle: selectedService === '프리미엄' ? '카카오 T 모범' : '카카오 T 일반',
-      plate: '서울34바 1234',
-    })
-    onClose()
-  }
-  useEffect(() => {
-    if (matchState !== 'matched') return
-    const timer = window.setTimeout(() => finishTrip(), 5000)
-    return () => window.clearTimeout(timer)
-  }, [matchState])
   const cancelMatching = () => {
     setMatchState('select')
     onNotice('기사 호출을 취소했어요.')
@@ -1440,9 +1422,24 @@ function DestinationSheet({
                 채팅하기
               </button>
             </div>
-            <button type="button" onClick={finishTrip} className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
+            <PiCheckoutButton
+              amount={billed.actual}
+              memo={`${selectedService} ${billed.actual} Pi`}
+              metadata={{ kind: 'service-pay', place, label: selectedService }}
+              className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
+              onPaid={() => {
+                onSettle(billed.actual, place, selectedService, isRidePayLabel(selectedService) ? billed.estimate : undefined)
+                onAskReview({
+                  name: '김파이',
+                  vehicle: selectedService === '프리미엄' ? '카카오 T 모범' : '카카오 T 일반',
+                  plate: '서울34바 1234',
+                })
+                onClose()
+              }}
+              onFailed={() => onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')}
+            >
               이용 완료
-            </button>
+            </PiCheckoutButton>
             <p className="text-center text-[11px] font-bold text-[#8b8495]">목적지 도착 후 눌러 주세요 · 하차 완료</p>
             <button onClick={cancelMatching} className="w-full rounded-2xl border border-[#d8d1e5] bg-white py-3.5 font-black text-[#5f566d]">
               호출 취소
@@ -1564,6 +1561,7 @@ function TaxiMatchingSheet({
   onNotice,
   balance,
   onPay,
+  onSettle,
   onNeedCharge,
   onAskReview,
 }: {
@@ -1572,6 +1570,7 @@ function TaxiMatchingSheet({
   onNotice: (message: string) => void
   balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
+  onSettle: (amount: number, place: string, label: string, estimated?: number) => void
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
@@ -1605,18 +1604,6 @@ function TaxiMatchingSheet({
 
   const cancelRide = () => {
     onNotice(phase === 'searching' ? '택시 호출을 취소했어요.' : '배차를 취소했어요.')
-    onClose()
-  }
-
-  const completeRide = async () => {
-    if (finishedRef.current) return
-    finishedRef.current = true
-    const ok = await onPay(billed.actual, route, '택시 호출', billed.estimate)
-    if (!ok) {
-      finishedRef.current = false
-      return
-    }
-    onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
     onClose()
   }
 
@@ -1711,12 +1698,23 @@ function TaxiMatchingSheet({
                 onRequestQr={() => undefined}
                 onPay={onPay}
                 onNeedCharge={onNeedCharge}
-                onContinue={completeRide}
+                onContinue={() => undefined}
                 onPrepaidSettled={() => undefined}
               />
-              <button type="button" onClick={completeRide} className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]">
+              <PiCheckoutButton
+                amount={billed.actual}
+                memo="TaxiTago taxi fare"
+                metadata={{ kind: 'taxi-postpay', route }}
+                className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
+                onPaid={() => {
+                  onSettle(billed.actual, route, '택시 호출', billed.estimate)
+                  onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
+                  onClose()
+                }}
+                onFailed={() => onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')}
+              >
                 이용 완료 · 후결제
-              </button>
+              </PiCheckoutButton>
               <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 눌러 주세요 · 하차 완료</p>
               <button type="button" onClick={cancelRide} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
                 {phase === 'moving' ? '운행 취소' : '호출 취소'}
@@ -1737,6 +1735,7 @@ function ServiceSheet({
   onNotice,
   balance,
   onPay,
+  onSettle,
   onNeedCharge,
   onAskReview,
   initialPhase = 'idle',
@@ -1747,6 +1746,7 @@ function ServiceSheet({
   onNotice: (message: string) => void
   balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
+  onSettle: (amount: number, place: string, label: string, estimated?: number) => void
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
@@ -1820,20 +1820,6 @@ function ServiceSheet({
     setPhase('matching')
     onNotice(selfServe ? `${service} 이용을 시작했어요.` : `${service} 호출을 시작했어요.`)
   }
-  const completeService = async () => {
-    if (finishedRef.current) return
-    finishedRef.current = true
-    const skipCharge = settleTiming === 'prepaid' && prepaidSettled
-    if (!skipCharge && (settleTiming === 'postpaid' || settleTiming === 'qr_auto' || settleTiming === 'prepaid')) {
-      const ok = await onPay(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined)
-      if (!ok) {
-        finishedRef.current = false
-        return
-      }
-    }
-    onAskReview(partner)
-    onClose()
-  }
   useEffect(() => {
     if (phase !== 'matching') return
     const timer = window.setTimeout(() => {
@@ -1843,11 +1829,6 @@ function ServiceSheet({
     }, 2200)
     return () => window.clearTimeout(timer)
   }, [phase, service, onNotice])
-  useEffect(() => {
-    if (phase !== 'assigned' || ride) return
-    const timer = window.setTimeout(() => completeService(), 8000)
-    return () => window.clearTimeout(timer)
-  }, [phase])
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-[#241d35]/45 p-0 sm:p-4">
       <div className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 pb-8 pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)] sm:rounded-[32px]">
@@ -1919,12 +1900,23 @@ function ServiceSheet({
               onRequestQr={() => setQrOpen(true)}
               onPay={onPay}
               onNeedCharge={onNeedCharge}
-              onContinue={completeService}
+              onContinue={() => undefined}
               onPrepaidSettled={() => setPrepaidSettled(true)}
             />
-            <button type="button" onClick={completeService} className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]">
+            <PiCheckoutButton
+              amount={chargeAmount}
+              memo={`${service} ${chargeAmount} Pi`}
+              metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
+              className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
+              onPaid={() => {
+                onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined)
+                onAskReview(partner)
+                onClose()
+              }}
+              onFailed={() => onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')}
+            >
               {settleTiming === 'qr_auto' ? '이용 완료 · 자동결제' : settleTiming === 'postpaid' ? '이용 완료 · 후결제' : '이용 완료'}
-            </button>
+            </PiCheckoutButton>
             <p className="text-center text-[11px] font-bold text-[#64748B]">이용이 끝나면 눌러 주세요</p>
           </div>
         )}
@@ -1963,9 +1955,21 @@ function ServiceSheet({
                 운행 시작
               </button>
             ) : null}
-            <button type="button" onClick={completeService} className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
+            <PiCheckoutButton
+              amount={ride && rideStage === 'moving' ? billed.actual : fare}
+              memo={`${service} ${(ride && rideStage === 'moving' ? billed.actual : fare)} Pi`}
+              metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
+              className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
+              onPaid={() => {
+                const paid = ride && rideStage === 'moving' ? billed.actual : fare
+                onSettle(paid, place, `${service} 이용`, ride ? billed.estimate : undefined)
+                onAskReview(partner)
+                onClose()
+              }}
+              onFailed={() => onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')}
+            >
               이용 완료
-            </button>
+            </PiCheckoutButton>
             <p className="text-center text-[11px] font-bold text-[#8b8495]">{ride && rideStage === 'arriving' ? '기사님이 도착하면 운행을 시작해 주세요' : '도착 후 눌러 주세요 · 하차 완료'}</p>
           </div>
         )}
@@ -3740,6 +3744,13 @@ export default function HomeScreen() {
       return next
     })
   }
+  const settlePiLedger = (amount: number, place: string, label: string, estimated?: number) => {
+    const remaining = Math.round((walletBalance - amount) * 100) / 100
+    const at = formatPiTime()
+    setWalletBalance(Math.max(0, remaining))
+    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
+    setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated })
+  }
   const payWithPi = async (amount: number, place: string, label: string, estimated?: number) => {
     try {
       await startPiCheckout({
@@ -3747,11 +3758,7 @@ export default function HomeScreen() {
         memo: `${label} ${amount} Pi`,
         metadata: { kind: 'service-pay', place, label },
       })
-      const remaining = Math.round((walletBalance - amount) * 100) / 100
-      const at = formatPiTime()
-      setWalletBalance(Math.max(0, remaining))
-      setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
-      setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated })
+      settlePiLedger(amount, place, label, estimated)
       return true
     } catch {
       showNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
@@ -3962,7 +3969,7 @@ export default function HomeScreen() {
           />
         ) : null}
         {walletOpen && <WalletModal balance={walletBalance} onClose={() => setWalletOpen(false)} onDeposit={depositWallet} onWithdraw={withdrawWallet} transactions={transactions} onNotice={showNotice} onReceipt={setReceiptRide} />}
-        {destination && <DestinationSheet destination={destination} onClose={() => setDestination('')} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} />}
+        {destination && <DestinationSheet destination={destination} onClose={() => setDestination('')} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onSettle={settlePiLedger} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} />}
         {daeriSetupOpen ? (
           <DaeriCallSetupSheet
             destination={destination}
@@ -3974,7 +3981,7 @@ export default function HomeScreen() {
             }}
           />
         ) : null}
-        {selectedService === '택시' && <TaxiMatchingSheet destination={destination} onClose={() => setSelectedService(null)} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} />}
+        {selectedService === '택시' && <TaxiMatchingSheet destination={destination} onClose={() => setSelectedService(null)} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onSettle={settlePiLedger} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} />}
         {selectedService && selectedService !== '택시' && (
           <ServiceSheet
             service={selectedService}
@@ -3985,6 +3992,7 @@ export default function HomeScreen() {
             onNotice={showNotice}
             balance={walletBalance}
             onPay={payWithPi}
+            onSettle={settlePiLedger}
             onNeedCharge={showChargePrompt}
             onAskReview={setDriverReview}
             initialPhase={selectedService === '대리운전' && daeriTrip ? 'matching' : 'idle'}
