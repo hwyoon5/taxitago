@@ -3057,14 +3057,14 @@ function ActivityInbox({
         <>
           {SAMPLE_RIDES.map((ride) => (
             <button key={ride.transactionId} type="button" onClick={() => tabRides(ride)} className="mt-3 w-full rounded-3xl border-2 border-[#CBD5E1] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.1)] transition hover:border-[#4C1FB8] active:scale-[0.99]">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-black text-[#1E293B]">{ride.route}</p>
-                  <p className="mt-2 text-xs font-bold text-[#64748B]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 overflow-hidden pr-1">
+                  <p className="break-all font-black leading-5 text-[#1E293B] [overflow-wrap:anywhere] line-clamp-2">{ride.route}</p>
+                  <p className="mt-2 truncate text-xs font-bold text-[#64748B]">
                     {ride.vehicle} · {ride.date}
                   </p>
                 </div>
-                <strong className="text-[#7046dc]">{ride.fare}</strong>
+                <strong className="shrink-0 whitespace-nowrap tabular-nums text-[#7046dc]">{ride.fare}</strong>
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-[#E2E8F0] pt-3 text-xs font-bold text-[#8b8495]">
                 <span>{ride.distance}</span>
@@ -3390,12 +3390,14 @@ function WalletModal({
                 className="w-full rounded-2xl border border-[#E0D4FF] bg-white p-4 text-left transition hover:border-[#4C1FB8] active:scale-[0.99]"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-black">{transaction.label}</p>
-                    <p className="mt-1 text-xs font-bold text-[#4C1FB8]">{transaction.place}</p>
-                    <p className="mt-1 text-xs font-bold text-[#8b8495]">{transaction.at}</p>
+                  <div className="min-w-0 flex-1 overflow-hidden pr-1">
+                    <p className="truncate font-black">{transaction.label}</p>
+                    <p className="mt-1 break-all text-xs font-bold leading-5 text-[#4C1FB8] [overflow-wrap:anywhere] line-clamp-2" title={transaction.place}>
+                      {transaction.place}
+                    </p>
+                    <p className="mt-1 truncate text-xs font-bold text-[#8b8495]">{transaction.at}</p>
                   </div>
-                  <strong className={transaction.amount > 0 ? 'text-[#2d9a5e]' : 'text-[#4C1FB8]'}>
+                  <strong className={`shrink-0 whitespace-nowrap tabular-nums ${transaction.amount > 0 ? 'text-[#2d9a5e]' : 'text-[#4C1FB8]'}`}>
                     {transaction.amount > 0 ? '+' : ''}
                     {transaction.amount.toFixed(2)} Pi
                   </strong>
