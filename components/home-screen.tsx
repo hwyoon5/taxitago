@@ -141,6 +141,47 @@ async function lookupMapAddress(lat: number, lng: number) {
   }
 }
 
+function FullscreenMapView({
+  lat,
+  lng,
+  address,
+  onClose,
+}: {
+  lat: number
+  lng: number
+  address: string
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] bg-[#E2E8F0]" role="dialog" aria-modal="true" aria-label="전체화면 지도">
+      <LocationTileMap
+        lat={lat}
+        lng={lng}
+        pinLat={lat}
+        pinLng={lng}
+        className="h-full min-h-0 w-full touch-none"
+        interactive
+        showZoom
+        pulsePin
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute left-4 top-[max(0.9rem,env(safe-area-inset-top))] z-10 inline-flex min-h-10 items-center gap-0.5 rounded-full bg-white/95 px-3.5 pr-4 text-[13px] font-black text-[#0F172A] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
+        aria-label="뒤로가기"
+      >
+        <ChevronLeft className="h-5 w-5" />
+        뒤로가기
+      </button>
+      <div className="pointer-events-none absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-10">
+        <p className="rounded-2xl bg-white/95 px-3.5 py-2.5 text-[12px] font-bold leading-snug text-[#334155] shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
+          현재 위치 · {address}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function LocationMapModal({ onClose }: { onClose: () => void }) {
   const [gpsPending, setGpsPending] = useState(true)
   const [addressPending, setAddressPending] = useState(true)
@@ -3950,6 +3991,7 @@ export default function HomeScreen() {
   const [walletBalance, setWalletBalance] = useState(18.4)
   const [walletOpen, setWalletOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
+  const [fullscreenMapOpen, setFullscreenMapOpen] = useState(false)
   const [gps, setGps] = useState<GpsFix>({
     status: 'pending',
     address: '현재 위치를 확인하는 중',
@@ -4188,9 +4230,16 @@ export default function HomeScreen() {
             }`}
           >
             <LocateFixed className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 truncate">
+            <span className="min-w-0 flex-1 truncate">
               {gps.status === 'pending' ? 'GPS 위치를 수신하는 중이에요' : gps.status === 'ready' ? `현재 위치 · ${gps.address}` : `위치 권한 없음 · ${gps.address}`}
             </span>
+            <button
+              type="button"
+              onClick={() => setFullscreenMapOpen(true)}
+              className="shrink-0 rounded-full bg-[#4C1FB8] px-2.5 py-1 text-[11px] font-black text-white shadow-[0_4px_10px_rgba(76,31,184,0.28)]"
+            >
+              지도확인
+            </button>
           </div>
           <div className="mt-2 flex gap-2">
             <button
@@ -4260,6 +4309,14 @@ export default function HomeScreen() {
           })}
         </nav>
         {mapOpen ? <LocationMapModal onClose={() => setMapOpen(false)} /> : null}
+        {fullscreenMapOpen ? (
+          <FullscreenMapView
+            lat={gps.lat}
+            lng={gps.lng}
+            address={gps.address}
+            onClose={() => setFullscreenMapOpen(false)}
+          />
+        ) : null}
         {receiptRide && <ReceiptModal ride={receiptRide} onClose={() => setReceiptRide(null)} onNotice={showNotice} />}
         {inboxItem && <InboxDetailModal item={inboxItem} onClose={() => setInboxItem(null)} />}
         {headerModal && (
