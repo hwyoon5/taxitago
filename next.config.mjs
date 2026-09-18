@@ -12,6 +12,9 @@ const naverMapClientId = (
 const nextConfig = {
   output: 'export',
   trailingSlash: true,
+  // Keep generated pages at /mypage/ but do not 308 /validation-key.txt → /validation-key.txt/
+  // (that slash path misses the public file and falls through to the SPA 404 home screen).
+  skipTrailingSlashRedirect: true,
   images: {
     unoptimized: true,
   },

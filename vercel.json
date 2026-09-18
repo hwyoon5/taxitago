@@ -1,6 +1,7 @@
 {
   "framework": "nextjs",
   "buildCommand": "next build && node -e \"const fs=require('fs'); fs.copyFileSync('out/index.html','out/404.html'); fs.copyFileSync('public/validation-key.txt','out/validation-key.txt');\"",
+  "trailingSlash": false,
   "headers": [
     {
       "source": "/validation-key.txt",
@@ -11,11 +12,10 @@
       ]
     }
   ],
-  "redirects": [
+  "rewrites": [
     {
       "source": "/validation-key.txt/",
-      "destination": "/validation-key.txt",
-      "permanent": true
+      "destination": "/validation-key.txt"
     }
   ]
 }
