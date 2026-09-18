@@ -2883,17 +2883,63 @@ function Home({
 
 function ReceiptModal({ ride, onClose, onNotice }: { ride: RideReceipt; onClose: () => void; onNotice: (message: string) => void }) {
   const shareReceipt = async () => {
+    const title = '택시타고 영수증'
     const text = `택시타고 영수증 ${ride.transactionId}\n${ride.origin} → ${ride.dest}\n결제 ${ride.fare} · ${ride.method}\n${ride.driver} 기사님 · ${ride.car} ${ride.plate}\n${ride.date}`
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: '택시타고 영수증', text })
-        return
+    const url = typeof window !== 'undefined' ? window.location.href : ''
+    const copiedMessage = '링크가 클립보드에 복사되었습니다'
+
+    const isAbort = (error: unknown) =>
+      (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError'
+
+    const tryNativeShare = async (data: ShareData) => {
+      if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') return false
+      if (typeof navigator.canShare === 'function') {
+        try {
+          if (!navigator.canShare(data)) return false
+        } catch {
+          return false
+        }
       }
-      await navigator.clipboard.writeText(text)
-      onNotice('영수증 내용이 복사되었습니다')
-    } catch {
-      onNotice('공유가 취소되었습니다')
+      try {
+        await navigator.share(data)
+        return true
+      } catch (error) {
+        if (isAbort(error)) return true
+        return false
+      }
     }
+
+    const copyLink = async (value: string) => {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(value)
+          return true
+        }
+      } catch {
+        /* fall through */
+      }
+      try {
+        const input = document.createElement('textarea')
+        input.value = value
+        input.setAttribute('readonly', '')
+        input.style.position = 'fixed'
+        input.style.left = '-9999px'
+        document.body.appendChild(input)
+        input.select()
+        const ok = document.execCommand('copy')
+        document.body.removeChild(input)
+        return ok
+      } catch {
+        return false
+      }
+    }
+
+    if (await tryNativeShare({ title, text, url })) return
+    if (await tryNativeShare({ title, text })) return
+
+    const copied = await copyLink(url || text)
+    onNotice(copiedMessage)
+    if (!copied) window.alert(copiedMessage)
   }
   return (
     <div className="fixed inset-0 z-[98] flex items-end bg-[#1e1033]/50 p-0 sm:items-center sm:p-4" onClick={onClose}>
