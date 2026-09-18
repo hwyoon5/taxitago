@@ -286,3 +286,173 @@
     opacity: 0;
   }
 }
+
+@keyframes tt-search-cruise {
+  0% {
+    left: 0;
+    transform: translateX(0) scaleX(1);
+  }
+  46% {
+    left: 100%;
+    transform: translateX(-100%) scaleX(1);
+  }
+  50% {
+    left: 100%;
+    transform: translateX(-100%) scaleX(-1);
+  }
+  96% {
+    left: 0;
+    transform: translateX(0) scaleX(-1);
+  }
+  100% {
+    left: 0;
+    transform: translateX(0) scaleX(1);
+  }
+}
+
+@keyframes tt-search-bounce {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.8deg) scale(1, 1);
+  }
+  22% {
+    transform: translateY(-5.2px) rotate(-5.2deg) scale(0.96, 1.08);
+  }
+  48% {
+    transform: translateY(1.1px) rotate(1deg) scale(1.06, 0.92);
+  }
+  72% {
+    transform: translateY(-4.2px) rotate(4.6deg) scale(0.97, 1.06);
+  }
+}
+
+@keyframes tt-search-shadow {
+  0%,
+  100% {
+    transform: scale(1, 1);
+    opacity: 0.22;
+  }
+  30%,
+  78% {
+    transform: scale(0.72, 0.65);
+    opacity: 0.1;
+  }
+  52% {
+    transform: scale(1.08, 1);
+    opacity: 0.28;
+  }
+}
+
+@keyframes tt-search-wheel {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes tt-search-dashes {
+  0% {
+    transform: translateX(0);
+  }
+  46% {
+    transform: translateX(-84px);
+  }
+  50% {
+    transform: translateX(-84px);
+  }
+  96% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes tt-search-hills {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-7px);
+  }
+}
+
+@keyframes tt-search-cloud {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(9px);
+  }
+}
+
+@keyframes tt-search-lamp {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.tt-search-cruise {
+  animation: tt-search-cruise 5.8s cubic-bezier(0.45, 0.08, 0.45, 1) infinite;
+  will-change: left, transform;
+}
+
+.tt-search-bounce {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: tt-search-bounce 0.7s cubic-bezier(0.34, 1.45, 0.64, 1) infinite;
+  transform-origin: 50% 88%;
+  will-change: transform;
+}
+
+.tt-search-shadow {
+  animation: tt-search-shadow 0.7s cubic-bezier(0.34, 1.45, 0.64, 1) infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.tt-search-wheel {
+  animation: tt-search-wheel 0.52s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.tt-search-dashes {
+  animation: tt-search-dashes 5.8s cubic-bezier(0.45, 0.08, 0.45, 1) infinite;
+}
+
+.tt-search-hills {
+  animation: tt-search-hills 5.8s ease-in-out infinite;
+}
+
+.tt-search-cloud-a {
+  animation: tt-search-cloud 7.2s ease-in-out infinite;
+}
+
+.tt-search-cloud-b {
+  animation: tt-search-cloud 9s ease-in-out infinite reverse;
+}
+
+.tt-search-lamp {
+  animation: tt-search-lamp 1.35s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-search-cruise,
+  .tt-search-bounce,
+  .tt-search-shadow,
+  .tt-search-wheel,
+  .tt-search-dashes,
+  .tt-search-hills,
+  .tt-search-cloud-a,
+  .tt-search-cloud-b,
+  .tt-search-lamp {
+    animation: none;
+  }
+}

@@ -1,4 +1,21 @@
 {
   "framework": "nextjs",
-  "buildCommand": "next build"
+  "buildCommand": "next build && node -e \"const fs=require('fs'); fs.copyFileSync('out/index.html','out/404.html'); fs.copyFileSync('public/validation-key.txt','out/validation-key.txt');\"",
+  "headers": [
+    {
+      "source": "/validation-key.txt",
+      "headers": [
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/validation-key.txt/",
+      "destination": "/validation-key.txt",
+      "permanent": true
+    }
+  ]
 }
