@@ -62,6 +62,20 @@ function ServiceIconButton({
 }
 
 
+const SUGGESTED_DESTINATIONS = [
+  { name: '부산역', address: '부산광역시 동구 중앙대로 206' },
+  { name: '서면 롯데백화점', address: '부산광역시 부산진구 가야대로 772' },
+  { name: '해운대 해수욕장', address: '부산광역시 해운대구 해운대해변로 264' },
+  { name: '김해공항', address: '부산광역시 강서구 공항진입로 108' },
+] as const
+
+type GpsFix = {
+  status: 'pending' | 'ready' | 'denied'
+  address: string
+  lat: number
+  lng: number
+}
+
 const VIRTUAL_AREAS = [
   { name: '서울특별시 중구 태평로', lat: 37.5665, lng: 126.978 },
   { name: '서울특별시 강남구 역삼동', lat: 37.501, lng: 127.037 },
@@ -2451,41 +2465,156 @@ function DaeriPromoBanner({ onCall }: { onCall: () => void }) {
   )
 }
 
-function Home({ destination, onDestination, onService, onReceipt }: { destination: string; onDestination: (value: string) => void; onService: (value: string) => void; onReceipt: (ride: RideReceipt) => void }) {
+function Home({
+  destination,
+  pickup,
+  gps,
+  onDestination,
+  onService,
+  onReceipt,
+  onOpenMap,
+}: {
+  destination: string
+  pickup: string
+  gps: GpsFix
+  onDestination: (value: string) => void
+  onService: (value: string) => void
+  onReceipt: (ride: RideReceipt) => void
+  onOpenMap: () => void
+}) {
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [formOpen, setFormOpen] = useState(false)
+  const [favorites, setFavorites] = useState<FavoritePlace[]>([])
+  const [recents, setRecents] = useState<RecentPlace[]>([])
+
+  useEffect(() => {
+    setFavorites(readFavoritePlaces())
+    setRecents(readRecentPlaces())
+  }, [])
+
+  const rememberRecent = (name: string, address?: string) => {
+    const next = [{ id: `${Date.now()}`, name, address: address || name }, ...recents.filter((place) => place.name !== name && place.address !== address)]
+    setRecents(next)
+    writeRecentPlaces(next)
+  }
+  const select = (name: string, address?: string) => {
+    rememberRecent(name, address)
+    onDestination(address || name)
+    setSearchOpen(false)
+  }
+  const addFavorite = (place: { name: string; address: string }) => {
+    const next = [...favorites, { id: `${Date.now()}`, ...place }]
+    setFavorites(next)
+    writeFavoritePlaces(next)
+    setFormOpen(false)
+  }
+  const removeFavorite = (id: string) => {
+    const next = favorites.filter((place) => place.id !== id)
+    setFavorites(next)
+    writeFavoritePlaces(next)
+  }
+  const removeRecent = (id: string) => {
+    const next = recents.filter((place) => place.id !== id)
+    setRecents(next)
+    writeRecentPlaces(next)
+  }
+  const callTaxi = () => {
+    if (!destination) {
+      setSearchOpen(true)
+      return
+    }
+    onService('택시')
+  }
+
   return (
-    <main className="flex-1 overflow-x-clip overflow-y-auto px-4 pb-40 pt-4">
-      <SearchCard destination={destination} onSelect={onDestination} />
-      <section className="pt-5">
-        <div className="flex items-end justify-between">
-          <h2 className="text-lg font-black tracking-tight text-[#0F172A]">무엇을 이용할까요?</h2>
-          <span className="text-[11px] font-bold text-[#475569]">8개 서비스</span>
+    <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="absolute inset-0 bg-[#E2E8F0]">
+        <LocationTileMap
+          lat={gps.lat}
+          lng={gps.lng}
+          pinLat={gps.lat}
+          pinLng={gps.lng}
+          className="h-full min-h-[42vh] w-full sm:min-h-[48vh]"
+          pulsePin
+        />
+      </div>
+      <div className="relative z-10 mt-auto max-h-[68vh] overflow-y-auto rounded-t-[28px] bg-white px-4 pb-28 pt-2 shadow-[0_-18px_40px_rgba(15,23,42,0.18)] sm:max-h-[58vh]">
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#E2E8F0]" />
+        <div className="rounded-[22px] border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+          <button type="button" onClick={onOpenMap} className="flex min-h-12 w-full items-center gap-3 rounded-2xl bg-white px-3 py-2.5 text-left shadow-[0_4px_12px_rgba(15,23,42,0.06)]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
+              <LocateFixed className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-bold text-[#64748B]">출발지</span>
+              <span className="mt-0.5 block truncate text-sm font-black text-[#0F172A]">{pickup}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="mt-2 flex min-h-14 w-full items-center gap-3 rounded-2xl border-2 border-[#7C3AED] bg-white px-3 py-3 text-left shadow-[0_8px_18px_rgba(124,58,237,0.12)]"
+            aria-label={destination ? `목적지 ${destination}` : '목적지 검색 열기'}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
+              <Search className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-bold text-[#7C3AED]">목적지</span>
+              <span className={`mt-0.5 block truncate text-[15px] font-black ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
+                {destination || '어디로 갈까요?'}
+              </span>
+            </span>
+          </button>
         </div>
-        <div className="mt-3 rounded-[26px] bg-[#E2E8F0] p-3">
-          <div className="grid grid-cols-4 gap-x-2 gap-y-4">
-            {services.map((item) => (
-              <ServiceIconButton key={item.label} service={item} onClick={() => onService(item.label)} />
-            ))}
-          </div>
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {SUGGESTED_DESTINATIONS.map((place) => {
+            const active = destination === place.name || destination === place.address
+            return (
+              <button
+                key={place.name}
+                type="button"
+                onClick={() => select(place.name, place.address)}
+                className={`inline-flex min-h-10 shrink-0 items-center rounded-full px-4 text-[13px] font-black transition active:scale-95 ${
+                  active ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'bg-[#F1F5F9] text-[#1E293B]'
+                }`}
+              >
+                {place.name}
+              </button>
+            )
+          })}
         </div>
-      </section>
-      <button
-        type="button"
-        onClick={() => onService('택시')}
-        className="mt-5 flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#4A82B8] py-4 text-[17px] font-bold tracking-tight text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] active:scale-[0.99] active:bg-[#386A9A]"
-      >
-        택시 호출하기
-      </button>
-      <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-5 w-full rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 text-left text-[#0F172A] shadow-[0_14px_28px_rgba(15,23,42,0.14)] transition hover:border-[#4C1FB8] active:scale-[0.99]">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-bold text-[#475569]">최근 이용 기록</p>
-          <span className="rounded-full border border-[#B9A3F7] bg-[#E8DCFF] px-2.5 py-1 text-[10px] font-black text-[#3B16A8]">완료</span>
+        <button
+          type="button"
+          onClick={callTaxi}
+          className="mt-4 flex min-h-14 w-full items-center justify-center rounded-[18px] bg-[#4C1FB8] text-[17px] font-black tracking-tight text-white shadow-[0_12px_28px_rgba(76,31,184,0.35)] transition hover:bg-[#3B16A8] active:scale-[0.99]"
+        >
+          택시 호출하기
+        </button>
+        <div className="mt-4 grid grid-cols-4 gap-2">
+          {services.slice(0, 4).map((item) => (
+            <ServiceIconButton key={item.label} service={item} onClick={() => onService(item.label)} />
+          ))}
         </div>
-        <p className="mt-3 font-black tracking-tight">
-          서울시청 <span className="px-1 text-[#4C1FB8]">→</span> 강남역
-        </p>
-        <p className="mt-2 text-sm font-bold text-[#334155]">택시 · 어제 · 3.2 Pi</p>
-        <p className="mt-3 text-xs font-black text-[#4C1FB8]">상세 영수증 보기 ›</p>
-      </button>
+        <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-4 w-full rounded-2xl border border-[#E2E8F0] bg-white p-3 text-left">
+          <p className="text-[11px] font-bold text-[#64748B]">최근 이용</p>
+          <p className="mt-1 text-sm font-black">서울시청 → 강남역 · 3.2 Pi</p>
+        </button>
+      </div>
+      {searchOpen ? (
+        <DestinationSearchModal
+          destination={destination}
+          favorites={favorites}
+          recents={recents}
+          onClose={() => setSearchOpen(false)}
+          onSelect={select}
+          onAddFavorite={() => setFormOpen(true)}
+          onRemoveFavorite={removeFavorite}
+          onRemoveRecent={removeRecent}
+          onOpenMap={onOpenMap}
+        />
+      ) : null}
+      {formOpen ? <FavoritePlaceModal onClose={() => setFormOpen(false)} onSave={addFavorite} /> : null}
     </main>
   )
 }
@@ -3722,6 +3851,13 @@ export default function HomeScreen() {
   const [notice, setNotice] = useState('')
   const [walletBalance, setWalletBalance] = useState(18.4)
   const [walletOpen, setWalletOpen] = useState(false)
+  const [mapOpen, setMapOpen] = useState(false)
+  const [gps, setGps] = useState<GpsFix>({
+    status: 'pending',
+    address: '현재 위치를 확인하는 중',
+    lat: SEOUL_CITY_HALL.lat,
+    lng: SEOUL_CITY_HALL.lng,
+  })
   const [chargePromptOpen, setChargePromptOpen] = useState(false)
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'activity' | 'account' | null>(null)
@@ -3751,6 +3887,49 @@ export default function HomeScreen() {
     setIsPartnerRegistered(loadIsPartnerRegistered())
     setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setGps({
+        status: 'denied',
+        address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
+        lat: SEOUL_CITY_HALL.lat,
+        lng: SEOUL_CITY_HALL.lng,
+      })
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setGps((current) =>
+        current.status === 'pending'
+          ? {
+              status: 'denied',
+              address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
+              lat: SEOUL_CITY_HALL.lat,
+              lng: SEOUL_CITY_HALL.lng,
+            }
+          : current,
+      )
+    }, 6000)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        window.clearTimeout(timer)
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+        setGps({ status: 'ready', address: virtualPickupAddress(lat, lng), lat, lng })
+      },
+      () => {
+        window.clearTimeout(timer)
+        setGps({
+          status: 'denied',
+          address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
+          lat: SEOUL_CITY_HALL.lat,
+          lng: SEOUL_CITY_HALL.lng,
+        })
+      },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
+    )
+    return () => window.clearTimeout(timer)
   }, [])
 
   useEffect(() => {
@@ -3881,50 +4060,67 @@ export default function HomeScreen() {
   }
 
   return (
-    <main className="min-h-screen bg-[#E2E8F0] text-[#0F172A]">
-      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#E2E8F0] shadow-2xl">
-        <header className="flex items-start justify-between border-b-2 border-[#CBD5E1] bg-white px-5 pb-4 pt-7 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
-          <div>
-            <p className="text-[13px] font-semibold text-[#334155]">파이 모빌리티 · {user.username}</p>
-            <h1 className="mt-1 text-[30px] font-black text-[#0F172A]">{driverMode ? '파트너 대시보드' : '택시타고'}</h1>
-            <button onClick={openWallet} className="mt-2 rounded-full border-2 border-[#B9A3F7] bg-[#E8DCFF] px-2.5 py-1 text-[11px] font-black text-[#3B16A8] transition hover:bg-[#DDD0FF] active:scale-95">
-              Pi 잔액 {walletBalance.toFixed(2)} Pi
-            </button>
-          </div>
-          <div className="flex flex-col items-end gap-3.5">
-            <div className="flex items-center gap-2">
-              <button onClick={() => setHeaderModal('activity')} className="flex h-9 w-9 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-[0_6px_14px_rgba(76,31,184,0.4)] transition hover:bg-[#3B16A8] active:scale-90" aria-label="시간별 활동 기록">
+    <main className="min-h-dvh bg-[#E2E8F0] text-[#0F172A]">
+      <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-[#F8FAFC] shadow-2xl">
+        <header className="relative z-20 border-b border-[#E2E8F0] bg-white/95 px-4 pb-3 pt-[max(0.9rem,env(safe-area-inset-top))] backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold tracking-wide text-[#7C3AED]">TAXI TAGO</p>
+              <h1 className="truncate text-[22px] font-black leading-tight text-[#0F172A]">{driverMode ? '파트너 대시보드' : '택시타고'}</h1>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button onClick={openWallet} className="rounded-full bg-[#EDE5FF] px-2.5 py-1.5 text-[11px] font-black text-[#4C1FB8]">
+                {walletBalance.toFixed(2)} Pi
+              </button>
+              <button onClick={() => setHeaderModal('activity')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4C1FB8] text-white" aria-label="시간별 활동 기록">
                 <Bell className="h-4 w-4" />
               </button>
-              <button onClick={() => setHeaderModal('account')} className="flex h-9 w-9 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-[0_6px_14px_rgba(76,31,184,0.4)] transition hover:bg-[#3B16A8] active:scale-90" aria-label="파이 계정 연동">
+              <button onClick={() => setHeaderModal('account')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4C1FB8] text-white" aria-label="파이 계정 연동">
                 <UserRound className="h-4 w-4" />
               </button>
             </div>
-            <div className="flex w-[108px] flex-col items-stretch gap-3">
+          </div>
+          <div
+            className={`mt-3 flex min-h-10 items-center gap-2 rounded-2xl px-3 py-2 text-[12px] font-bold ${
+              gps.status === 'ready'
+                ? 'bg-[#ECFDF5] text-[#047857]'
+                : gps.status === 'pending'
+                  ? 'bg-[#FFFBEB] text-[#B45309]'
+                  : 'bg-[#F1F5F9] text-[#475569]'
+            }`}
+          >
+            <LocateFixed className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 truncate">
+              {gps.status === 'pending' ? 'GPS 위치를 수신하는 중이에요' : gps.status === 'ready' ? `현재 위치 · ${gps.address}` : `위치 권한 없음 · ${gps.address}`}
+            </span>
+          </div>
+          <div className="mt-2 flex gap-2">
             <button
               type="button"
               onClick={toggleDriverMode}
-              className={`box-border flex h-6 w-full items-center justify-center gap-1 rounded-full px-2 text-[10px] font-black leading-none ${driverMode ? 'bg-[#4A82B8] text-white shadow-[0_6px_14px_rgba(74,130,184,0.35)]' : 'border border-[#94A3B8] bg-white text-[#0F172A]'}`}
+              className={`min-h-9 flex-1 rounded-full px-3 text-[11px] font-black ${driverMode ? 'bg-[#4A82B8] text-white' : 'border border-[#CBD5E1] bg-white text-[#334155]'}`}
             >
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${driverMode ? 'bg-[#BBF7D0]' : isDriverRegistered ? 'bg-[#4A82B8]' : 'bg-[#64748B]'}`} />
               {driverMode ? '승객 모드' : '기사/파트너'}
             </button>
             {!driverMode && !isDriverRegistered ? (
-              <button
-                type="button"
-                onClick={() => setPartnerSignupOpen(true)}
-                className="box-border flex h-6 w-full items-center justify-center rounded-full border border-[#4C1FB8] bg-[#EDE5FF] px-2 text-[10px] font-black leading-none text-[#3B16A8] shadow-[0_4px_10px_rgba(76,31,184,0.14)] transition hover:bg-[#E0D4FF] active:scale-95"
-              >
-                <span className="block origin-center scale-[0.82] whitespace-nowrap tracking-tight">기사/파트너 회원가입</span>
+              <button type="button" onClick={() => setPartnerSignupOpen(true)} className="min-h-9 flex-1 rounded-full border border-[#4C1FB8] bg-[#EDE5FF] px-3 text-[11px] font-black text-[#3B16A8]">
+                회원가입
               </button>
             ) : null}
-            </div>
           </div>
         </header>
         {driverMode ? (
           <DriverDashboard online={driverOnline} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} />
         ) : (
-          <Home destination={destination} onDestination={selectDestination} onService={openService} onReceipt={setReceiptRide} />
+          <Home
+            destination={destination}
+            pickup={gps.address}
+            gps={gps}
+            onDestination={selectDestination}
+            onService={openService}
+            onReceipt={setReceiptRide}
+            onOpenMap={() => setMapOpen(true)}
+          />
         )}
         {tab !== '홈' && (
           <div className="fixed inset-x-0 top-0 z-30 flex items-end bg-[#241d35]/35" style={{ bottom: '4.75rem' }} onClick={() => setTab('홈')}>
@@ -3936,7 +4132,6 @@ export default function HomeScreen() {
             </div>
           </div>
         )}
-        {!driverMode && tab === '홈' ? <DaeriPromoBanner onCall={() => setDaeriSetupOpen(true)} /> : null}
         <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 justify-around border-t-2 border-[#CBD5E1] bg-white px-1 pb-3 pt-2 shadow-[0_-10px_24px_rgba(15,23,42,0.12)]">
           {navItems.map(({ id, label, icon: Icon }) => {
             const active = tab === id
@@ -3966,6 +4161,7 @@ export default function HomeScreen() {
             )
           })}
         </nav>
+        {mapOpen ? <LocationMapModal onClose={() => setMapOpen(false)} /> : null}
         {receiptRide && <ReceiptModal ride={receiptRide} onClose={() => setReceiptRide(null)} onNotice={showNotice} />}
         {inboxItem && <InboxDetailModal item={inboxItem} onClose={() => setInboxItem(null)} />}
         {headerModal && (
@@ -4010,7 +4206,6 @@ export default function HomeScreen() {
           />
         ) : null}
         {walletOpen && <WalletModal balance={walletBalance} onClose={() => setWalletOpen(false)} onDeposit={depositWallet} onWithdraw={withdrawWallet} transactions={transactions} onNotice={showNotice} onReceipt={setReceiptRide} />}
-        {destination && !selectedService ? <DestinationSheet destination={destination} onClose={() => setDestination('')} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onSettle={settlePiLedger} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} /> : null}
         {daeriSetupOpen ? (
           <DaeriCallSetupSheet
             destination={destination}
