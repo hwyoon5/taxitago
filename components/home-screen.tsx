@@ -2916,10 +2916,10 @@ function ReceiptModal({ ride, onClose, onNotice }: { ride: RideReceipt; onClose:
   }
   return (
     <div className="fixed inset-0 z-[98] flex items-end bg-[#1e1033]/50 p-0 sm:items-center sm:p-4" onClick={onClose}>
-      <section className="mx-auto max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white p-5 shadow-2xl sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
+      <section className="mx-auto max-h-[92vh] w-full max-w-md overflow-x-hidden overflow-y-auto rounded-t-[32px] bg-white p-5 shadow-2xl sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <p className="text-xs font-black text-[#4C1FB8]">이용 기록 · 상세 영수증</p>
             <h2 className="mt-1 text-2xl font-black text-[#0F172A]">결제 영수증</h2>
           </div>
@@ -2935,19 +2935,23 @@ function ReceiptModal({ ride, onClose, onNotice }: { ride: RideReceipt; onClose:
           ) : null}
           <p className="mt-2 text-xs font-black text-[#E8DCFF]">결제 수단 · {ride.method}</p>
         </div>
-        <div className="mt-4 rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
+        <div className="mt-4 min-w-0 overflow-hidden rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
           <p className="text-xs font-black text-[#4C1FB8]">이동 경로</p>
-          <div className="mt-3 flex items-start gap-3">
-            <div className="flex flex-col items-center pt-1">
+          <div className="mt-3 flex min-w-0 items-start gap-3">
+            <div className="flex shrink-0 flex-col items-center pt-1">
               <span className="h-2.5 w-2.5 rounded-full bg-[#4C1FB8]" />
               <span className="my-1 h-8 w-0.5 bg-[#C4B5FD]" />
               <span className="h-2.5 w-2.5 rounded-full bg-[#0F172A]" />
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 overflow-hidden">
               <p className="text-[11px] font-bold text-[#8b8495]">출발지</p>
-              <p className="font-black text-[#0F172A]">{ride.origin}</p>
+              <p className="mt-0.5 break-all font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere] line-clamp-3" title={ride.origin}>
+                {ride.origin}
+              </p>
               <p className="mt-3 text-[11px] font-bold text-[#8b8495]">도착지</p>
-              <p className="font-black text-[#0F172A]">{ride.dest}</p>
+              <p className="mt-0.5 break-all font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere] line-clamp-3" title={ride.dest}>
+                {ride.dest}
+              </p>
             </div>
           </div>
         </div>
@@ -2971,8 +2975,8 @@ function ReceiptModal({ ride, onClose, onNotice }: { ride: RideReceipt; onClose:
         </div>
         <dl className="mt-3 divide-y divide-[#EDE5FF] rounded-[22px] border border-[#E0D4FF] bg-white px-4">
           <div className="flex justify-between gap-3 py-3 text-sm">
-            <dt className="font-bold text-[#64748B]">영수증 번호</dt>
-            <dd className="font-mono text-xs font-black text-[#0F172A]">{ride.transactionId}</dd>
+            <dt className="shrink-0 font-bold text-[#64748B]">영수증 번호</dt>
+            <dd className="min-w-0 break-all text-right font-mono text-xs font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere]">{ride.transactionId}</dd>
           </div>
           <div className="flex justify-between gap-3 py-3 text-sm">
             <dt className="font-bold text-[#64748B]">발행 일시</dt>
