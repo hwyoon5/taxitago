@@ -2681,11 +2681,19 @@ function Home({
         >
           택시 호출하기
         </button>
-        <div className="mt-2.5 grid grid-cols-4 gap-1">
-          {services.slice(0, 4).map((item) => (
-            <ServiceIconButton key={item.label} compact service={item} onClick={() => onService(item.label)} />
-          ))}
-        </div>
+        <section className="mt-2.5">
+          <div className="flex items-end justify-between px-0.5">
+            <h2 className="text-sm font-black tracking-tight text-[#0F172A]">무엇을 이용할까요?</h2>
+            <span className="text-[10px] font-bold text-[#475569]">8개 서비스</span>
+          </div>
+          <div className="mt-2 rounded-[22px] bg-[#E2E8F0] p-3">
+            <div className="grid grid-cols-4 gap-x-2 gap-y-4">
+              {services.map((item) => (
+                <ServiceIconButton key={item.label} service={item} onClick={() => onService(item.label)} />
+              ))}
+            </div>
+          </div>
+        </section>
         <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-2 w-full rounded-xl border border-[#E2E8F0] bg-white px-2.5 py-2 text-left">
           <p className="text-[10px] font-bold text-[#64748B]">최근 이용</p>
           <p className="text-[13px] font-black leading-tight">서울시청 → 강남역 · 3.2 Pi</p>
