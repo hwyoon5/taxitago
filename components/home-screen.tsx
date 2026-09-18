@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { notices, type Notice } from '@/lib/notices'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
@@ -2647,6 +2647,77 @@ function DaeriPromoBanner({ onCall }: { onCall: () => void }) {
   )
 }
 
+const HOME_EVENT_BANNERS = [
+  {
+    id: 'first-ride',
+    badge: 'EVENT',
+    title: '첫 호출 50% Pi 할인',
+    subtitle: '신규 탑승 쿠폰이 자동 적용돼요',
+    cta: '지금 호출',
+    action: '택시' as ServiceLabel,
+    icon: Sparkles,
+    className: 'from-[#6D28D9] via-[#5B21B6] to-[#1E1B4B]',
+  },
+  {
+    id: 'daeri-night',
+    badge: 'AD',
+    title: '심야 대리 3,000원 쿠폰',
+    subtitle: '늦은 밤에도 편하게 집까지',
+    cta: '대리 보기',
+    action: '대리운전' as ServiceLabel,
+    icon: Car,
+    className: 'from-[#0F766E] via-[#0F172A] to-[#1E1B4B]',
+  },
+  {
+    id: 'invite-pi',
+    badge: 'EVENT',
+    title: '친구 초대하고 Pi 적립',
+    subtitle: '초대할 때마다 0.2 Pi 지급',
+    cta: '혜택 보기',
+    action: '더보기' as ServiceLabel,
+    icon: Gift,
+    className: 'from-[#DB2777] via-[#7C3AED] to-[#312E81]',
+  },
+] as const
+
+function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => void }) {
+  return (
+    <section className="mt-3" aria-label="이벤트 및 광고">
+      <div className="flex items-end justify-between px-0.5">
+        <h2 className="text-sm font-black tracking-tight text-[#0F172A]">이벤트 · 혜택</h2>
+        <span className="text-[10px] font-bold text-[#64748B]">좌우로 넘겨 보세요</span>
+      </div>
+      <div className="mt-2 flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {HOME_EVENT_BANNERS.map((banner) => {
+          const Icon = banner.icon
+          return (
+            <button
+              key={banner.id}
+              type="button"
+              onClick={() => onAction(banner.action)}
+              className={`relative min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start overflow-hidden rounded-[22px] bg-gradient-to-br p-4 text-left text-white shadow-[0_12px_24px_rgba(76,31,184,0.22)] ${banner.className}`}
+              aria-label={`${banner.badge} ${banner.title}`}
+            >
+              <span className="pointer-events-none absolute -right-4 -top-6 h-24 w-24 rounded-full bg-white/10" />
+              <span className="pointer-events-none absolute bottom-[-1.5rem] right-8 h-20 w-20 rounded-full bg-white/10" />
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/18 px-2 py-0.5 text-[10px] font-black tracking-wide">
+                <Icon className="h-3 w-3" />
+                {banner.badge}
+              </span>
+              <p className="mt-2.5 text-[17px] font-black leading-snug tracking-tight">{banner.title}</p>
+              <p className="mt-1 text-[12px] font-bold leading-5 text-white/80">{banner.subtitle}</p>
+              <span className="mt-3 inline-flex items-center gap-0.5 text-[12px] font-black">
+                {banner.cta}
+                <ChevronRight className="h-3.5 w-3.5" />
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function Home({
   destination,
   pickup,
@@ -2668,13 +2739,6 @@ function Home({
   const [formOpen, setFormOpen] = useState(false)
   const [favorites, setFavorites] = useState<FavoritePlace[]>([])
   const [recents, setRecents] = useState<RecentPlace[]>([])
-  const [sheetOpen, setSheetOpen] = useState(true)
-  const [sheetHeight, setSheetHeight] = useState(360)
-  const [dragOffset, setDragOffset] = useState(0)
-  const [sheetDragging, setSheetDragging] = useState(false)
-  const sheetRef = useRef<HTMLElement>(null)
-  const dragRef = useRef({ active: false, startX: 0, startY: 0, axis: null as null | 'x' | 'y', fromHandle: false })
-  const peekHeight = 118
 
   useEffect(() => {
     setFavorites(readFavoritePlaces())
@@ -2710,108 +2774,34 @@ function Home({
   const callTaxi = () => {
     if (!destination) {
       setSearchOpen(true)
-      setSheetOpen(true)
       return
     }
     onService('택시')
   }
 
-  useLayoutEffect(() => {
-    const node = sheetRef.current
-    if (!node) return
-    const measure = () => setSheetHeight(node.offsetHeight)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [destination, pickup, searchOpen])
-
-  const maxSheetY = Math.max(0, sheetHeight - peekHeight)
-  const sheetOrigin = sheetOpen ? 0 : maxSheetY
-  const sheetY = Math.min(maxSheetY, Math.max(0, sheetOrigin + dragOffset))
-
-  const finishSheetDrag = (clientY: number) => {
-    if (!dragRef.current.active) return
-    const delta = clientY - dragRef.current.startY
-    const fromHandle = dragRef.current.fromHandle
-    const axis = dragRef.current.axis
-    dragRef.current = { active: false, startX: 0, startY: 0, axis: null, fromHandle: false }
-    setSheetDragging(false)
-    setDragOffset(0)
-    if (axis === 'x') return
-    if (Math.abs(delta) < 12) {
-      if (fromHandle) setSheetOpen((open) => !open)
-      return
-    }
-    const projected = Math.min(maxSheetY, Math.max(0, sheetOrigin + delta))
-    setSheetOpen(projected < maxSheetY * 0.5)
-  }
-
-  const onSheetPointerDown = (event: React.PointerEvent<HTMLElement>, fromHandle = false) => {
-    if (event.pointerType === 'mouse' && event.button !== 0) return
-    dragRef.current = { active: true, startX: event.clientX, startY: event.clientY, axis: null, fromHandle }
-  }
-
-  const onSheetPointerMove = (event: React.PointerEvent<HTMLElement>) => {
-    if (!dragRef.current.active) return
-    const dx = event.clientX - dragRef.current.startX
-    const dy = event.clientY - dragRef.current.startY
-    if (!dragRef.current.axis) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
-      dragRef.current.axis = Math.abs(dy) >= Math.abs(dx) ? 'y' : 'x'
-      if (dragRef.current.axis === 'y') {
-        setSheetDragging(true)
-        event.currentTarget.setPointerCapture(event.pointerId)
-      }
-    }
-    if (dragRef.current.axis === 'y') {
-      event.preventDefault()
-      setDragOffset(dy)
-    }
-  }
-
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="absolute inset-0 z-0 bg-[#E2E8F0]">
+      <div className="relative h-[min(32vh,13.5rem)] shrink-0 bg-[#E2E8F0]">
         <LocationTileMap
           lat={gps.lat}
           lng={gps.lng}
           pinLat={gps.lat}
           pinLng={gps.lng}
-          className="h-full min-h-0 w-full touch-none"
+          className="h-full min-h-0 w-full"
           interactive
           showZoom
           pulsePin
         />
       </div>
       <section
-        ref={sheetRef}
-        className={`absolute inset-x-0 z-10 overflow-hidden rounded-t-[22px] bg-white px-3 pb-3 pt-1 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] ${sheetDragging ? '' : 'transition-transform duration-300 ease-out'}`}
-        style={{ bottom: '5.5rem', minHeight: peekHeight, transform: `translateY(${sheetY}px)` }}
-        onPointerDown={(event) => onSheetPointerDown(event, false)}
-        onPointerMove={onSheetPointerMove}
-        onPointerUp={(event) => finishSheetDrag(event.clientY)}
-        onPointerCancel={(event) => finishSheetDrag(event.clientY)}
+        className="relative z-10 -mt-4 min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-t-[22px] bg-white px-3 pb-[max(6.25rem,calc(5.25rem+env(safe-area-inset-bottom)))] pt-2 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] [-webkit-overflow-scrolling:touch]"
+        aria-label="홈 콘텐츠"
       >
-        <button
-          type="button"
-          data-sheet-handle="true"
-          aria-expanded={sheetOpen}
-          aria-label={sheetOpen ? '호출 창 접기' : '호출 창 펼치기'}
-          className="flex w-full touch-none flex-col items-center pb-1.5 pt-1"
-          onPointerDown={(event) => {
-            event.stopPropagation()
-            onSheetPointerDown(event, true)
-          }}
-          onPointerMove={onSheetPointerMove}
-          onPointerUp={(event) => finishSheetDrag(event.clientY)}
-          onPointerCancel={(event) => finishSheetDrag(event.clientY)}
-        >
+        <div className="flex flex-col items-center pb-2 pt-1" aria-hidden>
           <span className="h-1 w-10 rounded-full bg-[#D4D4D8]" />
-          <span className="mt-1 text-[10px] font-bold text-[#94A3B8]">{sheetOpen ? '아래로 밀어 지도를 더 보기' : '위로 밀어 호출 창 열기'}</span>
-        </button>
-        <div className="rounded-[18px] border border-[#E2E8F0] bg-[#F8FAFC] p-2">
-          <button type="button" onClick={onOpenMap} className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-white px-2.5 py-1.5 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
+        </div>
+        <div className="rounded-[18px] border border-[#E2E8F0] bg-[#F8FAFC] p-2.5">
+          <button type="button" onClick={onOpenMap} className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-white px-2.5 py-2 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
               <LocateFixed className="h-3.5 w-3.5" />
             </span>
@@ -2823,7 +2813,7 @@ function Home({
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="mt-1.5 flex w-full overflow-hidden rounded-xl border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
+            className="mt-2 flex w-full overflow-hidden rounded-xl border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
             style={{ WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
             aria-label={destination ? `목적지 ${destination}` : '목적지 검색 열기'}
           >
@@ -2841,7 +2831,7 @@ function Home({
             <DestinationTaxiLoop className="w-[7.5rem] shrink-0 self-stretch overflow-hidden" />
           </button>
         </div>
-        <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {SUGGESTED_DESTINATIONS.map((place) => {
             const active = destination === place.name || destination === place.address
             return (
@@ -2861,11 +2851,11 @@ function Home({
         <button
           type="button"
           onClick={callTaxi}
-          className="mt-2.5 flex min-h-12 w-full items-center justify-center rounded-2xl bg-[#4C1FB8] text-[15px] font-black tracking-tight text-white shadow-[0_8px_18px_rgba(76,31,184,0.28)] transition hover:bg-[#3B16A8] active:scale-[0.99]"
+          className="mt-3 flex min-h-12 w-full items-center justify-center rounded-2xl bg-[#4C1FB8] text-[15px] font-black tracking-tight text-white shadow-[0_8px_18px_rgba(76,31,184,0.28)] transition hover:bg-[#3B16A8] active:scale-[0.99]"
         >
           택시 호출하기
         </button>
-        <section className="mt-2.5">
+        <section className="mt-4">
           <div className="flex items-end justify-between px-0.5">
             <h2 className="text-sm font-black tracking-tight text-[#0F172A]">무엇을 이용할까요?</h2>
             <span className="text-[10px] font-bold text-[#475569]">8개 서비스</span>
@@ -2878,10 +2868,11 @@ function Home({
             </div>
           </div>
         </section>
-        <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-2 w-full rounded-xl border border-[#E2E8F0] bg-white px-2.5 py-2 text-left">
+        <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-3 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
           <p className="text-[10px] font-bold text-[#64748B]">최근 이용</p>
           <p className="text-[13px] font-black leading-tight">서울시청 → 강남역 · 3.2 Pi</p>
         </button>
+        <HomeEventBanners onAction={onService} />
       </section>
       {searchOpen ? (
         <DestinationSearchModal
