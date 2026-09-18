@@ -1,3 +1,8 @@
+type IncompletePiPayment = {
+  identifier?: string
+  transaction?: { txid?: string | null } | null
+}
+
 type PiPaymentCallbacks = {
   onReadyForServerApproval: (paymentId: string) => void | Promise<void>
   onReadyForServerCompletion: (paymentId: string, txid: string) => void | Promise<void>
@@ -7,6 +12,10 @@ type PiPaymentCallbacks = {
 
 type PiSdk = {
   init: (config: { version: string; sandbox?: boolean }) => void
+  authenticate: (
+    scopes: string[],
+    onIncompletePaymentFound: (payment: IncompletePiPayment) => void | Promise<void>,
+  ) => Promise<unknown>
   createPayment: (
     payment: { amount: number; memo: string; metadata: Record<string, unknown> },
     callbacks: PiPaymentCallbacks,
@@ -20,33 +29,77 @@ declare global {
 }
 
 let piInitialized = false
+let piAuthPromise: Promise<unknown> | null = null
 
-export function initPiMainnet() {
-  if (piInitialized || typeof window === 'undefined' || !window.Pi?.init) return
-  try {
-    window.Pi.init({ version: '2.0', sandbox: false })
-    piInitialized = true
-  } catch {
-    piInitialized = true
+function waitForPiSdk(timeoutMs = 8000) {
+  return new Promise<PiSdk>((resolve, reject) => {
+    const started = Date.now()
+    const tick = () => {
+      if (typeof window !== 'undefined' && window.Pi?.createPayment && window.Pi.init) {
+        resolve(window.Pi)
+        return
+      }
+      if (Date.now() - started >= timeoutMs) {
+        reject(new Error('Pi SDK not available. Open this app in Pi Browser.'))
+        return
+      }
+      window.setTimeout(tick, 120)
+    }
+    tick()
+  })
+}
+
+async function completeIncompletePayment(payment: IncompletePiPayment) {
+  const paymentId = typeof payment.identifier === 'string' ? payment.identifier : ''
+  const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
+  if (!paymentId || !txid) return
+  const response = await fetch('/api/pi/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentId, txid }),
+  })
+  if (!response.ok) {
+    throw new Error(`/api/pi/complete failed (${response.status})`)
   }
 }
 
-export function createMainnetPiPayment(options: {
+export async function initPiMainnet() {
+  const pi = await waitForPiSdk()
+  if (!piInitialized) {
+    try {
+      pi.init({ version: '2.0', sandbox: false })
+    } catch {
+      /* already initialized */
+    }
+    piInitialized = true
+  }
+  if (!piAuthPromise) {
+    piAuthPromise = pi.authenticate(['username', 'payments'], (payment) => completeIncompletePayment(payment)).catch((error) => {
+      piAuthPromise = null
+      throw error
+    })
+  }
+  await piAuthPromise
+  return pi
+}
+
+export async function createMainnetPiPayment(options: {
   amount: number
   memo: string
   metadata?: Record<string, unknown>
 }) {
-  initPiMainnet()
-  const pi = typeof window !== 'undefined' ? window.Pi : undefined
-  if (!pi?.createPayment) {
-    return Promise.resolve({ simulated: true as const })
+  const amount = Math.round(options.amount * 1_000_000) / 1_000_000
+  if (!(amount > 0)) {
+    throw new Error('invalid amount')
   }
+
+  const pi = await initPiMainnet()
 
   return new Promise<{ simulated: false; paymentId: string; txid: string }>((resolve, reject) => {
     pi.createPayment(
       {
-        amount: options.amount,
-        memo: options.memo,
+        amount,
+        memo: options.memo.slice(0, 25),
         metadata: options.metadata ?? {},
       },
       {

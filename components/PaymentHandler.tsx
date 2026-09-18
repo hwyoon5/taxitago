@@ -223,7 +223,7 @@ export function PaymentHandler({
   canProceed?: boolean
   onParkingOption: (value: ParkingPaymentOption) => void
   onRequestQr: () => void
-  onPay: (amount: number, place: string, label: string) => boolean
+  onPay: (amount: number, place: string, label: string) => boolean | Promise<boolean>
   onNeedCharge: () => void
   onContinue: () => void
   onPrepaidSettled: () => void
@@ -234,12 +234,12 @@ export function PaymentHandler({
   const enough = balance >= amount
   const needsQr = policy.requiresQr && !qrScanned
   const needsPrepaid = timing === 'prepaid' && !prepaidSettled
-  const payNow = () => {
+  const payNow = async () => {
     if (!enough) {
       onNeedCharge()
       return
     }
-    const ok = onPay(amount, place, `${policy.title} 선결제`)
+    const ok = await onPay(amount, place, `${policy.title} 선결제`)
     if (ok) onPrepaidSettled()
   }
   const primary = () => {

@@ -5,7 +5,7 @@ import { initPiMainnet } from '@/lib/pi-client'
 
 export function PiSdkInit() {
   useEffect(() => {
-    initPiMainnet()
+    void initPiMainnet().catch(() => undefined)
   }, [])
   return null
 }

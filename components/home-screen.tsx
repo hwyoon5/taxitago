@@ -1300,7 +1300,7 @@ function DestinationSheet({
   onClose: () => void
   onNotice: (message: string) => void
   balance: number
-  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean
+  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
@@ -1321,15 +1321,15 @@ function DestinationSheet({
       onNotice('기사 매칭이 완료되었습니다.')
     }, 2000)
   }
-  const finishTrip = () => {
+  const finishTrip = async () => {
     if (finishedRef.current || matchState !== 'matched') return
     const billed = isRidePayLabel(selectedService) ? settleRideFare(fare, `dest:${selectedService}:${place}`) : { estimate: fare, actual: fare }
-    if (isRidePayLabel(selectedService) && balance < billed.actual) {
-      onNeedCharge()
+    finishedRef.current = true
+    const ok = await onPay(billed.actual, place, selectedService, isRidePayLabel(selectedService) ? billed.estimate : undefined)
+    if (!ok) {
+      finishedRef.current = false
       return
     }
-    finishedRef.current = true
-    if (balance >= billed.actual) onPay(billed.actual, place, selectedService, isRidePayLabel(selectedService) ? billed.estimate : undefined)
     onAskReview({
       name: '김파이',
       vehicle: selectedService === '프리미엄' ? '카카오 T 모범' : '카카오 T 일반',
@@ -1559,7 +1559,7 @@ function TaxiMatchingSheet({
   onClose: () => void
   onNotice: (message: string) => void
   balance: number
-  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean
+  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
@@ -1596,14 +1596,14 @@ function TaxiMatchingSheet({
     onClose()
   }
 
-  const completeRide = () => {
+  const completeRide = async () => {
     if (finishedRef.current) return
-    if (balance < billed.actual) {
-      onNeedCharge()
+    finishedRef.current = true
+    const ok = await onPay(billed.actual, route, '택시 호출', billed.estimate)
+    if (!ok) {
+      finishedRef.current = false
       return
     }
-    finishedRef.current = true
-    onPay(billed.actual, route, '택시 호출', billed.estimate)
     onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
     onClose()
   }
@@ -1734,7 +1734,7 @@ function ServiceSheet({
   onClose: () => void
   onNotice: (message: string) => void
   balance: number
-  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean
+  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
@@ -1808,16 +1808,16 @@ function ServiceSheet({
     setPhase('matching')
     onNotice(selfServe ? `${service} 이용을 시작했어요.` : `${service} 호출을 시작했어요.`)
   }
-  const completeService = () => {
+  const completeService = async () => {
     if (finishedRef.current) return
-    if (ride && balance < chargeAmount) {
-      onNeedCharge()
-      return
-    }
     finishedRef.current = true
     const skipCharge = settleTiming === 'prepaid' && prepaidSettled
     if (!skipCharge && (settleTiming === 'postpaid' || settleTiming === 'qr_auto' || settleTiming === 'prepaid')) {
-      if (balance >= chargeAmount) onPay(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined)
+      const ok = await onPay(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined)
+      if (!ok) {
+        finishedRef.current = false
+        return
+      }
     }
     onAskReview(partner)
     onClose()
@@ -2839,7 +2839,7 @@ function WalletModal({
           <p className="mt-2 text-3xl font-black">
             {balance.toFixed(2)} <span className="text-lg text-[#E8DCFF]">Pi</span>
           </p>
-          <p className="mt-2 text-xs font-bold text-[#E8DCFF]">시뮬레이션 월렛 · 실제 체인 전송은 하지 않습니다</p>
+          <p className="mt-2 text-xs font-bold text-[#E8DCFF]">Pi Browser에서 충전하면 공식 결제 창이 열립니다</p>
         </section>
         <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
           {tabs.map((item) => (
@@ -3733,18 +3733,23 @@ export default function HomeScreen() {
       return next
     })
   }
-  const payWithPi = (amount: number, place: string, label: string, estimated?: number) => {
-    if (walletBalance < amount) {
-      showNotice('Pi 잔액이 부족합니다. 충전 후 다시 시도해 주세요.')
-      setWalletOpen(true)
+  const payWithPi = async (amount: number, place: string, label: string, estimated?: number) => {
+    try {
+      await createMainnetPiPayment({
+        amount,
+        memo: `${label} ${amount} Pi`,
+        metadata: { kind: 'service-pay', place, label },
+      })
+      const remaining = Math.round((walletBalance - amount) * 100) / 100
+      const at = formatPiTime()
+      setWalletBalance(Math.max(0, remaining))
+      setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
+      setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated })
+      return true
+    } catch {
+      showNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
       return false
     }
-    const remaining = Math.round((walletBalance - amount) * 100) / 100
-    const at = formatPiTime()
-    setWalletBalance(remaining)
-    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
-    setPaymentDone({ amount, place, remaining, estimated })
-    return true
   }
   const depositWallet = (amount: number) => {
     const at = formatPiTime()
