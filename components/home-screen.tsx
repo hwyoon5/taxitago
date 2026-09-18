@@ -3,7 +3,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { notices, type Notice } from '@/lib/notices'
-import MoreMenu from '@/components/more/more-menu'
+import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
+import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
@@ -49,7 +50,11 @@ function ServiceIconButton({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
       aria-label={`${service.label} 서비스 열기`}
       className="group flex flex-col items-center"
     >
@@ -1872,6 +1877,67 @@ function TaxiMatchingSheet({
   )
 }
 
+function MoreHubSheet({
+  onClose,
+  onNotice,
+  onSelectService,
+}: {
+  onClose: () => void
+  onNotice: (message: string) => void
+  onSelectService: (label: string) => void
+}) {
+  const [view, setView] = useState<MoreItemId | 'menu' | `notice:${string}`>('menu')
+  return (
+    <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={onClose}>
+      <section
+        className="mx-auto flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-white px-5 pb-8 pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#ddd7e7]" />
+        {view === 'menu' ? (
+          <>
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-black text-[#4C1FB8]">TAXITAGO SERVICE</p>
+                <h2 className="mt-1 text-2xl font-black">더보기</h2>
+              </div>
+              <button type="button" onClick={onClose} className="rounded-full bg-[#f4f1f8] p-2 text-[#5f566d]" aria-label="닫기">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+              <p className="mb-2 mt-4 text-xs font-black text-[#8b8495]">안내 · 설정</p>
+              <div className="-mt-5">
+                <MoreMenu onOpen={setView} />
+              </div>
+              <p className="mb-2 mt-5 text-xs font-black text-[#475569]">이동 서비스</p>
+              <div className="rounded-[22px] bg-[#E2E8F0] p-3">
+                <div className="grid grid-cols-4 gap-x-2 gap-y-4">
+                  {services
+                    .filter((item) => item.label !== '더보기')
+                    .map((item) => (
+                      <ServiceIconButton key={item.label} service={item} onClick={() => onSelectService(item.label)} />
+                    ))}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : view === 'notice' ? (
+          <NoticeListView onBack={() => setView('menu')} onOpen={(id) => setView(`notice:${id}`)} />
+        ) : view.startsWith('notice:') ? (
+          <NoticeDetailView id={view.slice(7)} onBack={() => setView('notice')} />
+        ) : view === 'fares' ? (
+          <FaresView onBack={() => setView('menu')} />
+        ) : view === 'support' ? (
+          <SupportView onBack={() => setView('menu')} onNotice={onNotice} />
+        ) : (
+          <SettingsView onBack={() => setView('menu')} onNotice={onNotice} />
+        )}
+      </section>
+    </div>
+  )
+}
+
 function ServiceSheet({
   service,
   onClose,
@@ -1883,6 +1949,7 @@ function ServiceSheet({
   onAskReview,
   initialPhase = 'idle',
   daeriTrip,
+  onSelectService,
 }: {
   service: string
   onClose: () => void
@@ -1894,6 +1961,7 @@ function ServiceSheet({
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
   daeriTrip?: { pickup: string; dest: string; plan: string; fare: number } | null
+  onSelectService?: (label: string) => void
 }) {
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
   const [deliveryVehicle, setDeliveryVehicle] = useState('오토바이')
@@ -1973,7 +2041,7 @@ function ServiceSheet({
     return () => window.clearTimeout(timer)
   }, [phase, service, onNotice])
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-[#241d35]/45 p-0 sm:p-4">
+    <div className="fixed inset-0 z-[90] flex items-end bg-[#241d35]/45 p-0 sm:p-4">
       <div className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 pb-8 pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)] sm:rounded-[32px]">
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" />
         <div className="flex items-start justify-between">
@@ -2299,7 +2367,14 @@ function ServiceSheet({
                 {services
                   .filter((item) => item.label !== '더보기')
                   .map((item) => (
-                    <ServiceIconButton key={item.label} service={item} onClick={() => action(`${item.label} 서비스를 선택했어요.`)} />
+                    <ServiceIconButton
+                      key={item.label}
+                      service={item}
+                      onClick={() => {
+                        if (onSelectService) onSelectService(item.label)
+                        else action(`${item.label} 서비스를 선택했어요.`)
+                      }}
+                    />
                   ))}
               </div>
             </div>
@@ -4052,6 +4127,7 @@ export default function HomeScreen() {
   const [tab, setTab] = useState('홈')
   const [destination, setDestination] = useState('')
   const [selectedService, setSelectedService] = useState<string | null>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [daeriSetupOpen, setDaeriSetupOpen] = useState(false)
   const [daeriTrip, setDaeriTrip] = useState<{ pickup: string; dest: string; plan: string; fare: number } | null>(null)
   const [notice, setNotice] = useState('')
@@ -4245,6 +4321,12 @@ export default function HomeScreen() {
     showNotice('평가 감사합니다. 0.1 Pi가 적립되었습니다.')
   }
   const openService = (value: string) => {
+    if (value === '더보기') {
+      setMoreOpen(true)
+      setTab('홈')
+      return
+    }
+    setMoreOpen(false)
     if (value === '대리운전') {
       setDaeriSetupOpen(true)
       setTab('홈')
@@ -4486,8 +4568,18 @@ export default function HomeScreen() {
             }}
           />
         ) : null}
+        {moreOpen ? (
+          <MoreHubSheet
+            onClose={() => setMoreOpen(false)}
+            onNotice={showNotice}
+            onSelectService={(label) => {
+              setMoreOpen(false)
+              openService(label)
+            }}
+          />
+        ) : null}
         {selectedService === '택시' && <TaxiMatchingSheet destination={destination} onClose={() => setSelectedService(null)} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onSettle={settlePiLedger} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} />}
-        {selectedService && selectedService !== '택시' && (
+        {selectedService && selectedService !== '택시' && selectedService !== '더보기' && (
           <ServiceSheet
             service={selectedService}
             onClose={() => {
@@ -4500,6 +4592,7 @@ export default function HomeScreen() {
             onSettle={settlePiLedger}
             onNeedCharge={showChargePrompt}
             onAskReview={setDriverReview}
+            onSelectService={openService}
             initialPhase={selectedService === '대리운전' && daeriTrip ? 'matching' : 'idle'}
             daeriTrip={selectedService === '대리운전' ? daeriTrip : null}
           />
