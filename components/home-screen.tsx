@@ -1137,7 +1137,7 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
           <Search className="h-5 w-5 shrink-0 text-[#4C1FB8]" />
           <span className={`min-w-0 flex-1 truncate text-sm font-extrabold ${destination ? 'text-[#0F172A]' : 'text-[#64748B]'}`}>{destination || '목적지를 입력해 주세요'}</span>
         </span>
-        <DestinationTaxiLoop className="w-[8.5rem] shrink-0 self-stretch rounded-r-[14px]" />
+        <DestinationTaxiLoop className="w-[10.25rem] shrink-0 self-stretch rounded-r-[14px]" />
       </button>
       <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
         <button type="button" onClick={() => select('집')} className={chipClass(destination === '집')}>
@@ -2762,7 +2762,7 @@ function Home({
                 </span>
               </span>
             </span>
-            <DestinationTaxiLoop className="w-[5.75rem] shrink-0 self-stretch" />
+            <DestinationTaxiLoop className="w-[7.5rem] shrink-0 self-stretch" />
           </button>
         </div>
         <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
