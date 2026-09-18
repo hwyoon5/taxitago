@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "buildCommand": "next build && node -e \"const fs=require('fs'); fs.copyFileSync('out/index.html','out/404.html'); fs.copyFileSync('public/validation-key.txt','out/validation-key.txt');\"",
+  "buildCommand": "next build",
   "trailingSlash": false,
   "headers": [
     {
