@@ -2823,21 +2823,21 @@ function Home({
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="mt-1.5 flex min-h-11 w-full items-stretch overflow-hidden rounded-xl border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
+            className="mt-1.5 flex min-h-[3.25rem] w-full items-stretch overflow-hidden rounded-xl border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
             aria-label={destination ? `목적지 ${destination}` : '목적지 검색 열기'}
           >
-            <span className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2">
+            <span className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
                 <Search className="h-3.5 w-3.5" />
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[10px] font-bold text-[#7C3AED]">목적지</span>
-                <span className={`block truncate text-sm font-black leading-tight ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
+              <span className="min-w-0 flex-1 py-0.5">
+                <span className="block text-[11px] font-bold leading-4 text-[#7C3AED]">목적지</span>
+                <span className={`mt-0.5 block truncate text-sm font-black leading-5 ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
                   {destination || '어디로 갈까요?'}
                 </span>
               </span>
             </span>
-            <DestinationTaxiLoop className="w-[7.5rem] shrink-0 self-stretch" />
+            <DestinationTaxiLoop className="w-[7.5rem] shrink-0 self-stretch overflow-hidden" />
           </button>
         </div>
         <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
