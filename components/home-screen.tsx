@@ -4142,7 +4142,6 @@ export default function HomeScreen() {
   }, [])
 
   useEffect(() => {
-  useEffect(() => {
     if (!navigator.geolocation) {
       if (pickupRef.current?.source === 'map') return
       const fallback = {
