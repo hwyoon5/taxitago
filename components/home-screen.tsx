@@ -39,9 +39,11 @@ const services: Service[] = [
 function ServiceIconButton({
   service,
   onClick,
+  compact = false,
 }: {
   service: Service
   onClick: () => void
+  compact?: boolean
 }) {
   const Illustration = serviceIllustrations[service.label]
   return (
@@ -51,10 +53,10 @@ function ServiceIconButton({
       aria-label={`${service.label} 서비스 열기`}
       className="group flex flex-col items-center"
     >
-      <span className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-white shadow-[0_8px_22px_rgba(15,23,42,0.10)] ring-1 ring-black/[0.04] transition group-hover:-translate-y-0.5 group-hover:shadow-[0_12px_26px_rgba(15,23,42,0.14)] group-active:scale-95">
+      <span className={`flex items-center justify-center bg-white shadow-[0_8px_22px_rgba(15,23,42,0.10)] ring-1 ring-black/[0.04] transition group-hover:-translate-y-0.5 group-active:scale-95 ${compact ? 'h-12 w-12 rounded-[16px]' : 'h-16 w-16 rounded-[22px]'}`}>
         <Illustration />
       </span>
-      <span className="mt-2 whitespace-nowrap text-[13px] font-black tracking-tight text-[#0F172A]">
+      <span className={`whitespace-nowrap font-black tracking-tight text-[#0F172A] ${compact ? 'mt-1 text-[11px]' : 'mt-2 text-[13px]'}`}>
         {service.label}
       </span>
     </button>
@@ -2538,36 +2540,36 @@ function Home({
           pulsePin
         />
       </div>
-      <div className="relative z-10 mt-auto max-h-[68vh] overflow-y-auto rounded-t-[28px] bg-white px-4 pb-28 pt-2 shadow-[0_-18px_40px_rgba(15,23,42,0.18)] sm:max-h-[58vh]">
-        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#E2E8F0]" />
-        <div className="rounded-[22px] border border-[#E2E8F0] bg-[#F8FAFC] p-3">
-          <button type="button" onClick={onOpenMap} className="flex min-h-12 w-full items-center gap-3 rounded-2xl bg-white px-3 py-2.5 text-left shadow-[0_4px_12px_rgba(15,23,42,0.06)]">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
-              <LocateFixed className="h-4 w-4" />
+      <div className="relative z-10 mt-auto mb-[4.75rem] max-h-[min(52vh,calc(100dvh-13.5rem))] overflow-y-auto rounded-t-[22px] bg-white px-3 pb-2.5 pt-1.5 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] sm:max-h-[48vh]">
+        <div className="mx-auto mb-1.5 h-1 w-10 rounded-full bg-[#E2E8F0]" />
+        <div className="rounded-[18px] border border-[#E2E8F0] bg-[#F8FAFC] p-2">
+          <button type="button" onClick={onOpenMap} className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-white px-2.5 py-1.5 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
+              <LocateFixed className="h-3.5 w-3.5" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[11px] font-bold text-[#64748B]">출발지</span>
-              <span className="mt-0.5 block truncate text-sm font-black text-[#0F172A]">{pickup}</span>
+              <span className="block text-[10px] font-bold text-[#64748B]">출발지</span>
+              <span className="block truncate text-[13px] font-black leading-tight text-[#0F172A]">{pickup}</span>
             </span>
           </button>
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="mt-2 flex min-h-14 w-full items-center gap-3 rounded-2xl border-2 border-[#7C3AED] bg-white px-3 py-3 text-left shadow-[0_8px_18px_rgba(124,58,237,0.12)]"
+            className="mt-1.5 flex min-h-11 w-full items-center gap-2 rounded-xl border-2 border-[#7C3AED] bg-white px-2.5 py-2 text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
             aria-label={destination ? `목적지 ${destination}` : '목적지 검색 열기'}
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
-              <Search className="h-4 w-4" />
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
+              <Search className="h-3.5 w-3.5" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[11px] font-bold text-[#7C3AED]">목적지</span>
-              <span className={`mt-0.5 block truncate text-[15px] font-black ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
+              <span className="block text-[10px] font-bold text-[#7C3AED]">목적지</span>
+              <span className={`block truncate text-sm font-black leading-tight ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
                 {destination || '어디로 갈까요?'}
               </span>
             </span>
           </button>
         </div>
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {SUGGESTED_DESTINATIONS.map((place) => {
             const active = destination === place.name || destination === place.address
             return (
@@ -2575,8 +2577,8 @@ function Home({
                 key={place.name}
                 type="button"
                 onClick={() => select(place.name, place.address)}
-                className={`inline-flex min-h-10 shrink-0 items-center rounded-full px-4 text-[13px] font-black transition active:scale-95 ${
-                  active ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'bg-[#F1F5F9] text-[#1E293B]'
+                className={`inline-flex min-h-8 shrink-0 items-center rounded-full px-3 text-[12px] font-black transition active:scale-95 ${
+                  active ? 'bg-[#4C1FB8] text-white shadow-[0_6px_12px_rgba(76,31,184,0.24)]' : 'bg-[#F1F5F9] text-[#1E293B]'
                 }`}
               >
                 {place.name}
@@ -2587,18 +2589,18 @@ function Home({
         <button
           type="button"
           onClick={callTaxi}
-          className="mt-4 flex min-h-14 w-full items-center justify-center rounded-[18px] bg-[#4C1FB8] text-[17px] font-black tracking-tight text-white shadow-[0_12px_28px_rgba(76,31,184,0.35)] transition hover:bg-[#3B16A8] active:scale-[0.99]"
+          className="mt-2.5 flex min-h-12 w-full items-center justify-center rounded-2xl bg-[#4C1FB8] text-[15px] font-black tracking-tight text-white shadow-[0_8px_18px_rgba(76,31,184,0.28)] transition hover:bg-[#3B16A8] active:scale-[0.99]"
         >
           택시 호출하기
         </button>
-        <div className="mt-4 grid grid-cols-4 gap-2">
+        <div className="mt-2.5 grid grid-cols-4 gap-1">
           {services.slice(0, 4).map((item) => (
-            <ServiceIconButton key={item.label} service={item} onClick={() => onService(item.label)} />
+            <ServiceIconButton key={item.label} compact service={item} onClick={() => onService(item.label)} />
           ))}
         </div>
-        <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-4 w-full rounded-2xl border border-[#E2E8F0] bg-white p-3 text-left">
-          <p className="text-[11px] font-bold text-[#64748B]">최근 이용</p>
-          <p className="mt-1 text-sm font-black">서울시청 → 강남역 · 3.2 Pi</p>
+        <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-2 w-full rounded-xl border border-[#E2E8F0] bg-white px-2.5 py-2 text-left">
+          <p className="text-[10px] font-bold text-[#64748B]">최근 이용</p>
+          <p className="text-[13px] font-black leading-tight">서울시청 → 강남역 · 3.2 Pi</p>
         </button>
       </div>
       {searchOpen ? (
