@@ -187,11 +187,21 @@ function FullscreenMapView({
     setAddressPending(true)
     const fallback = virtualPickupAddress(nextLat, nextLng)
     setPickedAddress(fallback)
-    void lookupMapAddress(nextLat, nextLng).then((nextAddress) => {
+    const settle = (nextAddress: string) => {
       if (lookupSeq.current !== seq) return
       setPickedAddress(nextAddress)
       setAddressPending(false)
+    }
+    const timer = window.setTimeout(() => settle(fallback), 2500)
+    void lookupMapAddress(nextLat, nextLng).then((nextAddress) => {
+      window.clearTimeout(timer)
+      settle(nextAddress)
     })
+  }
+
+  const confirmPickup = () => {
+    if (!pickedAddress) return
+    onConfirmPickup({ lat: pin.lat, lng: pin.lng, address: pickedAddress })
   }
 
   const handlePopup = () => {
@@ -200,7 +210,7 @@ function FullscreenMapView({
       setAskConfirm(true)
       return
     }
-    onConfirmPickup({ lat: pin.lat, lng: pin.lng, address: pickedAddress })
+    confirmPickup()
   }
 
   return (
@@ -235,28 +245,23 @@ function FullscreenMapView({
         </div>
       ) : (
         <div className="absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-30 flex justify-center">
-          <button
-            type="button"
-            onClick={handlePopup}
-            disabled={addressPending}
-            className="w-full max-w-sm rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3 text-left shadow-[0_12px_28px_rgba(15,23,42,0.18)]"
-          >
+          <div className="w-full max-w-sm rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3 text-left shadow-[0_12px_28px_rgba(15,23,42,0.18)]">
             {askConfirm ? (
-              <>
+              <button type="button" onClick={confirmPickup} className="w-full text-left">
                 <span className="block text-[11px] font-bold text-[#7C3AED]">출발지 지정</span>
                 <span className="mt-1 block text-[15px] font-black leading-snug text-[#4C1FB8]">출발지로 할까요?</span>
                 <span className="mt-1 block text-[12px] font-bold leading-snug text-[#64748B]">{pickedAddress}</span>
-              </>
+              </button>
             ) : (
-              <>
+              <button type="button" onClick={handlePopup} className="w-full text-left">
                 <span className="block text-[11px] font-bold text-[#7C3AED]">선택한 위치</span>
                 <span className="mt-1 block text-[14px] font-black leading-snug text-[#0F172A]">
-                  {addressPending ? '주소를 불러오는 중…' : pickedAddress}
+                  {addressPending ? `${pickedAddress}` : pickedAddress}
                 </span>
-                {!addressPending ? <span className="mt-1 block text-[11px] font-bold text-[#94A3B8]">주소를 눌러 출발지로 지정</span> : null}
-              </>
+                <span className="mt-1 block text-[11px] font-bold text-[#94A3B8]">주소를 눌러 출발지로 지정</span>
+              </button>
             )}
-          </button>
+          </div>
         </div>
       )}
     </div>
@@ -4173,8 +4178,8 @@ export default function HomeScreen() {
         const lat = position.coords.latitude
         const lng = position.coords.longitude
         const address = virtualPickupAddress(lat, lng)
-        setGps({ status: 'ready', address, lat, lng })
         if (pickupRef.current?.source === 'map') return
+        setGps({ status: 'ready', address, lat, lng })
         applyPickup({ address, lat, lng, source: 'gps' })
       },
       () => {
@@ -4355,7 +4360,7 @@ export default function HomeScreen() {
             </div>
           </div>
           <div
-            className={`mt-3 flex min-h-10 items-center gap-2 rounded-2xl px-3 py-2 text-[12px] font-bold ${
+            className={`mt-3 flex min-h-10 items-center gap-2 rounded-2xl px-3 py-2 ${
               pickup?.source === 'map'
                 ? 'bg-[#EDE5FF] text-[#4C1FB8]'
                 : gps.status === 'ready'
@@ -4366,14 +4371,17 @@ export default function HomeScreen() {
             }`}
           >
             <LocateFixed className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">
-              {pickup?.source === 'map'
-                ? `출발지 · ${pickup.address}`
-                : gps.status === 'pending'
-                  ? 'GPS 위치를 수신하는 중이에요'
-                  : gps.status === 'ready'
-                    ? `현재 위치 · ${origin.address}`
-                    : `위치 권한 없음 · ${origin.address}`}
+            <span className="min-w-0 flex-1">
+              <span className="block text-[10px] font-bold leading-none opacity-80">
+                {pickup?.source === 'map' ? '출발지' : gps.status === 'pending' && !pickup ? '위치 확인 중' : gps.status === 'ready' ? '현재 위치' : '위치 권한 없음'}
+              </span>
+              <span className="mt-0.5 block truncate text-[12px] font-black leading-tight">
+                {pickup?.source === 'map'
+                  ? pickup.address
+                  : gps.status === 'pending' && !pickup
+                    ? 'GPS 위치를 수신하는 중이에요'
+                    : origin.address}
+              </span>
             </span>
             <button
               type="button"
@@ -4460,7 +4468,8 @@ export default function HomeScreen() {
             pickupLng={origin.lng}
             onClose={() => setFullscreenMapOpen(false)}
             onConfirmPickup={(place) => {
-              applyPickup({ ...place, source: 'map' })
+              applyPickup({ address: place.address, lat: place.lat, lng: place.lng, source: 'map' })
+              setGps({ status: 'ready', address: place.address, lat: place.lat, lng: place.lng })
               setFullscreenMapOpen(false)
               showNotice('출발지를 지정했어요')
             }}

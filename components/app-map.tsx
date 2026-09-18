@@ -494,7 +494,13 @@ function NaverLocationMap(props: MapViewProps) {
               activateRef.current()
               return
             }
-            pickRef.current?.(event.coord.lat(), event.coord.lng())
+            const eventPoint = event as { coord?: { lat: () => number; lng: () => number; y?: number; x?: number }; latlng?: { lat: () => number; lng: () => number } }
+            const coord = eventPoint.coord ?? eventPoint.latlng
+            if (!coord) return
+            const nextLat = typeof coord.lat === 'function' ? coord.lat() : Number.NaN
+            const nextLng = typeof coord.lng === 'function' ? coord.lng() : Number.NaN
+            if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
+            pickRef.current?.(nextLat, nextLng)
           })
         : undefined
       zoomListener = sdk.Event.addListener(map, 'zoom_changed', () => pinRef.current?.draw?.())
