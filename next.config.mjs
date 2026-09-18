@@ -21,6 +21,28 @@ const nextConfig = {
     NEXT_PUBLIC_NAVER_MAP_CLIENT_ID: naverMapClientId,
     NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID: process.env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID || naverMapClientId,
   },
+  async headers() {
+    return [
+      {
+        source: '/validation-key.txt',
+        headers: [
+          { key: 'Content-Type', value: 'text/plain; charset=utf-8' },
+          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+        ],
+      },
+    ]
+  },
+  async rewrites() {
+    return {
+      beforeFiles: [
+        {
+          source: '/validation-key.txt/',
+          destination: '/validation-key.txt',
+        },
+      ],
+    }
+  },
 }
 
 export default nextConfig
