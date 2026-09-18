@@ -16,8 +16,8 @@ type PiSdk = {
   createPayment: (
     payment: { amount: number; memo: string; metadata: Record<string, unknown> },
     callbacks: {
-      onReadyForServerApproval: (paymentId: string) => void | Promise<void>
-      onReadyForServerCompletion: (paymentId: string, txid: string) => void | Promise<void>
+      onReadyForServerApproval: (paymentId: string) => void | Promise<unknown>
+      onReadyForServerCompletion: (paymentId: string, txid: string) => void | Promise<unknown>
       onCancel: (paymentId: string) => void
       onError: (error: Error, payment?: unknown) => void
     },
@@ -142,7 +142,7 @@ function waitForPi(timeoutMs = 12000) {
   return new Promise<PiSdk>((resolve, reject) => {
     const started = Date.now()
     const tick = () => {
-      if (typeof window !== 'undefined' && window.Pi?.init && window.Pi.createPayment) {
+      if (typeof window !== 'undefined' && typeof window.Pi?.init === 'function' && typeof window.Pi.createPayment === 'function') {
         resolve(window.Pi)
         return
       }
