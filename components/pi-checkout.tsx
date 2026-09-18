@@ -101,7 +101,7 @@ export async function preparePiSdk() {
   return pi
 }
 
-export async function startPiCheckout(options: {
+export function startPiCheckout(options: {
   amount: number
   memo: string
   metadata?: Record<string, unknown>
@@ -109,8 +109,18 @@ export async function startPiCheckout(options: {
   const amount = Math.round(options.amount * 1_000_000) / 1_000_000
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
-  const pi = await preparePiSdk()
-  console.log('[Pi] createPayment', { amount, memo: options.memo, sandbox: PI_SANDBOX })
+  const pi = typeof window !== 'undefined' ? window.Pi : undefined
+  if (!pi?.createPayment || !pi.init) {
+    throw new Error('Pi SDK(window.Pi)가 없습니다. Pi Browser에서 열어 주세요.')
+  }
+
+  if (!initialized) {
+    pi.init({ version: '2.0', sandbox: PI_SANDBOX })
+    initialized = true
+    console.log('[Pi] init', { version: '2.0', sandbox: PI_SANDBOX })
+  }
+
+  console.log('[Pi] createPayment', { amount, memo: options.memo, metadata: options.metadata })
 
   return new Promise<PiCheckoutResult>((resolve, reject) => {
     try {
@@ -174,15 +184,24 @@ export function PiCheckoutButton({
   const handleClick = () => {
     if (busy || disabled) return
     setBusy(true)
-    void startPiCheckout({ amount, memo, metadata })
-      .then((result) => onPaid?.(result))
-      .catch((error) => {
-        const next = error instanceof Error ? error : new Error('payment failed')
-        reportPiError('checkout failed', next)
-        onFailed?.(next)
-        if (!onFailed) window.alert(next.message)
-      })
-      .finally(() => setBusy(false))
+    try {
+      const pending = startPiCheckout({ amount, memo, metadata })
+      void pending
+        .then((result) => onPaid?.(result))
+        .catch((error) => {
+          const next = error instanceof Error ? error : new Error('payment failed')
+          reportPiError('checkout failed', next)
+          onFailed?.(next)
+          if (!onFailed) window.alert(next.message)
+        })
+        .finally(() => setBusy(false))
+    } catch (error) {
+      setBusy(false)
+      const next = error instanceof Error ? error : new Error('createPayment failed')
+      reportPiError('checkout failed', next)
+      onFailed?.(next)
+      if (!onFailed) window.alert(next.message)
+    }
   }
 
   return (
