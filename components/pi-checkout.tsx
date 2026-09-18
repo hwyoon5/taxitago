@@ -119,7 +119,7 @@ function isSessionError(error: unknown) {
 
 export function describePiUserMessage(error: unknown) {
   const text = errorText(error)
-  if (typeof window === 'undefined' || !window.Pi) {
+  if (/window\.Pi|Pi SDK\(window\.Pi\)/i.test(text)) {
     return 'window.Pi 객체가 없습니다. Pi Browser에서 열어 주세요.'
   }
   if (!isPiBrowser() && /pi browser|not in pi/i.test(text)) {
@@ -229,6 +229,66 @@ function requirePiSdk() {
     logPi('warn', 'userAgent is not Pi Browser; continuing because window.Pi exists')
   }
   return pi
+}
+
+function isCancelError(error: unknown) {
+  return /cancel/i.test(errorText(error))
+}
+
+async function postSandboxCharge(amount: number, memo: string) {
+  logPi('log', '/api/pi/charge request', { amount, memo })
+  const response = await fetch('/api/pi/charge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, memo, metadata: { kind: 'wallet-charge' } }),
+  })
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: unknown
+    error?: unknown
+    paymentId?: unknown
+    txid?: unknown
+  } | null
+  if (!response.ok || payload?.ok !== true) {
+    const message = typeof payload?.error === 'string' ? payload.error : `/api/pi/charge failed (${response.status})`
+    logPi('error', '/api/pi/charge failed', { status: response.status, payload })
+    throw new Error(message)
+  }
+  const paymentId = typeof payload.paymentId === 'string' ? payload.paymentId : `sandbox-charge-${Date.now()}`
+  const txid = typeof payload.txid === 'string' ? payload.txid : `demo-txid-${Date.now()}`
+  logPi('log', '/api/pi/charge ok', { paymentId, txid, amount })
+  return { paymentId, txid }
+}
+
+/** Wallet top-up: sandbox credits test balance; mainnet requires createPayment. */
+export async function chargePiWallet(amount: number) {
+  const value = Math.round(amount * 1_000_000) / 1_000_000
+  if (!(value > 0)) throw new Error('충전 금액이 올바르지 않습니다.')
+  const memo = `TaxiTago ${value} Pi 충전`.slice(0, 25)
+
+  if (PI_SANDBOX) {
+    const pi = typeof window !== 'undefined' ? window.Pi : undefined
+    if (isPiBrowser() && typeof pi?.createPayment === 'function') {
+      try {
+        return await startPiCheckout({
+          amount: value,
+          memo,
+          metadata: { kind: 'wallet-charge' },
+        })
+      } catch (error) {
+        if (isCancelError(error)) throw error
+        logPi('warn', 'sandbox createPayment failed; crediting test balance', error)
+      }
+    } else {
+      logPi('warn', 'sandbox charge via /api/pi/charge')
+    }
+    return postSandboxCharge(value, memo)
+  }
+
+  return startPiCheckout({
+    amount: value,
+    memo,
+    metadata: { kind: 'wallet-charge' },
+  })
 }
 
 export function startPiCheckout(options: {

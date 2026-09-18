@@ -9,7 +9,7 @@ import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
-import { startPiCheckout, PiCheckoutButton, describePiUserMessage } from '@/components/pi-checkout'
+import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
@@ -2860,7 +2860,9 @@ function WalletModal({
           <p className="mt-2 text-3xl font-black">
             {balance.toFixed(2)} <span className="text-lg text-[#E8DCFF]">Pi</span>
           </p>
-          <p className="mt-2 text-xs font-bold text-[#E8DCFF]">Pi Browser에서 충전하면 공식 결제 창이 열립니다</p>
+          <p className="mt-2 text-xs font-bold text-[#E8DCFF]">
+            {PI_SANDBOX ? '샌드박스 테스트 잔액으로 충전됩니다' : 'Pi Browser에서 충전하면 공식 결제 창이 열립니다'}
+          </p>
         </section>
         <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
           {tabs.map((item) => (
@@ -2909,24 +2911,27 @@ function WalletModal({
                 <span className="text-xs font-bold text-[#64748B]">신청 수량</span>
                 <strong className="text-lg font-black text-[#4C1FB8]">{chargeUnit.toFixed(2)} Pi</strong>
               </div>
-              <PiCheckoutButton
-                amount={chargeUnit}
-                memo={`TaxiTago ${chargeUnit} Pi 충전`}
-                metadata={{ kind: 'wallet-charge' }}
+              <button
+                type="button"
                 disabled={Boolean(process)}
                 className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-60"
-                onPaid={(result) => {
-                  if (!result.paymentId || !result.txid) return
-                  onDeposit(chargeUnit)
-                  setProcess({ kind: 'charge', phase: 'done', amount: chargeUnit })
-                }}
-                onFailed={(error) => {
-                  setProcess(null)
-                  onNotice(describePiUserMessage(error))
+                onClick={() => {
+                  if (process) return
+                  const amount = chargeUnit
+                  setProcess({ kind: 'charge', phase: 'pending', amount })
+                  void chargePiWallet(amount)
+                    .then(() => {
+                      onDeposit(amount)
+                      setProcess({ kind: 'charge', phase: 'done', amount })
+                    })
+                    .catch((error) => {
+                      setProcess(null)
+                      onNotice(describePiUserMessage(error))
+                    })
                 }}
               >
                 충전 신청
-              </PiCheckoutButton>
+              </button>
             </section>
           </div>
         )}
