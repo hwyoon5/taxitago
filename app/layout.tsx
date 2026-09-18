@@ -56,7 +56,7 @@ export default function RootLayout({
           }}
         />
         {naverMapScript ? <Script id="naver-maps-sdk" src={naverMapScript} strategy="beforeInteractive" /> : null}
-        <script src="https://sdk.minepi.com/pi-sdk.js" />
+        <Script id="pi-network-sdk" src="https://sdk.minepi.com/pi-sdk.js" strategy="beforeInteractive" />
       </head>
       <body className={`${notoSansKr.className} font-medium text-[#0f172a] subpixel-antialiased`}>
         <PiSdkInit />
