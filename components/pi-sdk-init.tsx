@@ -1,11 +1,11 @@
 'use client'
 
 import { useEffect } from 'react'
-import { initPiMainnet } from '@/lib/pi-client'
+import { preparePiSdk } from '@/components/pi-checkout'
 
 export function PiSdkInit() {
   useEffect(() => {
-    void initPiMainnet().catch(() => undefined)
+    void preparePiSdk().catch(() => undefined)
   }, [])
   return null
 }

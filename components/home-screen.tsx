@@ -9,7 +9,7 @@ import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
-import { createMainnetPiPayment } from '@/lib/pi-client'
+import { startPiCheckout, PiCheckoutButton } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
@@ -1089,9 +1089,21 @@ function PiPayPanel({
         </div>
         {!enough ? <p className="mt-2 text-xs font-black text-[#BE123C]">잔액이 부족합니다. 충전 후 결제해 주세요.</p> : null}
       </div>
-      <button type="button" onClick={onPay} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
-        {enough ? `Pi로 ${amount.toFixed(2)} 결제하기` : '잔액 충전하기'}
-      </button>
+      {enough ? (
+        <PiCheckoutButton
+          amount={amount}
+          memo={`TaxiTago ${amount} Pi 결제`}
+          metadata={{ kind: 'service-pay' }}
+          className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
+          onPaid={() => onPay()}
+        >
+          {`Pi로 ${amount.toFixed(2)} 결제하기`}
+        </PiCheckoutButton>
+      ) : (
+        <button type="button" onClick={onPay} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
+          잔액 충전하기
+        </button>
+      )}
     </div>
   )
 }
@@ -2787,25 +2799,6 @@ function WalletModal({
     setAmount(value > 0 ? value.toFixed(2) : '0')
   }
 
-  const requestCharge = () => {
-    if (process) return
-    const amount = chargeUnit
-    setProcess({ kind: 'charge', phase: 'pending', amount })
-    void createMainnetPiPayment({
-      amount,
-      memo: `TaxiTago ${amount} Pi 충전`,
-      metadata: { kind: 'wallet-charge' },
-    })
-      .then(() => {
-        onDeposit(amount)
-        setProcess({ kind: 'charge', phase: 'done', amount })
-      })
-      .catch(() => {
-        setProcess(null)
-        onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
-      })
-  }
-
   const requestWithdraw = () => {
     if (process) return
     if (!address.trim() || !withdrawValue || withdrawValue <= 0 || withdrawValue > balance) {
@@ -2888,9 +2881,23 @@ function WalletModal({
                 <span className="text-xs font-bold text-[#64748B]">신청 수량</span>
                 <strong className="text-lg font-black text-[#4C1FB8]">{chargeUnit.toFixed(2)} Pi</strong>
               </div>
-              <button type="button" onClick={requestCharge} className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)]">
+              <PiCheckoutButton
+                amount={chargeUnit}
+                memo={`TaxiTago ${chargeUnit} Pi 충전`}
+                metadata={{ kind: 'wallet-charge' }}
+                disabled={Boolean(process)}
+                className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-60"
+                onPaid={() => {
+                  onDeposit(chargeUnit)
+                  setProcess({ kind: 'charge', phase: 'done', amount: chargeUnit })
+                }}
+                onFailed={() => {
+                  setProcess(null)
+                  onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
+                }}
+              >
                 충전 신청
-              </button>
+              </PiCheckoutButton>
             </section>
           </div>
         )}
@@ -3735,7 +3742,7 @@ export default function HomeScreen() {
   }
   const payWithPi = async (amount: number, place: string, label: string, estimated?: number) => {
     try {
-      await createMainnetPiPayment({
+      await startPiCheckout({
         amount,
         memo: `${label} ${amount} Pi`,
         metadata: { kind: 'service-pay', place, label },
