@@ -115,6 +115,16 @@ function MapControls({
   onLocate?: () => void
   locatePlacement?: 'stacked' | 'bottom'
 }) {
+  const zoomButtons = (
+    <>
+      <button type="button" onClick={(event) => { event.stopPropagation(); onZoomIn() }} className="flex h-10 w-10 items-center justify-center text-[#4A82B8]" aria-label="지도 확대">
+        <Plus className="h-4 w-4" />
+      </button>
+      <button type="button" onClick={(event) => { event.stopPropagation(); onZoomOut() }} className="flex h-10 w-10 items-center justify-center border-t border-[#E2E8F0] text-[#4A82B8]" aria-label="지도 축소">
+        <Minus className="h-4 w-4" />
+      </button>
+    </>
+  )
   const locateButton = onLocate ? (
     <button
       type="button"
@@ -124,8 +134,8 @@ function MapControls({
       }}
       className={
         locatePlacement === 'bottom'
-          ? 'flex h-11 w-11 items-center justify-center rounded-2xl border border-[#E2E8F0] bg-white text-[#4C1FB8] shadow-md'
-          : 'flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4C1FB8]'
+          ? 'flex h-10 w-10 items-center justify-center text-[#4C1FB8]'
+          : 'flex h-10 w-10 items-center justify-center border-t border-[#E2E8F0] text-[#4C1FB8]'
       }
       aria-label="내 위치 찾기"
     >
@@ -133,23 +143,26 @@ function MapControls({
     </button>
   ) : null
 
-  return (
-    <>
-      <div className="absolute right-3 top-5 z-20 flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-md">
-        <button type="button" onClick={(event) => { event.stopPropagation(); onZoomIn() }} className="flex h-9 w-9 items-center justify-center text-[#4A82B8]" aria-label="지도 확대">
-          <Plus className="h-4 w-4" />
-        </button>
-        <button type="button" onClick={(event) => { event.stopPropagation(); onZoomOut() }} className="flex h-9 w-9 items-center justify-center border-t border-[#E2E8F0] text-[#4A82B8]" aria-label="지도 축소">
-          <Minus className="h-4 w-4" />
-        </button>
-        {onLocate && locatePlacement === 'stacked' ? locateButton : null}
-      </div>
-      {onLocate && locatePlacement === 'bottom' ? (
-        <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-3 z-20">
-          {locateButton}
+  if (locatePlacement === 'bottom') {
+    return (
+      <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-3 z-20 flex flex-col items-end gap-2">
+        <div className="flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
+          {zoomButtons}
         </div>
-      ) : null}
-    </>
+        {onLocate ? (
+          <div className="overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
+            {locateButton}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className="absolute right-3 top-5 z-20 flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-md">
+      {zoomButtons}
+      {onLocate ? locateButton : null}
+    </div>
   )
 }
 
