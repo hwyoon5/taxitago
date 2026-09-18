@@ -2823,21 +2823,26 @@ function Home({
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="mt-1.5 grid w-full grid-cols-[minmax(0,1fr)_7.5rem] overflow-hidden rounded-xl border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
+            className="mt-1.5 flex w-full flex-col rounded-xl border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
             aria-label={destination ? `목적지 ${destination}` : '목적지 검색 열기'}
           >
-            <span className="flex min-w-0 items-start gap-2 px-3 pb-2.5 pt-3">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
-                <Search className="h-3.5 w-3.5" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-xs font-bold leading-none text-[#7C3AED]">목적지</span>
-                <span className={`mt-1.5 block truncate text-sm font-black leading-snug ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
+            <span
+              className="block px-3 pt-2.5 text-[12px] font-bold text-[#7C3AED]"
+              style={{ display: 'block', fontSize: 12, lineHeight: '18px', overflow: 'visible' }}
+            >
+              목적지
+            </span>
+            <span className="flex min-h-[2.75rem] items-center">
+              <span className="flex min-w-0 flex-1 items-center gap-2 px-3 pb-2.5">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
+                  <Search className="h-3.5 w-3.5" />
+                </span>
+                <span className={`min-w-0 flex-1 truncate text-sm font-black leading-5 ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
                   {destination || '어디로 갈까요?'}
                 </span>
               </span>
+              <DestinationTaxiLoop className="h-[2.75rem] w-[7.5rem] shrink-0 overflow-hidden self-end" />
             </span>
-            <DestinationTaxiLoop className="min-h-[3.5rem] w-full self-stretch overflow-hidden" />
           </button>
         </div>
         <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
