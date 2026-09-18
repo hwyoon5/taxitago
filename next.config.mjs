@@ -22,15 +22,14 @@ const nextConfig = {
     NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID: process.env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID || naverMapClientId,
   },
   async headers() {
+    const validationKeyHeaders = [
+      { key: 'Content-Type', value: 'text/plain; charset=utf-8' },
+      { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+    ]
     return [
-      {
-        source: '/validation-key.txt',
-        headers: [
-          { key: 'Content-Type', value: 'text/plain; charset=utf-8' },
-          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-        ],
-      },
+      { source: '/validation-key.txt', headers: validationKeyHeaders },
+      { source: '/validation-key.txt/', headers: validationKeyHeaders },
     ]
   },
   async rewrites() {
