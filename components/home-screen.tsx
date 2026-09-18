@@ -2529,18 +2529,18 @@ function Home({
   }
 
   return (
-    <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+    <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden pb-[calc(4.75rem+0.75rem)]">
       <div className="absolute inset-0 bg-[#E2E8F0]">
         <LocationTileMap
           lat={gps.lat}
           lng={gps.lng}
           pinLat={gps.lat}
           pinLng={gps.lng}
-          className="h-full min-h-[42vh] w-full sm:min-h-[48vh]"
+          className="h-full min-h-0 w-full"
           pulsePin
         />
       </div>
-      <div className="relative z-10 mt-auto mb-[4.75rem] max-h-[min(52vh,calc(100dvh-13.5rem))] overflow-y-auto rounded-t-[22px] bg-white px-3 pb-2.5 pt-1.5 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] sm:max-h-[48vh]">
+      <div className="relative z-10 mt-auto max-h-[min(48dvh,calc(100dvh-13.25rem))] overflow-y-auto overscroll-contain rounded-t-[22px] bg-white px-3 pb-3 pt-1.5 shadow-[0_-12px_28px_rgba(15,23,42,0.14)]">
         <div className="mx-auto mb-1.5 h-1 w-10 rounded-full bg-[#E2E8F0]" />
         <div className="rounded-[18px] border border-[#E2E8F0] bg-[#F8FAFC] p-2">
           <button type="button" onClick={onOpenMap} className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-white px-2.5 py-1.5 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
@@ -4062,8 +4062,8 @@ export default function HomeScreen() {
   }
 
   return (
-    <main className="min-h-dvh bg-[#E2E8F0] text-[#0F172A]">
-      <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-[#F8FAFC] shadow-2xl">
+    <main className="h-dvh overflow-hidden bg-[#E2E8F0] text-[#0F172A]">
+      <div className="mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden bg-[#F8FAFC] shadow-2xl">
         <header className="relative z-20 border-b border-[#E2E8F0] bg-white/95 px-4 pb-3 pt-[max(0.9rem,env(safe-area-inset-top))] backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -4134,7 +4134,7 @@ export default function HomeScreen() {
             </div>
           </div>
         )}
-        <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 justify-around border-t-2 border-[#CBD5E1] bg-white px-1 pb-3 pt-2 shadow-[0_-10px_24px_rgba(15,23,42,0.12)]">
+        <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 justify-around border-t-2 border-[#CBD5E1] bg-white px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-10px_24px_rgba(15,23,42,0.12)]">
           {navItems.map(({ id, label, icon: Icon }) => {
             const active = tab === id
             return (
