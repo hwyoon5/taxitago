@@ -9,7 +9,7 @@ import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
-import { startPiCheckout, PiCheckoutButton } from '@/components/pi-checkout'
+import { startPiCheckout, PiCheckoutButton, describePiUserMessage } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
@@ -1437,7 +1437,7 @@ function DestinationSheet({
                 })
                 onClose()
               }}
-              onFailed={() => onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')}
+              onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
               이용 완료
             </PiCheckoutButton>
@@ -1611,79 +1611,27 @@ function TaxiMatchingSheet({
 
   const handleTaxiPostpay = () => {
     if (piPaying) return
-    const pi = typeof window !== 'undefined' ? window.Pi : undefined
-    if (!pi) {
-      onNotice('window.Pi 객체가 없습니다. Pi Browser에서 열어 주세요.')
-      return
-    }
-    if (typeof pi.createPayment !== 'function') {
-      onNotice('window.Pi.createPayment가 없습니다. SDK 로드를 확인해 주세요.')
-      return
-    }
-
-    if (typeof pi.init === 'function') {
-      pi.init({ version: '2.0', sandbox: process.env.NEXT_PUBLIC_PI_SANDBOX !== 'false' })
-    }
     setPiPaying(true)
-
     try {
-      console.log('[Pi] calling window.Pi.createPayment', { amount: 2.34, memo: '택시비 결제' })
-      pi.createPayment(
-        {
-          amount: 2.34,
-          memo: '택시비 결제',
-          metadata: { kind: 'taxi-postpay', route },
-        },
-        {
-          onReadyForServerApproval: (paymentId) => {
-            console.log('[Pi] onReadyForServerApproval', paymentId)
-            return fetch('/api/pi/approve', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ paymentId }),
-            }).then(async (response) => {
-              const payload = (await response.json().catch(() => null)) as { ok?: unknown } | null
-              if (!response.ok || payload?.ok !== true) throw new Error('approve failed')
-            })
-          },
-          onReadyForServerCompletion: (paymentId, txid) => {
-            console.log('[Pi] onReadyForServerCompletion', paymentId, txid)
-            if (!paymentId || !txid) {
-              setPiPaying(false)
-              onNotice('Pi 결제 승인이 완료되지 않았습니다.')
-              return Promise.resolve()
-            }
-            return fetch('/api/pi/complete', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ paymentId, txid }),
-            }).then(async (response) => {
-              const payload = (await response.json().catch(() => null)) as { ok?: unknown } | null
-              if (!response.ok || payload?.ok !== true) throw new Error('complete failed')
-              onSettle(2.34, route, '택시 호출', billed.estimate, { paymentId, txid })
-              onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
-              onClose()
-            }).catch((error) => {
-              setPiPaying(false)
-              console.error('[Pi] complete failed', error)
-              onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
-            })
-          },
-          onCancel: () => {
-            setPiPaying(false)
-            onNotice('결제가 취소되었습니다.')
-          },
-          onError: (error) => {
-            setPiPaying(false)
-            console.error('[Pi] onError', error)
-            onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
-          },
-        },
-      )
+      void startPiCheckout({
+        amount: 2.34,
+        memo: '택시비 결제',
+        metadata: { kind: 'taxi-postpay', route },
+      })
+        .then((proof) => {
+          onSettle(2.34, route, '택시 호출', billed.estimate, proof)
+          onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
+          onClose()
+        })
+        .catch((error) => {
+          console.error('[Pi] taxi postpay failed', error)
+          onNotice(describePiUserMessage(error))
+        })
+        .finally(() => setPiPaying(false))
     } catch (error) {
       setPiPaying(false)
-      console.error('[Pi] createPayment threw', error)
-      onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
+      console.error('[Pi] taxi postpay threw', error)
+      onNotice(describePiUserMessage(error))
     }
   }
 
@@ -1988,7 +1936,7 @@ function ServiceSheet({
                 onAskReview(partner)
                 onClose()
               }}
-              onFailed={() => onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')}
+              onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
               {settleTiming === 'qr_auto' ? '이용 완료 · 자동결제' : settleTiming === 'postpaid' ? '이용 완료 · 후결제' : '이용 완료'}
             </PiCheckoutButton>
@@ -2042,7 +1990,7 @@ function ServiceSheet({
                 onAskReview(partner)
                 onClose()
               }}
-              onFailed={() => onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')}
+              onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
               이용 완료
             </PiCheckoutButton>
@@ -2972,9 +2920,9 @@ function WalletModal({
                   onDeposit(chargeUnit)
                   setProcess({ kind: 'charge', phase: 'done', amount: chargeUnit })
                 }}
-                onFailed={() => {
+                onFailed={(error) => {
                   setProcess(null)
-                  onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
+                  onNotice(describePiUserMessage(error))
                 }}
               >
                 충전 신청
@@ -3848,8 +3796,8 @@ export default function HomeScreen() {
       })
       settlePiLedger(amount, place, label, estimated, proof)
       return true
-    } catch {
-      showNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
+    } catch (error) {
+      showNotice(describePiUserMessage(error))
       return false
     }
   }
