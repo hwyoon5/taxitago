@@ -210,6 +210,8 @@ function FallbackSlippyMap({
 }: MapViewProps & { zoom: number; onZoomIn: () => void; onZoomOut: () => void; notice?: string; children?: ReactNode }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
+  const [view, setView] = useState({ lat, lng })
+  const panRef = useRef({ active: false, x: 0, y: 0, lat, lng })
 
   useEffect(() => {
     const node = wrapRef.current
@@ -221,10 +223,15 @@ function FallbackSlippyMap({
     return () => observer.disconnect()
   }, [])
 
-  const center = latLngToWorld(lat, lng, zoom)
+  useEffect(() => {
+    if (panRef.current.active) return
+    setView({ lat, lng })
+  }, [lat, lng])
+
+  const center = latLngToWorld(view.lat, view.lng, zoom)
   const pin = latLngToWorld(pinLat ?? lat, pinLng ?? lng, zoom)
   const originX = center.x - size.width / 2
-  const originY = center.y - (size.height - bottomInset) / 2
+  const originY = center.y - size.height / 2
   const tiles: { key: string; src: string; left: number; top: number }[] = []
   if (size.width > 0 && size.height > 0) {
     const minTx = Math.floor(originX / TILE_SIZE)
@@ -258,9 +265,33 @@ function FallbackSlippyMap({
   return (
     <div
       ref={wrapRef}
-      className="absolute inset-0 overflow-hidden"
+      className="absolute inset-0 overflow-hidden touch-none"
+      onWheel={(event) => {
+        if (!interactive && !showZoom) return
+        event.preventDefault()
+        if (event.deltaY < 0) onZoomIn()
+        else onZoomOut()
+      }}
+      onPointerDown={(event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return
+        panRef.current = { active: true, x: event.clientX, y: event.clientY, lat: view.lat, lng: view.lng }
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }}
+      onPointerMove={(event) => {
+        if (!panRef.current.active) return
+        const start = latLngToWorld(panRef.current.lat, panRef.current.lng, zoom)
+        const next = worldToLatLng(start.x - (event.clientX - panRef.current.x), start.y - (event.clientY - panRef.current.y), zoom)
+        setView(next)
+      }}
+      onPointerUp={() => {
+        panRef.current.active = false
+      }}
+      onPointerCancel={() => {
+        panRef.current.active = false
+      }}
       onClick={(event) => {
         if (!interactive) return
+        if (panRef.current.active) return
         if (onActivate && !onPick) {
           onActivate()
           return
@@ -351,11 +382,11 @@ function NaverLocationMap(props: MapViewProps) {
         scaleControl: false,
         mapDataControl: false,
         zoomControl: false,
-        disableDoubleClickZoom: !interactive,
-        draggable: Boolean(interactive),
-        pinchZoom: Boolean(interactive || showZoom),
-        scrollWheel: Boolean(interactive || showZoom),
-        keyboardShortcuts: false,
+        disableDoubleClickZoom: false,
+        draggable: true,
+        pinchZoom: true,
+        scrollWheel: true,
+        keyboardShortcuts: true,
       })
       mapRef.current = map
       if (!hidePin) {
@@ -363,7 +394,7 @@ function NaverLocationMap(props: MapViewProps) {
           if (!cancelled) setPinScreen({ x, y })
         })
       }
-      applyMapBottomInset(sdk, map, center.lat, center.lng, insetRef.current)
+      applyMapBottomInset(sdk, map, center.lat, center.lng, 0)
       clickListener = interactive
         ? sdk.Event.addListener(map, 'click', (event) => {
             if (activateRef.current && !pickRef.current) {
@@ -397,10 +428,17 @@ function NaverLocationMap(props: MapViewProps) {
     const map = mapRef.current
     const sdk = mapsRef.current
     if (!map || !sdk || mode !== 'naver') return
-    applyMapBottomInset(sdk, map, lat, lng, bottomInset)
     refreshNaverMap(sdk, map)
     pinRef.current?.draw?.()
-  }, [lat, lng, bottomInset, mode])
+  }, [bottomInset, mode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    const sdk = mapsRef.current
+    if (!map || !sdk || mode !== 'naver') return
+    map.setCenter(new sdk.LatLng(lat, lng))
+    pinRef.current?.draw?.()
+  }, [lat, lng, mode])
 
   useEffect(() => {
     pinRef.current?.setPosition(pinLat ?? lat, pinLng ?? lng)
@@ -418,7 +456,7 @@ function NaverLocationMap(props: MapViewProps) {
     <MapFrame className={className}>
       {mode !== 'fallback' ? (
         <div ref={hostRef} className="naver-map-host absolute inset-0">
-          <div ref={canvasRef} className="naver-map-canvas h-full w-full" style={{ width: '100%', height: '100%' }} />
+          <div ref={canvasRef} className="naver-map-canvas h-full w-full touch-none" style={{ width: '100%', height: '100%' }} />
           {!hidePin && pinScreen ? <FixedMapPin pulse={Boolean(pulsePin)} x={pinScreen.x} y={pinScreen.y} /> : null}
         </div>
       ) : (
@@ -435,7 +473,7 @@ function NaverLocationMap(props: MapViewProps) {
           <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">지도를 불러오는 중이에요</p>
         </div>
       ) : null}
-      {mode === 'naver' && (showZoom || interactive) ? <ZoomButtons onZoomIn={() => changeNaverZoom(1)} onZoomOut={() => changeNaverZoom(-1)} /> : null}
+      {mode === 'naver' ? <ZoomButtons onZoomIn={() => changeNaverZoom(1)} onZoomOut={() => changeNaverZoom(-1)} /> : null}
     </MapFrame>
   )
 }

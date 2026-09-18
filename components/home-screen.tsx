@@ -2493,7 +2493,7 @@ function Home({
   const [dragOffset, setDragOffset] = useState(0)
   const [sheetDragging, setSheetDragging] = useState(false)
   const sheetRef = useRef<HTMLElement>(null)
-  const dragRef = useRef({ active: false, startY: 0 })
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, axis: null as null | 'x' | 'y', fromHandle: false })
   const peekHeight = 72
 
   useEffect(() => {
@@ -2548,70 +2548,81 @@ function Home({
 
   const collapsedY = Math.max(0, sheetHeight - peekHeight)
   const sheetY = Math.min(collapsedY, Math.max(0, (sheetOpen ? 0 : collapsedY) + dragOffset))
-  const visibleSheet = Math.max(peekHeight, sheetHeight - sheetY)
-  const pinEmphasis = !sheetOpen || sheetY > 40
 
   const finishSheetDrag = (clientY: number) => {
     if (!dragRef.current.active) return
     const delta = clientY - dragRef.current.startY
-    dragRef.current.active = false
+    const fromHandle = dragRef.current.fromHandle
+    const axis = dragRef.current.axis
+    dragRef.current = { active: false, startX: 0, startY: 0, axis: null, fromHandle: false }
     setSheetDragging(false)
     setDragOffset(0)
+    if (axis === 'x') return
     if (Math.abs(delta) < 12) {
-      setSheetOpen((open) => !open)
+      if (fromHandle) setSheetOpen((open) => !open)
       return
     }
-    if (sheetOpen && delta > 48) setSheetOpen(false)
-    else if (!sheetOpen && delta < -48) setSheetOpen(true)
+    if (sheetOpen && delta > 36) setSheetOpen(false)
+    else if (!sheetOpen && delta < -36) setSheetOpen(true)
+  }
+
+  const onSheetPointerDown = (event: React.PointerEvent<HTMLElement>, fromHandle = false) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    dragRef.current = { active: true, startX: event.clientX, startY: event.clientY, axis: null, fromHandle }
+  }
+
+  const onSheetPointerMove = (event: React.PointerEvent<HTMLElement>) => {
+    if (!dragRef.current.active) return
+    const dx = event.clientX - dragRef.current.startX
+    const dy = event.clientY - dragRef.current.startY
+    if (!dragRef.current.axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
+      dragRef.current.axis = Math.abs(dy) >= Math.abs(dx) ? 'y' : 'x'
+      if (dragRef.current.axis === 'y') {
+        setSheetDragging(true)
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }
+    }
+    if (dragRef.current.axis === 'y') {
+      event.preventDefault()
+      setDragOffset(dy)
+    }
   }
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden pb-[calc(4.75rem+0.75rem)]">
-      <div className="absolute inset-0 bg-[#E2E8F0]">
+      <div className="absolute inset-0 z-0 bg-[#E2E8F0]">
         <LocationTileMap
           lat={gps.lat}
           lng={gps.lng}
           pinLat={gps.lat}
           pinLng={gps.lng}
-          className="h-full min-h-0 w-full"
+          className="h-full min-h-0 w-full touch-none"
+          interactive
+          showZoom
           pulsePin
-          hidePin={pinEmphasis}
-          bottomInset={visibleSheet}
         />
-        {pinEmphasis ? (
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-center justify-center" style={{ bottom: visibleSheet }}>
-            <div className="relative flex flex-col items-center">
-              <span className="relative flex h-[4.5rem] w-[4.5rem] items-center justify-center">
-                <span className="absolute inset-0 animate-ping rounded-full bg-[#4C1FB8]/40" />
-                <span className="absolute inset-1 animate-pulse rounded-full bg-[#7C3AED]/30" />
-                <span className="relative flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-[0_8px_20px_rgba(76,31,184,0.45)]">
-                  <MapPin className="h-6 w-6" />
-                </span>
-              </span>
-              <span className="mt-2 rounded-full bg-white/95 px-3 py-1 text-[12px] font-black text-[#4C1FB8] shadow-md">내 위치</span>
-            </div>
-          </div>
-        ) : null}
       </div>
       <section
         ref={sheetRef}
-        className={`absolute inset-x-0 bottom-0 z-10 overflow-hidden rounded-t-[22px] bg-white px-3 pb-3 pt-1 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] ${sheetDragging ? '' : 'transition-transform duration-300 ease-out'}`}
+        className={`absolute inset-x-0 bottom-0 z-10 touch-pan-y overflow-hidden rounded-t-[22px] bg-white px-3 pb-3 pt-1 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] ${sheetDragging ? '' : 'transition-transform duration-300 ease-out'}`}
         style={{ transform: `translateY(${sheetY}px)` }}
+        onPointerDown={(event) => onSheetPointerDown(event, false)}
+        onPointerMove={onSheetPointerMove}
+        onPointerUp={(event) => finishSheetDrag(event.clientY)}
+        onPointerCancel={(event) => finishSheetDrag(event.clientY)}
       >
         <button
           type="button"
+          data-sheet-handle="true"
           aria-expanded={sheetOpen}
           aria-label={sheetOpen ? '호출 창 접기' : '호출 창 펼치기'}
           className="flex w-full touch-none flex-col items-center pb-1.5 pt-1"
           onPointerDown={(event) => {
-            dragRef.current = { active: true, startY: event.clientY }
-            setSheetDragging(true)
-            event.currentTarget.setPointerCapture(event.pointerId)
+            event.stopPropagation()
+            onSheetPointerDown(event, true)
           }}
-          onPointerMove={(event) => {
-            if (!dragRef.current.active) return
-            setDragOffset(event.clientY - dragRef.current.startY)
-          }}
+          onPointerMove={onSheetPointerMove}
           onPointerUp={(event) => finishSheetDrag(event.clientY)}
           onPointerCancel={(event) => finishSheetDrag(event.clientY)}
         >
