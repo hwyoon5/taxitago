@@ -1314,7 +1314,7 @@ function DestinationSheet({
   onNotice: (message: string) => void
   balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
-  onSettle: (amount: number, place: string, label: string, estimated?: number) => void
+  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }) => void
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
@@ -1429,7 +1429,7 @@ function DestinationSheet({
               className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
               onPaid={(result) => {
                 if (!result.paymentId || !result.txid) return
-                onSettle(billed.actual, place, selectedService, isRidePayLabel(selectedService) ? billed.estimate : undefined)
+                onSettle(billed.actual, place, selectedService, isRidePayLabel(selectedService) ? billed.estimate : undefined, result)
                 onAskReview({
                   name: '김파이',
                   vehicle: selectedService === '프리미엄' ? '카카오 T 모범' : '카카오 T 일반',
@@ -1571,7 +1571,7 @@ function TaxiMatchingSheet({
   onNotice: (message: string) => void
   balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
-  onSettle: (amount: number, place: string, label: string, estimated?: number) => void
+  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }) => void
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
@@ -1612,12 +1612,18 @@ function TaxiMatchingSheet({
   const handleTaxiPostpay = () => {
     if (piPaying) return
     const pi = typeof window !== 'undefined' ? window.Pi : undefined
-    if (typeof pi?.createPayment !== 'function' || typeof pi.init !== 'function') {
-      onNotice('Pi SDK(window.Pi.createPayment)가 없습니다. Pi Browser에서 열어 주세요.')
+    if (!pi) {
+      onNotice('window.Pi 객체가 없습니다. Pi Browser에서 열어 주세요.')
+      return
+    }
+    if (typeof pi.createPayment !== 'function') {
+      onNotice('window.Pi.createPayment가 없습니다. SDK 로드를 확인해 주세요.')
       return
     }
 
-    pi.init({ version: '2.0', sandbox: process.env.NEXT_PUBLIC_PI_SANDBOX !== 'false' })
+    if (typeof pi.init === 'function') {
+      pi.init({ version: '2.0', sandbox: process.env.NEXT_PUBLIC_PI_SANDBOX !== 'false' })
+    }
     setPiPaying(true)
 
     try {
@@ -1654,7 +1660,7 @@ function TaxiMatchingSheet({
             }).then(async (response) => {
               const payload = (await response.json().catch(() => null)) as { ok?: unknown } | null
               if (!response.ok || payload?.ok !== true) throw new Error('complete failed')
-              onSettle(2.34, route, '택시 호출', billed.estimate)
+              onSettle(2.34, route, '택시 호출', billed.estimate, { paymentId, txid })
               onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
               onClose()
             }).catch((error) => {
@@ -1814,7 +1820,7 @@ function ServiceSheet({
   onNotice: (message: string) => void
   balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
-  onSettle: (amount: number, place: string, label: string, estimated?: number) => void
+  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }) => void
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
@@ -1978,7 +1984,7 @@ function ServiceSheet({
               className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
               onPaid={(result) => {
                 if (!result.paymentId || !result.txid) return
-                onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined)
+                onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined, result)
                 onAskReview(partner)
                 onClose()
               }}
@@ -2032,7 +2038,7 @@ function ServiceSheet({
               onPaid={(result) => {
                 if (!result.paymentId || !result.txid) return
                 const paid = ride && rideStage === 'moving' ? billed.actual : fare
-                onSettle(paid, place, `${service} 이용`, ride ? billed.estimate : undefined)
+                onSettle(paid, place, `${service} 이용`, ride ? billed.estimate : undefined, result)
                 onAskReview(partner)
                 onClose()
               }}
@@ -3774,7 +3780,7 @@ export default function HomeScreen() {
   const [receiptRide, setReceiptRide] = useState<RideReceipt | null>(null)
   const [inboxItem, setInboxItem] = useState<Notice | null>(null)
   const [readNoticeIds, setReadNoticeIds] = useState<string[]>([])
-  const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number; estimated?: number } | null>(null)
+  const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number; estimated?: number; paymentId: string; txid: string } | null>(null)
   const [driverReview, setDriverReview] = useState<{ name: string; vehicle: string; plate: string; kind?: 'driver' | 'service' } | null>(null)
   const [transactions, setTransactions] = useState<PiTransaction[]>(DEFAULT_PI_TX)
 
@@ -3815,21 +3821,32 @@ export default function HomeScreen() {
       return next
     })
   }
-  const settlePiLedger = (amount: number, place: string, label: string, estimated?: number) => {
+  const settlePiLedger = (
+    amount: number,
+    place: string,
+    label: string,
+    estimated: number | undefined,
+    proof: { paymentId: string; txid: string },
+  ) => {
+    if (!proof.paymentId || !proof.txid) {
+      console.error('[Pi] blocked local receipt without Pi payment proof')
+      showNotice('파이 지갑 승인이 완료되어야 영수증으로 넘어갑니다.')
+      return
+    }
     const remaining = Math.round((walletBalance - amount) * 100) / 100
     const at = formatPiTime()
     setWalletBalance(Math.max(0, remaining))
     setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
-    setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated })
+    setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated, paymentId: proof.paymentId, txid: proof.txid })
   }
   const payWithPi = async (amount: number, place: string, label: string, estimated?: number) => {
     try {
-      await startPiCheckout({
+      const proof = await startPiCheckout({
         amount,
         memo: `${label} ${amount} Pi`,
         metadata: { kind: 'service-pay', place, label },
       })
-      settlePiLedger(amount, place, label, estimated)
+      settlePiLedger(amount, place, label, estimated, proof)
       return true
     } catch {
       showNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
@@ -4070,7 +4087,7 @@ export default function HomeScreen() {
             daeriTrip={selectedService === '대리운전' ? daeriTrip : null}
           />
         )}
-        {paymentDone ? (
+        {paymentDone?.txid ? (
           <PaymentDoneModal
             amount={paymentDone.amount}
             place={paymentDone.place}
