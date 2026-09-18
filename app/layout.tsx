@@ -3,6 +3,7 @@ import Script from 'next/script'
 import { Geist_Mono, Noto_Sans_KR } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { resolveNaverMapClientId } from '@/lib/naver-maps'
+import { PiSdkInit } from '@/components/pi-sdk-init'
 import './globals.css'
 
 const notoSansKr = Noto_Sans_KR({
@@ -55,8 +56,10 @@ export default function RootLayout({
           }}
         />
         {naverMapScript ? <Script id="naver-maps-sdk" src={naverMapScript} strategy="beforeInteractive" /> : null}
+        <Script id="pi-network-sdk" src="https://sdk.minepi.com/pi-sdk.js" strategy="beforeInteractive" />
       </head>
       <body className={`${notoSansKr.className} font-medium text-[#0f172a] subpixel-antialiased`}>
+        <PiSdkInit />
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

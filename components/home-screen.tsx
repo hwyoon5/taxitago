@@ -9,6 +9,7 @@ import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
+import { createMainnetPiPayment } from '@/lib/pi-client'
 import MyPage from '@/components/my-page'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
@@ -2760,14 +2761,12 @@ function WalletModal({
   const withdrawValue = Number(amount)
 
   useEffect(() => {
-    if (process?.phase !== 'pending') return
-    const kind = process.kind
+    if (process?.phase !== 'pending' || process.kind !== 'withdraw') return
     const value = process.amount
     const dest = address.trim()
     const timer = window.setTimeout(() => {
-      if (kind === 'charge') onDeposit(value)
-      else onWithdraw(value, dest)
-      setProcess({ kind, phase: 'done', amount: value })
+      onWithdraw(value, dest)
+      setProcess({ kind: 'withdraw', phase: 'done', amount: value })
     }, 2200)
     return () => window.clearTimeout(timer)
     // Callbacks are recreated each parent render; only restart when a new pending request starts.
@@ -2790,7 +2789,21 @@ function WalletModal({
 
   const requestCharge = () => {
     if (process) return
-    setProcess({ kind: 'charge', phase: 'pending', amount: chargeUnit })
+    const amount = chargeUnit
+    setProcess({ kind: 'charge', phase: 'pending', amount })
+    void createMainnetPiPayment({
+      amount,
+      memo: `TaxiTago ${amount} Pi 충전`,
+      metadata: { kind: 'wallet-charge' },
+    })
+      .then(() => {
+        onDeposit(amount)
+        setProcess({ kind: 'charge', phase: 'done', amount })
+      })
+      .catch(() => {
+        setProcess(null)
+        onNotice('Pi 결제를 완료하지 못했습니다. Pi 브라우저에서 다시 시도해 주세요.')
+      })
   }
 
   const requestWithdraw = () => {
