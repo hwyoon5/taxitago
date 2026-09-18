@@ -2488,6 +2488,13 @@ function Home({
   const [formOpen, setFormOpen] = useState(false)
   const [favorites, setFavorites] = useState<FavoritePlace[]>([])
   const [recents, setRecents] = useState<RecentPlace[]>([])
+  const [sheetOpen, setSheetOpen] = useState(true)
+  const [sheetHeight, setSheetHeight] = useState(360)
+  const [dragOffset, setDragOffset] = useState(0)
+  const [sheetDragging, setSheetDragging] = useState(false)
+  const sheetRef = useRef<HTMLElement>(null)
+  const dragRef = useRef({ active: false, startY: 0 })
+  const peekHeight = 72
 
   useEffect(() => {
     setFavorites(readFavoritePlaces())
@@ -2523,9 +2530,39 @@ function Home({
   const callTaxi = () => {
     if (!destination) {
       setSearchOpen(true)
+      setSheetOpen(true)
       return
     }
     onService('택시')
+  }
+
+  useLayoutEffect(() => {
+    const node = sheetRef.current
+    if (!node) return
+    const measure = () => setSheetHeight(node.offsetHeight)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [destination, pickup, searchOpen])
+
+  const collapsedY = Math.max(0, sheetHeight - peekHeight)
+  const sheetY = Math.min(collapsedY, Math.max(0, (sheetOpen ? 0 : collapsedY) + dragOffset))
+  const visibleSheet = Math.max(peekHeight, sheetHeight - sheetY)
+  const pinEmphasis = !sheetOpen || sheetY > 40
+
+  const finishSheetDrag = (clientY: number) => {
+    if (!dragRef.current.active) return
+    const delta = clientY - dragRef.current.startY
+    dragRef.current.active = false
+    setSheetDragging(false)
+    setDragOffset(0)
+    if (Math.abs(delta) < 12) {
+      setSheetOpen((open) => !open)
+      return
+    }
+    if (sheetOpen && delta > 48) setSheetOpen(false)
+    else if (!sheetOpen && delta < -48) setSheetOpen(true)
   }
 
   return (
@@ -2538,10 +2575,49 @@ function Home({
           pinLng={gps.lng}
           className="h-full min-h-0 w-full"
           pulsePin
+          hidePin={pinEmphasis}
+          bottomInset={visibleSheet}
         />
+        {pinEmphasis ? (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-center justify-center" style={{ bottom: visibleSheet }}>
+            <div className="relative flex flex-col items-center">
+              <span className="relative flex h-[4.5rem] w-[4.5rem] items-center justify-center">
+                <span className="absolute inset-0 animate-ping rounded-full bg-[#4C1FB8]/40" />
+                <span className="absolute inset-1 animate-pulse rounded-full bg-[#7C3AED]/30" />
+                <span className="relative flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-[0_8px_20px_rgba(76,31,184,0.45)]">
+                  <MapPin className="h-6 w-6" />
+                </span>
+              </span>
+              <span className="mt-2 rounded-full bg-white/95 px-3 py-1 text-[12px] font-black text-[#4C1FB8] shadow-md">내 위치</span>
+            </div>
+          </div>
+        ) : null}
       </div>
-      <div className="relative z-10 mt-auto max-h-[min(48dvh,calc(100dvh-13.25rem))] overflow-y-auto overscroll-contain rounded-t-[22px] bg-white px-3 pb-3 pt-1.5 shadow-[0_-12px_28px_rgba(15,23,42,0.14)]">
-        <div className="mx-auto mb-1.5 h-1 w-10 rounded-full bg-[#E2E8F0]" />
+      <section
+        ref={sheetRef}
+        className={`absolute inset-x-0 bottom-0 z-10 overflow-hidden rounded-t-[22px] bg-white px-3 pb-3 pt-1 shadow-[0_-12px_28px_rgba(15,23,42,0.14)] ${sheetDragging ? '' : 'transition-transform duration-300 ease-out'}`}
+        style={{ transform: `translateY(${sheetY}px)` }}
+      >
+        <button
+          type="button"
+          aria-expanded={sheetOpen}
+          aria-label={sheetOpen ? '호출 창 접기' : '호출 창 펼치기'}
+          className="flex w-full touch-none flex-col items-center pb-1.5 pt-1"
+          onPointerDown={(event) => {
+            dragRef.current = { active: true, startY: event.clientY }
+            setSheetDragging(true)
+            event.currentTarget.setPointerCapture(event.pointerId)
+          }}
+          onPointerMove={(event) => {
+            if (!dragRef.current.active) return
+            setDragOffset(event.clientY - dragRef.current.startY)
+          }}
+          onPointerUp={(event) => finishSheetDrag(event.clientY)}
+          onPointerCancel={(event) => finishSheetDrag(event.clientY)}
+        >
+          <span className="h-1 w-10 rounded-full bg-[#D4D4D8]" />
+          <span className="mt-1 text-[10px] font-bold text-[#94A3B8]">{sheetOpen ? '아래로 밀어 지도를 더 보기' : '위로 밀어 호출 창 열기'}</span>
+        </button>
         <div className="rounded-[18px] border border-[#E2E8F0] bg-[#F8FAFC] p-2">
           <button type="button" onClick={onOpenMap} className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-white px-2.5 py-1.5 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
@@ -2602,7 +2678,7 @@ function Home({
           <p className="text-[10px] font-bold text-[#64748B]">최근 이용</p>
           <p className="text-[13px] font-black leading-tight">서울시청 → 강남역 · 3.2 Pi</p>
         </button>
-      </div>
+      </section>
       {searchOpen ? (
         <DestinationSearchModal
           destination={destination}
