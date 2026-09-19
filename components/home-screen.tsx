@@ -3641,7 +3641,7 @@ function WalletModal({
   onReceipt: (ride: RideReceipt) => void
 }) {
   const [tab, setTab] = useState<'charge' | 'refund' | 'history'>('charge')
-  const [chargeUnit, setChargeUnit] = useState(10)
+  const [chargeDraft, setChargeDraft] = useState('10')
   const [address, setAddress] = useState('')
   const [amount, setAmount] = useState('')
   const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
@@ -3649,7 +3649,14 @@ function WalletModal({
   const [depositEditing, setDepositEditing] = useState(false)
   const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number } | null>(null)
   const chargeUnits = [5, 10, 25, 50]
+  const chargeAmount = Number(chargeDraft.replace(/,/g, ''))
+  const chargeValid = Number.isFinite(chargeAmount) && chargeAmount > 0
   const withdrawValue = Number(amount)
+
+  const applyChargeAmount = (value: number) => {
+    const next = Math.round(value * 100) / 100
+    setChargeDraft(Number.isInteger(next) ? String(next) : next.toFixed(2))
+  }
 
   useEffect(() => {
     const saved = loadDepositAddress()
@@ -3802,30 +3809,50 @@ function WalletModal({
             </section>
             <section className="rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
               <p className="font-black">파이 충전 단위</p>
-              <p className="mt-1 text-xs font-bold text-[#8b8495]">충전할 Pi 수량을 선택한 뒤 신청해 주세요.</p>
+              <p className="mt-1 text-xs font-bold text-[#8b8495]">빠른 선택을 누르거나, 원하는 수량을 직접 입력해 주세요.</p>
               <div className="mt-3 grid grid-cols-4 gap-2">
                 {chargeUnits.map((unit) => (
                   <button
                     key={unit}
                     type="button"
-                    onClick={() => setChargeUnit(unit)}
-                    className={`rounded-2xl py-3 text-sm font-black ${chargeUnit === unit ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'bg-[#F1EBFF] text-[#4C1FB8]'}`}
+                    onClick={() => applyChargeAmount(unit)}
+                    className={`rounded-2xl py-3 text-sm font-black ${chargeValid && chargeAmount === unit ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'bg-[#F1EBFF] text-[#4C1FB8]'}`}
                   >
                     {unit}
                   </button>
                 ))}
               </div>
+              <label className="mt-4 block">
+                <span className="text-xs font-black text-[#334155]">직접 입력</span>
+                <div className="mt-2 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-4 py-3 focus-within:border-[#4C1FB8]">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={chargeDraft}
+                    onChange={(event) => {
+                      const next = event.target.value.replace(/[^\d.]/g, '')
+                      const [whole, ...rest] = next.split('.')
+                      setChargeDraft(rest.length ? `${whole}.${rest.join('').slice(0, 2)}` : whole)
+                    }}
+                    placeholder="수량 입력"
+                    aria-label="충전할 Pi 수량 직접 입력"
+                    className="min-w-0 flex-1 bg-transparent text-lg font-black text-[#0F172A] outline-none"
+                  />
+                  <span className="shrink-0 text-sm font-black text-[#4C1FB8]">Pi</span>
+                </div>
+              </label>
               <div className="mt-4 flex items-end justify-between rounded-2xl bg-[#F8F5FF] px-4 py-3">
                 <span className="text-xs font-bold text-[#64748B]">신청 수량</span>
-                <strong className="text-lg font-black text-[#4C1FB8]">{chargeUnit.toFixed(2)} Pi</strong>
+                <strong className="text-lg font-black text-[#4C1FB8]">{chargeValid ? `${chargeAmount.toFixed(2)} Pi` : '—'}</strong>
               </div>
               <button
                 type="button"
-                disabled={Boolean(process)}
+                disabled={Boolean(process) || !chargeValid}
                 className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-60"
                 onClick={() => {
-                  if (process) return
-                  const amount = chargeUnit
+                  if (process || !chargeValid) return
+                  const amount = Math.round(chargeAmount * 100) / 100
                   setProcess({ kind: 'charge', phase: 'pending', amount })
                   void chargePiWallet(amount)
                     .then(() => {
@@ -3838,7 +3865,7 @@ function WalletModal({
                     })
                 }}
               >
-                충전 신청
+                {chargeValid ? `${chargeAmount.toFixed(2)} Pi 충전 신청` : '충전 신청'}
               </button>
             </section>
           </div>
