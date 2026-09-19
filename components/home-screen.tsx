@@ -11,9 +11,17 @@ import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } fr
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { BUSAN_CITY_HALL, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
+import {
+  appendSettlementEntry,
+  clearPartnerAccount,
+  loadPartnerProfile,
+  savePartnerProfile,
+  savePiIdentity,
+  syncPartnerLink,
+} from '@/lib/partner-account'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
-import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX } from '@/components/pi-checkout'
+import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
@@ -3645,7 +3653,7 @@ function HeaderModal({
   username: string
   piLinked: boolean
   onClose: () => void
-  onLinkPi: () => void
+  onLinkPi: () => void | Promise<void>
   onUnlinkPi: () => void
 }) {
   const isActivity = kind === 'activity'
@@ -3655,10 +3663,7 @@ function HeaderModal({
   const connect = () => {
     if (linking || piLinked) return
     setLinking(true)
-    window.setTimeout(() => {
-      onLinkPi()
-      setLinking(false)
-    }, 900)
+    void Promise.resolve(onLinkPi()).finally(() => setLinking(false))
   }
   const unlink = () => {
     onUnlinkPi()
@@ -3733,8 +3738,8 @@ function HeaderModal({
         ) : (
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
-              <p className="text-lg font-bold leading-snug text-[#0F172A]">Pi 계정과 연동하시겠습니까?</p>
-              <p className="mt-2 text-sm font-semibold leading-6 text-[#334155]">연동을 시키면 바로 회원가입이 완료됩니다.</p>
+              <p className="text-lg font-bold leading-snug text-[#0F172A]">파이 계정으로 로그인할까요?</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-[#334155]">Pi Sign-in이 끝나면 고유 UID와 지갑 주소가 프로필·정산에 연동됩니다.</p>
             </div>
             <div className="flex items-center gap-3 rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F1FA] text-[#4A82B8]">
@@ -3751,7 +3756,7 @@ function HeaderModal({
               disabled={linking}
               className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-[#4A82B8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] disabled:opacity-70"
             >
-              {linking ? '연동 중…' : 'Pi 계정 연동하기'}
+              {linking ? 'Pi Sign-in 중…' : '파이 계정 로그인'}
             </button>
             <button type="button" onClick={onClose} className="w-full py-2 text-sm font-bold text-[#64748B]">
               나중에
@@ -3763,7 +3768,32 @@ function HeaderModal({
   )
 }
 
-function PartnerSignupModal({ onClose, onDone, onRegistered }: { onClose: () => void; onDone: (message: string) => void; onRegistered: (role: '기사' | '파트너') => void }) {
+function PiIdentityCard({ session }: { session: PiSession }) {
+  return (
+    <div className="rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] p-4">
+      <p className="text-[11px] font-black text-[#047857]">Pi Sign-in 완료</p>
+      <p className="mt-1 text-sm font-black text-[#0F172A]">@{session.username}</p>
+      <p className="mt-2 break-all text-[11px] font-bold leading-5 text-[#334155]">UID {session.uid}</p>
+      <p className="mt-1 break-all text-[11px] font-bold leading-5 text-[#334155]">Wallet {session.wallet}</p>
+    </div>
+  )
+}
+
+function PartnerSignupModal({
+  onClose,
+  onDone,
+  onRegistered,
+  onPiLinked,
+}: {
+  onClose: () => void
+  onDone: (message: string) => void
+  onRegistered: (role: '기사' | '파트너', session: PiSession) => void
+  onPiLinked: (session: PiSession) => void
+}) {
+  const [step, setStep] = useState<'pi' | 'profile'>('pi')
+  const [session, setSession] = useState<PiSession | null>(null)
+  const [signing, setSigning] = useState(false)
+  const [signError, setSignError] = useState('')
   const [role, setRole] = useState<'기사' | '파트너'>('기사')
   const [serviceType, setServiceType] = useState<'택시' | '대리운전' | '택배'>('택시')
   const [facilityType, setFacilityType] = useState<'주차' | '자전거' | '킥보드' | 'EV 충전'>('주차')
@@ -3775,13 +3805,43 @@ function PartnerSignupModal({ onClose, onDone, onRegistered }: { onClose: () => 
   const [submitted, setSubmitted] = useState(false)
   const photoInput = useRef<HTMLInputElement>(null)
   const skipVehicle = role === '기사' && serviceType === '대리운전'
-  const canSubmit = name.trim() && phone.trim() && (skipVehicle || detail.trim())
+  const canSubmit = Boolean(session) && name.trim() && phone.trim() && (skipVehicle || detail.trim())
+
+  const startPiLogin = async () => {
+    if (signing) return
+    setSigning(true)
+    setSignError('')
+    try {
+      const next = await signInWithPi()
+      setSession(next)
+      savePiIdentity(next)
+      onPiLinked(next)
+      setStep('profile')
+    } catch (error) {
+      setSignError(describePiUserMessage(error))
+    } finally {
+      setSigning(false)
+    }
+  }
+
   const submit = () => {
-    if (!canSubmit) return
+    if (!canSubmit || !session) return
+    const profile = {
+      ...session,
+      role,
+      name: name.trim(),
+      phone: phone.trim(),
+      detail: skipVehicle ? '' : detail.trim(),
+      region: region.trim() || '서울',
+      serviceType: role === '기사' ? serviceType : facilityType,
+      linkedAt: new Date().toISOString(),
+    }
+    savePartnerProfile(profile)
+    void syncPartnerLink(profile)
     setSubmitted(true)
-    onRegistered(role)
+    onRegistered(role, session)
     window.setTimeout(() => {
-      onDone(`${role} 등록이 완료되었어요. 기사 모드로 전환합니다.`)
+      onDone(`${role} 등록이 완료되었어요. 파이 UID와 지갑이 정산 계정에 연결되었습니다.`)
       onClose()
     }, 1400)
   }
@@ -3801,21 +3861,50 @@ function PartnerSignupModal({ onClose, onDone, onRegistered }: { onClose: () => 
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#4C1FB8] text-white">
               <Check className="h-8 w-8" strokeWidth={3} />
             </div>
-            <h2 className="mt-4 text-2xl font-black text-[#0F172A]">등록이 완료되었습니다</h2>
-            <p className="mt-2 text-sm font-bold text-[#475569]">기사/파트너 권한이 활성화되었어요. 대시보드로 이동합니다.</p>
+            <h2 className="mt-4 text-2xl font-black text-[#0F172A]">파이 계정으로 등록 완료</h2>
+            <p className="mt-2 text-sm font-bold text-[#475569]">UID와 지갑 주소가 파트너 프로필·정산에 연동되었어요.</p>
           </div>
-        ) : (
+        ) : step === 'pi' ? (
           <>
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-black text-[#4C1FB8]">PARTNER SIGNUP</p>
-                <h2 className="mt-1 text-2xl font-black text-[#0F172A]">기사/파트너 회원가입</h2>
-                <p className="mt-1 text-sm font-bold text-[#64748B]">기사 또는 가맹점/업체로 등록해 주세요.</p>
+                <p className="text-xs font-black text-[#4C1FB8]">PI SIGN-IN</p>
+                <h2 className="mt-1 text-2xl font-black text-[#0F172A]">파이 계정으로 안전하게 시작</h2>
+                <p className="mt-1 text-sm font-bold leading-6 text-[#64748B]">기사/파트너 등록의 첫 단계는 Pi Network 로그인입니다.</p>
               </div>
               <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="닫기">
                 <X className="h-5 w-5" />
               </button>
             </div>
+            <div className="mt-4 space-y-2 rounded-[22px] border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4 text-sm font-bold leading-6 text-[#334155]">
+              <p>1. Pi Sign-in으로 고유 UID를 받습니다.</p>
+              <p>2. 같은 계정의 지갑 주소가 정산 DB에 연결됩니다.</p>
+              <p>3. 그다음 기사/가맹점 정보를 입력합니다.</p>
+            </div>
+            {signError ? <p className="mt-3 text-sm font-bold text-[#B91C1C]">{signError}</p> : null}
+            <button
+              type="button"
+              onClick={() => void startPiLogin()}
+              disabled={signing}
+              className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-70"
+            >
+              {signing ? 'Pi Sign-in 중…' : '파이 계정 로그인'}
+            </button>
+            {PI_SANDBOX ? <p className="mt-3 text-center text-[11px] font-bold text-[#8b8495]">개발 샌드박스에서는 Pi Browser가 없어도 테스트 계정으로 이어갈 수 있어요.</p> : null}
+          </>
+        ) : (
+          <>
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-black text-[#4C1FB8]">PARTNER PROFILE</p>
+                <h2 className="mt-1 text-2xl font-black text-[#0F172A]">파트너 정보 입력</h2>
+                <p className="mt-1 text-sm font-bold text-[#64748B]">파이 UID·지갑이 이미 연결되었습니다.</p>
+              </div>
+              <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="닫기">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {session ? <div className="mt-4"><PiIdentityCard session={session} /></div> : null}
             <div className="mt-4 grid grid-cols-2 gap-1 rounded-2xl bg-[#F8F5FF] p-1">
               {(['기사', '파트너'] as const).map((item) => (
                 <button
@@ -3904,7 +3993,7 @@ function PartnerSignupModal({ onClose, onDone, onRegistered }: { onClose: () => 
               <input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="서울" className="mt-2 w-full rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]" />
             </label>
             <button type="button" onClick={submit} disabled={!canSubmit} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:cursor-not-allowed disabled:opacity-40">
-              회원가입 완료
+              파이 계정으로 등록 완료
             </button>
           </>
         )}
@@ -4168,29 +4257,29 @@ function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartT
   return (
     <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-4" aria-label="기사 파트너">
       <section className="rounded-[28px] bg-[#243044] p-5 text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)]">
-        <p className="text-xs font-semibold text-[#93C5FD]">기사/파트너</p>
-        <h2 className="mt-1 text-2xl font-bold tracking-tight">함께 운행할 파트너를 모집해요</h2>
-        <p className="mt-2 text-sm font-medium leading-6 text-[#CBD5E1]">회원가입을 마치면 콜 수락, 수익 현황, 파트너 대시보드를 바로 이용할 수 있어요.</p>
+        <p className="text-xs font-semibold text-[#93C5FD]">Pi Network · 파트너</p>
+        <h2 className="mt-1 text-2xl font-bold tracking-tight">파이 계정으로 안전하게 시작하는 파트너 등록</h2>
+        <p className="mt-2 text-sm font-medium leading-6 text-[#CBD5E1]">기사/파트너는 반드시 Pi Sign-in을 거친 뒤 UID와 지갑 주소가 정산 계정에 연결됩니다.</p>
       </section>
       <section className="mt-4 rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
-        <p className="text-xs font-black text-[#4A82B8]">시작하기</p>
-        <h3 className="mt-1 text-lg font-black text-[#0F172A]">기사 전용 페이지</h3>
-        <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">등록된 기사/파트너만 운행 요청을 받고 정산을 확인할 수 있어요.</p>
+        <p className="text-xs font-black text-[#4A82B8]">1단계 · 파이 로그인</p>
+        <h3 className="mt-1 text-lg font-black text-[#0F172A]">Pi Sign-in으로 파트너 시작</h3>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">로그인 후 고유 UID와 지갑이 프로필에 붙고, 그다음 기사/가맹점 정보를 입력합니다.</p>
         <button
           type="button"
           onClick={onSignup}
           className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 text-base font-black text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
         >
-          기사/파트너 회원가입
+          파이 계정으로 파트너 등록
         </button>
       </section>
       <section className="mt-4 rounded-[26px] border-2 border-[#F59E0B] bg-[#FFFBEB] p-5 shadow-[0_10px_24px_rgba(245,158,11,0.22)]">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-black text-[#B45309]">미리 체험</p>
-          <span className="rounded-full bg-[#F59E0B] px-2.5 py-1 text-[10px] font-black text-white">회원가입 불필요</span>
+          <span className="rounded-full bg-[#F59E0B] px-2.5 py-1 text-[10px] font-black text-white">Pi 로그인 전 미리보기</span>
         </div>
         <h3 className="mt-1 text-lg font-black text-[#0F172A]">기사/파트너 체험판</h3>
-        <p className="mt-2 text-sm font-bold leading-6 text-[#92400E]">회원가입 없이 콜 수락, 배차, 수익 확인 등 기사 전용 기능을 미리 체험해 보세요</p>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#92400E]">콜·내비게이션·수익 화면만 먼저 볼 수 있어요. 실제 정산과 콜 수락은 파이 계정 로그인이 필요합니다.</p>
         <button
           type="button"
           onClick={onStartTrial}
@@ -4418,8 +4507,8 @@ function PartnerTrialDemo({ onClose, onNotice }: { onClose: () => void; onNotice
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[11px] font-black tracking-wide text-[#B45309]">기사/파트너 체험판</p>
-              <h2 className="mt-0.5 text-xl font-black text-[#0F172A]">가상 콜 · 수익 대시보드</h2>
-              <p className="mt-1 text-xs font-bold text-[#92400E]">콜 수락부터 정산 통계까지 가입 없이 미리 봅니다.</p>
+              <h2 className="mt-0.5 text-xl font-black text-[#0F172A]">미리보기 · 파이 계정으로 정식 등록</h2>
+              <p className="mt-1 text-xs font-bold text-[#92400E]">체험은 화면만 보여 줍니다. 실제 정산은 Pi Sign-in 후 UID·지갑이 연결되어야 합니다.</p>
             </div>
             <button type="button" onClick={onClose} className="rounded-full bg-white p-2 text-[#334155] shadow-sm" aria-label="체험판 닫기">
               <X className="h-5 w-5" />
@@ -4499,7 +4588,7 @@ function PartnerTrialDemo({ onClose, onNotice }: { onClose: () => void; onNotice
               <button
                 type="button"
                 onClick={() => {
-                  onNotice('체험판 운행을 마쳤습니다. 회원가입하면 실제 콜을 받을 수 있어요.')
+                  onNotice('체험판을 마쳤습니다. 실제 콜·정산은 파이 계정으로 파트너 등록해 주세요.')
                   onClose()
                 }}
                 className="mt-5 w-full rounded-2xl bg-[#0F766E] py-3.5 text-base font-black text-white"
@@ -4520,17 +4609,17 @@ function DriverNeedSignupModal({ onClose, onSignup }: { onClose: () => void; onS
     <div className="fixed inset-0 z-[94] flex items-end bg-[#1e1033]/50 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <section className="mx-auto w-full max-w-md rounded-t-[32px] bg-white p-5 shadow-2xl sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-        <p className="text-xs font-bold text-[#4A82B8]">기사/파트너 모드</p>
-        <h2 className="mt-1 text-2xl font-bold text-[#0F172A]">먼저 회원가입이 필요해요</h2>
+        <p className="text-xs font-bold text-[#4A82B8]">Pi Sign-in 필요</p>
+        <h2 className="mt-1 text-2xl font-bold text-[#0F172A]">파이 계정으로 파트너를 시작하세요</h2>
         <p className="mt-2 text-sm font-medium leading-6 text-[#475569]">
-          등록을 마치면 콜 수락과 파트너 대시보드를 바로 이용할 수 있어요.
+          기사/파트너는 Pi Network 로그인이 먼저입니다. UID와 지갑이 정산 계정에 연결됩니다.
         </p>
         <button
           type="button"
           onClick={onSignup}
           className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
         >
-          회원가입 하러 가기
+          파이 계정으로 로그인
         </button>
         <button type="button" onClick={onClose} className="mt-2 w-full rounded-2xl py-3 text-sm font-bold text-[#64748B]">
           나중에
@@ -4544,6 +4633,10 @@ function DriverDashboard({ online, onToggleOnline, onPassengerMode, onWithdraw, 
   const [requestVisible, setRequestVisible] = useState(true)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
+  useEffect(() => {
+    setPartner(loadPartnerProfile())
+  }, [])
   return (
     <main className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
       <section className="rounded-[28px] bg-[#243044] p-5 text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)]">
@@ -4565,6 +4658,14 @@ function DriverDashboard({ online, onToggleOnline, onPassengerMode, onWithdraw, 
           </span>
         </button>
       </section>
+      {partner ? (
+        <section className="mt-4 rounded-[26px] border-2 border-[#A7F3D0] bg-[#ECFDF5] p-4">
+          <p className="text-[11px] font-black text-[#047857]">Pi 정산 계정</p>
+          <p className="mt-1 text-sm font-black text-[#0F172A]">@{partner.username} · {partner.role}</p>
+          <p className="mt-2 break-all text-[11px] font-bold leading-5 text-[#334155]">UID {partner.uid}</p>
+          <p className="mt-1 break-all text-[11px] font-bold leading-5 text-[#334155]">Wallet {partner.wallet}</p>
+        </section>
+      ) : null}
       <section className="mt-4 grid grid-cols-3 gap-2.5">
         <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 text-left shadow-[0_6px_18px_rgba(15,23,42,0.08)] transition active:scale-[0.98]">
           <p className="text-[10px] font-semibold text-[#64748B]">오늘의 수익</p>
@@ -4596,7 +4697,8 @@ function DriverDashboard({ online, onToggleOnline, onPassengerMode, onWithdraw, 
             <button
               onClick={() => {
                 setRequestVisible(false)
-                onNotice('운행 요청을 수락했어요.')
+                appendSettlementEntry(3.4, '콜 수락 정산')
+                onNotice('운행 요청을 수락했어요. 파이 지갑 정산 계정에 기록됩니다.')
               }}
               className="rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white"
             >
@@ -4961,7 +5063,12 @@ export default function HomeScreen() {
     }
     setDriverGateOpen(true)
   }
-  const completeDriverRegistration = (role: '기사' | '파트너' = '기사') => {
+  const completeDriverRegistration = (role: '기사' | '파트너' = '기사', session?: PiSession) => {
+    if (session) {
+      savePiIdentity(session)
+      setIsPiLinked(true)
+      saveIsPiLinked(true)
+    }
     if (role === '파트너') {
       setIsPartnerRegistered(true)
       saveIsPartnerRegistered(true)
@@ -4984,6 +5091,7 @@ export default function HomeScreen() {
     saveIsPartnerRegistered(false)
     setDriverMode(false)
     setDriverOnline(false)
+    clearPartnerAccount()
     setTab('홈')
     showNotice('기사/파트너 탈퇴가 완료되었습니다')
   }
@@ -5177,10 +5285,16 @@ export default function HomeScreen() {
             username={user.username}
             piLinked={isPiLinked}
             onClose={() => setHeaderModal(null)}
-            onLinkPi={() => {
-              setIsPiLinked(true)
-              saveIsPiLinked(true)
-              showNotice('Pi 계정 연동이 완료되었습니다')
+            onLinkPi={async () => {
+              try {
+                const session = await signInWithPi()
+                savePiIdentity(session)
+                setIsPiLinked(true)
+                saveIsPiLinked(true)
+                showNotice(`파이 로그인 완료 · UID ${session.uid.slice(0, 8)}…`)
+              } catch (error) {
+                showNotice(describePiUserMessage(error))
+              }
             }}
             onUnlinkPi={() => {
               setIsPiLinked(false)
@@ -5191,6 +5305,7 @@ export default function HomeScreen() {
               saveIsPartnerRegistered(false)
               setDriverMode(false)
               setDriverOnline(false)
+              clearPartnerAccount()
               setTab('홈')
               showNotice('Pi 계정 연동이 해제되어 회원 탈퇴 처리되었습니다')
             }}
@@ -5200,6 +5315,11 @@ export default function HomeScreen() {
           <PartnerSignupModal
             onClose={() => setPartnerSignupOpen(false)}
             onRegistered={completeDriverRegistration}
+            onPiLinked={(session) => {
+              savePiIdentity(session)
+              setIsPiLinked(true)
+              saveIsPiLinked(true)
+            }}
             onDone={showNotice}
           />
         )}

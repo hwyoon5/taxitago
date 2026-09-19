@@ -215,6 +215,94 @@ export async function preparePiSdk() {
   return pi
 }
 
+export type PiSession = {
+  uid: string
+  username: string
+  wallet: string
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : null
+}
+
+function pickString(record: Record<string, unknown> | null, keys: string[]) {
+  if (!record) return ''
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
+export function walletFromPiUid(uid: string) {
+  const raw = uid.replace(/[^a-zA-Z0-9]/g, '').toUpperCase() || 'SANDBOX'
+  return `G${`${raw}TAXITAGOPIWALLET`.repeat(6).slice(0, 55)}`
+}
+
+export function parsePiAuthResult(auth: unknown): PiSession | null {
+  const root = asRecord(auth)
+  const user = asRecord(root?.user) ?? root
+  const uid = pickString(user, ['uid', 'user_uid', 'id']) || pickString(root, ['uid'])
+  if (!uid) return null
+  const username = pickString(user, ['username', 'user_name', 'name']) || pickString(root, ['username']) || uid
+  const wallet =
+    pickString(user, ['walletAddress', 'wallet_address', 'wallet']) ||
+    pickString(root, ['walletAddress', 'wallet_address', 'wallet']) ||
+    walletFromPiUid(uid)
+  return { uid, username, wallet }
+}
+
+/** Pi Sign-in: returns unique UID + wallet for partner profile / settlement. */
+export async function signInWithPi(): Promise<PiSession> {
+  if (PI_SANDBOX && !isPiBrowser()) {
+    const session: PiSession = {
+      uid: 'sandbox-uid-taxitago',
+      username: 'taxitago',
+      wallet: walletFromPiUid('sandbox-uid-taxitago'),
+    }
+    logPi('warn', 'sandbox pioneer sign-in (not Pi Browser)')
+    return session
+  }
+  try {
+    const pi = await waitForPi(8000)
+    if (!initialized) initPi(pi)
+    resetPiSession()
+    initPi(pi)
+    authPromise = pi
+      .authenticate(['username', 'payments'], async (payment) => {
+        logPi('log', 'onIncompletePaymentFound', payment)
+        const paymentId = typeof payment.identifier === 'string' ? payment.identifier : ''
+        const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
+        if (paymentId && txid) await postPiApi('/api/pi/complete', { paymentId, txid })
+      })
+      .then((auth) => {
+        logPi('log', 'authenticate ok', auth)
+        return auth
+      })
+      .catch((error) => {
+        resetPiSession()
+        logPi('error', 'authenticate failed', error)
+        throw error
+      })
+    const auth = await authPromise
+    const session = parsePiAuthResult(auth)
+    if (!session) throw new Error('파이 계정 UID를 받지 못했습니다.')
+    logPi('log', 'sign-in session', session)
+    return session
+  } catch (error) {
+    if (PI_SANDBOX && !isPiBrowser()) {
+      const session: PiSession = {
+        uid: 'sandbox-uid-taxitago',
+        username: 'taxitago',
+        wallet: walletFromPiUid('sandbox-uid-taxitago'),
+      }
+      logPi('warn', 'sandbox pioneer sign-in', error)
+      return session
+    }
+    throw error instanceof Error ? error : new Error(describePiUserMessage(error))
+  }
+}
+
 function requirePiSdk() {
   const pi = typeof window !== 'undefined' ? window.Pi : undefined
   if (!pi) {
