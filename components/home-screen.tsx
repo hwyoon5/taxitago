@@ -3844,8 +3844,8 @@ function HeaderModal({
 
 function PiIdentityCard({ session }: { session: PiSession }) {
   return (
-    <div className="rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] p-4">
-      <p className="text-[11px] font-black text-[#047857]">Pi Sign-in 완료</p>
+    <div className="rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] p-4">
+      <p className="text-[11px] font-black text-[#4A82B8]">Pi Sign-in 완료</p>
       <p className="mt-1 text-sm font-black text-[#0F172A]">@{session.username}</p>
       <p className="mt-2 break-all text-[11px] font-bold leading-5 text-[#334155]">UID {session.uid}</p>
       <p className="mt-1 break-all text-[11px] font-bold leading-5 text-[#334155]">Wallet {session.wallet}</p>
@@ -3932,7 +3932,7 @@ function PartnerSignupModal({
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
         {submitted ? (
           <div className="py-8 text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#4C1FB8] text-white">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#4A82B8] text-white">
               <Check className="h-8 w-8" strokeWidth={3} />
             </div>
             <h2 className="mt-4 text-2xl font-black text-[#0F172A]">파이 계정으로 등록 완료</h2>
@@ -3942,7 +3942,7 @@ function PartnerSignupModal({
           <>
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-black text-[#4C1FB8]">PI SIGN-IN</p>
+                <p className="text-xs font-black text-[#4A82B8]">PI SIGN-IN</p>
                 <h2 className="mt-1 text-2xl font-black text-[#0F172A]">파이 계정으로 안전하게 시작</h2>
                 <p className="mt-1 text-sm font-bold leading-6 text-[#64748B]">기사/파트너 등록의 첫 단계는 Pi Network 로그인입니다.</p>
               </div>
@@ -3960,7 +3960,7 @@ function PartnerSignupModal({
               type="button"
               onClick={() => void startPiLogin()}
               disabled={signing}
-              className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-70"
+              className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(74,130,184,0.35)] disabled:opacity-70"
             >
               {signing ? 'Pi Sign-in 중…' : '파이 계정 로그인'}
             </button>
@@ -3970,7 +3970,7 @@ function PartnerSignupModal({
           <>
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-black text-[#4C1FB8]">PARTNER PROFILE</p>
+                <p className="text-xs font-black text-[#4A82B8]">PARTNER PROFILE</p>
                 <h2 className="mt-1 text-2xl font-black text-[#0F172A]">파트너 정보 입력</h2>
                 <p className="mt-1 text-sm font-bold text-[#64748B]">파이 UID·지갑이 이미 연결되었습니다.</p>
               </div>
@@ -3979,13 +3979,13 @@ function PartnerSignupModal({
               </button>
             </div>
             {session ? <div className="mt-4"><PiIdentityCard session={session} /></div> : null}
-            <div className="mt-4 grid grid-cols-2 gap-1 rounded-2xl bg-[#F8F5FF] p-1">
+            <div className="mt-4 grid grid-cols-2 gap-1 rounded-2xl bg-[#E8F1FA] p-1">
               {(['기사', '파트너'] as const).map((item) => (
                 <button
                   key={item}
                   type="button"
                   onClick={() => setRole(item)}
-                  className={`rounded-xl py-2.5 text-xs font-black ${role === item ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
+                  className={`rounded-xl py-2.5 text-xs font-black ${role === item ? 'bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]' : 'text-[#64748B]'}`}
                 >
                   {item === '파트너' ? '파트너(가맹점/업체)' : '기사 등록'}
                 </button>
@@ -4000,7 +4000,7 @@ function PartnerSignupModal({
                       key={item}
                       type="button"
                       onClick={() => setServiceType(item)}
-                      className={`rounded-2xl border-2 py-3 text-xs font-black ${serviceType === item ? 'border-[#4C1FB8] bg-[#4C1FB8] text-white' : 'border-[#E0D4FF] bg-[#F8F5FF] text-[#4C1FB8]'}`}
+                      className={`rounded-2xl border-2 py-3 text-xs font-black ${serviceType === item ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
                     >
                       {item}
                     </button>
@@ -4010,7 +4010,7 @@ function PartnerSignupModal({
             ) : null}
             <label className="mt-4 block">
               <span className="text-xs font-black text-[#334155]">{role === '기사' ? '기사 성함' : '대표자 성함'}</span>
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="홍길동" className="mt-2 w-full rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]" />
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="홍길동" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
             </label>
             {role === '기사' ? (
               <div className="mt-3">
@@ -4019,9 +4019,9 @@ function PartnerSignupModal({
                 <button
                   type="button"
                   onClick={() => photoInput.current?.click()}
-                  className="mt-2 flex w-full items-center gap-3 rounded-[22px] border-2 border-dashed border-[#4C1FB8] bg-[#F8F5FF] px-4 py-3 text-left"
+                  className="mt-2 flex w-full items-center gap-3 rounded-[22px] border-2 border-dashed border-[#4A82B8] bg-[#E8F1FA] px-4 py-3 text-left"
                 >
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white text-[#4C1FB8] shadow-[0_6px_14px_rgba(76,31,184,0.12)]">
+                  <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white text-[#4A82B8] shadow-[0_6px_14px_rgba(74,130,184,0.12)]">
                     {photo ? <img src={photo} alt="등록자 사진" className="h-full w-full object-cover" /> : <Camera className="h-6 w-6" />}
                   </span>
                   <span>
@@ -4039,7 +4039,7 @@ function PartnerSignupModal({
                       key={item}
                       type="button"
                       onClick={() => setFacilityType(item)}
-                      className={`rounded-2xl border-2 py-3 text-xs font-black ${facilityType === item ? 'border-[#4C1FB8] bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.22)]' : 'border-[#E0D4FF] bg-[#F8F5FF] text-[#4C1FB8]'}`}
+                      className={`rounded-2xl border-2 py-3 text-xs font-black ${facilityType === item ? 'border-[#4A82B8] bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.22)]' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
                     >
                       {item}
                     </button>
@@ -4049,7 +4049,7 @@ function PartnerSignupModal({
             )}
             <label className="mt-3 block">
               <span className="text-xs font-black text-[#334155]">연락처</span>
-              <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="010-0000-0000" className="mt-2 w-full rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]" />
+              <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="010-0000-0000" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
             </label>
             <label className="mt-3 block">
               <span className="text-xs font-black text-[#334155]">{role === '기사' ? '차량 정보' : '업체/가맹점명'}</span>
@@ -4058,15 +4058,15 @@ function PartnerSignupModal({
                 onChange={(event) => setDetail(event.target.value)}
                 disabled={skipVehicle}
                 placeholder={skipVehicle ? '대리운전은 차량 정보 입력 제외' : role === '기사' ? '현대 아슬란 · 서울 31바 1842' : '파이 모빌리티 강남점'}
-                className={`mt-2 w-full rounded-2xl border-2 px-4 py-3 text-sm font-bold outline-none ${skipVehicle ? 'cursor-not-allowed border-[#E2E8F0] bg-[#F1F5F9] text-[#94A3B8] placeholder:text-[#94A3B8]' : 'border-[#E0D4FF] bg-[#F8F5FF] focus:border-[#4C1FB8]'}`}
+                className={`mt-2 w-full rounded-2xl border-2 px-4 py-3 text-sm font-bold outline-none ${skipVehicle ? 'cursor-not-allowed border-[#E2E8F0] bg-[#F1F5F9] text-[#94A3B8] placeholder:text-[#94A3B8]' : 'border-[#BFDBFE] bg-[#E8F1FA] focus:border-[#4A82B8]'}`}
               />
               {skipVehicle ? <p className="mt-1.5 text-[11px] font-bold text-[#8b8495]">* 대리운전은 차량 정보 입력 제외</p> : null}
             </label>
             <label className="mt-3 block">
               <span className="text-xs font-black text-[#334155]">활동 지역</span>
-              <input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="서울" className="mt-2 w-full rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]" />
+              <input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="서울" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
             </label>
-            <button type="button" onClick={submit} disabled={!canSubmit} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:cursor-not-allowed disabled:opacity-40">
+            <button type="button" onClick={submit} disabled={!canSubmit} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(74,130,184,0.35)] disabled:cursor-not-allowed disabled:opacity-40">
               파이 계정으로 등록 완료
             </button>
           </>
@@ -4733,8 +4733,8 @@ function DriverDashboard({ online, onToggleOnline, onPassengerMode, onWithdraw, 
         </button>
       </section>
       {partner ? (
-        <section className="mt-4 rounded-[26px] border-2 border-[#A7F3D0] bg-[#ECFDF5] p-4">
-          <p className="text-[11px] font-black text-[#047857]">Pi 정산 계정</p>
+        <section className="mt-4 rounded-[26px] border-2 border-[#BFDBFE] bg-[#E8F1FA] p-4">
+          <p className="text-[11px] font-black text-[#4A82B8]">Pi 정산 계정</p>
           <p className="mt-1 text-sm font-black text-[#0F172A]">@{partner.username} · {partner.role}</p>
           <p className="mt-2 break-all text-[11px] font-bold leading-5 text-[#334155]">UID {partner.uid}</p>
           <p className="mt-1 break-all text-[11px] font-bold leading-5 text-[#334155]">Wallet {partner.wallet}</p>
@@ -5176,17 +5176,17 @@ export default function HomeScreen() {
         <header className="relative z-20 shrink-0 border-b border-[#E2E8F0] bg-white px-4 pb-2 pt-[max(0.9rem,env(safe-area-inset-top))]">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[11px] font-bold tracking-wide text-[#7C3AED]">TAXI TAGO</p>
+              <p className={`text-[11px] font-bold tracking-wide ${tab === '기사/파트너' ? 'text-[#4A82B8]' : 'text-[#7C3AED]'}`}>TAXI TAGO</p>
               <h1 className="truncate text-[22px] font-black leading-tight text-[#0F172A]">{tab === '기사/파트너' ? '파트너' : '택시타고'}</h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button onClick={openWallet} className="rounded-full bg-[#EDE5FF] px-2.5 py-1.5 text-[11px] font-black text-[#4C1FB8]">
+              <button onClick={openWallet} className={`rounded-full px-2.5 py-1.5 text-[11px] font-black ${tab === '기사/파트너' ? 'bg-[#E8F1FA] text-[#4A82B8]' : 'bg-[#EDE5FF] text-[#4C1FB8]'}`}>
                 {walletBalance.toFixed(2)} Pi
               </button>
-              <button onClick={() => setHeaderModal('activity')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4C1FB8] text-white" aria-label="시간별 활동 기록">
+              <button onClick={() => setHeaderModal('activity')} className={`flex h-10 w-10 items-center justify-center rounded-full text-white ${tab === '기사/파트너' ? 'bg-[#4A82B8]' : 'bg-[#4C1FB8]'}`} aria-label="시간별 활동 기록">
                 <Bell className="h-4 w-4" />
               </button>
-              <button onClick={() => setHeaderModal('account')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4C1FB8] text-white" aria-label="파이 계정 연동">
+              <button onClick={() => setHeaderModal('account')} className={`flex h-10 w-10 items-center justify-center rounded-full text-white ${tab === '기사/파트너' ? 'bg-[#4A82B8]' : 'bg-[#4C1FB8]'}`} aria-label="파이 계정 연동">
                 <UserRound className="h-4 w-4" />
               </button>
             </div>
@@ -5282,9 +5282,9 @@ export default function HomeScreen() {
                   if (id === '홈') setDriverMode(false)
                   setTab(id)
                 }}
-                className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl py-1.5 ${active ? 'text-[#4C1FB8]' : 'text-[#64748B]'}`}
+                className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl py-1.5 ${active ? (id === '기사/파트너' ? 'text-[#4A82B8]' : 'text-[#4C1FB8]') : 'text-[#64748B]'}`}
               >
-                <span className={`relative flex h-9 w-9 items-center justify-center rounded-2xl ${active ? 'bg-[#4C1FB8] text-white shadow-[0_6px_14px_rgba(76,31,184,0.35)]' : 'bg-transparent'}`}>
+                <span className={`relative flex h-9 w-9 items-center justify-center rounded-2xl ${active ? (id === '기사/파트너' ? 'bg-[#4A82B8] text-white shadow-[0_6px_14px_rgba(74,130,184,0.35)]' : 'bg-[#4C1FB8] text-white shadow-[0_6px_14px_rgba(76,31,184,0.35)]') : 'bg-transparent'}`}>
                   <Icon className="h-5 w-5" strokeWidth={active ? 2.5 : 2} />
                   {id === '이용/알림' && unreadNoticeCount > 0 ? (
                     <span className={`absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-black ${active ? 'bg-white text-[#4C1FB8]' : 'bg-[#4C1FB8] text-white'}`}>
