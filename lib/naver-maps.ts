@@ -44,6 +44,24 @@ export type NaverMapsSdk = {
     removeListener: (listener: unknown) => void
     trigger: (target: unknown, eventName: string, ...rest: unknown[]) => void
   }
+  Service?: {
+    reverseGeocode: (
+      options: { coords: unknown; orders?: string },
+      callback: (status: number, response: NaverReverseGeocodeResponse) => void,
+    ) => void
+    Status: { OK: number; ERROR?: number }
+    OrderType: { ADDR: string; ROAD_ADDR: string }
+  }
+}
+
+export type NaverReverseGeocodeResponse = {
+  v2?: {
+    address?: { roadAddress?: string; jibunAddress?: string }
+    results?: Array<{
+      region?: { area1?: { name?: string }; area2?: { name?: string }; area3?: { name?: string }; area4?: { name?: string } }
+      land?: { name?: string; number1?: string; addition0?: { value?: string } }
+    }>
+  }
 }
 
 declare global {
@@ -121,8 +139,8 @@ function waitUntilMapsReady(timeoutMs = 8000) {
 function scriptUrls(id: string) {
   const encoded = encodeURIComponent(id)
   return NAVER_MAPS_SCRIPT_HOSTS.flatMap((host) => [
-    `${host}?ncpKeyId=${encoded}`,
-    `${host}?ncpClientId=${encoded}`,
+    `${host}?ncpKeyId=${encoded}&submodules=geocoder`,
+    `${host}?ncpClientId=${encoded}&submodules=geocoder`,
   ])
 }
 

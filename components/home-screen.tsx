@@ -9,6 +9,7 @@ import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { suggestedDestinationsFor } from '@/lib/region-destinations'
+import { requestBrowserPosition, resolveFlexibleFallback, reverseGeocode } from '@/lib/user-location'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX } from '@/components/pi-checkout'
@@ -71,7 +72,7 @@ function ServiceIconButton({
 
 
 type GpsFix = {
-  status: 'pending' | 'ready' | 'denied'
+  status: 'pending' | 'ready' | 'denied' | 'approx'
   address: string
   lat: number
   lng: number
@@ -134,17 +135,7 @@ function formatMapAddress(data: {
 }
 
 async function lookupMapAddress(lat: number, lng: number) {
-  try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=ko`,
-      { headers: { Accept: 'application/json' } },
-    )
-    if (!response.ok) return virtualPickupAddress(lat, lng)
-    const data = (await response.json()) as Parameters<typeof formatMapAddress>[0]
-    return formatMapAddress(data) || virtualPickupAddress(lat, lng)
-  } catch {
-    return virtualPickupAddress(lat, lng)
-  }
+  return reverseGeocode(lat, lng)
 }
 
 function FullscreenMapView({
@@ -4220,6 +4211,33 @@ export default function HomeScreen() {
     writePickupPlace(place)
   }
 
+  const applyLocatedPoint = async (point: { lat: number; lng: number }, status: GpsFix['status'], source: PickupPlace['source']) => {
+    setGps({ status, address: '주소를 확인하는 중', lat: point.lat, lng: point.lng })
+    if (pickupRef.current?.source !== 'map') {
+      applyPickup({ address: '주소를 확인하는 중', lat: point.lat, lng: point.lng, source })
+    }
+    const address = await reverseGeocode(point.lat, point.lng)
+    setGps({ status, address, lat: point.lat, lng: point.lng })
+    if (pickupRef.current?.source !== 'map') {
+      applyPickup({ address, lat: point.lat, lng: point.lng, source })
+    }
+  }
+
+  const requestUserLocation = async (promptOnFail = false) => {
+    setGps((current) => ({ ...current, status: 'pending', address: 'GPS 위치를 수신하는 중이에요' }))
+    const point = await requestBrowserPosition()
+    if (point) {
+      await applyLocatedPoint(point, 'ready', 'gps')
+      return true
+    }
+    if (promptOnFail) {
+      showNotice('위치 권한을 허용하면 현재 출발지를 정확히 표시할 수 있어요.')
+    }
+    const fallback = await resolveFlexibleFallback()
+    await applyLocatedPoint(fallback, 'approx', 'gps')
+    return false
+  }
+
   useEffect(() => {
     const stored = readPiWallet()
     setWalletBalance(stored.balance)
@@ -4237,56 +4255,16 @@ export default function HomeScreen() {
   }, [])
 
   useEffect(() => {
-    if (!navigator.geolocation) {
-      if (pickupRef.current?.source === 'map') return
-      const fallback = {
-        status: 'denied' as const,
-        address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
-        lat: SEOUL_CITY_HALL.lat,
-        lng: SEOUL_CITY_HALL.lng,
-      }
-      setGps(fallback)
-      applyPickup({ address: fallback.address, lat: fallback.lat, lng: fallback.lng, source: 'gps' })
-      return
+    let cancelled = false
+    void (async () => {
+      await requestUserLocation(true)
+      if (cancelled) return
+    })()
+    return () => {
+      cancelled = true
     }
-    const timer = window.setTimeout(() => {
-      if (pickupRef.current?.source === 'map') return
-      setGps((current) =>
-        current.status === 'pending'
-          ? {
-              status: 'denied',
-              address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
-              lat: SEOUL_CITY_HALL.lat,
-              lng: SEOUL_CITY_HALL.lng,
-            }
-          : current,
-      )
-    }, 6000)
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        window.clearTimeout(timer)
-        const lat = position.coords.latitude
-        const lng = position.coords.longitude
-        const address = virtualPickupAddress(lat, lng)
-        if (pickupRef.current?.source === 'map') return
-        setGps({ status: 'ready', address, lat, lng })
-        applyPickup({ address, lat, lng, source: 'gps' })
-      },
-      () => {
-        window.clearTimeout(timer)
-        if (pickupRef.current?.source === 'map') return
-        const fallback = {
-          status: 'denied' as const,
-          address: virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng),
-          lat: SEOUL_CITY_HALL.lat,
-          lng: SEOUL_CITY_HALL.lng,
-        }
-        setGps(fallback)
-        applyPickup({ address: fallback.address, lat: fallback.lat, lng: fallback.lng, source: 'gps' })
-      },
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
-    )
-    return () => window.clearTimeout(timer)
+    // First launch only: request GPS, then reverse-geocode into pickup/header.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -4464,8 +4442,21 @@ export default function HomeScreen() {
                 ? `현재 위치 · ${origin.address}`
                 : gps.status === 'pending'
                   ? 'GPS 위치를 수신하는 중이에요'
-                  : `위치 권한 없음 · ${origin.address}`}
+                  : gps.status === 'approx'
+                    ? `접속 지역 · ${origin.address}`
+                    : `위치 권한 없음 · ${origin.address}`}
             </span>
+            {gps.status !== 'ready' && pickup?.source !== 'map' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void requestUserLocation(true)
+                }}
+                className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-[#4C1FB8] shadow-[0_4px_10px_rgba(15,23,42,0.08)]"
+              >
+                위치 허용
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setFullscreenMapOpen(true)}

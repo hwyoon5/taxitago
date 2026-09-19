@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono'
 
 const naverMapClientId = resolveNaverMapClientId()
 const naverMapScript = naverMapClientId
-  ? `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(naverMapClientId)}`
+  ? `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(naverMapClientId)}&submodules=geocoder`
   : ''
 
 export const metadata: Metadata = {
