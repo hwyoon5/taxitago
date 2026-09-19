@@ -294,7 +294,7 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
     const seq = lookupSeq.current + 1
     lookupSeq.current = seq
     setPin({ lat, lng })
-    if (recenter) setMapCenter({ lat, lng, label: nextSource === 'gps' ? '현재 위치' : '선택 위치' })
+    if (recenter) setMapCenter({ lat, lng })
     setSource(nextSource)
     setAddressPending(true)
     setAddress(virtualPickupAddress(lat, lng))
@@ -4186,6 +4186,7 @@ export default function HomeScreen() {
     lng: BUSAN_CITY_HALL.lng,
   })
   const [locationGuideOpen, setLocationGuideOpen] = useState(false)
+  const [chargePromptOpen, setChargePromptOpen] = useState(false)
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'activity' | 'account' | null>(null)
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
