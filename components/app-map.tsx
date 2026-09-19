@@ -21,6 +21,8 @@ import {
 export const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978, label: '서울시청' }
 
 const LIVE_BOUNDS = { north: 37.5728, south: 37.5602, west: 126.9682, east: 126.9878 }
+const ROUTE_LAT_SPAN = LIVE_BOUNDS.north - LIVE_BOUNDS.south
+const ROUTE_LNG_SPAN = LIVE_BOUNDS.east - LIVE_BOUNDS.west
 const TILE_SIZE = 256
 
 export type TaxiLivePhase = 'arriving' | 'boarding' | 'moving'
@@ -31,10 +33,36 @@ export function toTaxiLivePhase(phase: TaxiMatchPhase): TaxiLivePhase {
   return 'arriving'
 }
 
-function pctToLatLng(x: number, y: number) {
+function routeAnchor(phase: TaxiLivePhase) {
+  const points = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
+  const point = phase === 'moving' ? points[0] : points[points.length - 1]
+  return { x: point[0], y: point[1] }
+}
+
+function pctToLatLng(
+  x: number,
+  y: number,
+  originLat: number,
+  originLng: number,
+  phase: TaxiLivePhase,
+  destLat?: number,
+  destLng?: number,
+) {
+  const points = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
+  if (phase === 'moving' && Number.isFinite(destLat) && Number.isFinite(destLng)) {
+    const start = points[0]
+    const end = points[points.length - 1]
+    const tx = (x - start[0]) / (end[0] - start[0] || 1)
+    const t = Math.min(1, Math.max(0, tx))
+    return {
+      lat: originLat + ((destLat as number) - originLat) * t,
+      lng: originLng + ((destLng as number) - originLng) * t,
+    }
+  }
+  const anchor = routeAnchor(phase)
   return {
-    lat: LIVE_BOUNDS.north - (y / 100) * (LIVE_BOUNDS.north - LIVE_BOUNDS.south),
-    lng: LIVE_BOUNDS.west + (x / 100) * (LIVE_BOUNDS.east - LIVE_BOUNDS.west),
+    lat: originLat - ((y - anchor.y) / 100) * ROUTE_LAT_SPAN,
+    lng: originLng + ((x - anchor.x) / 100) * ROUTE_LNG_SPAN,
   }
 }
 
@@ -605,6 +633,8 @@ function LiveFallbackOverlay({
   points,
   lat,
   lng,
+  destLat,
+  destLng,
   zoom,
   size,
 }: {
@@ -614,6 +644,8 @@ function LiveFallbackOverlay({
   points: number[][]
   lat: number
   lng: number
+  destLat?: number
+  destLng?: number
   zoom: number
   size: { width: number; height: number }
 }) {
@@ -621,7 +653,7 @@ function LiveFallbackOverlay({
   const originX = center.x - size.width / 2
   const originY = center.y - size.height / 2
   const toPx = (x: number, y: number) => {
-    const geo = pctToLatLng(x, y)
+    const geo = pctToLatLng(x, y, lat, lng, phase, destLat, destLng)
     const world = latLngToWorld(geo.lat, geo.lng, zoom)
     return { left: world.x - originX, top: world.y - originY }
   }
@@ -656,11 +688,19 @@ function NaverLiveRideMap({
   phase,
   kind,
   taxi,
+  originLat,
+  originLng,
+  destLat,
+  destLng,
   className,
 }: {
   phase: TaxiLivePhase
   kind: 'taxi' | 'daeri'
   taxi: { x: number; y: number; angle: number }
+  originLat: number
+  originLng: number
+  destLat?: number
+  destLng?: number
   className?: string
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -706,10 +746,10 @@ function NaverLiveRideMap({
         return
       }
       mapsRef.current = sdk
-      const startPt = pctToLatLng(points[0][0], points[0][1])
-      const endPt = pctToLatLng(points[points.length - 1][0], points[points.length - 1][1])
+      const startPt = pctToLatLng(points[0][0], points[0][1], originLat, originLng, phase, destLat, destLng)
+      const endPt = pctToLatLng(points[points.length - 1][0], points[points.length - 1][1], originLat, originLng, phase, destLat, destLng)
       const map = new sdk.Map(canvasRef.current, {
-        center: new sdk.LatLng((startPt.lat + endPt.lat) / 2, (startPt.lng + endPt.lng) / 2),
+        center: new sdk.LatLng(originLat, originLng),
         zoom: 15,
         scaleControl: false,
         mapDataControl: false,
@@ -722,7 +762,7 @@ function NaverLiveRideMap({
       lineRef.current = new sdk.Polyline({
         map,
         path: points.map(([x, y]) => {
-          const point = pctToLatLng(x, y)
+          const point = pctToLatLng(x, y, originLat, originLng, phase, destLat, destLng)
           return new sdk.LatLng(point.lat, point.lng)
         }),
         strokeColor: '#4A82B8',
@@ -745,6 +785,7 @@ function NaverLiveRideMap({
       moverEl.current = mover
       moverRef.current = createDomMarker(sdk, map, mover, startPt.lat, startPt.lng, 14, 14)
       refreshNaverMap(sdk, map)
+      window.requestAnimationFrame(() => map.panTo(new sdk.LatLng(originLat, originLng)))
       window.setTimeout(() => refreshNaverMap(sdk, map), 80)
       window.setTimeout(() => refreshNaverMap(sdk, map), 400)
       setMode('naver')
@@ -758,17 +799,17 @@ function NaverLiveRideMap({
       mapRef.current?.destroy?.()
       mapRef.current = null
     }
-  }, [kind, phase, walker, points])
+  }, [kind, phase, walker, points, originLat, originLng, destLat, destLng])
 
   useEffect(() => {
     const marker = moverRef.current
     const el = moverEl.current
     const sdk = mapsRef.current
     if (!marker || !sdk || mode !== 'naver') return
-    const geo = pctToLatLng(taxi.x, taxi.y)
+    const geo = pctToLatLng(taxi.x, taxi.y, originLat, originLng, phase, destLat, destLng)
     if (el) el.style.transform = `rotate(${walker ? 0 : taxi.angle}deg)`
     marker.setPosition(new sdk.LatLng(geo.lat, geo.lng))
-  }, [taxi, walker, mode])
+  }, [taxi, walker, mode, originLat, originLng, phase, destLat, destLng])
 
   return (
     <MapFrame className={className}>
@@ -776,8 +817,8 @@ function NaverLiveRideMap({
         {mode !== 'fallback' ? <div ref={canvasRef} className="naver-map-canvas h-full w-full" style={{ width: '100%', height: '100%' }} /> : null}
         {mode === 'fallback' ? (
           <FallbackSlippyMap
-            lat={SEOUL_CITY_HALL.lat}
-            lng={SEOUL_CITY_HALL.lng}
+            lat={originLat}
+            lng={originLng}
             hidePin
             zoom={zoom}
             interactive
@@ -786,7 +827,7 @@ function NaverLiveRideMap({
             onZoomOut={() => setZoom((value) => Math.max(12, value - 1))}
             notice={loadNotice}
           >
-            <LiveFallbackOverlay phase={phase} kind={kind} taxi={taxi} points={points} lat={SEOUL_CITY_HALL.lat} lng={SEOUL_CITY_HALL.lng} zoom={zoom} size={size} />
+            <LiveFallbackOverlay phase={phase} kind={kind} taxi={taxi} points={points} lat={originLat} lng={originLng} destLat={destLat} destLng={destLng} zoom={zoom} size={size} />
           </FallbackSlippyMap>
         ) : null}
       </div>
@@ -820,11 +861,19 @@ export function TaxiLiveMap({
   routeLabel,
   statusLabel,
   kind = 'taxi',
+  originLat,
+  originLng,
+  destLat,
+  destLng,
 }: {
   phase: TaxiLivePhase
   routeLabel: string
   statusLabel: string
   kind?: 'taxi' | 'daeri'
+  originLat: number
+  originLng: number
+  destLat?: number
+  destLng?: number
 }) {
   const points = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
   const [taxi, setTaxi] = useState(() => pointOnRoute(points, phase === 'boarding' ? 1 : 0))
@@ -849,7 +898,16 @@ export function TaxiLiveMap({
 
   return (
     <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
-      <NaverLiveRideMap phase={phase} kind={kind} taxi={taxi} className="h-[248px]" />
+      <NaverLiveRideMap
+        phase={phase}
+        kind={kind}
+        taxi={taxi}
+        originLat={originLat}
+        originLng={originLng}
+        destLat={destLat}
+        destLng={destLng}
+        className="h-[248px]"
+      />
       <div className="pointer-events-none absolute inset-x-3 top-3 z-[15] mr-14 flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
         <p className="truncate pr-2 text-xs font-bold text-[#0F172A]">{routeLabel}</p>
         <span className="shrink-0 rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">{statusLabel}</span>

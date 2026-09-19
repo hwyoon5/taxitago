@@ -1692,6 +1692,9 @@ function DriverChatModal({ driverName, onClose }: { driverName: string; onClose:
 
 function TaxiMatchingSheet({
   destination,
+  pickupLat,
+  pickupLng,
+  pickupAddress,
   onClose,
   onNotice,
   balance,
@@ -1701,6 +1704,9 @@ function TaxiMatchingSheet({
   onAskReview,
 }: {
   destination: string
+  pickupLat: number
+  pickupLng: number
+  pickupAddress: string
   onClose: () => void
   onNotice: (message: string) => void
   balance: number
@@ -1713,8 +1719,9 @@ function TaxiMatchingSheet({
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const finishedRef = useRef(false)
-  const dest = destination.trim() || '강남역'
-  const route = `서울시청 → ${dest}`
+  const dest = destination.trim() || '선택한 목적지'
+  const pickupName = pickupAddress.split(' ').slice(0, 2).join(' ') || '현재 위치'
+  const route = `${pickupName} → ${dest}`
   const fare = 2.34
   const billed = { estimate: 2.1, actual: 2.34, adjusted: true }
   const [piPaying, setPiPaying] = useState(false)
@@ -1802,7 +1809,14 @@ function TaxiMatchingSheet({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <TaxiLiveMap kind="taxi" phase={toTaxiLivePhase(phase)} routeLabel={route} statusLabel={statusLabel} />
+            <TaxiLiveMap
+              kind="taxi"
+              phase={toTaxiLivePhase(phase)}
+              routeLabel={route}
+              statusLabel={statusLabel}
+              originLat={pickupLat}
+              originLng={pickupLng}
+            />
             <div className="mt-4 rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] font-black text-white">{driver.name.slice(0, 1)}</div>
@@ -1948,6 +1962,9 @@ function MoreHubSheet({
 
 function ServiceSheet({
   service,
+  pickupLat,
+  pickupLng,
+  pickupAddress,
   onClose,
   onNotice,
   balance,
@@ -1960,6 +1977,9 @@ function ServiceSheet({
   onSelectService,
 }: {
   service: string
+  pickupLat: number
+  pickupLng: number
+  pickupAddress: string
   onClose: () => void
   onNotice: (message: string) => void
   balance: number
@@ -2015,7 +2035,7 @@ function ServiceSheet({
   const deliveryFare = deliveryVehicle === '오토바이' ? (packageSize === '소형' ? 1.2 : 1.8) : deliveryVehicle === '다마스' ? 2.6 : 4.2
   const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 4 : vehicle ? 0.3 : deliveryFare
   const settleTiming = service === '주차' ? parkingOption : paymentPolicy?.timing
-  const place = ride && daeriTrip ? `${daeriTrip.pickup} → ${daeriTrip.dest}` : selectedItem || `서울시청 → ${service} 이용`
+  const place = ride && daeriTrip ? `${daeriTrip.pickup} → ${daeriTrip.dest}` : selectedItem || `${pickupAddress.split(' ').slice(0, 2).join(' ') || '현재 위치'} → ${service} 이용`
   const billed = ride ? settleRideFare(fare, `daeri:${place}`) : { estimate: fare, actual: fare, adjusted: false }
   const chargeAmount = ride ? billed.actual : fare
   const partner =
@@ -2148,6 +2168,8 @@ function ServiceSheet({
                 phase={rideStage === 'moving' ? 'moving' : 'arriving'}
                 routeLabel={place}
                 statusLabel={rideStage === 'moving' ? '목적지 이동 중' : '기사 이동 중'}
+                originLat={pickupLat}
+                originLng={pickupLng}
               />
             ) : null}
             <div className="rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
@@ -4666,10 +4688,27 @@ export default function HomeScreen() {
             }}
           />
         ) : null}
-        {selectedService === '택시' && <TaxiMatchingSheet destination={destination} onClose={() => setSelectedService(null)} onNotice={showNotice} balance={walletBalance} onPay={payWithPi} onSettle={settlePiLedger} onNeedCharge={showChargePrompt} onAskReview={setDriverReview} />}
+        {selectedService === '택시' && (
+          <TaxiMatchingSheet
+            destination={destination}
+            pickupLat={origin.lat}
+            pickupLng={origin.lng}
+            pickupAddress={origin.address}
+            onClose={() => setSelectedService(null)}
+            onNotice={showNotice}
+            balance={walletBalance}
+            onPay={payWithPi}
+            onSettle={settlePiLedger}
+            onNeedCharge={showChargePrompt}
+            onAskReview={setDriverReview}
+          />
+        )}
         {selectedService && selectedService !== '택시' && selectedService !== '더보기' && (
           <ServiceSheet
             service={selectedService}
+            pickupLat={origin.lat}
+            pickupLng={origin.lng}
+            pickupAddress={origin.address}
             onClose={() => {
               setSelectedService(null)
               setDaeriTrip(null)
