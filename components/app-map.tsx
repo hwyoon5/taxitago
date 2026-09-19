@@ -672,10 +672,10 @@ function LiveFallbackOverlay({
       <svg className="absolute inset-0 h-full w-full" aria-hidden>
         <path d={d} fill="none" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeDasharray="7 8" strokeOpacity="0.92" />
       </svg>
-      <span className="absolute rounded-full bg-[#0F172A] px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ left: start.left, top: start.top, transform: 'translate(-50%, -140%)' }}>
+      <span className="absolute rounded-full bg-[#0F172A] px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-white shadow-sm" style={{ left: start.left, top: start.top, transform: 'translate(-50%, -145%)' }}>
         출발
       </span>
-      <span className="absolute rounded-full bg-[#1D4ED8] px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ left: end.left, top: end.top, transform: 'translate(-50%, -140%)' }}>
+      <span className="absolute rounded-full bg-[#1D4ED8] px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-white shadow-sm" style={{ left: end.left, top: end.top, transform: 'translate(-50%, -145%)' }}>
         도착
       </span>
       <span className="absolute" style={{ left: mover.left, top: mover.top, transform: `translate(-50%, -50%) rotate(${walker ? 0 : taxi.angle}deg)` }}>
@@ -691,8 +691,6 @@ function NaverLiveRideMap({
   taxi,
   origin,
   dest,
-  originLabel,
-  destLabel,
   className,
 }: {
   phase: TaxiLivePhase
@@ -700,8 +698,6 @@ function NaverLiveRideMap({
   taxi: RidePoint & { angle: number }
   origin: RidePoint
   dest: RidePoint
-  originLabel?: string
-  destLabel?: string
   className?: string
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -806,11 +802,11 @@ function NaverLiveRideMap({
       forceRideCamera(sdk, map, origin, dest, phase === 'moving' ? 'dest' : 'route')
       lineRef.current = dashedRidePath(sdk, map, origin, dest)
       const startLabel = document.createElement('div')
-      startLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#0F172A;color:#fff;padding:2px 6px;font-size:9px;font-weight:700'
-      startLabel.textContent = originLabel || '출발'
+      startLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#0F172A;color:#fff;padding:3px 8px;font-size:10px;font-weight:800;letter-spacing:0.02em;box-shadow:0 4px 10px rgba(15,23,42,0.22)'
+      startLabel.textContent = '출발'
       const endLabel = document.createElement('div')
-      endLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#1D4ED8;color:#fff;padding:2px 6px;font-size:9px;font-weight:700'
-      endLabel.textContent = destLabel || '도착'
+      endLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#1D4ED8;color:#fff;padding:3px 8px;font-size:10px;font-weight:800;letter-spacing:0.02em;box-shadow:0 4px 10px rgba(29,78,216,0.28)'
+      endLabel.textContent = '도착'
       startPinRef.current = createHtmlOverlay(sdk, map, startLabel, origin.lat, origin.lng, 'translate(-50%, -120%)')
       endPinRef.current = createHtmlOverlay(sdk, map, endLabel, dest.lat, dest.lng, 'translate(-50%, -120%)')
       const mover = document.createElement('div')
@@ -847,7 +843,7 @@ function NaverLiveRideMap({
       mapRef.current?.destroy?.()
       mapRef.current = null
     }
-  }, [kind, walker, phase, origin.lat, origin.lng, dest.lat, dest.lng, originLabel, destLabel])
+  }, [kind, walker, phase, origin.lat, origin.lng, dest.lat, dest.lng])
 
   useEffect(() => {
     const marker = moverRef.current
@@ -905,7 +901,7 @@ function NaverLiveRideMap({
 
 export function TaxiLiveMap({
   phase,
-  routeLabel,
+  routeLabel: _routeLabel,
   statusLabel,
   kind = 'taxi',
   originLat,
@@ -961,7 +957,7 @@ export function TaxiLiveMap({
 
   if (!origin || !dest) {
     return (
-      <div className="relative mt-4 flex h-[248px] items-center justify-center overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
+      <div className="relative mt-4 flex h-[268px] items-center justify-center overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
         <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">실제 위치를 불러오는 중이에요</p>
       </div>
     )
@@ -976,13 +972,10 @@ export function TaxiLiveMap({
         taxi={isUsableCoord(taxi.lat, taxi.lng) ? taxi : { ...origin, angle: 0 }}
         origin={origin}
         dest={dest}
-        originLabel={originLabel || live.origin?.address}
-        destLabel={destLabel || live.dest?.label || live.dest?.address}
-        className="h-[248px]"
+        className="h-[268px]"
       />
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-[15] mr-14 flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
-        <p className="truncate pr-2 text-xs font-bold text-[#0F172A]">{routeLabel}</p>
-        <span className="shrink-0 rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">{statusLabel}</span>
+      <div className="pointer-events-none absolute right-3 top-3 z-[15]">
+        <span className="rounded-full bg-[#4A82B8] px-2.5 py-1 text-[10px] font-bold text-white shadow-[0_6px_14px_rgba(15,23,42,0.16)]">{statusLabel}</span>
       </div>
       <div className="absolute bottom-3 left-3 z-[15] flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold text-[#334155] shadow-sm">
         <span className="h-2 w-2 animate-pulse rounded-full bg-[#4A82B8]" />
