@@ -436,6 +436,8 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
 
 const FAVORITES_KEY = 'taxitago-favorite-places'
 const WALLET_KEY = 'taxitago-pi-wallet'
+const DEPOSIT_ADDRESS_KEY = 'taxitago-pi-deposit-address'
+const DEFAULT_DEPOSIT_ADDRESS = 'GBCX92KL-TAXI-DEPOSIT-ADDRESS'
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
 const PI_ACCOUNT_KEY = 'taxitago-pi-account-linked'
@@ -568,6 +570,20 @@ function readPiWallet(): { balance: number; transactions: PiTransaction[] } {
 
 function writePiWallet(balance: number, transactions: PiTransaction[]) {
   window.localStorage.setItem(WALLET_KEY, JSON.stringify({ balance, transactions }))
+}
+
+function loadDepositAddress() {
+  try {
+    const raw = window.localStorage.getItem(DEPOSIT_ADDRESS_KEY)
+    if (typeof raw === 'string' && raw.trim()) return raw.trim()
+  } catch {
+    /* private mode */
+  }
+  return DEFAULT_DEPOSIT_ADDRESS
+}
+
+function saveDepositAddress(value: string) {
+  window.localStorage.setItem(DEPOSIT_ADDRESS_KEY, value.trim())
 }
 
 function loadIsDriverRegistered() {
@@ -3380,8 +3396,6 @@ function TabContent({
   )
 }
 
-const PI_DEPOSIT_ADDRESS = 'GBCX92KL-TAXI-DEPOSIT-ADDRESS'
-
 function WalletModal({
   balance,
   onClose,
@@ -3403,9 +3417,18 @@ function WalletModal({
   const [chargeUnit, setChargeUnit] = useState(10)
   const [address, setAddress] = useState('')
   const [amount, setAmount] = useState('')
+  const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
+  const [depositDraft, setDepositDraft] = useState(DEFAULT_DEPOSIT_ADDRESS)
+  const [depositEditing, setDepositEditing] = useState(false)
   const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number } | null>(null)
   const chargeUnits = [5, 10, 25, 50]
   const withdrawValue = Number(amount)
+
+  useEffect(() => {
+    const saved = loadDepositAddress()
+    setDepositAddress(saved)
+    setDepositDraft(saved)
+  }, [])
 
   useEffect(() => {
     if (process?.phase !== 'pending' || process.kind !== 'withdraw') return
@@ -3422,11 +3445,29 @@ function WalletModal({
 
   const copyAddress = async () => {
     try {
-      await navigator.clipboard.writeText(PI_DEPOSIT_ADDRESS)
+      await navigator.clipboard.writeText(depositAddress)
     } catch {
       /* clipboard may be unavailable in some browsers */
     }
     onNotice('주소가 복사되었습니다')
+  }
+
+  const startEditDeposit = () => {
+    setDepositDraft(depositAddress)
+    setDepositEditing(true)
+  }
+
+  const saveEditedDeposit = () => {
+    const next = depositDraft.trim()
+    if (!next) {
+      onNotice('입금 주소를 입력해 주세요.')
+      return
+    }
+    saveDepositAddress(next)
+    setDepositAddress(next)
+    setDepositDraft(next)
+    setDepositEditing(false)
+    onNotice('입금 주소가 변경되었습니다')
   }
 
   const setQuickAmount = (ratio: number) => {
@@ -3490,14 +3531,47 @@ function WalletModal({
                 <p className="font-black">입금 주소</p>
                 <span className="rounded-full bg-[#EDE5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">입금 전용</span>
               </div>
-              <p className="mt-2 text-xs font-bold text-[#8b8495]">아래 주소로 Pi를 입금해 주세요.</p>
-              <div className="mt-3 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-3">
-                <p className="min-w-0 flex-1 truncate font-mono text-xs font-bold text-[#3B16A8]">{PI_DEPOSIT_ADDRESS}</p>
-                <button type="button" onClick={copyAddress} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#4C1FB8] px-3 py-2 text-[11px] font-black text-white">
-                  <Copy className="h-3.5 w-3.5" />
-                  복사
-                </button>
-              </div>
+              <p className="mt-2 text-xs font-bold text-[#8b8495]">아래 주소로 Pi를 입금해 주세요. 주소를 바꾼 뒤 저장하면 이 기기에 보관됩니다.</p>
+              {depositEditing ? (
+                <div className="mt-3 space-y-2">
+                  <input
+                    value={depositDraft}
+                    onChange={(event) => setDepositDraft(event.target.value)}
+                    placeholder="Pi 입금 주소"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3 font-mono text-xs font-bold text-[#3B16A8] outline-none"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDepositDraft(depositAddress)
+                        setDepositEditing(false)
+                      }}
+                      className="rounded-2xl border-2 border-[#D8CCF5] bg-white py-3 text-sm font-black text-[#475569]"
+                    >
+                      취소
+                    </button>
+                    <button type="button" onClick={saveEditedDeposit} className="rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
+                      주소 저장
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-3 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-3">
+                    <p className="min-w-0 flex-1 break-all font-mono text-xs font-bold text-[#3B16A8]">{depositAddress}</p>
+                    <button type="button" onClick={copyAddress} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#4C1FB8] px-3 py-2 text-[11px] font-black text-white">
+                      <Copy className="h-3.5 w-3.5" />
+                      복사
+                    </button>
+                  </div>
+                  <button type="button" onClick={startEditDeposit} className="mt-2 w-full rounded-2xl border-2 border-[#D8CCF5] bg-white py-3 text-sm font-black text-[#4C1FB8]">
+                    수정하기
+                  </button>
+                </>
+              )}
             </section>
             <section className="rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
               <p className="font-black">파이 충전 단위</p>
