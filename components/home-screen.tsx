@@ -2793,35 +2793,35 @@ function Home({
       className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth bg-white px-3 pb-[max(6.25rem,calc(5.25rem+env(safe-area-inset-bottom)))] pt-2 [-webkit-overflow-scrolling:touch]"
       aria-label="홈 콘텐츠"
     >
-        <div className="rounded-[18px] border border-[#E2E8F0] bg-[#F8FAFC] p-2.5">
-          <button type="button" onClick={onOpenMap} className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-white px-2.5 py-2 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
+        <div className="rounded-[16px] border border-[#E2E8F0] bg-[#F8FAFC] p-1.5">
+          <button type="button" onClick={onOpenMap} className="flex w-full items-center gap-2 rounded-lg bg-white px-2 py-1 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
               <LocateFixed className="h-3.5 w-3.5" />
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[10px] font-bold text-[#64748B]">출발지</span>
-              <span className="block truncate text-[13px] font-black leading-tight text-[#0F172A]">{pickup}</span>
+            <span className="min-w-0 flex-1 py-0.5">
+              <span className="block text-[10px] font-bold leading-3 text-[#64748B]">출발지</span>
+              <span className="mt-0.5 block truncate text-[13px] font-black leading-4 text-[#0F172A]">{pickup}</span>
             </span>
           </button>
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="mt-2 flex w-full overflow-hidden rounded-xl border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
+            className="mt-1 flex w-full items-stretch overflow-hidden rounded-lg border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
             style={{ WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
             aria-label={destination ? `목적지 ${destination}` : '목적지 검색 열기'}
           >
-            <span className="flex min-w-0 flex-1 flex-col gap-1 px-3 py-3">
-              <span className="block shrink-0 text-xs font-bold leading-5 text-[#7C3AED]">목적지</span>
-              <span className="flex min-h-8 items-center gap-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
+            <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-2.5 py-1.5">
+              <span className="block shrink-0 text-[11px] font-bold leading-4 text-[#7C3AED]">목적지</span>
+              <span className="flex items-center gap-2">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
                   <Search className="h-3.5 w-3.5" />
                 </span>
-                <span className={`min-w-0 flex-1 truncate text-sm font-black leading-5 ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
+                <span className={`min-w-0 flex-1 truncate text-sm font-black leading-4 ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
                   {destination || '어디로 갈까요?'}
                 </span>
               </span>
             </span>
-            <DestinationTaxiLoop className="w-[7.5rem] shrink-0 self-stretch overflow-hidden" />
+            <DestinationTaxiLoop className="w-[6.75rem] shrink-0 self-stretch overflow-hidden" />
           </button>
         </div>
         <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
