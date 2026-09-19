@@ -55,7 +55,7 @@ function rideRouteLabel(pickupAddress: string, destLabel: string, destAddress?: 
 
 const navItems = [
   { id: '전체보기', label: '전체보기', icon: LayoutGrid },
-  { id: '비즈니스', label: '비즈니스', icon: Briefcase },
+  { id: '기사/파트너', label: '기사/파트너', icon: Car },
   { id: '홈', label: '홈', icon: House },
   { id: '이용/알림', label: '이용/알림', icon: Bell },
   { id: '내 정보', label: '내 정보', icon: CircleUserRound },
@@ -4164,6 +4164,30 @@ function PartnerStatSheet({ kind, onClose }: { kind: 'revenue' | 'trips'; onClos
   )
 }
 
+function PartnerHub({ onSignup }: { onSignup: () => void }) {
+  return (
+    <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-4" aria-label="기사 파트너">
+      <section className="rounded-[28px] bg-[#243044] p-5 text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)]">
+        <p className="text-xs font-semibold text-[#93C5FD]">기사/파트너</p>
+        <h2 className="mt-1 text-2xl font-bold tracking-tight">함께 운행할 파트너를 모집해요</h2>
+        <p className="mt-2 text-sm font-medium leading-6 text-[#CBD5E1]">회원가입을 마치면 콜 수락, 수익 현황, 파트너 대시보드를 바로 이용할 수 있어요.</p>
+      </section>
+      <section className="mt-4 rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
+        <p className="text-xs font-black text-[#4A82B8]">시작하기</p>
+        <h3 className="mt-1 text-lg font-black text-[#0F172A]">기사 전용 페이지</h3>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">등록된 기사/파트너만 운행 요청을 받고 정산을 확인할 수 있어요.</p>
+        <button
+          type="button"
+          onClick={onSignup}
+          className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 text-base font-black text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
+        >
+          기사/파트너 회원가입
+        </button>
+      </section>
+    </main>
+  )
+}
+
 function DriverNeedSignupModal({ onClose, onSignup }: { onClose: () => void; onSignup: () => void }) {
   return (
     <div className="fixed inset-0 z-[94] flex items-end bg-[#1e1033]/50 p-0 sm:items-center sm:p-4" onClick={onClose}>
@@ -4269,7 +4293,7 @@ function DriverDashboard({ online, onToggleOnline, onPassengerMode, onWithdraw, 
         </section>
       )}
       <button onClick={onPassengerMode} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-bold text-[#334155] shadow-sm">
-        승객 모드로 돌아가기
+        홈으로 돌아가기
       </button>
       <section className="mt-4 rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
         <p className="text-xs font-bold text-[#4A82B8]">계정 설정</p>
@@ -4590,7 +4614,7 @@ export default function HomeScreen() {
   }
   const enterDriverMode = () => {
     setDriverMode(true)
-    setTab('홈')
+    setTab('기사/파트너')
     showNotice('기사 모드로 전환했어요.')
   }
   const leaveDriverMode = () => {
@@ -4620,7 +4644,10 @@ export default function HomeScreen() {
     }
     setDriverGateOpen(false)
     setPartnerSignupOpen(false)
-    if (role !== '파트너') setTab('홈')
+    if (role !== '파트너') {
+      setTab('기사/파트너')
+      setDriverMode(true)
+    }
   }
   const withdrawDriverRegistration = () => {
     setIsDriverRegistered(false)
@@ -4640,7 +4667,7 @@ export default function HomeScreen() {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-bold tracking-wide text-[#7C3AED]">TAXI TAGO</p>
-              <h1 className="truncate text-[22px] font-black leading-tight text-[#0F172A]">{driverMode ? '파트너 대시보드' : '택시타고'}</h1>
+              <h1 className="truncate text-[22px] font-black leading-tight text-[#0F172A]">{tab === '기사/파트너' ? '파트너' : '택시타고'}</h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button onClick={openWallet} className="rounded-full bg-[#EDE5FF] px-2.5 py-1.5 text-[11px] font-black text-[#4C1FB8]">
@@ -4699,23 +4726,13 @@ export default function HomeScreen() {
               지도확인
             </button>
           </div>
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              onClick={toggleDriverMode}
-              className={`min-h-9 flex-1 rounded-full px-3 text-[11px] font-black ${driverMode ? 'bg-[#4A82B8] text-white' : 'border border-[#CBD5E1] bg-white text-[#334155]'}`}
-            >
-              {driverMode ? '승객 모드' : '기사/파트너'}
-            </button>
-            {!driverMode && !isDriverRegistered ? (
-              <button type="button" onClick={() => setPartnerSignupOpen(true)} className="min-h-9 flex-1 rounded-full border border-[#4C1FB8] bg-[#EDE5FF] px-3 text-[11px] font-black text-[#3B16A8]">
-                회원가입
-              </button>
-            ) : null}
-          </div>
         </header>
-        {driverMode ? (
-          <DriverDashboard online={driverOnline} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} />
+        {tab === '기사/파트너' ? (
+          isDriverRegistered || isPartnerRegistered ? (
+            <DriverDashboard online={driverOnline} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} />
+          ) : (
+            <PartnerHub onSignup={() => setPartnerSignupOpen(true)} />
+          )
         ) : (
           <Home
             destination={destination}
@@ -4728,7 +4745,7 @@ export default function HomeScreen() {
             onOpenMap={() => setFullscreenMapOpen(true)}
           />
         )}
-        {tab !== '홈' && (
+        {tab !== '홈' && tab !== '기사/파트너' && (
           <div className="fixed inset-x-0 top-0 z-30 flex items-end bg-[#241d35]/35" style={{ bottom: '4.75rem' }} onClick={() => setTab('홈')}>
             <div className="mx-auto flex h-[min(92dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[30px] bg-[#f7f7fb] pt-3" onClick={(event) => event.stopPropagation()}>
               <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
@@ -4745,11 +4762,14 @@ export default function HomeScreen() {
               <button
                 key={id}
                 type="button"
+                aria-label={id}
                 onClick={() => {
-                  if (id === '비즈니스') {
-                    showNotice('서비스 준비중입니다')
+                  if (id === '기사/파트너') {
+                    setTab('기사/파트너')
+                    if (isDriverRegistered || isPartnerRegistered) setDriverMode(true)
                     return
                   }
+                  if (id === '홈') setDriverMode(false)
                   setTab(id)
                 }}
                 className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl py-1.5 ${active ? 'text-[#4C1FB8]' : 'text-[#64748B]'}`}
@@ -4762,7 +4782,7 @@ export default function HomeScreen() {
                     </span>
                   ) : null}
                 </span>
-                <span className="text-[10px] font-black leading-none tracking-tight">{label}</span>
+                <span className="max-w-full px-0.5 text-center text-[10px] font-black leading-tight tracking-tight">{label}</span>
               </button>
             )
           })}
