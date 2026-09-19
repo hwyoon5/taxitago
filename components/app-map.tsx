@@ -668,8 +668,7 @@ function LiveFallbackOverlay({
   return (
     <div className="pointer-events-none absolute inset-0 z-[6]">
       <svg className="absolute inset-0 h-full w-full" aria-hidden>
-        <path d={d} fill="none" stroke="#BFDBFE" strokeWidth="8" strokeLinecap="round" />
-        <path d={d} fill="none" stroke="#4A82B8" strokeWidth="3" strokeLinecap="round" />
+        <path d={d} fill="none" stroke="#4A82B8" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 7" strokeOpacity="0.88" />
       </svg>
       <span className="absolute rounded-full bg-[#0F172A] px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ left: start.left, top: start.top, transform: 'translate(-50%, -140%)' }}>
         {phase === 'moving' ? '출발' : '기사'}
@@ -766,8 +765,10 @@ function NaverLiveRideMap({
           return new sdk.LatLng(point.lat, point.lng)
         }),
         strokeColor: '#4A82B8',
-        strokeWeight: 5,
-        strokeOpacity: 0.92,
+        strokeWeight: 2,
+        strokeOpacity: 0.88,
+        strokeStyle: 'dash',
+        strokeDashPattern: [8, 7],
         strokeLineCap: 'round',
         strokeLineJoin: 'round',
       })
