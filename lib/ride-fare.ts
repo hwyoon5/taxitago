@@ -21,6 +21,23 @@ export function settleRideFare(estimate: number, key: string): SettledRideFare {
   return { estimate: normalized, actual, adjusted: actual !== normalized }
 }
 
+export type MidTripCancelSettlement = {
+  quoted: number
+  cancelFee: number
+  waived: number
+  driverPayout: number
+  feeRate: number
+}
+
+/** In-trip passenger cancel: driver keeps a cancellation fee; unused quoted fare is waived. */
+export function settleMidTripCancelFee(quotedFare: number): MidTripCancelSettlement {
+  const quoted = roundPi(Math.max(0, quotedFare))
+  const feeRate = 0.4
+  const cancelFee = roundPi(Math.min(quoted, Math.max(quoted > 0 ? 0.5 : 0, quoted * feeRate)))
+  const waived = roundPi(quoted - cancelFee)
+  return { quoted, cancelFee, waived, driverPayout: cancelFee, feeRate }
+}
+
 export function isRidePayLabel(label: string) {
   return /택시|대리/.test(label)
 }

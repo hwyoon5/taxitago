@@ -20,7 +20,7 @@ import {
   syncPartnerLink,
 } from '@/lib/partner-account'
 import { getPaymentPolicy } from '@/lib/payment-policy'
-import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
+import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import {
   cancelRideRequest,
   completeRideTrip,
@@ -1369,6 +1369,57 @@ function PiPayPanel({
   )
 }
 
+function InTripCancelConfirmModal({
+  quoted,
+  cancelFee,
+  waived,
+  driverPayout,
+  settling,
+  onKeep,
+  onConfirm,
+}: {
+  quoted: number
+  cancelFee: number
+  waived: number
+  driverPayout: number
+  settling: boolean
+  onKeep: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-[97] flex items-end bg-[#1e293b]/50 sm:items-center sm:p-4">
+      <section className="mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+        <h2 className="text-2xl font-black text-[#0F172A]">이용 취소</h2>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">운행 중 취소 시 취소 수수료가 부과될 수 있습니다. 정말 취소하시겠습니까?</p>
+        <div className="mt-5 rounded-[22px] border-2 border-[#FECACA] bg-[#FEF2F2] p-4 text-left">
+          <p className="text-xs font-black text-[#BE123C]">취소 수수료 정산</p>
+          <p className="mt-2 text-[11px] font-bold leading-5 text-[#7F1D1D]">기사님의 이동 수고를 반영해 이용 요금의 일부가 위약금(취소 수수료)으로 기사에게 지급되고, 나머지는 청구되지 않습니다.</p>
+          <div className="mt-3 flex items-center justify-between">
+            <span className="text-xs font-medium text-[#64748B]">운행 요금</span>
+            <span className="text-sm font-bold text-[#64748B]">{quoted.toFixed(2)} Pi</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs font-bold text-[#BE123C]">취소 수수료 · 기사 지급</span>
+            <span className="text-lg font-black text-[#BE123C]">{cancelFee.toFixed(2)} Pi</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs font-medium text-[#64748B]">미청구 금액</span>
+            <span className="text-sm font-bold text-[#047857]">{waived.toFixed(2)} Pi</span>
+          </div>
+          <p className="mt-3 text-[11px] font-bold text-[#7F1D1D]">기사 지급 {driverPayout.toFixed(2)} Pi · 미청구 {waived.toFixed(2)} Pi</p>
+        </div>
+        <button type="button" disabled={settling} onClick={onConfirm} className="mt-5 w-full rounded-2xl bg-[#BE123C] py-3.5 font-black text-white disabled:opacity-60">
+          {settling ? '정산 중…' : '취소 수수료 내고 이용 취소'}
+        </button>
+        <button type="button" disabled={settling} onClick={onKeep} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
+          운행 계속하기
+        </button>
+      </section>
+    </div>
+  )
+}
+
 function InsufficientBalanceModal({ onConfirm }: { onConfirm: () => void }) {
   return (
     <div className="fixed inset-0 z-[96] flex items-end bg-[#1e293b]/50 sm:items-center sm:p-4">
@@ -2408,6 +2459,8 @@ function ServiceSheet({
   const [parkingOption, setParkingOption] = useState<'prepaid' | 'postpaid'>('prepaid')
   const [prepaidSettled, setPrepaidSettled] = useState(false)
   const [rideStage, setRideStage] = useState<'arriving' | 'moving'>('arriving')
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const [cancelSettling, setCancelSettling] = useState(false)
   const finishedRef = useRef(false)
   const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
@@ -2452,6 +2505,7 @@ function ServiceSheet({
     : selectedItem || `${pickupAddress || '현재 위치'} → ${service} 이용`
   const billed = ride ? settleRideFare(fare, `daeri:${place}`) : { estimate: fare, actual: fare, adjusted: false }
   const chargeAmount = ride ? billed.actual : fare
+  const cancelSettlement = settleMidTripCancelFee(billed.actual)
   const partner =
     ride
       ? { name: '김민수', vehicle: '대리운전', plate: '파이 모빌리티' as string, kind: 'driver' as const }
@@ -2477,6 +2531,25 @@ function ServiceSheet({
     setPhase('assigned')
     if (ride) setRideStage('arriving')
     onNotice(selfServe ? `${service} 이용이 시작되었습니다.` : `${service} 배정이 완료되었습니다.`)
+  }
+  const confirmInTripCancel = async () => {
+    if (cancelSettling) return
+    if (balance < cancelSettlement.cancelFee) {
+      setCancelConfirmOpen(false)
+      onNeedCharge()
+      return
+    }
+    setCancelSettling(true)
+    try {
+      const paid = await onPay(cancelSettlement.cancelFee, place, `${service} 취소 수수료`, cancelSettlement.cancelFee)
+      if (!paid) return
+      onNotice(
+        `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
+      )
+      onClose()
+    } finally {
+      setCancelSettling(false)
+    }
   }
   return (
     <div className="fixed inset-0 z-[90] flex items-end bg-[#241d35]/45 p-0 sm:p-4">
@@ -2648,7 +2721,22 @@ function ServiceSheet({
             >
               이용 완료
             </PiCheckoutButton>
-            <p className="text-center text-[11px] font-bold text-[#8b8495]">{ride && rideStage === 'arriving' ? '기사님이 도착하면 운행을 시작해 주세요' : '도착 후 눌러 주세요 · 하차 완료'}</p>
+            {ride && rideStage === 'moving' ? (
+              <button
+                type="button"
+                onClick={() => setCancelConfirmOpen(true)}
+                className="w-full rounded-2xl border-2 border-[#FECACA] bg-white py-3.5 font-black text-[#BE123C]"
+              >
+                이용 취소
+              </button>
+            ) : null}
+            <p className="text-center text-[11px] font-bold text-[#8b8495]">
+              {ride && rideStage === 'arriving'
+                ? '기사님이 도착하면 운행을 시작해 주세요'
+                : ride && rideStage === 'moving'
+                  ? '운행 중 취소 시 취소 수수료가 기사님께 지급되고 나머지는 청구되지 않습니다'
+                  : '도착 후 눌러 주세요 · 하차 완료'}
+            </p>
           </div>
         )}
         {phase === 'idle' && ride && (
@@ -2856,6 +2944,17 @@ function ServiceSheet({
             onNotice(`${service} QR 스캔이 완료되었어요.`)
             if (paymentPolicy?.timing === 'qr_auto') startService(true)
           }}
+        />
+      ) : null}
+      {cancelConfirmOpen && ride && rideStage === 'moving' ? (
+        <InTripCancelConfirmModal
+          quoted={cancelSettlement.quoted}
+          cancelFee={cancelSettlement.cancelFee}
+          waived={cancelSettlement.waived}
+          driverPayout={cancelSettlement.driverPayout}
+          settling={cancelSettling}
+          onKeep={() => setCancelConfirmOpen(false)}
+          onConfirm={() => void confirmInTripCancel()}
         />
       ) : null}
     </div>
