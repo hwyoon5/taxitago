@@ -1,6 +1,7 @@
 import { etaMinutesFromKm, haversineKm } from '@/lib/dispatch-geo'
 import { getEscrowByRide } from '@/lib/escrow-store'
 import { openEscrowForRide, refundEscrow, toPublicEscrow } from '@/lib/escrow-engine'
+import { archiveRideComms, openRideComms } from '@/lib/comms-engine'
 import {
   getDriver,
   getRide,
@@ -201,6 +202,7 @@ export function cancelRide(rideId: string, passengerId?: string) {
     ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
   }
   refundEscrow(ride.id)
+  archiveRideComms(ride.id, 'cancelled')
   return stamp(ride)
 }
 
@@ -245,6 +247,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   stamp(ride)
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
   openEscrowForRide(ride.id)
+  openRideComms(ride.id)
   return { ok: true as const, ride }
 }
 
@@ -260,6 +263,7 @@ export function completeAssignedRide(rideId: string, driverId: string) {
   if (ride.assignedDriverId !== driverId) return ride
   ride.status = 'completed'
   stamp(ride)
+  archiveRideComms(rideId, 'completed')
   return ride
 }
 

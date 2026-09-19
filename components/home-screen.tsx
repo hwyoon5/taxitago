@@ -39,6 +39,8 @@ import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
+import RideSafeCall from '@/components/ride-safe-call'
+import RideChat from '@/components/ride-chat'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
 const PASSENGER_ID_KEY = 'taxitago-passenger-id'
@@ -2160,8 +2162,24 @@ function TaxiMatchingSheet({
           </div>
         )}
       </section>
-      {callOpen ? <SafeCallModal driverName={driver.name} onHangup={() => setCallOpen(false)} /> : null}
-      {chatOpen ? <DriverChatModal driverName={driver.name} onClose={() => setChatOpen(false)} /> : null}
+      {callOpen && ride?.id ? (
+        <RideSafeCall
+          rideId={ride.id}
+          actorId={passengerIdRef.current || localPassengerId()}
+          role="passenger"
+          peerName={`${driver.name} 기사님`}
+          onHangup={() => setCallOpen(false)}
+        />
+      ) : null}
+      {chatOpen && ride?.id ? (
+        <RideChat
+          rideId={ride.id}
+          actorId={passengerIdRef.current || localPassengerId()}
+          role="passenger"
+          peerName={`${driver.name} 기사님`}
+          onClose={() => setChatOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }
@@ -4891,6 +4909,8 @@ function DriverDashboard({
   const [busy, setBusy] = useState(false)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [callOpen, setCallOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
   const [driverId, setDriverId] = useState('')
 
@@ -5045,6 +5065,14 @@ function DriverDashboard({
           >
             운행 완료 · 자동 정산
           </button>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setCallOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] py-3 text-sm font-bold text-white">
+              안심 통화
+            </button>
+            <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border-2 border-[#4A82B8] bg-white py-3 text-sm font-bold text-[#4A82B8]">
+              실시간 채팅
+            </button>
+          </div>
         </section>
       ) : null}
       {online && incoming ? (
@@ -5122,6 +5150,24 @@ function DriverDashboard({
         </div>
       ) : null}
       {statSheet ? <EarningsStatSheet kind={statSheet} stats={earnings} onClose={() => setStatSheet(null)} /> : null}
+      {callOpen && activeRide ? (
+        <RideSafeCall
+          rideId={activeRide.id}
+          actorId={driverId}
+          role="driver"
+          peerName="승객"
+          onHangup={() => setCallOpen(false)}
+        />
+      ) : null}
+      {chatOpen && activeRide ? (
+        <RideChat
+          rideId={activeRide.id}
+          actorId={driverId}
+          role="driver"
+          peerName="승객"
+          onClose={() => setChatOpen(false)}
+        />
+      ) : null}
     </main>
   )
 }
