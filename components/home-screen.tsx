@@ -5176,17 +5176,17 @@ export default function HomeScreen() {
         <header className="relative z-20 shrink-0 border-b border-[#E2E8F0] bg-white px-4 pb-2 pt-[max(0.9rem,env(safe-area-inset-top))]">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className={`text-[11px] font-bold tracking-wide ${tab === '기사/파트너' ? 'text-[#4A82B8]' : 'text-[#7C3AED]'}`}>TAXI TAGO</p>
+              <p className="text-[11px] font-bold tracking-wide text-[#4A82B8]">TAXI TAGO</p>
               <h1 className="truncate text-[22px] font-black leading-tight text-[#0F172A]">{tab === '기사/파트너' ? '파트너' : '택시타고'}</h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button onClick={openWallet} className={`rounded-full px-2.5 py-1.5 text-[11px] font-black ${tab === '기사/파트너' ? 'bg-[#E8F1FA] text-[#4A82B8]' : 'bg-[#EDE5FF] text-[#4C1FB8]'}`}>
+              <button onClick={openWallet} className="rounded-full bg-[#E8F1FA] px-2.5 py-1.5 text-[11px] font-black text-[#4A82B8]">
                 {walletBalance.toFixed(2)} Pi
               </button>
-              <button onClick={() => setHeaderModal('activity')} className={`flex h-10 w-10 items-center justify-center rounded-full text-white ${tab === '기사/파트너' ? 'bg-[#4A82B8]' : 'bg-[#4C1FB8]'}`} aria-label="시간별 활동 기록">
+              <button onClick={() => setHeaderModal('activity')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label="시간별 활동 기록">
                 <Bell className="h-4 w-4" />
               </button>
-              <button onClick={() => setHeaderModal('account')} className={`flex h-10 w-10 items-center justify-center rounded-full text-white ${tab === '기사/파트너' ? 'bg-[#4A82B8]' : 'bg-[#4C1FB8]'}`} aria-label="파이 계정 연동">
+              <button onClick={() => setHeaderModal('account')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label="파이 계정 연동">
                 <UserRound className="h-4 w-4" />
               </button>
             </div>
@@ -5223,7 +5223,7 @@ export default function HomeScreen() {
                 onClick={() => {
                   void requestUserLocation(true)
                 }}
-                className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-[#4C1FB8] shadow-[0_4px_10px_rgba(15,23,42,0.08)]"
+                className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-[#4A82B8] shadow-[0_4px_10px_rgba(15,23,42,0.08)]"
               >
                 위치 허용
               </button>
@@ -5231,7 +5231,7 @@ export default function HomeScreen() {
             <button
               type="button"
               onClick={() => setFullscreenMapOpen(true)}
-              className="shrink-0 rounded-full bg-[#4C1FB8] px-2.5 py-1 text-[11px] font-black text-white shadow-[0_4px_10px_rgba(76,31,184,0.28)]"
+              className="shrink-0 rounded-full bg-[#4A82B8] px-2.5 py-1 text-[11px] font-black text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]"
             >
               지도확인
             </button>
