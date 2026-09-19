@@ -16,7 +16,6 @@ import {
   DRIVER_STALE_MS,
   MATCH_RADIUS_KM,
   OFFER_TIMEOUT_MS,
-  VIRTUAL_ACCEPT_MS,
   type DriverRecord,
   type PublicRide,
   type RideOfferRecord,
@@ -44,6 +43,13 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
     estimatedFare: ride.estimatedFare,
     status: ride.status,
     offerExpiresAt: ride.currentOffer?.decision === 'pending' ? ride.currentOffer.expiresAt : null,
+    pendingOffer:
+      ride.currentOffer?.decision === 'pending'
+        ? {
+            driverId: ride.currentOffer.driverId,
+            driverName: getDriver(ride.currentOffer.driverId)?.name || '기사',
+          }
+        : null,
     assignedDriver: assigned
       ? {
           id: assigned.id,
@@ -94,16 +100,9 @@ function scheduleOfferWatch(ride: RideRequestRecord) {
   clearRideTimer(ride.id)
   const offer = ride.currentOffer
   if (!offer || offer.decision !== 'pending') return
-  const driver = getDriver(offer.driverId)
-  const delay = driver?.virtual
-    ? VIRTUAL_ACCEPT_MS
-    : Math.max(250, Date.parse(offer.expiresAt) - Date.now())
+  const delay = Math.max(250, Date.parse(offer.expiresAt) - Date.now())
   const timer = setTimeout(() => {
     timers.delete(ride.id)
-    if (driver?.virtual) {
-      respondToOffer(ride.id, driver.id, 'accept')
-      return
-    }
     expireCurrentOffer(ride.id)
   }, delay)
   timers.set(ride.id, timer)

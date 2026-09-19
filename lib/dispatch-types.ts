@@ -86,6 +86,7 @@ export type PublicRide = {
   estimatedFare: number
   status: RideStatus
   offerExpiresAt: string | null
+  pendingOffer: { driverId: string; driverName: string } | null
   assignedDriver: PublicDriver | null
   escrow: PublicEscrow | null
   createdAt: string
@@ -93,6 +94,5 @@ export type PublicRide = {
 }
 
 export const OFFER_TIMEOUT_MS = 12_000
-export const VIRTUAL_ACCEPT_MS = 2_200
 export const MATCH_RADIUS_KM = 25
 export const DRIVER_STALE_MS = 45_000

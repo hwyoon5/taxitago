@@ -1590,10 +1590,10 @@ function DestinationSheet({
   const callSelected = () => {
     if (!selectedService) return
     setMatchState('matching')
-    window.setTimeout(() => {
-      setMatchState('matched')
-      onNotice('기사 매칭이 완료되었습니다.')
-    }, 2000)
+  }
+  const confirmMatched = () => {
+    setMatchState('matched')
+    onNotice('기사 매칭이 완료되었습니다.')
   }
   const cancelMatching = () => {
     setMatchState('select')
@@ -1642,9 +1642,12 @@ function DestinationSheet({
             <div className="mx-auto flex h-24 w-24 animate-pulse items-center justify-center rounded-full border-2 border-[#7046dc]">
               <div className="h-12 w-12 rounded-full bg-[#7046dc]/15" />
             </div>
-            <h3 className="mt-5 text-xl font-black">기사 매칭 중...</h3>
-            <p className="mt-2 text-sm font-bold text-[#8b8495]">주변 기사님을 찾고 있어요.</p>
-            <button onClick={cancelMatching} className="mt-5 w-full rounded-2xl border border-[#d8d1e5] bg-white py-3.5 font-black text-[#5f566d]">
+            <h3 className="mt-5 text-xl font-black">기사님 매칭 대기 중</h3>
+            <p className="mt-2 text-sm font-bold text-[#8b8495]">기사님이 콜을 수락할 때까지 이 화면을 유지합니다.</p>
+            <button type="button" onClick={confirmMatched} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
+              매칭 완료 확인
+            </button>
+            <button onClick={cancelMatching} className="mt-3 w-full rounded-2xl border border-[#d8d1e5] bg-white py-3.5 font-black text-[#5f566d]">
               호출 취소
             </button>
           </div>
@@ -1873,6 +1876,7 @@ function TaxiMatchingSheet({
   const fare = ride?.estimatedFare ?? 2.34
   const billed = settleRideFare(fare, ride?.id ?? route)
   const [piPaying, setPiPaying] = useState(false)
+  const [accepting, setAccepting] = useState(false)
   const escrowLockingRef = useRef(false)
   const escrowHeldRef = useRef(false)
   const settledRef = useRef(false)
@@ -1945,9 +1949,6 @@ function TaxiMatchingSheet({
       })
     return () => {
       cancelled = true
-      if (!finishedRef.current && rideIdRef.current) {
-        void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
-      }
     }
   }, [])
 
@@ -1965,27 +1966,10 @@ function TaxiMatchingSheet({
         if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
         if (next.status === 'cancelled') onClose()
         if (next.status === 'completed') {
-          if (settledRef.current) return
-          settledRef.current = true
           finishedRef.current = true
-          void fetchRideReceipt(next.id).then((receipt) => {
-            if (receipt) {
-              onReceipt(receiptFromSettlement(receipt))
-              onAskReview({
-                rideId: next.id,
-                raterId: passengerIdRef.current,
-                raterRole: 'passenger',
-                targetName: receipt.driverName,
-                vehicle: receipt.vehicle,
-                plate: receipt.plate,
-              })
-            }
-            onNotice('운행이 완료되어 에스크로 요금이 기사 지갑으로 정산되었습니다.')
-            onClose()
-          })
         }
       })
-    }, 1200)
+    }, 2000)
     return () => window.clearInterval(timer)
   }, [ride?.id, ride?.status])
 
@@ -2043,6 +2027,44 @@ function TaxiMatchingSheet({
     onClose()
   }
 
+  const acceptPendingOffer = () => {
+    const offer = ride?.pendingOffer
+    if (!ride || !offer || accepting) return
+    setAccepting(true)
+    void respondToRideOffer(ride.id, offer.driverId, 'accept')
+      .then((next) => {
+        setRide(next)
+        if (next.status === 'assigned') {
+          finishedRef.current = true
+          setPhase('arriving')
+        }
+      })
+      .catch((error) => {
+        onNotice(error instanceof Error ? error.message : '콜 수락에 실패했어요.')
+      })
+      .finally(() => setAccepting(false))
+  }
+
+  const openCompletedReceipt = () => {
+    if (!ride || settledRef.current) return
+    settledRef.current = true
+    void fetchRideReceipt(ride.id).then((receipt) => {
+      if (receipt) {
+        onReceipt(receiptFromSettlement(receipt))
+        onAskReview({
+          rideId: ride.id,
+          raterId: passengerIdRef.current,
+          raterRole: 'passenger',
+          targetName: receipt.driverName,
+          vehicle: receipt.vehicle,
+          plate: receipt.plate,
+        })
+      }
+      onNotice('운행이 완료되었습니다. 영수증을 확인하세요.')
+      onClose()
+    })
+  }
+
   const escrowStatus = ride?.escrow?.status
   const escrowAmount = ride?.escrow?.amount ?? fare
 
@@ -2053,15 +2075,20 @@ function TaxiMatchingSheet({
         {phase === 'searching' ? (
           <div className="pb-4 pt-2 text-center">
             <p className="text-xs font-black text-[#4C1FB8]">LIVE MATCHING</p>
-            <h2 className="mt-2 text-2xl font-black text-[#0F172A]">기사님을 찾는 중입니다...</h2>
+            <h2 className="mt-2 text-2xl font-black text-[#0F172A]">기사님 매칭 대기 중</h2>
             <p className="mt-2 text-sm font-bold text-[#64748B]">{route}</p>
             {ride ? <p className="mt-1 text-xs font-black text-[#4C1FB8]">예상 요금 {ride.estimatedFare.toFixed(2)} Pi</p> : null}
+            {ride?.pendingOffer ? (
+              <p className="mt-2 text-sm font-bold text-[#4C1FB8]">{ride.pendingOffer.driverName} 기사님에게 콜을 요청했어요. 수락을 기다리는 중입니다.</p>
+            ) : (
+              <p className="mt-2 text-sm font-bold text-[#64748B]">주변 기사님에게 호출을 보내고 있어요.</p>
+            )}
             {matchError ? <p className="mt-2 text-xs font-bold text-[#B91C1C]">{matchError}</p> : null}
             <TaxiLiveMap
               kind="taxi"
               phase="arriving"
               routeLabel={route}
-              statusLabel="호출 중"
+              statusLabel="매칭 대기 중"
               originLat={live.origin?.lat ?? pickupLat}
               originLng={live.origin?.lng ?? pickupLng}
               destLat={destLat}
@@ -2069,8 +2096,13 @@ function TaxiMatchingSheet({
               originLabel={live.origin?.address || pickupAddress}
               destLabel={resolvedDest?.address || live.dest?.address || dest}
             />
-            <p className="mt-6 text-xs font-bold text-[#8b8495]">주변 기사님에게 호출을 보내고 있어요.</p>
-            <button type="button" onClick={cancelRide} className="mt-6 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
+            <p className="mt-6 text-xs font-bold text-[#8b8495]">기사님이 콜을 수락하면 배차 화면으로 이동합니다. 하단 기사/파트너에서 수락할 수도 있습니다.</p>
+            {ride?.pendingOffer ? (
+              <button type="button" disabled={accepting} onClick={acceptPendingOffer} className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60">
+                {accepting ? '수락 중…' : '이 기기에서 기사 콜 수락'}
+              </button>
+            ) : null}
+            <button type="button" onClick={cancelRide} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
               호출 취소
             </button>
           </div>
@@ -2184,9 +2216,15 @@ function TaxiMatchingSheet({
                 </p>
               </div>
               <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 기사 앱에서 운행 완료를 눌러 주세요</p>
-              <button type="button" onClick={cancelRide} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
-                {phase === 'moving' ? '운행 취소' : '호출 취소'}
-              </button>
+              {ride?.status === 'completed' ? (
+                <button type="button" onClick={openCompletedReceipt} className="w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
+                  운행 종료 · 영수증 보기
+                </button>
+              ) : (
+                <button type="button" onClick={cancelRide} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
+                  {phase === 'moving' ? '운행 취소' : '호출 취소'}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -2385,15 +2423,11 @@ function ServiceSheet({
     setPhase('matching')
     onNotice(selfServe ? `${service} 이용을 시작했어요.` : `${service} 호출을 시작했어요.`)
   }
-  useEffect(() => {
-    if (phase !== 'matching') return
-    const timer = window.setTimeout(() => {
-      setPhase('assigned')
-      if (ride) setRideStage('arriving')
-      onNotice(selfServe ? `${service} 이용이 시작되었습니다.` : `${service} 배정이 완료되었습니다.`)
-    }, 2200)
-    return () => window.clearTimeout(timer)
-  }, [phase, service, onNotice])
+  const confirmAssignment = () => {
+    setPhase('assigned')
+    if (ride) setRideStage('arriving')
+    onNotice(selfServe ? `${service} 이용이 시작되었습니다.` : `${service} 배정이 완료되었습니다.`)
+  }
   return (
     <div className="fixed inset-0 z-[90] flex items-end bg-[#241d35]/45 p-0 sm:p-4">
       <div className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 pb-8 pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)] sm:rounded-[32px]">
@@ -2419,7 +2453,7 @@ function ServiceSheet({
                 {selfServe ? <MapPin className="h-7 w-7" /> : <Car className="h-7 w-7" />}
               </span>
             </div>
-            <h3 className="mt-5 text-xl font-black">{selfServe ? '이용을 준비하고 있어요' : '배정 중입니다...'}</h3>
+            <h3 className="mt-5 text-xl font-black">{selfServe ? '이용을 준비하고 있어요' : '기사님 매칭 대기 중'}</h3>
             <p className="mt-2 text-sm font-bold text-[#8b8495]">
               {ride ? place : selfServe ? `${service} 정보를 확인하고 있습니다.` : `${service} 담당자를 찾고 있어요.`}
             </p>
@@ -2437,7 +2471,10 @@ function ServiceSheet({
                 destLabel={daeriTrip?.dest || destAddress}
               />
             ) : null}
-            <button type="button" onClick={onClose} className="mt-5 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
+            <button type="button" onClick={confirmAssignment} className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
+              {selfServe ? '이용 시작' : '배정 확인'}
+            </button>
+            <button type="button" onClick={onClose} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
               {selfServe ? '이용 취소' : '호출 취소'}
             </button>
           </div>
@@ -5919,7 +5956,8 @@ export default function HomeScreen() {
           />
         ) : null}
         {selectedService === '택시' && activeTrip ? (
-          <TaxiMatchingSheet
+          <div className={tab === '기사/파트너' ? 'hidden' : undefined}>
+            <TaxiMatchingSheet
             destination={activeTrip.destLabel}
             pickupLat={activeTrip.originLat}
             pickupLng={activeTrip.originLng}
@@ -5939,6 +5977,7 @@ export default function HomeScreen() {
             onAskReview={setRideReview}
             onReceipt={setReceiptRide}
           />
+          </div>
         ) : null}
         {selectedService && selectedService !== '택시' && selectedService !== '더보기' && (
           <ServiceSheet
