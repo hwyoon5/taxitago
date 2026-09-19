@@ -151,28 +151,42 @@ function FullscreenMapView({
   lat,
   lng,
   address,
-  pickupLat,
-  pickupLng,
   onClose,
   onConfirmPickup,
 }: {
   lat: number
   lng: number
   address: string
-  pickupLat: number
-  pickupLng: number
+  pickupLat?: number
+  pickupLng?: number
   onClose: () => void
   onConfirmPickup: (place: { lat: number; lng: number; address: string }) => void
 }) {
-  const [pin, setPin] = useState({ lat: pickupLat, lng: pickupLng })
+  const [pin, setPin] = useState({ lat, lng })
+  const [mapCenter, setMapCenter] = useState({ lat, lng })
   const [pickedAddress, setPickedAddress] = useState<string | null>(null)
   const [addressPending, setAddressPending] = useState(false)
   const [askConfirm, setAskConfirm] = useState(false)
   const lookupSeq = useRef(0)
+  const pickedRef = useRef(false)
+
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const next = { lat: position.coords.latitude, lng: position.coords.longitude }
+        setMapCenter(next)
+        if (!pickedRef.current) setPin(next)
+      },
+      () => undefined,
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
+    )
+  }, [])
 
   const resetToGps = () => {
     lookupSeq.current += 1
-    setPin({ lat, lng })
+    pickedRef.current = false
+    setPin(mapCenter)
     setPickedAddress(null)
     setAskConfirm(false)
     setAddressPending(false)
@@ -181,6 +195,7 @@ function FullscreenMapView({
   const handlePick = (nextLat: number, nextLng: number) => {
     const seq = lookupSeq.current + 1
     lookupSeq.current = seq
+    pickedRef.current = true
     setPin({ lat: nextLat, lng: nextLng })
     setAskConfirm(false)
     setAddressPending(true)
@@ -222,8 +237,8 @@ function FullscreenMapView({
       `}</style>
       <div className="absolute inset-0 origin-bottom overflow-hidden" style={{ animation: 'ttMapRise 320ms cubic-bezier(0.22, 1, 0.36, 1) both' }}>
       <LocationTileMap
-        lat={lat}
-        lng={lng}
+        lat={mapCenter.lat}
+        lng={mapCenter.lng}
         pinLat={pin.lat}
         pinLng={pin.lng}
         className="h-full min-h-0 w-full"

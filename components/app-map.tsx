@@ -488,6 +488,9 @@ function NaverLocationMap(props: MapViewProps) {
         })
       }
       applyMapBottomInset(sdk, map, center.lat, center.lng, 0)
+      window.requestAnimationFrame(() => {
+        map.panTo(new sdk.LatLng(center.lat, center.lng))
+      })
       clickListener = interactive
         ? sdk.Event.addListener(map, 'click', (event) => {
             if (activateRef.current && !pickRef.current) {
@@ -535,7 +538,7 @@ function NaverLocationMap(props: MapViewProps) {
     const map = mapRef.current
     const sdk = mapsRef.current
     if (!map || !sdk || mode !== 'naver') return
-    map.setCenter(new sdk.LatLng(lat, lng))
+    map.panTo(new sdk.LatLng(lat, lng))
     pinRef.current?.draw?.()
   }, [lat, lng, mode])
 
@@ -555,7 +558,7 @@ function NaverLocationMap(props: MapViewProps) {
     <MapFrame className={className}>
       {mode !== 'fallback' ? (
         <div ref={hostRef} className="naver-map-host absolute inset-0">
-          <div ref={canvasRef} className="naver-map-canvas h-full w-full touch-none" style={{ width: '100%', height: '100%' }} />
+          <div ref={canvasRef} className="naver-map-canvas h-full w-full touch-manipulation" style={{ width: '100%', height: '100%' }} />
           {!hidePin && pinScreen ? <FixedMapPin pulse={Boolean(pulsePin)} x={pinScreen.x} y={pinScreen.y} /> : null}
         </div>
       ) : (

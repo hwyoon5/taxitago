@@ -1,4 +1,6 @@
-const naverMapClientId = (
+const PLACEHOLDER_IDS = new Set(['', 'YOUR_CLIENT_ID', 'your_client_id', 'undefined', 'null'])
+
+const rawNaverMapClientId = (
   process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID ||
   process.env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID ||
   process.env.NAVER_MAP_CLIENT_ID ||
@@ -7,6 +9,8 @@ const naverMapClientId = (
   process.env.NAVER_MAP_NCP_KEY_ID ||
   ''
 ).trim()
+
+const naverMapClientId = PLACEHOLDER_IDS.has(rawNaverMapClientId) ? 'svhbb5mbpy' : rawNaverMapClientId
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
