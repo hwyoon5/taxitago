@@ -41,6 +41,8 @@ import MyPage from '@/components/my-page'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
 import RideChat from '@/components/ride-chat'
+import RideReviewModal, { type RideReviewTarget } from '@/components/ride-review'
+import { fetchUserRating } from '@/lib/review-client'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
 const PASSENGER_ID_KEY = 'taxitago-passenger-id'
@@ -1837,7 +1839,7 @@ function TaxiMatchingSheet({
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
   onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }) => void
   onNeedCharge: () => void
-  onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
+  onAskReview: (target: RideReviewTarget) => void
   onReceipt: (ride: RideReceipt) => void
 }) {
   const [phase, setPhase] = useState<TaxiMatchPhase>('searching')
@@ -1963,7 +1965,14 @@ function TaxiMatchingSheet({
           void fetchRideReceipt(next.id).then((receipt) => {
             if (receipt) {
               onReceipt(receiptFromSettlement(receipt))
-              onAskReview({ name: receipt.driverName, vehicle: receipt.vehicle, plate: receipt.plate })
+              onAskReview({
+                rideId: next.id,
+                raterId: passengerIdRef.current,
+                raterRole: 'passenger',
+                targetName: receipt.driverName,
+                vehicle: receipt.vehicle,
+                plate: receipt.plate,
+              })
             }
             onNotice('운행이 완료되어 에스크로 요금이 기사 지갑으로 정산되었습니다.')
             onClose()
@@ -4893,6 +4902,7 @@ function DriverDashboard({
   onPassengerMode,
   onWithdraw,
   onNotice,
+  onAskPassengerReview,
 }: {
   online: boolean
   lat: number
@@ -4901,10 +4911,12 @@ function DriverDashboard({
   onPassengerMode: () => void
   onWithdraw: () => void
   onNotice: (message: string) => void
+  onAskPassengerReview: (target: RideReviewTarget) => void
 }) {
   const [incoming, setIncoming] = useState<PublicRide | null>(null)
   const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
   const [earnings, setEarnings] = useState<DriverEarningsStats | null>(null)
+  const [driverRating, setDriverRating] = useState('5.00')
   const [offerKm, setOfferKm] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
@@ -4953,11 +4965,13 @@ function DriverDashboard({
         online ? fetchDriverOffer(driverId) : Promise.resolve(null),
         fetchDriverActiveRide(driverId),
         fetchDriverEarnings(driverId),
-      ]).then(([pending, active, stats]) => {
+        fetchUserRating(driverId, 'driver'),
+      ]).then(([pending, active, stats, rating]) => {
         setIncoming(pending?.ride ?? null)
         setOfferKm(pending?.offer?.pickupDistanceKm ?? pending?.ride?.assignedDriver?.pickupDistanceKm ?? null)
         setActiveRide(active)
         if (stats) setEarnings(stats)
+        if (rating) setDriverRating(rating.average.toFixed(2))
       })
     }, 1500)
     return () => window.clearInterval(poll)
@@ -4991,8 +5005,17 @@ function DriverDashboard({
         if (result.receipt) {
           appendSettlementEntry(result.receipt.amount, `에스크로 정산 · ${result.receipt.route}`)
         }
+        const finished = activeRide
         setActiveRide(null)
         onNotice('운행 완료. 에스크로 Pi가 등록 지갑으로 정산되었습니다.')
+        if (finished) {
+          onAskPassengerReview({
+            rideId: finished.id,
+            raterId: driverId,
+            raterRole: 'driver',
+            targetName: '승객',
+          })
+        }
         return fetchDriverEarnings(driverId)
       })
       .then((stats) => {
@@ -5045,7 +5068,7 @@ function DriverDashboard({
         </button>
         <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 shadow-[0_6px_18px_rgba(15,23,42,0.08)]">
           <p className="text-[10px] font-semibold text-[#64748B]">기사 평점</p>
-          <p className="mt-2 text-lg font-bold text-[#0F172A]">{earnings?.rating ?? '4.9'}</p>
+          <p className="mt-2 text-lg font-bold text-[#0F172A]">{driverRating}</p>
         </div>
       </section>
       {activeRide ? (
@@ -5212,6 +5235,7 @@ export default function HomeScreen() {
   const [readNoticeIds, setReadNoticeIds] = useState<string[]>([])
   const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number; estimated?: number; paymentId: string; txid: string } | null>(null)
   const [driverReview, setDriverReview] = useState<{ name: string; vehicle: string; plate: string; kind?: 'driver' | 'service' } | null>(null)
+  const [rideReview, setRideReview] = useState<RideReviewTarget | null>(null)
   const [transactions, setTransactions] = useState<PiTransaction[]>(DEFAULT_PI_TX)
 
   const showNotice = (message: string) => {
@@ -5573,7 +5597,7 @@ export default function HomeScreen() {
         </header>
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (
-            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} />
+            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} onAskPassengerReview={setRideReview} />
           ) : (
             <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
           )
@@ -5790,7 +5814,7 @@ export default function HomeScreen() {
             onPay={payWithPi}
             onSettle={settlePiLedger}
             onNeedCharge={showChargePrompt}
-            onAskReview={setDriverReview}
+            onAskReview={setRideReview}
             onReceipt={setReceiptRide}
           />
         ) : null}
@@ -5818,7 +5842,16 @@ export default function HomeScreen() {
             daeriTrip={selectedService === '대리운전' ? daeriTrip : null}
           />
         )}
-        {paymentDone?.txid ? (
+        {rideReview ? (
+          <RideReviewModal
+            target={rideReview}
+            onClose={() => setRideReview(null)}
+            onSubmitted={() => {
+              if (rideReview.raterRole === 'passenger') rewardReview()
+              setRideReview(null)
+            }}
+          />
+        ) : paymentDone?.txid ? (
           <PaymentDoneModal
             amount={paymentDone.amount}
             place={paymentDone.place}
