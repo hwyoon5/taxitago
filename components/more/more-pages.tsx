@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { getNotice, notices } from '@/lib/notices'
+import SupportCenter from '@/components/support-center'
 
 function PageFrame({ title, caption, onBack, children }: { title: string; caption: string; onBack: () => void; children: React.ReactNode }) {
   return (
@@ -76,16 +77,40 @@ export function FaresView({ onBack }: { onBack: () => void }) {
   )
 }
 
-export function SupportView({ onBack, onNotice }: { onBack: () => void; onNotice?: (message: string) => void }) {
-  const [message, setMessage] = useState('')
+function localSupportActorId() {
+  try {
+    const existing = window.localStorage.getItem('taxitago-passenger-id')
+    if (existing) return existing
+    const id = `passenger-${crypto.randomUUID()}`
+    window.localStorage.setItem('taxitago-passenger-id', id)
+    return id
+  } catch {
+    return 'passenger-local'
+  }
+}
+
+export function SupportView({
+  onBack,
+  onNotice,
+  prefillLost,
+}: {
+  onBack: () => void
+  onNotice?: (message: string) => void
+  prefillLost?: import('@/components/support-center').LostPrefill | null
+}) {
+  const [actorId, setActorId] = useState('passenger-local')
+  useEffect(() => {
+    setActorId(localSupportActorId())
+  }, [])
   const faqs = [
     { q: '결제는 언제 되나요?', a: '택시는 도착 후 후결제, 주차·택배는 요청 시 선결제, 자전거·킥보드는 QR 이용 후 자동결제입니다.' },
     { q: '호출을 취소할 수 있나요?', a: '기사 배정 전에는 호출 화면에서 바로 취소할 수 있습니다. 배정 이후에는 고객센터로 문의해 주세요.' },
-    { q: '분실물은 어떻게 찾나요?', a: '이용 기록에서 해당 운행을 연 뒤 기사님께 연락하거나, 고객센터 1588-0000으로 접수해 주세요.' },
+    { q: '분실물은 어떻게 찾나요?', a: '이용 내역의 운행을 선택한 뒤 분실물 센터에서 물건 종류와 시각을 남기면 해당 기사님과 바로 연결됩니다.' },
+    { q: '운행 중 위급하면?', a: '호출 화면의 긴급 SOS를 누르면 현재 GPS와 차량 정보가 운영센터로 즉시 전달됩니다. 위급 시 112에도 연락해 주세요.' },
   ]
   return (
-    <PageFrame title="고객센터" caption="1:1 문의와 주요 안내를 확인하세요." onBack={onBack}>
-      <div className="space-y-2">
+    <PageFrame title="고객센터" caption="SOS · 분실물 · 1:1 문의" onBack={onBack}>
+      <div className="mb-4 space-y-2">
         {faqs.map((item) => (
           <div key={item.q} className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
             <p className="text-sm font-black text-[#0F172A]">{item.q}</p>
@@ -93,28 +118,7 @@ export function SupportView({ onBack, onNotice }: { onBack: () => void; onNotice
           </div>
         ))}
       </div>
-      <label className="mt-4 block">
-        <span className="text-xs font-black text-[#4C1FB8]">1:1 문의</span>
-        <textarea
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          rows={4}
-          placeholder="문의 내용을 입력해 주세요"
-          className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
-        />
-      </label>
-      <button
-        type="button"
-        onClick={() => {
-          if (!message.trim()) return
-          setMessage('')
-          onNotice?.('1:1 문의가 접수되었습니다.')
-        }}
-        className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white"
-      >
-        문의 보내기
-      </button>
-      <p className="mt-3 text-center text-xs font-bold text-[#64748B]">긴급 전화 1588-0000 · 매일 09:00–22:00</p>
+      <SupportCenter actorId={actorId} actorRole="passenger" onNotice={onNotice} prefillLost={prefillLost} />
     </PageFrame>
   )
 }

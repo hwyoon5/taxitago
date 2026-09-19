@@ -42,7 +42,11 @@ import EarningsStatSheet from '@/components/partner-stat-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
 import RideChat from '@/components/ride-chat'
 import RideReviewModal, { type RideReviewTarget } from '@/components/ride-review'
+import RideSosButton from '@/components/ride-sos'
+import SupportCenter, { type LostPrefill } from '@/components/support-center'
 import { fetchUserRating } from '@/lib/review-client'
+import { fetchLostInbox, fetchSosInbox } from '@/lib/support-client'
+import type { LostItem, SosAlert } from '@/lib/support-types'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
 const PASSENGER_ID_KEY = 'taxitago-passenger-id'
@@ -492,6 +496,7 @@ type FavoritePlace = { id: string; name: string; address: string }
 type RecentPlace = { id: string; name: string; address: string }
 type PiTransaction = { label: string; amount: number; detail: string; place: string; at: string; estimated?: number }
 type RideReceipt = {
+  rideId?: string
   route: string
   origin: string
   dest: string
@@ -558,6 +563,7 @@ const SAMPLE_RIDES: RideReceipt[] = [
 
 function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
   return {
+    rideId: item.rideId,
     route: item.route,
     origin: item.origin,
     dest: item.dest,
@@ -2124,6 +2130,20 @@ function TaxiMatchingSheet({
                   채팅하기
                 </button>
               </div>
+              {ride?.id ? (
+                <div className="mt-2">
+                  <RideSosButton
+                    rideId={ride.id}
+                    actorId={passengerIdRef.current || localPassengerId()}
+                    role="passenger"
+                    fallbackLat={live.origin?.lat ?? pickupLat}
+                    fallbackLng={live.origin?.lng ?? pickupLng}
+                    vehicle={driver.vehicle}
+                    plate={driver.plate}
+                    onNotice={onNotice}
+                  />
+                </div>
+              ) : null}
             </div>
             <div className="mt-4 space-y-2">
               {phase === 'arriving' && (
@@ -3254,7 +3274,7 @@ function Home({
   )
 }
 
-function ReceiptModal({ ride, onClose, onNotice }: { ride: RideReceipt; onClose: () => void; onNotice: (message: string) => void }) {
+function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideReceipt; onClose: () => void; onNotice: (message: string) => void; onLostItem?: (prefill: LostPrefill) => void }) {
   const shareReceipt = async () => {
     const title = '택시타고 영수증'
     const text = `택시타고 영수증 ${ride.transactionId}\n${ride.origin} → ${ride.dest}\n결제 ${ride.fare} · ${ride.method}\n${ride.driver} 기사님 · ${ride.car} ${ride.plate}\n${ride.date}`
@@ -3392,10 +3412,26 @@ function ReceiptModal({ ride, onClose, onNotice }: { ride: RideReceipt; onClose:
             <Share2 className="h-4 w-4" />
             공유하기
           </button>
-          <button type="button" onClick={onClose} className="rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)]">
-            내역 닫기
+          <button
+            type="button"
+            onClick={() => {
+              onLostItem?.({
+                rideId: ride.rideId,
+                route: ride.route,
+                driverName: ride.driver,
+                plate: ride.plate,
+                vehicle: ride.car,
+              })
+              onClose()
+            }}
+            className="rounded-2xl border-2 border-[#4C1FB8] bg-white py-3.5 text-sm font-black text-[#4C1FB8]"
+          >
+            분실물 접수
           </button>
         </div>
+        <button type="button" onClick={onClose} className="mt-2 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)]">
+          내역 닫기
+        </button>
       </section>
     </div>
   )
@@ -4923,6 +4959,9 @@ function DriverDashboard({
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [deskOpen, setDeskOpen] = useState(false)
+  const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([])
+  const [lostItems, setLostItems] = useState<LostItem[]>([])
   const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
   const [driverId, setDriverId] = useState('')
 
@@ -4966,12 +5005,16 @@ function DriverDashboard({
         fetchDriverActiveRide(driverId),
         fetchDriverEarnings(driverId),
         fetchUserRating(driverId, 'driver'),
-      ]).then(([pending, active, stats, rating]) => {
+        fetchSosInbox(driverId, 'driver'),
+        fetchLostInbox(driverId, 'driver'),
+      ]).then(([pending, active, stats, rating, alerts, lost]) => {
         setIncoming(pending?.ride ?? null)
         setOfferKm(pending?.offer?.pickupDistanceKm ?? pending?.ride?.assignedDriver?.pickupDistanceKm ?? null)
         setActiveRide(active)
         if (stats) setEarnings(stats)
         if (rating) setDriverRating(rating.average.toFixed(2))
+        setSosAlerts(alerts)
+        setLostItems(lost)
       })
     }, 1500)
     return () => window.clearInterval(poll)
@@ -5096,7 +5139,30 @@ function DriverDashboard({
               실시간 채팅
             </button>
           </div>
+          <div className="mt-2">
+            <RideSosButton
+              rideId={activeRide.id}
+              actorId={driverId}
+              role="driver"
+              fallbackLat={lat}
+              fallbackLng={lng}
+              vehicle={partner?.role === '기사' ? '택시' : undefined}
+              onNotice={onNotice}
+            />
+          </div>
         </section>
+      ) : null}
+      {sosAlerts[0] ? (
+        <section className="mt-4 rounded-[26px] border-2 border-[#FECACA] bg-[#FEF2F2] p-4">
+          <p className="text-xs font-black text-[#B91C1C]">긴급 SOS · {sosAlerts[0].route}</p>
+          <p className="mt-1 text-sm font-bold text-[#7F1D1D]">승객 위치 {sosAlerts[0].lat.toFixed(5)}, {sosAlerts[0].lng.toFixed(5)}</p>
+        </section>
+      ) : null}
+      {lostItems[0] ? (
+        <button type="button" onClick={() => setDeskOpen(true)} className="mt-4 w-full rounded-[26px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4 text-left">
+          <p className="text-xs font-black text-[#4C1FB8]">분실물 문의 {lostItems.length}건</p>
+          <p className="mt-1 text-sm font-black text-[#0F172A]">{lostItems[0].itemType} · {lostItems[0].route}</p>
+        </button>
       ) : null}
       {online && incoming ? (
         <section className="mt-4 rounded-[26px] border-2 border-[#BFDBFE] bg-[#F8FAFC] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
@@ -5136,6 +5202,9 @@ function DriverDashboard({
       )}
       <button onClick={onPassengerMode} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-bold text-[#334155] shadow-sm">
         홈으로 돌아가기
+      </button>
+      <button type="button" onClick={() => setDeskOpen(true)} className="mt-2 w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-sm font-bold text-[#4A82B8]">
+        분실물 · 고객지원
       </button>
       <section className="mt-4 rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
         <p className="text-xs font-bold text-[#4A82B8]">계정 설정</p>
@@ -5191,6 +5260,17 @@ function DriverDashboard({
           onClose={() => setChatOpen(false)}
         />
       ) : null}
+      {deskOpen ? (
+        <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={() => setDeskOpen(false)}>
+          <section className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 py-5" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-xl font-black">기사 고객지원</h2>
+              <button type="button" onClick={() => setDeskOpen(false)} className="text-sm font-black text-[#64748B]">닫기</button>
+            </div>
+            {driverId ? <SupportCenter actorId={driverId} actorRole="driver" onNotice={onNotice} /> : null}
+          </section>
+        </div>
+      ) : null}
     </main>
   )
 }
@@ -5236,6 +5316,7 @@ export default function HomeScreen() {
   const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number; estimated?: number; paymentId: string; txid: string } | null>(null)
   const [driverReview, setDriverReview] = useState<{ name: string; vehicle: string; plate: string; kind?: 'driver' | 'service' } | null>(null)
   const [rideReview, setRideReview] = useState<RideReviewTarget | null>(null)
+  const [supportDesk, setSupportDesk] = useState<LostPrefill | null | true>(null)
   const [transactions, setTransactions] = useState<PiTransaction[]>(DEFAULT_PI_TX)
 
   const showNotice = (message: string) => {
@@ -5709,7 +5790,14 @@ export default function HomeScreen() {
             }}
           />
         ) : null}
-        {receiptRide && <ReceiptModal ride={receiptRide} onClose={() => setReceiptRide(null)} onNotice={showNotice} />}
+        {receiptRide && (
+          <ReceiptModal
+            ride={receiptRide}
+            onClose={() => setReceiptRide(null)}
+            onNotice={showNotice}
+            onLostItem={(prefill) => setSupportDesk(prefill)}
+          />
+        )}
         {inboxItem && <InboxDetailModal item={inboxItem} onClose={() => setInboxItem(null)} />}
         {headerModal && (
           <HeaderModal
@@ -5842,6 +5930,22 @@ export default function HomeScreen() {
             daeriTrip={selectedService === '대리운전' ? daeriTrip : null}
           />
         )}
+        {supportDesk ? (
+          <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={() => setSupportDesk(null)}>
+            <section className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 py-5" onClick={(event) => event.stopPropagation()}>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-xl font-black">분실물 · 고객센터</h2>
+                <button type="button" onClick={() => setSupportDesk(null)} className="text-sm font-black text-[#64748B]">닫기</button>
+              </div>
+              <SupportCenter
+                actorId={localPassengerId()}
+                actorRole="passenger"
+                onNotice={showNotice}
+                prefillLost={supportDesk === true ? null : supportDesk}
+              />
+            </section>
+          </div>
+        ) : null}
         {rideReview ? (
           <RideReviewModal
             target={rideReview}
