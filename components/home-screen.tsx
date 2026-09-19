@@ -8,6 +8,7 @@ import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView 
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
+import { suggestedDestinationsFor } from '@/lib/region-destinations'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX } from '@/components/pi-checkout'
@@ -68,13 +69,6 @@ function ServiceIconButton({
   )
 }
 
-
-const SUGGESTED_DESTINATIONS = [
-  { name: '부산역', address: '부산광역시 동구 중앙대로 206' },
-  { name: '서면 롯데백화점', address: '부산광역시 부산진구 가야대로 772' },
-  { name: '해운대 해수욕장', address: '부산광역시 해운대구 해운대해변로 264' },
-  { name: '김해공항', address: '부산광역시 강서구 공항진입로 108' },
-] as const
 
 type GpsFix = {
   status: 'pending' | 'ready' | 'denied'
@@ -2729,6 +2723,8 @@ function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => v
 function Home({
   destination,
   pickup,
+  pickupLat,
+  pickupLng,
   onDestination,
   onService,
   onReceipt,
@@ -2736,6 +2732,8 @@ function Home({
 }: {
   destination: string
   pickup: string
+  pickupLat: number
+  pickupLng: number
   onDestination: (value: string) => void
   onService: (value: string) => void
   onReceipt: (ride: RideReceipt) => void
@@ -2784,6 +2782,11 @@ function Home({
     }
     onService('택시')
   }
+  const suggestedDestinations = suggestedDestinationsFor(pickup, pickupLat, pickupLng)
+  const pickSuggested = (name: string, address: string) => {
+    rememberRecent(name, address)
+    onDestination(name)
+  }
 
   return (
     <main
@@ -2822,13 +2825,13 @@ function Home({
           </button>
         </div>
         <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {SUGGESTED_DESTINATIONS.map((place) => {
+          {suggestedDestinations.map((place) => {
             const active = destination === place.name || destination === place.address
             return (
               <button
                 key={place.name}
                 type="button"
-                onClick={() => select(place.name, place.address)}
+                onClick={() => pickSuggested(place.name, place.address)}
                 className={`inline-flex min-h-8 shrink-0 items-center rounded-full px-3 text-[12px] font-black transition active:scale-95 ${
                   active ? 'bg-[#4C1FB8] text-white shadow-[0_6px_12px_rgba(76,31,184,0.24)]' : 'bg-[#F1F5F9] text-[#1E293B]'
                 }`}
@@ -4477,6 +4480,8 @@ export default function HomeScreen() {
           <Home
             destination={destination}
             pickup={origin.address}
+            pickupLat={origin.lat}
+            pickupLng={origin.lng}
             onDestination={selectDestination}
             onService={openService}
             onReceipt={setReceiptRide}
