@@ -52,6 +52,7 @@ import type { LostItem, SosAlert } from '@/lib/support-types'
 const LOCAL_TEST_USER = { username: 'taxitago' }
 const PASSENGER_ID_KEY = 'taxitago-passenger-id'
 const DRIVER_ID_KEY = 'taxitago-driver-id'
+let taxiSheetRideId = ''
 
 function readOrCreateLocalId(key: string, prefix: string) {
   try {
@@ -1853,13 +1854,15 @@ function TaxiMatchingSheet({
   onReceipt: (ride: RideReceipt) => void
 }) {
   const [phase, setPhase] = useState<TaxiMatchPhase>('searching')
+  const [matched, setMatched] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [ride, setRide] = useState<PublicRide | null>(null)
   const [matchError, setMatchError] = useState('')
   const passengerIdRef = useRef('')
-  const rideIdRef = useRef('')
+  const rideIdRef = useRef(taxiSheetRideId)
   const finishedRef = useRef(false)
+  const matchedRef = useRef(false)
   const dest = destination.trim() || '선택한 목적지'
   const live = resolveLiveRidePoints({
     originLat: pickupLat,
@@ -1897,6 +1900,14 @@ function TaxiMatchingSheet({
         ? '탑승을 확인하고 목적지로 출발할 준비를 하고 있어요.'
         : `${dest}까지 안전하게 이동 중이에요.`
 
+  const lockMatched = (next?: PublicRide | null) => {
+    matchedRef.current = true
+    finishedRef.current = true
+    setMatched(true)
+    setPhase((current) => (current === 'searching' ? 'arriving' : current))
+    if (next) setRide(next)
+  }
+
   useEffect(() => {
     if (Number.isFinite(destLat) && Number.isFinite(destLng)) {
       setResolvedDest({ lat: destLat as number, lng: destLng as number, address: destAddress })
@@ -1919,9 +1930,26 @@ function TaxiMatchingSheet({
 
   useEffect(() => {
     let cancelled = false
+    passengerIdRef.current = localPassengerId()
+    const attach = (created: PublicRide) => {
+      if (cancelled) return
+      taxiSheetRideId = created.id
+      rideIdRef.current = created.id
+      setRide(created)
+      if (created.status === 'assigned' || created.status === 'completed') lockMatched(created)
+      if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요.')
+    }
+    if (taxiSheetRideId) {
+      rideIdRef.current = taxiSheetRideId
+      void fetchRideRequest(taxiSheetRideId).then((existing) => {
+        if (existing) attach(existing)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
     const pickup = live.origin ?? { lat: pickupLat, lng: pickupLng, address: pickupAddress }
     const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
-    passengerIdRef.current = localPassengerId()
     void createRideRequest({
       passengerId: passengerIdRef.current,
       pickupLat: pickup.lat,
@@ -1933,17 +1961,7 @@ function TaxiMatchingSheet({
       destLabel: dest,
     })
       .then((created) => {
-        if (cancelled) {
-          void cancelRideRequest(created.id, passengerIdRef.current)
-          return
-        }
-        rideIdRef.current = created.id
-        setRide(created)
-        if (created.status === 'assigned') {
-          finishedRef.current = true
-          setPhase('arriving')
-        }
-        if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요.')
+        attach(created)
       })
       .catch((error) => {
         if (!cancelled) setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
@@ -1954,28 +1972,24 @@ function TaxiMatchingSheet({
   }, [])
 
   useEffect(() => {
-    const rideId = ride?.id
-    if (!ride || !rideId || ride.status === 'cancelled' || ride.status === 'unmatched') return
+    const rideId = ride?.id || rideIdRef.current
+    if (!rideId) return
     const timer = window.setInterval(() => {
       void fetchRideRequest(rideId).then((next) => {
         if (!next) return
-        setRide(next)
-        if (next.status === 'assigned') {
-          finishedRef.current = true
-          setPhase((current) => (current === 'searching' ? 'arriving' : current))
-        }
-        if (finishedRef.current && next.status !== 'assigned' && next.status !== 'completed' && next.status !== 'cancelled') {
+        if (matchedRef.current) {
+          if (next.status === 'assigned' || next.status === 'completed') setRide(next)
           return
         }
+        setRide(next)
+        if (next.status === 'assigned') lockMatched(next)
         if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
         if (next.status === 'cancelled') onClose()
-        if (next.status === 'completed') {
-          finishedRef.current = true
-        }
+        if (next.status === 'completed') lockMatched(next)
       })
-    }, 2000)
+    }, 2500)
     return () => window.clearInterval(timer)
-  }, [ride?.id, ride?.status])
+  }, [ride?.id])
 
   useEffect(() => {
     if (!ride || ride.status !== 'assigned') return
@@ -2027,28 +2041,24 @@ function TaxiMatchingSheet({
 
   const cancelRide = () => {
     if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
-    onNotice(phase === 'searching' ? '택시 호출을 취소했어요.' : '배차를 취소했어요.')
+    taxiSheetRideId = ''
+    onNotice(matched ? '배차를 취소했어요.' : '택시 호출을 취소했어요.')
     onClose()
   }
 
   const acceptPendingOffer = () => {
     const rideId = ride?.id || rideIdRef.current
-    if (!rideId || accepting) return
+    if (!rideId || accepting || matchedRef.current) return
     setAccepting(true)
     setMatchError('')
-    finishedRef.current = true
-    setPhase('arriving')
+    lockMatched(ride)
     void acceptRideOnDevice(rideId)
       .then((next) => {
-        setRide(next)
-        finishedRef.current = true
-        setPhase('arriving')
+        lockMatched(next)
         onNotice('기사님이 콜을 수락했습니다. 탑승 후 이동을 시작해 주세요.')
       })
       .catch((error) => {
-        finishedRef.current = false
-        setPhase('searching')
-        onNotice(error instanceof Error ? error.message : '콜 수락에 실패했어요.')
+        onNotice(error instanceof Error ? error.message : '콜 수락에 실패했어요. 배차 화면에서 계속 진행할 수 있습니다.')
       })
       .finally(() => setAccepting(false))
   }
@@ -2096,7 +2106,7 @@ function TaxiMatchingSheet({
     <div className="fixed inset-0 z-50 flex items-end bg-[#241d35]/50 p-0 sm:items-center sm:p-4">
       <section className="mx-auto max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 pb-7 pt-3 shadow-[0_-18px_40px_rgba(36,27,56,0.22)] sm:rounded-[32px]">
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" />
-        {phase === 'searching' ? (
+        {!matched && phase === 'searching' ? (
           <div className="pb-4 pt-2 text-center">
             <p className="text-xs font-black text-[#4C1FB8]">LIVE MATCHING</p>
             <h2 className="mt-2 text-2xl font-black text-[#0F172A]">기사님 매칭 대기 중</h2>
@@ -5998,6 +6008,7 @@ export default function HomeScreen() {
             destAddress={activeTrip.destAddress}
             pickupAddress={activeTrip.originAddress}
             onClose={() => {
+              taxiSheetRideId = ''
               setSelectedService(null)
               setActiveTrip(null)
             }}
