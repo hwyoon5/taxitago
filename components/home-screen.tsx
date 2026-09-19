@@ -1853,6 +1853,7 @@ function TaxiMatchingSheet({
   onAskReview: (target: RideReviewTarget) => void
   onReceipt: (ride: RideReceipt) => void
 }) {
+  const IS_TEST_MODE = true
   const [phase, setPhase] = useState<TaxiMatchPhase>('searching')
   const [matched, setMatched] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
@@ -2131,14 +2132,17 @@ function TaxiMatchingSheet({
               destLabel={resolvedDest?.address || live.dest?.address || dest}
             />
             <p className="mt-6 text-xs font-bold text-[#8b8495]">기사님이 콜을 수락하면 배차 화면으로 이동합니다. 테스트는 아래 버튼으로 바로 수락할 수 있습니다.</p>
-            <button
-              type="button"
-              disabled={accepting || !ride}
-              onClick={acceptPendingOffer}
-              className="relative z-20 mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
-            >
-              {accepting ? '수락 중…' : '이 기기에서 기사 콜 수락'}
-            </button>
+            {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
+            {IS_TEST_MODE ? (
+              <button
+                type="button"
+                disabled={accepting || !ride}
+                onClick={acceptPendingOffer}
+                className="relative z-20 mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
+              >
+                {accepting ? '수락 중…' : '이 기기에서 기사 콜 수락'}
+              </button>
+            ) : null}
             <button type="button" onClick={cancelRide} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
               호출 취소
             </button>
@@ -2215,17 +2219,20 @@ function TaxiMatchingSheet({
               ) : null}
             </div>
             <div className="mt-4 space-y-2">
-              {phase === 'arriving' && (
+              {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
+              {IS_TEST_MODE && phase === 'arriving' && (
                 <button type="button" onClick={() => setPhase('boarding')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8]">
                   탑승 시작
                 </button>
               )}
-              {phase === 'boarding' && (
+              {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
+              {IS_TEST_MODE && phase === 'boarding' && (
                 <button type="button" onClick={() => setPhase('moving')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8]">
                   이동 시작
                 </button>
               )}
-              {phase === 'moving' && ride?.status !== 'completed' ? (
+              {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
+              {IS_TEST_MODE && phase === 'moving' && ride?.status !== 'completed' ? (
                 <button type="button" disabled={accepting} onClick={finishPassengerTrip} className="w-full rounded-2xl bg-[#047857] py-3.5 font-black text-white disabled:opacity-60">
                   {accepting ? '정산 중…' : '운행 완료 · 정산하기'}
                 </button>
@@ -2391,6 +2398,7 @@ function ServiceSheet({
   daeriTrip?: DaeriTrip | null
   onSelectService?: (label: string) => void
 }) {
+  const IS_TEST_MODE = true
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
   const [deliveryVehicle, setDeliveryVehicle] = useState('오토바이')
   const [packageSize, setPackageSize] = useState('소형')
@@ -2513,9 +2521,12 @@ function ServiceSheet({
                 destLabel={daeriTrip?.dest || destAddress}
               />
             ) : null}
-            <button type="button" onClick={confirmAssignment} className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
-              {selfServe ? '이용 시작' : '배정 확인'}
-            </button>
+            {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
+            {IS_TEST_MODE ? (
+              <button type="button" onClick={confirmAssignment} className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
+                {selfServe ? '이용 시작' : '배정 확인'}
+              </button>
+            ) : null}
             <button type="button" onClick={onClose} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
               {selfServe ? '이용 취소' : '호출 취소'}
             </button>
@@ -2615,7 +2626,8 @@ function ServiceSheet({
                 </div>
               </div>
             </div>
-            {ride && rideStage === 'arriving' ? (
+            {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
+            {IS_TEST_MODE && ride && rideStage === 'arriving' ? (
               <button type="button" onClick={() => setRideStage('moving')} className="w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-base font-bold text-[#4A82B8]">
                 운행 시작
               </button>
