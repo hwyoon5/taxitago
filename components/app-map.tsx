@@ -18,7 +18,7 @@ import {
   type NaverPolyline,
 } from '@/lib/naver-maps'
 
-export const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978, label: '서울시청' }
+import { resolveLiveRidePoints, isUsableCoord } from '@/lib/ride-session'
 
 const TILE_SIZE = 256
 
@@ -75,6 +75,13 @@ function fitRideBounds(sdk: NaverMapsSdk, map: NaverMapInstance, origin: RidePoi
   }
   map.setCenter(new sdk.LatLng(mid.lat, mid.lng))
   map.setZoom(span > 0.08 ? 12 : span > 0.03 ? 13 : 15)
+}
+
+function forceRideCamera(sdk: NaverMapsSdk, map: NaverMapInstance, origin: RidePoint, dest: RidePoint) {
+  const mid = lerpPoint(origin, dest, 0.5)
+  map.setCenter(new sdk.LatLng(mid.lat, mid.lng))
+  fitRideBounds(sdk, map, origin, dest)
+  map.setCenter(new sdk.LatLng(mid.lat, mid.lng))
 }
 
 type MapViewProps = {
@@ -682,12 +689,50 @@ function NaverLiveRideMap({
   const startPinRef = useRef<MapHtmlPin | null>(null)
   const endPinRef = useRef<MapHtmlPin | null>(null)
   const walker = kind === 'daeri' && phase !== 'moving'
+  const originRef = useRef(origin)
+  const destRef = useRef(dest)
+  originRef.current = origin
+  destRef.current = dest
   const mid = lerpPoint(origin, dest, 0.5)
   const [mode, setMode] = useState<'loading' | 'naver' | 'fallback'>(hasNaverMapClientId() ? 'loading' : 'fallback')
   const [zoom, setZoom] = useState(15)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [loadNotice, setLoadNotice] = useState<string | undefined>()
-  useNaverResize(mapsRef, mapRef, hostRef)
+
+  const applyCamera = () => {
+    const map = mapRef.current
+    const sdk = mapsRef.current
+    if (!map || !sdk) return
+    refreshNaverMap(sdk, map)
+    forceRideCamera(sdk, map, originRef.current, destRef.current)
+    startPinRef.current?.setPosition(originRef.current.lat, originRef.current.lng)
+    endPinRef.current?.setPosition(destRef.current.lat, destRef.current.lng)
+    lineRef.current?.setPath([
+      new sdk.LatLng(originRef.current.lat, originRef.current.lng),
+      new sdk.LatLng(destRef.current.lat, destRef.current.lng),
+    ])
+  }
+
+  useEffect(() => {
+    const host = hostRef.current
+    const fire = () => applyCamera()
+    if (!host) return
+    const observer = new ResizeObserver(() => fire())
+    observer.observe(host)
+    window.addEventListener('orientationchange', fire)
+    window.visualViewport?.addEventListener('resize', fire)
+    const first = window.setTimeout(fire, 60)
+    const second = window.setTimeout(fire, 360)
+    const third = window.setTimeout(fire, 900)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('orientationchange', fire)
+      window.visualViewport?.removeEventListener('resize', fire)
+      window.clearTimeout(first)
+      window.clearTimeout(second)
+      window.clearTimeout(third)
+    }
+  }, [hostRef])
 
   useEffect(() => {
     const node = hostRef.current
@@ -700,6 +745,7 @@ function NaverLiveRideMap({
   }, [mode])
 
   useEffect(() => {
+    if (!isUsableCoord(origin.lat, origin.lng) || !isUsableCoord(dest.lat, dest.lng)) return
     if (!hasNaverMapClientId()) {
       setMode('fallback')
       return
@@ -711,14 +757,15 @@ function NaverLiveRideMap({
       await waitForMapSize(canvas)
       const sdk = await loadNaverMaps()
       if (cancelled || !canvasRef.current) return
-      if (!sdk?.Map) {
+      if (!sdk?.Map || !isUsableCoord(origin.lat, origin.lng)) {
         setLoadNotice('네이버 지도를 불러오지 못해 대체 지도를 표시합니다.')
         setMode('fallback')
         return
       }
       mapsRef.current = sdk
+      const center = new sdk.LatLng(mid.lat, mid.lng)
       const map = new sdk.Map(canvasRef.current, {
-        center: new sdk.LatLng(mid.lat, mid.lng),
+        center,
         zoom: 15,
         scaleControl: false,
         mapDataControl: false,
@@ -728,7 +775,8 @@ function NaverLiveRideMap({
         scrollWheel: true,
       })
       mapRef.current = map
-      fitRideBounds(sdk, map, origin, dest)
+      map.setCenter(center)
+      forceRideCamera(sdk, map, origin, dest)
       lineRef.current = new sdk.Polyline({
         map,
         path: [new sdk.LatLng(origin.lat, origin.lng), new sdk.LatLng(dest.lat, dest.lng)],
@@ -753,13 +801,20 @@ function NaverLiveRideMap({
       mover.innerHTML = markerHtml(walker)
       moverEl.current = mover
       moverRef.current = createDomMarker(sdk, map, mover, taxi.lat, taxi.lng, 14, 14)
-      refreshNaverMap(sdk, map)
-      window.requestAnimationFrame(() => fitRideBounds(sdk, map, origin, dest))
-      window.setTimeout(() => {
-        fitRideBounds(sdk, map, origin, dest)
+      const pinCamera = () => {
+        if (cancelled) return
         refreshNaverMap(sdk, map)
-      }, 80)
-      window.setTimeout(() => refreshNaverMap(sdk, map), 400)
+        forceRideCamera(sdk, map, origin, dest)
+        startPinRef.current?.setPosition(origin.lat, origin.lng)
+        endPinRef.current?.setPosition(dest.lat, dest.lng)
+        lineRef.current?.setPath([new sdk.LatLng(origin.lat, origin.lng), new sdk.LatLng(dest.lat, dest.lng)])
+        map.setCenter(new sdk.LatLng(mid.lat, mid.lng))
+      }
+      pinCamera()
+      window.requestAnimationFrame(pinCamera)
+      window.setTimeout(pinCamera, 80)
+      window.setTimeout(pinCamera, 400)
+      window.setTimeout(pinCamera, 1000)
       setMode('naver')
     })()
     return () => {
@@ -854,11 +909,23 @@ export function TaxiLiveMap({
   originLabel?: string
   destLabel?: string
 }) {
-  const origin = { lat: originLat, lng: originLng }
-  const dest = resolveRideDestination(origin, destLat, destLng) ?? origin
-  const [taxi, setTaxi] = useState(() => vehicleOnRide(phase, origin, dest, phase === 'boarding' ? 1 : 0))
+  const live = resolveLiveRidePoints({
+    originLat,
+    originLng,
+    destLat,
+    destLng,
+    originAddress: originLabel,
+    destAddress: destLabel,
+    destLabel,
+  })
+  const origin = live.origin ? { lat: live.origin.lat, lng: live.origin.lng } : null
+  const dest = live.dest ? { lat: live.dest.lat, lng: live.dest.lng } : origin
+  const [taxi, setTaxi] = useState(() =>
+    origin && dest ? vehicleOnRide(phase, origin, dest, phase === 'boarding' ? 1 : 0) : { lat: 0, lng: 0, angle: 0 },
+  )
 
   useEffect(() => {
+    if (!origin || !dest) return
     if (phase === 'boarding') {
       setTaxi(vehicleOnRide(phase, origin, dest, 1))
       return
@@ -873,18 +940,26 @@ export function TaxiLiveMap({
     }
     frame = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frame)
-  }, [phase, origin.lat, origin.lng, dest.lat, dest.lng])
+  }, [phase, origin?.lat, origin?.lng, dest?.lat, dest?.lng])
+
+  if (!origin || !dest) {
+    return (
+      <div className="relative mt-4 flex h-[248px] items-center justify-center overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
+        <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">실제 위치를 불러오는 중이에요</p>
+      </div>
+    )
+  }
 
   return (
     <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
       <NaverLiveRideMap
         phase={phase}
         kind={kind}
-        taxi={taxi}
+        taxi={isUsableCoord(taxi.lat, taxi.lng) ? taxi : { ...origin, angle: 0 }}
         origin={origin}
         dest={dest}
-        originLabel={originLabel}
-        destLabel={destLabel}
+        originLabel={originLabel || live.origin?.address}
+        destLabel={destLabel || live.dest?.label || live.dest?.address}
         className="h-[248px]"
       />
       <div className="pointer-events-none absolute inset-x-3 top-3 z-[15] mr-14 flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">

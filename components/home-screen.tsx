@@ -10,6 +10,7 @@ import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { BUSAN_CITY_HALL, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
+import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX } from '@/components/pi-checkout'
@@ -1749,9 +1750,18 @@ function TaxiMatchingSheet({
   const [chatOpen, setChatOpen] = useState(false)
   const finishedRef = useRef(false)
   const dest = destination.trim() || '선택한 목적지'
-  const route = rideRouteLabel(pickupAddress, dest, destAddress)
+  const live = resolveLiveRidePoints({
+    originLat: pickupLat,
+    originLng: pickupLng,
+    destLat,
+    destLng,
+    originAddress: pickupAddress,
+    destAddress,
+    destLabel: dest,
+  })
+  const route = rideRouteLabel(live.origin?.address || pickupAddress, dest, live.dest?.address || destAddress)
   const [resolvedDest, setResolvedDest] = useState<RideCoords | null>(
-    Number.isFinite(destLat) && Number.isFinite(destLng) ? { lat: destLat as number, lng: destLng as number } : null,
+    live.dest ? { lat: live.dest.lat, lng: live.dest.lng, address: live.dest.address } : null,
   )
   const fare = 2.34
   const billed = { estimate: 2.1, actual: 2.34, adjusted: true }
@@ -1773,13 +1783,18 @@ function TaxiMatchingSheet({
 
   useEffect(() => {
     if (Number.isFinite(destLat) && Number.isFinite(destLng)) {
-      setResolvedDest({ lat: destLat as number, lng: destLng as number })
+      setResolvedDest({ lat: destLat as number, lng: destLng as number, address: destAddress })
+      writeRideSession({
+        origin: live.origin ?? { lat: pickupLat, lng: pickupLng, address: pickupAddress },
+        dest: { lat: destLat as number, lng: destLng as number, address: destAddress, label: dest },
+      })
       return
     }
     let cancelled = false
     void resolveRidePlace(destination, pickupAddress).then((place) => {
       if (cancelled || !place) return
       setResolvedDest({ lat: place.lat, lng: place.lng, address: place.address })
+      writeRideSession({ dest: { lat: place.lat, lng: place.lng, address: place.address, label: destination } })
     })
     return () => {
       cancelled = true
@@ -1836,12 +1851,12 @@ function TaxiMatchingSheet({
               phase="arriving"
               routeLabel={route}
               statusLabel="호출 중"
-              originLat={pickupLat}
-              originLng={pickupLng}
-              destLat={resolvedDest?.lat}
-              destLng={resolvedDest?.lng}
-              originLabel={pickupAddress}
-              destLabel={resolvedDest?.address || dest}
+              originLat={live.origin?.lat ?? pickupLat}
+              originLng={live.origin?.lng ?? pickupLng}
+              destLat={resolvedDest?.lat ?? live.dest?.lat}
+              destLng={resolvedDest?.lng ?? live.dest?.lng}
+              originLabel={live.origin?.address || pickupAddress}
+              destLabel={resolvedDest?.address || live.dest?.address || dest}
             />
             <p className="mt-6 text-xs font-bold text-[#8b8495]">주변 기사님에게 호출을 보내고 있어요.</p>
             <button type="button" onClick={cancelRide} className="mt-6 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
@@ -1865,12 +1880,12 @@ function TaxiMatchingSheet({
               phase={toTaxiLivePhase(phase)}
               routeLabel={route}
               statusLabel={statusLabel}
-              originLat={pickupLat}
-              originLng={pickupLng}
-              destLat={resolvedDest?.lat}
-              destLng={resolvedDest?.lng}
-              originLabel={pickupAddress}
-              destLabel={resolvedDest?.address || dest}
+              originLat={live.origin?.lat ?? pickupLat}
+              originLng={live.origin?.lng ?? pickupLng}
+              destLat={resolvedDest?.lat ?? live.dest?.lat}
+              destLng={resolvedDest?.lng ?? live.dest?.lng}
+              originLabel={live.origin?.address || pickupAddress}
+              destLabel={resolvedDest?.address || live.dest?.address || dest}
             />
             <div className="mt-4 rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
               <div className="flex items-center gap-3">
@@ -4336,6 +4351,7 @@ export default function HomeScreen() {
     pickupRef.current = place
     setPickup(place)
     writePickupPlace(place)
+    writeRideSession({ origin: { lat: place.lat, lng: place.lng, address: place.address } })
   }
 
   const applyLocatedPoint = async (
@@ -4411,6 +4427,13 @@ export default function HomeScreen() {
     lng: gps.lng,
     source: 'gps',
   }
+
+  useEffect(() => {
+    writeRideSession({
+      origin: { lat: origin.lat, lng: origin.lng, address: origin.address },
+      dest: destPlace,
+    })
+  }, [origin.lat, origin.lng, origin.address, destPlace])
   const unreadNoticeCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
   const openWallet = () => setWalletOpen(true)
   const showChargePrompt = () => setChargePromptOpen(true)
@@ -4497,12 +4520,16 @@ export default function HomeScreen() {
   const applyDestinationPlace = (value: string, coords?: RideCoords) => {
     setDestination(value)
     if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
-      setDestPlace({ label: value, address: coords.address || value, lat: coords.lat, lng: coords.lng })
+      const dest = { label: value, address: coords.address || value, lat: coords.lat, lng: coords.lng }
+      setDestPlace(dest)
+      writeRideSession({ dest })
       return
     }
     const known = coordsFromPlaceQuery(value)
     if (known) {
-      setDestPlace({ label: value, address: known.address || value, lat: known.lat, lng: known.lng })
+      const dest = { label: value, address: known.address || value, lat: known.lat, lng: known.lng }
+      setDestPlace(dest)
+      writeRideSession({ dest })
       return
     }
     if (!value.trim() || value === '집' || value === '회사') {
@@ -4529,6 +4556,11 @@ export default function HomeScreen() {
       showNotice('목적지 위치를 확인하지 못했어요. 추천 장소나 주소를 다시 선택해 주세요.')
       return
     }
+    writeRideSession({
+      origin: { lat: origin.lat, lng: origin.lng, address: origin.address },
+      dest: { lat: place.lat, lng: place.lng, address: place.address, label: place.label },
+    })
+    setDestPlace(place)
     setSelectedService('택시')
   }
   const selectDestination = (value: string, coords?: RideCoords) => {
@@ -4822,6 +4854,10 @@ export default function HomeScreen() {
             destLng={destPlace?.lng}
             onClose={() => setDaeriSetupOpen(false)}
             onCall={(trip) => {
+              writeRideSession({
+                origin: { lat: trip.pickupLat, lng: trip.pickupLng, address: trip.pickup },
+                dest: { lat: trip.destLat, lng: trip.destLng, address: trip.dest, label: trip.dest },
+              })
               setDaeriTrip(trip)
               setDaeriSetupOpen(false)
               setSelectedService('대리운전')
