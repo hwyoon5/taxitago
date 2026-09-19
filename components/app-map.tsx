@@ -77,11 +77,36 @@ function fitRideBounds(sdk: NaverMapsSdk, map: NaverMapInstance, origin: RidePoi
   map.setZoom(span > 0.08 ? 12 : span > 0.03 ? 13 : 15)
 }
 
-function forceRideCamera(sdk: NaverMapsSdk, map: NaverMapInstance, origin: RidePoint, dest: RidePoint) {
-  const mid = lerpPoint(origin, dest, 0.5)
-  map.setCenter(new sdk.LatLng(mid.lat, mid.lng))
-  fitRideBounds(sdk, map, origin, dest)
-  map.setCenter(new sdk.LatLng(mid.lat, mid.lng))
+function forceRideCamera(sdk: NaverMapsSdk, map: NaverMapInstance, origin: RidePoint, dest: RidePoint, focus: 'route' | 'dest' = 'route') {
+  const span = Math.max(Math.abs(dest.lat - origin.lat), Math.abs(dest.lng - origin.lng))
+  if (span < 0.0008) {
+    map.setCenter(new sdk.LatLng(dest.lat, dest.lng))
+    map.setZoom(16)
+    return
+  }
+  try {
+    fitRideBounds(sdk, map, origin, dest)
+  } catch {
+    undefined
+  }
+  if (focus === 'dest') {
+    map.setCenter(new sdk.LatLng(dest.lat, dest.lng))
+  }
+}
+
+function dashedRidePath(sdk: NaverMapsSdk, map: NaverMapInstance, origin: RidePoint, dest: RidePoint) {
+  return new sdk.Polyline({
+    map,
+    path: [new sdk.LatLng(origin.lat, origin.lng), new sdk.LatLng(dest.lat, dest.lng)],
+    strokeColor: '#3B82F6',
+    strokeWeight: 2,
+    strokeOpacity: 0.92,
+    strokeStyle: 'dash',
+    strokeDashArray: [7, 8],
+    strokeDashPattern: [7, 8],
+    strokeLineCap: 'round',
+    strokeLineJoin: 'round',
+  })
 }
 
 type MapViewProps = {
@@ -645,7 +670,7 @@ function LiveFallbackOverlay({
   return (
     <div className="pointer-events-none absolute inset-0 z-[6]">
       <svg className="absolute inset-0 h-full w-full" aria-hidden>
-        <path d={d} fill="none" stroke="#4A82B8" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 7" strokeOpacity="0.88" />
+        <path d={d} fill="none" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeDasharray="7 8" strokeOpacity="0.92" />
       </svg>
       <span className="absolute rounded-full bg-[#0F172A] px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ left: start.left, top: start.top, transform: 'translate(-50%, -140%)' }}>
         출발
@@ -691,8 +716,10 @@ function NaverLiveRideMap({
   const walker = kind === 'daeri' && phase !== 'moving'
   const originRef = useRef(origin)
   const destRef = useRef(dest)
+  const phaseRef = useRef(phase)
   originRef.current = origin
   destRef.current = dest
+  phaseRef.current = phase
   const mid = lerpPoint(origin, dest, 0.5)
   const [mode, setMode] = useState<'loading' | 'naver' | 'fallback'>(hasNaverMapClientId() ? 'loading' : 'fallback')
   const [zoom, setZoom] = useState(15)
@@ -704,7 +731,7 @@ function NaverLiveRideMap({
     const sdk = mapsRef.current
     if (!map || !sdk) return
     refreshNaverMap(sdk, map)
-    forceRideCamera(sdk, map, originRef.current, destRef.current)
+    forceRideCamera(sdk, map, originRef.current, destRef.current, phaseRef.current === 'moving' ? 'dest' : 'route')
     startPinRef.current?.setPosition(originRef.current.lat, originRef.current.lng)
     endPinRef.current?.setPosition(destRef.current.lat, destRef.current.lng)
     lineRef.current?.setPath([
@@ -776,18 +803,8 @@ function NaverLiveRideMap({
       })
       mapRef.current = map
       map.setCenter(center)
-      forceRideCamera(sdk, map, origin, dest)
-      lineRef.current = new sdk.Polyline({
-        map,
-        path: [new sdk.LatLng(origin.lat, origin.lng), new sdk.LatLng(dest.lat, dest.lng)],
-        strokeColor: '#4A82B8',
-        strokeWeight: 2,
-        strokeOpacity: 0.88,
-        strokeStyle: 'dash',
-        strokeDashPattern: [8, 7],
-        strokeLineCap: 'round',
-        strokeLineJoin: 'round',
-      })
+      forceRideCamera(sdk, map, origin, dest, phase === 'moving' ? 'dest' : 'route')
+      lineRef.current = dashedRidePath(sdk, map, origin, dest)
       const startLabel = document.createElement('div')
       startLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#0F172A;color:#fff;padding:2px 6px;font-size:9px;font-weight:700'
       startLabel.textContent = originLabel || '출발'
@@ -804,11 +821,11 @@ function NaverLiveRideMap({
       const pinCamera = () => {
         if (cancelled) return
         refreshNaverMap(sdk, map)
-        forceRideCamera(sdk, map, origin, dest)
+        forceRideCamera(sdk, map, origin, dest, phase === 'moving' ? 'dest' : 'route')
         startPinRef.current?.setPosition(origin.lat, origin.lng)
         endPinRef.current?.setPosition(dest.lat, dest.lng)
         lineRef.current?.setPath([new sdk.LatLng(origin.lat, origin.lng), new sdk.LatLng(dest.lat, dest.lng)])
-        map.setCenter(new sdk.LatLng(mid.lat, mid.lng))
+        if (phase === 'moving') map.setCenter(new sdk.LatLng(dest.lat, dest.lng))
       }
       pinCamera()
       window.requestAnimationFrame(pinCamera)
@@ -830,7 +847,7 @@ function NaverLiveRideMap({
       mapRef.current?.destroy?.()
       mapRef.current = null
     }
-  }, [kind, walker, origin.lat, origin.lng, dest.lat, dest.lng, originLabel, destLabel])
+  }, [kind, walker, phase, origin.lat, origin.lng, dest.lat, dest.lng, originLabel, destLabel])
 
   useEffect(() => {
     const marker = moverRef.current
@@ -919,7 +936,7 @@ export function TaxiLiveMap({
     destLabel,
   })
   const origin = live.origin ? { lat: live.origin.lat, lng: live.origin.lng } : null
-  const dest = live.dest ? { lat: live.dest.lat, lng: live.dest.lng } : origin
+  const dest = live.dest ? { lat: live.dest.lat, lng: live.dest.lng } : null
   const [taxi, setTaxi] = useState(() =>
     origin && dest ? vehicleOnRide(phase, origin, dest, phase === 'boarding' ? 1 : 0) : { lat: 0, lng: 0, angle: 0 },
   )
@@ -953,6 +970,7 @@ export function TaxiLiveMap({
   return (
     <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
       <NaverLiveRideMap
+        key={`ride-${phase}-${origin.lat.toFixed(5)}-${dest.lat.toFixed(5)}-${dest.lng.toFixed(5)}`}
         phase={phase}
         kind={kind}
         taxi={isUsableCoord(taxi.lat, taxi.lng) ? taxi : { ...origin, angle: 0 }}

@@ -21,6 +21,15 @@ const LOCAL_TEST_USER = { username: 'taxitago' }
 type ServiceLabel = keyof typeof serviceIllustrations
 type Service = { label: ServiceLabel }
 type RideCoords = { lat: number; lng: number; address?: string }
+type ActiveTrip = {
+  originLat: number
+  originLng: number
+  originAddress: string
+  destLat: number
+  destLng: number
+  destAddress: string
+  destLabel: string
+}
 type DaeriTrip = {
   pickup: string
   dest: string
@@ -1733,8 +1742,8 @@ function TaxiMatchingSheet({
   destination: string
   pickupLat: number
   pickupLng: number
-  destLat?: number
-  destLng?: number
+  destLat: number
+  destLng: number
   destAddress?: string
   pickupAddress: string
   onClose: () => void
@@ -1773,7 +1782,7 @@ function TaxiMatchingSheet({
     rating: '4.97',
     eta: '3분',
   }
-  const statusLabel = phase === 'arriving' ? '기사 이동 중' : phase === 'boarding' ? '탑승 중' : '이동 중'
+  const statusLabel = phase === 'arriving' ? '기사 이동 중' : phase === 'boarding' ? '탑승 중' : '목적지 이동 중'
   const statusCaption =
     phase === 'arriving'
       ? `기사님이 ${driver.eta} 뒤 도착 예정이에요.`
@@ -1853,8 +1862,8 @@ function TaxiMatchingSheet({
               statusLabel="호출 중"
               originLat={live.origin?.lat ?? pickupLat}
               originLng={live.origin?.lng ?? pickupLng}
-              destLat={resolvedDest?.lat ?? live.dest?.lat}
-              destLng={resolvedDest?.lng ?? live.dest?.lng}
+              destLat={destLat}
+              destLng={destLng}
               originLabel={live.origin?.address || pickupAddress}
               destLabel={resolvedDest?.address || live.dest?.address || dest}
             />
@@ -1882,8 +1891,8 @@ function TaxiMatchingSheet({
               statusLabel={statusLabel}
               originLat={live.origin?.lat ?? pickupLat}
               originLng={live.origin?.lng ?? pickupLng}
-              destLat={resolvedDest?.lat ?? live.dest?.lat}
-              destLng={resolvedDest?.lng ?? live.dest?.lng}
+              destLat={destLat}
+              destLng={destLng}
               originLabel={live.origin?.address || pickupAddress}
               destLabel={resolvedDest?.address || live.dest?.address || dest}
             />
@@ -4309,6 +4318,7 @@ export default function HomeScreen() {
   const [tab, setTab] = useState('홈')
   const [destination, setDestination] = useState('')
   const [destPlace, setDestPlace] = useState<RidePlace | null>(null)
+  const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null)
   const [selectedService, setSelectedService] = useState<string | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const [daeriSetupOpen, setDaeriSetupOpen] = useState(false)
@@ -4431,7 +4441,7 @@ export default function HomeScreen() {
   useEffect(() => {
     writeRideSession({
       origin: { lat: origin.lat, lng: origin.lng, address: origin.address },
-      dest: destPlace,
+      ...(destPlace ? { dest: destPlace } : {}),
     })
   }, [origin.lat, origin.lng, origin.address, destPlace])
   const unreadNoticeCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
@@ -4537,7 +4547,9 @@ export default function HomeScreen() {
       return
     }
     void resolveRidePlace(value, origin.address).then((place) => {
-      if (place) setDestPlace(place)
+      if (!place) return
+      setDestPlace(place)
+      writeRideSession({ dest: place })
     })
   }
   const startTaxiCall = async () => {
@@ -4561,6 +4573,15 @@ export default function HomeScreen() {
       dest: { lat: place.lat, lng: place.lng, address: place.address, label: place.label },
     })
     setDestPlace(place)
+    setActiveTrip({
+      originLat: origin.lat,
+      originLng: origin.lng,
+      originAddress: origin.address,
+      destLat: place.lat,
+      destLng: place.lng,
+      destAddress: place.address,
+      destLabel: place.label,
+    })
     setSelectedService('택시')
   }
   const selectDestination = (value: string, coords?: RideCoords) => {
@@ -4874,16 +4895,19 @@ export default function HomeScreen() {
             }}
           />
         ) : null}
-        {selectedService === '택시' && (
+        {selectedService === '택시' && activeTrip ? (
           <TaxiMatchingSheet
-            destination={destination}
-            pickupLat={origin.lat}
-            pickupLng={origin.lng}
-            destLat={destPlace?.lat}
-            destLng={destPlace?.lng}
-            destAddress={destPlace?.address || destination}
-            pickupAddress={origin.address}
-            onClose={() => setSelectedService(null)}
+            destination={activeTrip.destLabel}
+            pickupLat={activeTrip.originLat}
+            pickupLng={activeTrip.originLng}
+            destLat={activeTrip.destLat}
+            destLng={activeTrip.destLng}
+            destAddress={activeTrip.destAddress}
+            pickupAddress={activeTrip.originAddress}
+            onClose={() => {
+              setSelectedService(null)
+              setActiveTrip(null)
+            }}
             onNotice={showNotice}
             balance={walletBalance}
             onPay={payWithPi}
@@ -4891,7 +4915,7 @@ export default function HomeScreen() {
             onNeedCharge={showChargePrompt}
             onAskReview={setDriverReview}
           />
-        )}
+        ) : null}
         {selectedService && selectedService !== '택시' && selectedService !== '더보기' && (
           <ServiceSheet
             service={selectedService}

@@ -1,3 +1,5 @@
+import { lookupSuggestedPlace } from '@/lib/region-destinations'
+
 export type StoredPoint = { lat: number; lng: number; address?: string; label?: string }
 
 export type RideSession = {
@@ -8,6 +10,7 @@ export type RideSession = {
 
 const RIDE_SESSION_KEY = 'taxitago-ride-session'
 const PICKUP_KEY = 'taxitago-pickup-place'
+const DEST_KEY = 'taxitago-dest-point'
 
 let memorySession: RideSession | null = null
 
@@ -72,9 +75,26 @@ export function writeRideSession(next: { origin?: StoredPoint | null; dest?: Sto
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(RIDE_SESSION_KEY, JSON.stringify(session))
+    if (dest && isUsableCoord(dest.lat, dest.lng)) {
+      window.localStorage.setItem(DEST_KEY, JSON.stringify(dest))
+    }
   } catch {
     undefined
   }
+}
+
+export function readStoredDest(): StoredPoint | null {
+  const stored = parsePoint(readJson(DEST_KEY))
+  if (stored) return stored
+  return parsePoint(readRideSession()?.dest)
+}
+
+function destFromQuery(query?: string) {
+  const q = query?.trim()
+  if (!q) return null
+  const hit = lookupSuggestedPlace(q)
+  if (!hit || !isUsableCoord(hit.lat, hit.lng)) return null
+  return { lat: hit.lat, lng: hit.lng, address: hit.address, label: hit.name }
 }
 
 export function resolveLiveRidePoints(input: {
@@ -95,6 +115,8 @@ export function resolveLiveRidePoints(input: {
   const dest =
     asStoredPoint(input.destLat, input.destLng, { address: input.destAddress, label: input.destLabel }) ||
     session?.dest ||
-    null
+    readStoredDest() ||
+    destFromQuery(input.destLabel) ||
+    destFromQuery(input.destAddress)
   return { origin, dest }
 }
