@@ -4206,6 +4206,169 @@ function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartT
 const TRIAL_PICKUP = { label: '해운대 해수욕장' }
 const TRIAL_DEST = { label: '서면 롯데백화점' }
 
+type TrialStatRange = 'daily' | 'monthly' | 'yearly'
+
+const TRIAL_STATS: Record<
+  TrialStatRange,
+  {
+    rangeLabel: string
+    period: string
+    revenue: number
+    trips: number
+    done: number
+    cancel: number
+    series: { label: string; revenue: number; trips: number }[]
+  }
+> = {
+  daily: {
+    rangeLabel: '일일',
+    period: '2026. 9. 19 (토)',
+    revenue: 45.2,
+    trips: 9,
+    done: 8,
+    cancel: 1,
+    series: [
+      { label: '14', revenue: 38.6, trips: 7 },
+      { label: '15', revenue: 51.4, trips: 10 },
+      { label: '16', revenue: 32.8, trips: 7 },
+      { label: '17', revenue: 45.2, trips: 8 },
+      { label: '18', revenue: 28.4, trips: 5 },
+      { label: '오늘', revenue: 45.2, trips: 9 },
+    ],
+  },
+  monthly: {
+    rangeLabel: '월별',
+    period: '2026년 9월',
+    revenue: 298.8,
+    trips: 58,
+    done: 54,
+    cancel: 4,
+    series: [
+      { label: '4월', revenue: 412.1, trips: 78 },
+      { label: '5월', revenue: 488.4, trips: 91 },
+      { label: '6월', revenue: 521.0, trips: 97 },
+      { label: '7월', revenue: 571.3, trips: 116 },
+      { label: '8월', revenue: 642.5, trips: 129 },
+      { label: '9월', revenue: 298.8, trips: 58 },
+    ],
+  },
+  yearly: {
+    rangeLabel: '연간',
+    period: '2026년',
+    revenue: 2010.6,
+    trips: 406,
+    done: 379,
+    cancel: 27,
+    series: [
+      { label: '22', revenue: 4210.4, trips: 812 },
+      { label: '23', revenue: 5388.2, trips: 1024 },
+      { label: '24', revenue: 6124.8, trips: 1188 },
+      { label: '25', revenue: 6842.1, trips: 1361 },
+      { label: '26', revenue: 2010.6, trips: 406 },
+    ],
+  },
+}
+
+function PartnerTrialStats() {
+  const [range, setRange] = useState<TrialStatRange>('daily')
+  const [metric, setMetric] = useState<'revenue' | 'trips'>('revenue')
+  const stats = TRIAL_STATS[range]
+  const completion = stats.trips > 0 ? (stats.done / stats.trips) * 100 : 0
+  const peak = Math.max(...stats.series.map((item) => (metric === 'revenue' ? item.revenue : item.trips)), 1)
+  const tabs: { id: TrialStatRange; label: string }[] = [
+    { id: 'daily', label: '일일' },
+    { id: 'monthly', label: '월별' },
+    { id: 'yearly', label: '연간' },
+  ]
+
+  return (
+    <section className="mt-4 rounded-[26px] border-2 border-[#99F6E4] bg-white p-4 shadow-[0_10px_24px_rgba(15,118,110,0.12)]" aria-label="체험판 정산 대시보드">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-black tracking-wide text-[#0F766E]">정산 · 수익 대시보드</p>
+          <h3 className="mt-0.5 text-lg font-black text-[#0F172A]">가상 통계</h3>
+          <p className="mt-1 text-xs font-bold text-[#64748B]">{stats.period} 기준 미리보기</p>
+        </div>
+        <span className="rounded-full bg-[#CCFBF1] px-2.5 py-1 text-[10px] font-black text-[#0F766E]">데모 데이터</span>
+      </div>
+      <div className="mt-3 grid grid-cols-3 rounded-2xl bg-[#F1F5F9] p-1" role="tablist" aria-label="통계 기간">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={range === tab.id}
+            onClick={() => setRange(tab.id)}
+            className={`rounded-xl py-2 text-[13px] font-black transition ${range === tab.id ? 'bg-white text-[#0F766E] shadow-sm' : 'text-[#64748B]'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-2xl border border-[#99F6E4] bg-[#F0FDFA] p-3">
+          <p className="text-[10px] font-black text-[#0F766E]">{stats.rangeLabel} 수익</p>
+          <p className="mt-1 text-xl font-black text-[#0F172A]">{stats.revenue.toFixed(1)} <span className="text-sm">Pi</span></p>
+        </div>
+        <div className="rounded-2xl border border-[#BFDBFE] bg-[#F8FAFC] p-3">
+          <p className="text-[10px] font-black text-[#0369A1]">{stats.rangeLabel} 운행</p>
+          <p className="mt-1 text-xl font-black text-[#0F172A]">{stats.trips.toLocaleString()} <span className="text-sm">회</span></p>
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="rounded-2xl border border-[#FECACA] bg-[#FEF2F2] p-3">
+          <p className="text-[10px] font-black text-[#B91C1C]">취소 건수</p>
+          <p className="mt-1 text-xl font-black text-[#0F172A]">{stats.cancel.toLocaleString()} <span className="text-sm">건</span></p>
+        </div>
+        <div className="rounded-2xl border border-[#BBF7D0] bg-[#F0FDF4] p-3">
+          <p className="text-[10px] font-black text-[#15803D]">완료율</p>
+          <p className="mt-1 text-xl font-black text-[#0F172A]">{completion.toFixed(1)}<span className="text-sm">%</span></p>
+          <p className="mt-1 text-[10px] font-bold text-[#64748B]">완료 {stats.done.toLocaleString()} / 전체 {stats.trips.toLocaleString()}</p>
+        </div>
+      </div>
+      <div className="mt-3 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] font-black text-[#334155]">{metric === 'revenue' ? '수익 추이' : '운행 추이'}</p>
+          <div className="flex rounded-full bg-white p-0.5 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setMetric('revenue')}
+              className={`rounded-full px-2.5 py-1 text-[10px] font-black ${metric === 'revenue' ? 'bg-[#0F766E] text-white' : 'text-[#64748B]'}`}
+            >
+              수익
+            </button>
+            <button
+              type="button"
+              onClick={() => setMetric('trips')}
+              className={`rounded-full px-2.5 py-1 text-[10px] font-black ${metric === 'trips' ? 'bg-[#0369A1] text-white' : 'text-[#64748B]'}`}
+            >
+              운행
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 flex h-28 items-end gap-1.5">
+          {stats.series.map((item, index) => {
+            const value = metric === 'revenue' ? item.revenue : item.trips
+            const height = Math.max(12, Math.round((value / peak) * 100))
+            const active = index === stats.series.length - 1
+            return (
+              <div key={item.label} className="flex min-w-0 flex-1 flex-col items-center justify-end">
+                <p className="mb-1 text-[9px] font-black text-[#475569]">{metric === 'revenue' ? value.toFixed(0) : value}</p>
+                <div
+                  className={`w-full max-w-7 rounded-t-lg ${active ? (metric === 'revenue' ? 'bg-[#0F766E]' : 'bg-[#0369A1]') : 'bg-[#CBD5E1]'}`}
+                  style={{ height: `${height}%` }}
+                  title={`${item.label} ${metric === 'revenue' ? `${value.toFixed(1)} Pi` : `${value}회`}`}
+                />
+                <p className={`mt-1 truncate text-[10px] font-black ${active ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>{item.label}</p>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function PartnerTrialNav({ phase }: { phase: 'pickup' | 'moving' }) {
   const heading = phase === 'pickup' ? '승객 위치로 이동' : '목적지로 주행'
   const nextTurn = phase === 'pickup' ? '200m 앞 우회전 후 해운대해변로' : '1.2km 직진 후 가야대로 진입'
@@ -4255,8 +4418,8 @@ function PartnerTrialDemo({ onClose, onNotice }: { onClose: () => void; onNotice
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[11px] font-black tracking-wide text-[#B45309]">기사/파트너 체험판</p>
-              <h2 className="mt-0.5 text-xl font-black text-[#0F172A]">가상 콜 시뮬레이션</h2>
-              <p className="mt-1 text-xs font-bold text-[#92400E]">실제 가입·정산 없이 기사 화면만 미리 봅니다.</p>
+              <h2 className="mt-0.5 text-xl font-black text-[#0F172A]">가상 콜 · 수익 대시보드</h2>
+              <p className="mt-1 text-xs font-bold text-[#92400E]">콜 수락부터 정산 통계까지 가입 없이 미리 봅니다.</p>
             </div>
             <button type="button" onClick={onClose} className="rounded-full bg-white p-2 text-[#334155] shadow-sm" aria-label="체험판 닫기">
               <X className="h-5 w-5" />
@@ -4345,6 +4508,7 @@ function PartnerTrialDemo({ onClose, onNotice }: { onClose: () => void; onNotice
               </button>
             </section>
           ) : null}
+          <PartnerTrialStats />
         </div>
       </section>
     </div>
