@@ -4164,7 +4164,7 @@ function PartnerStatSheet({ kind, onClose }: { kind: 'revenue' | 'trips'; onClos
   )
 }
 
-function PartnerHub({ onSignup }: { onSignup: () => void }) {
+function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartTrial: () => void }) {
   return (
     <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-4" aria-label="기사 파트너">
       <section className="rounded-[28px] bg-[#243044] p-5 text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)]">
@@ -4184,7 +4184,170 @@ function PartnerHub({ onSignup }: { onSignup: () => void }) {
           기사/파트너 회원가입
         </button>
       </section>
+      <section className="mt-4 rounded-[26px] border-2 border-[#F59E0B] bg-[#FFFBEB] p-5 shadow-[0_10px_24px_rgba(245,158,11,0.22)]">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-black text-[#B45309]">미리 체험</p>
+          <span className="rounded-full bg-[#F59E0B] px-2.5 py-1 text-[10px] font-black text-white">회원가입 불필요</span>
+        </div>
+        <h3 className="mt-1 text-lg font-black text-[#0F172A]">기사/파트너 체험판</h3>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#92400E]">회원가입 없이 콜 수락, 배차, 수익 확인 등 기사 전용 기능을 미리 체험해 보세요</p>
+        <button
+          type="button"
+          onClick={onStartTrial}
+          className="mt-5 w-full rounded-2xl bg-[#EA580C] py-3.5 text-base font-black text-white shadow-[0_10px_22px_rgba(234,88,12,0.28)]"
+        >
+          체험판 시작하기
+        </button>
+      </section>
     </main>
+  )
+}
+
+const TRIAL_PICKUP = { label: '해운대 해수욕장' }
+const TRIAL_DEST = { label: '서면 롯데백화점' }
+
+function PartnerTrialNav({ phase }: { phase: 'pickup' | 'moving' }) {
+  const heading = phase === 'pickup' ? '승객 위치로 이동' : '목적지로 주행'
+  const nextTurn = phase === 'pickup' ? '200m 앞 우회전 후 해운대해변로' : '1.2km 직진 후 가야대로 진입'
+  const eta = phase === 'pickup' ? '3분' : '18분'
+  const progress = phase === 'pickup' ? 'w-1/3' : 'w-2/3'
+  return (
+    <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#334155] bg-[#0F172A] p-4 text-white shadow-[0_10px_24px_rgba(15,23,42,0.28)]">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-black tracking-wide text-[#93C5FD]">TAXITAGO NAV · 체험</p>
+        <span className="rounded-full bg-[#4A82B8] px-2.5 py-1 text-[10px] font-black">{eta} 남음</span>
+      </div>
+      <p className="mt-3 text-lg font-black">{heading}</p>
+      <p className="mt-1 text-sm font-bold text-[#CBD5E1]">{nextTurn}</p>
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/15">
+        <div className={`h-full rounded-full bg-[#38BDF8] ${progress}`} />
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-bold">
+        <div className="rounded-2xl bg-white/10 px-3 py-2.5">
+          <p className="text-[10px] text-[#93C5FD]">{phase === 'pickup' ? '승객 위치' : '출발'}</p>
+          <p className="mt-1 leading-5">{TRIAL_PICKUP.label}</p>
+        </div>
+        <div className="rounded-2xl bg-white/10 px-3 py-2.5">
+          <p className="text-[10px] text-[#FCD34D]">{phase === 'pickup' ? '목적지' : '하차'}</p>
+          <p className="mt-1 leading-5">{TRIAL_DEST.label}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PartnerTrialDemo({ onClose, onNotice }: { onClose: () => void; onNotice: (message: string) => void }) {
+  const [phase, setPhase] = useState<'waiting' | 'incoming' | 'pickup' | 'moving' | 'settle'>('waiting')
+  const [callKey, setCallKey] = useState(0)
+  const fare = 3.8
+
+  useEffect(() => {
+    if (phase !== 'waiting') return
+    const timer = window.setTimeout(() => setPhase('incoming'), 1200)
+    return () => window.clearTimeout(timer)
+  }, [phase, callKey])
+
+  return (
+    <div className="fixed inset-0 z-[96] flex items-end justify-center bg-[#1e1033]/55 sm:items-center sm:p-4">
+      <section className="flex h-[min(96dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-[#F8FAFC] shadow-2xl sm:h-[min(92dvh,820px)] sm:rounded-[32px]">
+        <header className="shrink-0 border-b border-[#FDE68A] bg-[#FFFBEB] px-5 pb-3 pt-3">
+          <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#FCD34D]" />
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-black tracking-wide text-[#B45309]">기사/파트너 체험판</p>
+              <h2 className="mt-0.5 text-xl font-black text-[#0F172A]">가상 콜 시뮬레이션</h2>
+              <p className="mt-1 text-xs font-bold text-[#92400E]">실제 가입·정산 없이 기사 화면만 미리 봅니다.</p>
+            </div>
+            <button type="button" onClick={onClose} className="rounded-full bg-white p-2 text-[#334155] shadow-sm" aria-label="체험판 닫기">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {phase === 'waiting' ? (
+            <div className="rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 text-center shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
+              <span className="inline-flex animate-pulse rounded-full bg-[#D1FAE5] px-3 py-1 text-[11px] font-black text-[#047857]">영업 중</span>
+              <h3 className="mt-4 text-lg font-black text-[#0F172A]">가상 콜을 기다리는 중이에요</h3>
+              <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">잠시 후면 근처 승객의 체험 호출이 도착합니다.</p>
+            </div>
+          ) : null}
+          {phase === 'incoming' ? (
+            <section className="rounded-[26px] border-2 border-[#F59E0B] bg-white p-5 shadow-[0_10px_24px_rgba(245,158,11,0.18)]">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-black text-[#EA580C]">새로운 운행 요청</p>
+                <span className="animate-pulse rounded-full bg-[#EA580C] px-2 py-1 text-[10px] font-black text-white">가상 콜</span>
+              </div>
+              <p className="mt-3 text-lg font-black text-[#0F172A]">{TRIAL_PICKUP.label} → {TRIAL_DEST.label}</p>
+              <p className="mt-1 text-sm font-bold text-[#64748B]">승객 박서연 · 예상 7.4 km</p>
+              <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
+                <span>승객까지 1.1 km</span>
+                <strong className="text-[#0F172A]">{fare.toFixed(1)} Pi</strong>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPhase('pickup')}
+                  className="rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white"
+                >
+                  수락
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onNotice('체험 콜을 거절했어요. 다음 가상 콜을 기다립니다.')
+                    setPhase('waiting')
+                    setCallKey((value) => value + 1)
+                  }}
+                  className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]"
+                >
+                  거절
+                </button>
+              </div>
+            </section>
+          ) : null}
+          {phase === 'pickup' || phase === 'moving' ? (
+            <div>
+              <p className="text-xs font-black text-[#4A82B8]">{phase === 'pickup' ? '배차 완료' : '운행 중'}</p>
+              <h3 className="mt-1 text-xl font-black text-[#0F172A]">{phase === 'pickup' ? '승객에게 이동 중' : '목적지 이동 중'}</h3>
+              <p className="mt-1 text-sm font-bold text-[#64748B]">
+                {phase === 'pickup' ? '내비게이션으로 승객 위치로 이동해 보세요.' : `${TRIAL_DEST.label}까지 가상 운행을 이어갑니다.`}
+              </p>
+              <PartnerTrialNav phase={phase} />
+              <button
+                type="button"
+                onClick={() => setPhase(phase === 'pickup' ? 'moving' : 'settle')}
+                className="mt-4 w-full rounded-2xl bg-[#4A82B8] py-3.5 text-base font-black text-white"
+              >
+                {phase === 'pickup' ? '승객 탑승 완료' : '운행 완료 · 정산하기'}
+              </button>
+            </div>
+          ) : null}
+          {phase === 'settle' ? (
+            <section className="rounded-[26px] border-2 border-[#99F6E4] bg-white p-5 shadow-[0_10px_24px_rgba(15,118,110,0.12)]">
+              <p className="text-xs font-black text-[#0F766E]">가상 정산</p>
+              <h3 className="mt-1 text-xl font-black text-[#0F172A]">이번 운행 수익</h3>
+              <p className="mt-3 text-3xl font-black text-[#0F766E]">+{fare.toFixed(1)} Pi</p>
+              <ul className="mt-4 space-y-2 text-sm font-bold text-[#475569]">
+                <li className="flex justify-between"><span>운임</span><span>{fare.toFixed(1)} Pi</span></li>
+                <li className="flex justify-between"><span>플랫폼 수수료</span><span>0.0 Pi (체험)</span></li>
+                <li className="flex justify-between text-[#0F172A]"><span>기사 정산</span><span>{fare.toFixed(1)} Pi</span></li>
+              </ul>
+              <p className="mt-4 text-xs font-bold leading-5 text-[#64748B]">이 금액은 데모용이며 실제 지갑에 입금되지 않습니다.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  onNotice('체험판 운행을 마쳤습니다. 회원가입하면 실제 콜을 받을 수 있어요.')
+                  onClose()
+                }}
+                className="mt-5 w-full rounded-2xl bg-[#0F766E] py-3.5 text-base font-black text-white"
+              >
+                체험 종료
+              </button>
+            </section>
+          ) : null}
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -4365,6 +4528,7 @@ export default function HomeScreen() {
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'activity' | 'account' | null>(null)
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
+  const [partnerTrialOpen, setPartnerTrialOpen] = useState(false)
   const [driverGateOpen, setDriverGateOpen] = useState(false)
   const [isDriverRegistered, setIsDriverRegistered] = useState(false)
   const [isPartnerRegistered, setIsPartnerRegistered] = useState(false)
@@ -4731,7 +4895,7 @@ export default function HomeScreen() {
           isDriverRegistered || isPartnerRegistered ? (
             <DriverDashboard online={driverOnline} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} />
           ) : (
-            <PartnerHub onSignup={() => setPartnerSignupOpen(true)} />
+            <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
           )
         ) : (
           <Home
@@ -4875,6 +5039,7 @@ export default function HomeScreen() {
             onDone={showNotice}
           />
         )}
+        {partnerTrialOpen ? <PartnerTrialDemo onClose={() => setPartnerTrialOpen(false)} onNotice={showNotice} /> : null}
         {driverGateOpen ? (
           <DriverNeedSignupModal
             onClose={() => setDriverGateOpen(false)}
