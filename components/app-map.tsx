@@ -42,12 +42,9 @@ function headingAngle(from: RidePoint, to: RidePoint) {
   return (Math.atan2(-(to.lat - from.lat), to.lng - from.lng) * 180) / Math.PI
 }
 
-export function resolveRideDestination(origin: RidePoint, destLat?: number, destLng?: number): RidePoint {
-  if (Number.isFinite(destLat) && Number.isFinite(destLng)) {
-    const dest = { lat: destLat as number, lng: destLng as number }
-    if (Math.abs(dest.lat - origin.lat) > 1e-6 || Math.abs(dest.lng - origin.lng) > 1e-6) return dest
-  }
-  return { lat: origin.lat + 0.012, lng: origin.lng + 0.01 }
+export function resolveRideDestination(origin: RidePoint, destLat?: number, destLng?: number): RidePoint | null {
+  if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) return null
+  return { lat: destLat as number, lng: destLng as number }
 }
 
 function vehicleOnRide(phase: TaxiLivePhase, origin: RidePoint, dest: RidePoint, t: number) {
@@ -662,6 +659,8 @@ function NaverLiveRideMap({
   taxi,
   origin,
   dest,
+  originLabel,
+  destLabel,
   className,
 }: {
   phase: TaxiLivePhase
@@ -669,6 +668,8 @@ function NaverLiveRideMap({
   taxi: RidePoint & { angle: number }
   origin: RidePoint
   dest: RidePoint
+  originLabel?: string
+  destLabel?: string
   className?: string
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -741,10 +742,10 @@ function NaverLiveRideMap({
       })
       const startLabel = document.createElement('div')
       startLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#0F172A;color:#fff;padding:2px 6px;font-size:9px;font-weight:700'
-      startLabel.textContent = '출발'
+      startLabel.textContent = originLabel || '출발'
       const endLabel = document.createElement('div')
       endLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#1D4ED8;color:#fff;padding:2px 6px;font-size:9px;font-weight:700'
-      endLabel.textContent = '도착'
+      endLabel.textContent = destLabel || '도착'
       startPinRef.current = createHtmlOverlay(sdk, map, startLabel, origin.lat, origin.lng, 'translate(-50%, -120%)')
       endPinRef.current = createHtmlOverlay(sdk, map, endLabel, dest.lat, dest.lng, 'translate(-50%, -120%)')
       const mover = document.createElement('div')
@@ -774,7 +775,7 @@ function NaverLiveRideMap({
       mapRef.current?.destroy?.()
       mapRef.current = null
     }
-  }, [kind, walker, origin.lat, origin.lng, dest.lat, dest.lng])
+  }, [kind, walker, origin.lat, origin.lng, dest.lat, dest.lng, originLabel, destLabel])
 
   useEffect(() => {
     const marker = moverRef.current
@@ -839,6 +840,8 @@ export function TaxiLiveMap({
   originLng,
   destLat,
   destLng,
+  originLabel,
+  destLabel,
 }: {
   phase: TaxiLivePhase
   routeLabel: string
@@ -848,9 +851,11 @@ export function TaxiLiveMap({
   originLng: number
   destLat?: number
   destLng?: number
+  originLabel?: string
+  destLabel?: string
 }) {
   const origin = { lat: originLat, lng: originLng }
-  const dest = resolveRideDestination(origin, destLat, destLng)
+  const dest = resolveRideDestination(origin, destLat, destLng) ?? origin
   const [taxi, setTaxi] = useState(() => vehicleOnRide(phase, origin, dest, phase === 'boarding' ? 1 : 0))
 
   useEffect(() => {
@@ -878,6 +883,8 @@ export function TaxiLiveMap({
         taxi={taxi}
         origin={origin}
         dest={dest}
+        originLabel={originLabel}
+        destLabel={destLabel}
         className="h-[248px]"
       />
       <div className="pointer-events-none absolute inset-x-3 top-3 z-[15] mr-14 flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">

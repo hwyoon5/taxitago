@@ -1,5 +1,5 @@
 import { loadNaverMaps } from '@/lib/naver-maps'
-import { centerForRegion, regionFromAccessText, resolveRegion } from '@/lib/region-destinations'
+import { centerForRegion, lookupSuggestedPlace, regionFromAccessText, resolveRegion } from '@/lib/region-destinations'
 
 export const BUSAN_CITY_HALL = { lat: 35.179554, lng: 129.075641 }
 
@@ -24,6 +24,9 @@ export const REGION_FALLBACK_LABEL: Record<string, string> = {
 }
 
 export type GeoPoint = { lat: number; lng: number }
+export type RidePlace = { label: string; address: string; lat: number; lng: number }
+
+const NICKNAME_DESTS = new Set(['집', '회사'])
 
 function coordFallbackAddress(lat: number, lng: number) {
   const region = resolveRegion('', lat, lng)
@@ -228,4 +231,20 @@ export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
   } catch {
     return null
   }
+}
+
+export async function resolveRidePlace(query: string, contextAddress = ''): Promise<RidePlace | null> {
+  const q = query.trim()
+  if (!q || NICKNAME_DESTS.has(q)) return null
+  const known = lookupSuggestedPlace(q)
+  if (known && Number.isFinite(known.lat) && Number.isFinite(known.lng)) {
+    return { label: known.name, address: known.address || q, lat: known.lat, lng: known.lng }
+  }
+  const regionHint = contextAddress.trim()
+  const queries = regionHint && !q.includes(regionHint.slice(0, 2)) ? [q, `${q} ${regionHint}`] : [q]
+  for (const item of queries) {
+    const geo = await geocodeAddress(item)
+    if (geo) return { label: q, address: q, lat: geo.lat, lng: geo.lng }
+  }
+  return null
 }

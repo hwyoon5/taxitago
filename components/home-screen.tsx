@@ -7,9 +7,9 @@ import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
-import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
+import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
-import { BUSAN_CITY_HALL, geocodeAddress, requestBrowserPosition, resolveFlexibleFallback, reverseGeocode } from '@/lib/user-location'
+import { BUSAN_CITY_HALL, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX } from '@/components/pi-checkout'
@@ -19,7 +19,7 @@ const LOCAL_TEST_USER = { username: 'taxitago' }
 
 type ServiceLabel = keyof typeof serviceIllustrations
 type Service = { label: ServiceLabel }
-type RideCoords = { lat: number; lng: number }
+type RideCoords = { lat: number; lng: number; address?: string }
 type DaeriTrip = {
   pickup: string
   dest: string
@@ -34,7 +34,13 @@ type DaeriTrip = {
 function coordsFromPlaceQuery(query: string): RideCoords | null {
   const hit = lookupSuggestedPlace(query)
   if (!hit || !Number.isFinite(hit.lat) || !Number.isFinite(hit.lng)) return null
-  return { lat: hit.lat, lng: hit.lng }
+  return { lat: hit.lat, lng: hit.lng, address: hit.address }
+}
+
+function rideRouteLabel(pickupAddress: string, destLabel: string, destAddress?: string) {
+  const origin = pickupAddress.trim() || '현재 위치'
+  const dest = (destAddress || destLabel).trim() || '선택한 목적지'
+  return `${origin} → ${dest}`
 }
 
 const navItems = [
@@ -1477,7 +1483,7 @@ function DestinationSheet({
   const options = [['택시예약', '2.5'], ['일반택시', '2.1'], ['프리미엄', '3.5'], ['대리운전', '3.0'], ['기타', '1.8']]
   const selectedPrice = options.find(([name]) => name === selectedService)?.[1] ?? '0'
   const fare = Number(selectedPrice)
-  const place = `서울시청 → ${destination}`
+  const place = destination.trim() ? destination : '선택한 목적지'
   const billed = isRidePayLabel(selectedService) ? settleRideFare(fare, `dest:${selectedService}:${place}`) : { estimate: fare, actual: fare }
   const callSelected = () => {
     if (!selectedService) return
@@ -1713,6 +1719,7 @@ function TaxiMatchingSheet({
   pickupLng,
   destLat,
   destLng,
+  destAddress,
   pickupAddress,
   onClose,
   onNotice,
@@ -1727,6 +1734,7 @@ function TaxiMatchingSheet({
   pickupLng: number
   destLat?: number
   destLng?: number
+  destAddress?: string
   pickupAddress: string
   onClose: () => void
   onNotice: (message: string) => void
@@ -1741,8 +1749,10 @@ function TaxiMatchingSheet({
   const [chatOpen, setChatOpen] = useState(false)
   const finishedRef = useRef(false)
   const dest = destination.trim() || '선택한 목적지'
-  const pickupName = pickupAddress.split(' ').slice(0, 2).join(' ') || '현재 위치'
-  const route = `${pickupName} → ${dest}`
+  const route = rideRouteLabel(pickupAddress, dest, destAddress)
+  const [resolvedDest, setResolvedDest] = useState<RideCoords | null>(
+    Number.isFinite(destLat) && Number.isFinite(destLng) ? { lat: destLat as number, lng: destLng as number } : null,
+  )
   const fare = 2.34
   const billed = { estimate: 2.1, actual: 2.34, adjusted: true }
   const [piPaying, setPiPaying] = useState(false)
@@ -1760,6 +1770,21 @@ function TaxiMatchingSheet({
       : phase === 'boarding'
         ? '탑승을 확인하고 목적지로 출발할 준비를 하고 있어요.'
         : `${dest}까지 안전하게 이동 중이에요.`
+
+  useEffect(() => {
+    if (Number.isFinite(destLat) && Number.isFinite(destLng)) {
+      setResolvedDest({ lat: destLat as number, lng: destLng as number })
+      return
+    }
+    let cancelled = false
+    void resolveRidePlace(destination, pickupAddress).then((place) => {
+      if (cancelled || !place) return
+      setResolvedDest({ lat: place.lat, lng: place.lng, address: place.address })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [destination, destLat, destLng, pickupAddress])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setPhase('arriving'), 2500)
@@ -1806,13 +1831,18 @@ function TaxiMatchingSheet({
             <p className="text-xs font-black text-[#4C1FB8]">LIVE MATCHING</p>
             <h2 className="mt-2 text-2xl font-black text-[#0F172A]">기사님을 찾는 중입니다...</h2>
             <p className="mt-2 text-sm font-bold text-[#64748B]">{route}</p>
-            <div className="relative mx-auto mt-8 flex h-36 w-36 items-center justify-center">
-              <span className="absolute inset-0 animate-ping rounded-full border-2 border-[#C4B5FD]" />
-              <span className="absolute inset-4 animate-pulse rounded-full border-2 border-[#4C1FB8]/40" />
-              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
-                <Car className="h-7 w-7" />
-              </span>
-            </div>
+            <TaxiLiveMap
+              kind="taxi"
+              phase="arriving"
+              routeLabel={route}
+              statusLabel="호출 중"
+              originLat={pickupLat}
+              originLng={pickupLng}
+              destLat={resolvedDest?.lat}
+              destLng={resolvedDest?.lng}
+              originLabel={pickupAddress}
+              destLabel={resolvedDest?.address || dest}
+            />
             <p className="mt-6 text-xs font-bold text-[#8b8495]">주변 기사님에게 호출을 보내고 있어요.</p>
             <button type="button" onClick={cancelRide} className="mt-6 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
               호출 취소
@@ -1837,8 +1867,10 @@ function TaxiMatchingSheet({
               statusLabel={statusLabel}
               originLat={pickupLat}
               originLng={pickupLng}
-              destLat={destLat}
-              destLng={destLng}
+              destLat={resolvedDest?.lat}
+              destLng={resolvedDest?.lng}
+              originLabel={pickupAddress}
+              destLabel={resolvedDest?.address || dest}
             />
             <div className="mt-4 rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
               <div className="flex items-center gap-3">
@@ -1988,6 +2020,9 @@ function ServiceSheet({
   pickupLat,
   pickupLng,
   pickupAddress,
+  destLat,
+  destLng,
+  destAddress,
   onClose,
   onNotice,
   balance,
@@ -2003,6 +2038,9 @@ function ServiceSheet({
   pickupLat: number
   pickupLng: number
   pickupAddress: string
+  destLat?: number
+  destLng?: number
+  destAddress?: string
   onClose: () => void
   onNotice: (message: string) => void
   balance: number
@@ -2058,7 +2096,13 @@ function ServiceSheet({
   const deliveryFare = deliveryVehicle === '오토바이' ? (packageSize === '소형' ? 1.2 : 1.8) : deliveryVehicle === '다마스' ? 2.6 : 4.2
   const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 4 : vehicle ? 0.3 : deliveryFare
   const settleTiming = service === '주차' ? parkingOption : paymentPolicy?.timing
-  const place = ride && daeriTrip ? `${daeriTrip.pickup} → ${daeriTrip.dest}` : selectedItem || `${pickupAddress.split(' ').slice(0, 2).join(' ') || '현재 위치'} → ${service} 이용`
+  const rideOriginLat = daeriTrip?.pickupLat ?? pickupLat
+  const rideOriginLng = daeriTrip?.pickupLng ?? pickupLng
+  const rideDestLat = daeriTrip?.destLat ?? destLat
+  const rideDestLng = daeriTrip?.destLng ?? destLng
+  const place = ride
+    ? rideRouteLabel(daeriTrip?.pickup || pickupAddress, daeriTrip?.dest || destAddress || '목적지')
+    : selectedItem || `${pickupAddress || '현재 위치'} → ${service} 이용`
   const billed = ride ? settleRideFare(fare, `daeri:${place}`) : { estimate: fare, actual: fare, adjusted: false }
   const chargeAmount = ride ? billed.actual : fare
   const partner =
@@ -2118,8 +2162,22 @@ function ServiceSheet({
             </div>
             <h3 className="mt-5 text-xl font-black">{selfServe ? '이용을 준비하고 있어요' : '배정 중입니다...'}</h3>
             <p className="mt-2 text-sm font-bold text-[#8b8495]">
-              {ride && daeriTrip ? `${daeriTrip.pickup} → ${daeriTrip.dest}` : selfServe ? `${service} 정보를 확인하고 있습니다.` : `${service} 담당자를 찾고 있어요.`}
+              {ride ? place : selfServe ? `${service} 정보를 확인하고 있습니다.` : `${service} 담당자를 찾고 있어요.`}
             </p>
+            {ride ? (
+              <TaxiLiveMap
+                kind="daeri"
+                phase="arriving"
+                routeLabel={place}
+                statusLabel="호출 중"
+                originLat={rideOriginLat}
+                originLng={rideOriginLng}
+                destLat={rideDestLat}
+                destLng={rideDestLng}
+                originLabel={daeriTrip?.pickup || pickupAddress}
+                destLabel={daeriTrip?.dest || destAddress}
+              />
+            ) : null}
             <button type="button" onClick={onClose} className="mt-5 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
               {selfServe ? '이용 취소' : '호출 취소'}
             </button>
@@ -2191,10 +2249,12 @@ function ServiceSheet({
                 phase={rideStage === 'moving' ? 'moving' : 'arriving'}
                 routeLabel={place}
                 statusLabel={rideStage === 'moving' ? '목적지 이동 중' : '기사 이동 중'}
-                originLat={daeriTrip?.pickupLat ?? pickupLat}
-                originLng={daeriTrip?.pickupLng ?? pickupLng}
-                destLat={daeriTrip?.destLat}
-                destLng={daeriTrip?.destLng}
+                originLat={rideOriginLat}
+                originLng={rideOriginLng}
+                destLat={rideDestLat}
+                destLng={rideDestLng}
+                originLabel={daeriTrip?.pickup || pickupAddress}
+                destLabel={daeriTrip?.dest || destAddress}
               />
             ) : null}
             <div className="rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
@@ -2490,27 +2550,6 @@ function DaeriCallSetupSheet({
     { id: '빠른배정' as const, fare: 2.8, caption: '가까운 기사 우선 배정' },
   ]
   const selected = plans.find((item) => item.id === plan) ?? plans[0]
-  useEffect(() => {
-    if (!navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude
-        const lng = position.coords.longitude
-        setMapPlace({ lat, lng, label: '현재 위치' })
-        setPickupPoint({ lat, lng })
-        void fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=ko`, {
-          headers: { Accept: 'application/json' },
-        })
-          .then((response) => (response.ok ? response.json() : null))
-          .then((data: { display_name?: string } | null) => {
-            if (data?.display_name) setPickup(data.display_name.split(',').slice(0, 3).join(' ').trim())
-          })
-          .catch(() => undefined)
-      },
-      () => undefined,
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
-    )
-  }, [])
   const pickMapPoint = (lat: number, lng: number) => {
     const fallback = virtualPickupAddress(lat, lng)
     setMapPlace({ lat, lng, label: '선택 위치' })
@@ -2670,10 +2709,9 @@ function DaeriCallSetupSheet({
               const destName = dest.trim()
               const known =
                 coordsFromPlaceQuery(destName) ??
-                (Number.isFinite(destLat) && Number.isFinite(destLng) && destName === destination.trim()
+                (Number.isFinite(destLat) && Number.isFinite(destLng)
                   ? { lat: destLat as number, lng: destLng as number }
                   : null)
-              const fallback = { lat: pickupPoint.lat + 0.012, lng: pickupPoint.lng + 0.01 }
               const finish = (point: RideCoords) => {
                 onCall({
                   pickup: pickup.trim(),
@@ -2690,7 +2728,9 @@ function DaeriCallSetupSheet({
                 finish(known)
                 return
               }
-              void geocodeAddress(destName).then((geo) => finish(geo ?? fallback))
+              void resolveRidePlace(destName, pickup).then((place) => {
+                if (place) finish(place)
+              })
             }}
             className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)] disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -4253,7 +4293,7 @@ export default function HomeScreen() {
   const [driverOnline, setDriverOnline] = useState(true)
   const [tab, setTab] = useState('홈')
   const [destination, setDestination] = useState('')
-  const [destPoint, setDestPoint] = useState<RideCoords | null>(null)
+  const [destPlace, setDestPlace] = useState<RidePlace | null>(null)
   const [selectedService, setSelectedService] = useState<string | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const [daeriSetupOpen, setDaeriSetupOpen] = useState(false)
@@ -4448,24 +4488,51 @@ export default function HomeScreen() {
       setTab('홈')
       return
     }
+    if (value === '택시') {
+      void startTaxiCall()
+      return
+    }
     setSelectedService(value)
   }
-  const selectDestination = (value: string, coords?: RideCoords) => {
+  const applyDestinationPlace = (value: string, coords?: RideCoords) => {
     setDestination(value)
     if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
-      setDestPoint(coords)
-    } else {
-      const known = coordsFromPlaceQuery(value)
-      if (known) {
-        setDestPoint(known)
-      } else if (!value.trim()) {
-        setDestPoint(null)
-      } else {
-        void geocodeAddress(value).then((point) => {
-          if (point) setDestPoint(point)
-        })
-      }
+      setDestPlace({ label: value, address: coords.address || value, lat: coords.lat, lng: coords.lng })
+      return
     }
+    const known = coordsFromPlaceQuery(value)
+    if (known) {
+      setDestPlace({ label: value, address: known.address || value, lat: known.lat, lng: known.lng })
+      return
+    }
+    if (!value.trim() || value === '집' || value === '회사') {
+      setDestPlace(null)
+      return
+    }
+    void resolveRidePlace(value, origin.address).then((place) => {
+      if (place) setDestPlace(place)
+    })
+  }
+  const startTaxiCall = async () => {
+    const label = destination.trim()
+    if (!label) {
+      showNotice('목적지를 먼저 선택해 주세요.')
+      setTab('홈')
+      return
+    }
+    let place = destPlace && (destPlace.label === label || destPlace.address === label) ? destPlace : null
+    if (!place) {
+      place = await resolveRidePlace(label, origin.address)
+      if (place) setDestPlace(place)
+    }
+    if (!place) {
+      showNotice('목적지 위치를 확인하지 못했어요. 추천 장소나 주소를 다시 선택해 주세요.')
+      return
+    }
+    setSelectedService('택시')
+  }
+  const selectDestination = (value: string, coords?: RideCoords) => {
+    applyDestinationPlace(value, coords)
     if (value) showNotice(`${value} 목적지를 선택했어요.`)
   }
   const enterDriverMode = () => {
@@ -4751,8 +4818,8 @@ export default function HomeScreen() {
             originLat={origin.lat}
             originLng={origin.lng}
             originAddress={origin.address}
-            destLat={destPoint?.lat}
-            destLng={destPoint?.lng}
+            destLat={destPlace?.lat}
+            destLng={destPlace?.lng}
             onClose={() => setDaeriSetupOpen(false)}
             onCall={(trip) => {
               setDaeriTrip(trip)
@@ -4776,8 +4843,9 @@ export default function HomeScreen() {
             destination={destination}
             pickupLat={origin.lat}
             pickupLng={origin.lng}
-            destLat={destPoint?.lat}
-            destLng={destPoint?.lng}
+            destLat={destPlace?.lat}
+            destLng={destPlace?.lng}
+            destAddress={destPlace?.address || destination}
             pickupAddress={origin.address}
             onClose={() => setSelectedService(null)}
             onNotice={showNotice}
@@ -4794,6 +4862,9 @@ export default function HomeScreen() {
             pickupLat={origin.lat}
             pickupLng={origin.lng}
             pickupAddress={origin.address}
+            destLat={destPlace?.lat}
+            destLng={destPlace?.lng}
+            destAddress={destPlace?.address || destination}
             onClose={() => {
               setSelectedService(null)
               setDaeriTrip(null)
