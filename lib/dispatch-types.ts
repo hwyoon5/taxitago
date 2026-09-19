@@ -54,6 +54,8 @@ export type DriverRecord = {
   status: DriverDutyStatus
   lastSeenAt: string
   virtual: boolean
+  wallet?: string
+  piUid?: string
 }
 
 export type PublicDriver = {
@@ -66,6 +68,16 @@ export type PublicDriver = {
   pickupDistanceKm: number
 }
 
+export type EscrowStatus = 'pending' | 'held' | 'released' | 'refunded'
+
+export type PublicEscrow = {
+  status: EscrowStatus
+  amount: number
+  lockTxid: string | null
+  payoutTxid: string | null
+  payoutWallet: string | null
+}
+
 export type PublicRide = {
   id: string
   passengerId: string
@@ -75,6 +87,7 @@ export type PublicRide = {
   status: RideStatus
   offerExpiresAt: string | null
   assignedDriver: PublicDriver | null
+  escrow: PublicEscrow | null
   createdAt: string
   updatedAt: string
 }

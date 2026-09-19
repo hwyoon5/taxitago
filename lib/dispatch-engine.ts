@@ -1,8 +1,11 @@
 import { etaMinutesFromKm, haversineKm } from '@/lib/dispatch-geo'
+import { getEscrowByRide } from '@/lib/escrow-store'
+import { openEscrowForRide, refundEscrow, toPublicEscrow } from '@/lib/escrow-engine'
 import {
   getDriver,
   getRide,
   listDrivers,
+  listRides,
   listSearchingRides,
   nowIso,
   saveDriver,
@@ -51,6 +54,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
           pickupDistanceKm: Math.round(pickupKm * 10) / 10,
         }
       : null,
+    escrow: toPublicEscrow(getEscrowByRide(ride.id)),
     createdAt: ride.createdAt,
     updatedAt: ride.updatedAt,
   }
@@ -196,6 +200,7 @@ export function cancelRide(rideId: string, passengerId?: string) {
   if (ride.currentOffer?.decision === 'pending') {
     ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
   }
+  refundEscrow(ride.id)
   return stamp(ride)
 }
 
@@ -239,6 +244,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   ride.status = 'assigned'
   stamp(ride)
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
+  openEscrowForRide(ride.id)
   return { ok: true as const, ride }
 }
 
@@ -246,6 +252,20 @@ export function getPublicRide(rideId: string) {
   const ride = getRide(rideId)
   if (!ride) return null
   return toPublicRide(refreshRideTimers(ride) ?? ride)
+}
+
+export function completeAssignedRide(rideId: string, driverId: string) {
+  const ride = getRide(rideId)
+  if (!ride) return null
+  if (ride.assignedDriverId !== driverId) return ride
+  ride.status = 'completed'
+  stamp(ride)
+  return ride
+}
+
+export function getDriverActiveRide(driverId: string) {
+  const ride = listRides().find((item) => item.assignedDriverId === driverId && item.status === 'assigned')
+  return ride ? toPublicRide(ride) : null
 }
 
 export function getDriverOffer(driverId: string) {
@@ -268,6 +288,8 @@ export function upsertDriverPresence(input: {
   lat: number
   lng: number
   status: 'online' | 'offline'
+  wallet?: string
+  piUid?: string
 }) {
   const current = getDriver(input.id)
   const next: DriverRecord = {
@@ -281,6 +303,8 @@ export function upsertDriverPresence(input: {
     status: input.status === 'offline' ? 'offline' : current?.status === 'busy' ? 'busy' : 'online',
     lastSeenAt: nowIso(),
     virtual: false,
+    wallet: input.wallet?.trim() || current?.wallet,
+    piUid: input.piUid?.trim() || current?.piUid,
   }
   return saveDriver(next)
 }

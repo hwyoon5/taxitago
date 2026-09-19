@@ -2,75 +2,46 @@
 
 import { useState } from 'react'
 import { FileSpreadsheet, X } from 'lucide-react'
+import type { DriverEarning, DriverEarningsStats, EarningsPeriodRow } from '@/lib/escrow-types'
 
 type Kind = 'revenue' | 'trips'
 
-const revenue = {
-  daily: [
-    { period: '2026-09-17 (목)', count: 8, amount: 45.2, note: '오늘' },
-    { period: '2026-09-16 (수)', count: 6, amount: 32.8, note: '완료' },
-    { period: '2026-09-15 (화)', count: 9, amount: 51.4, note: '완료' },
-    { period: '2026-09-14 (월)', count: 7, amount: 38.6, note: '완료' },
-  ],
-  monthly: [
-    { period: '2026-09', count: 54, amount: 298.8, note: '진행 중' },
-    { period: '2026-08', count: 121, amount: 642.5, note: '마감' },
-    { period: '2026-07', count: 108, amount: 571.3, note: '마감' },
-  ],
-  yearly: [
-    { period: '2026', count: 379, amount: 2010.6, note: '진행 중' },
-    { period: '2025', count: 1284, amount: 6842.1, note: '마감' },
-  ],
-  total: [{ period: '누적 합계', count: 2569, amount: 13564.1, note: '전체' }],
+const emptyStats: DriverEarningsStats = {
+  todayAmount: 0,
+  todayTrips: 0,
+  rating: '5.00',
+  daily: [],
+  monthly: [],
+  yearly: [],
+  total: [{ period: '누적 합계', count: 0, amount: 0, trips: 0, done: 0, cancel: 0, note: '전체' }],
+  recent: [],
 }
 
-const trips = {
-  daily: [
-    { period: '2026-09-17 (목)', trips: 8, done: 8, cancel: 0 },
-    { period: '2026-09-16 (수)', trips: 7, done: 6, cancel: 1 },
-    { period: '2026-09-15 (화)', trips: 10, done: 9, cancel: 1 },
-    { period: '2026-09-14 (월)', trips: 7, done: 7, cancel: 0 },
-  ],
-  monthly: [
-    { period: '2026-09', trips: 58, done: 54, cancel: 4 },
-    { period: '2026-08', trips: 129, done: 121, cancel: 8 },
-    { period: '2026-07', trips: 116, done: 108, cancel: 8 },
-  ],
-  yearly: [
-    { period: '2026', trips: 406, done: 379, cancel: 27 },
-    { period: '2025', trips: 1361, done: 1284, cancel: 77 },
-  ],
-}
-
-const routes = [
-  { from: '서울시청', to: '강남역', fare: 6.4, service: '택시' },
-  { from: '홍대입구', to: '합정', fare: 3.2, service: '택시' },
-  { from: '잠실역', to: '송파나루', fare: 4.8, service: '대리' },
-  { from: '여의도', to: '공덕', fare: 5.1, service: '택시' },
-  { from: '성수', to: '건대입구', fare: 3.6, service: '택시' },
-  { from: '사당역', to: '이수', fare: 2.9, service: '대리' },
-]
-
-export default function PartnerStatSheet({ kind, onClose }: { kind: Kind; onClose: () => void }) {
+export default function PartnerStatSheet({
+  kind,
+  onClose,
+  stats,
+}: {
+  kind: Kind
+  onClose: () => void
+  stats?: DriverEarningsStats | null
+}) {
+  const live = stats ?? emptyStats
   const isRevenue = kind === 'revenue'
   const tabs = isRevenue
     ? ([{ id: 'daily', label: '일일 수익' }, { id: 'monthly', label: '월별 수익' }, { id: 'yearly', label: '년도별 수익' }, { id: 'total', label: '총 수익' }] as const)
     : ([{ id: 'daily', label: '일별 운행' }, { id: 'monthly', label: '월별 운행' }, { id: 'yearly', label: '년도별 운행' }] as const)
   const [tab, setTab] = useState<(typeof tabs)[number]['id']>('daily')
-  const [opened, setOpened] = useState<{ period: string; count: number; cancel: number; amount?: number } | null>(null)
-  const revenueRows = revenue[tab === 'total' ? 'total' : tab === 'monthly' ? 'monthly' : tab === 'yearly' ? 'yearly' : 'daily']
-  const tripRows = trips[tab === 'monthly' ? 'monthly' : tab === 'yearly' ? 'yearly' : 'daily']
-  const details = opened
-    ? Array.from({ length: Math.min(opened.count, 8) }, (_, index) => {
-        const route = routes[(opened.period.length + index * 3) % routes.length]
-        const canceled = index < opened.cancel
-        return {
-          id: `${opened.period}-${index}`,
-          time: `${String(7 + ((index * 2) % 14)).padStart(2, '0')}:${String((index * 13) % 60).padStart(2, '0')}`,
-          ...route,
-          fare: canceled ? 0 : route.fare,
-          status: canceled ? '취소' : '완료',
-        }
+  const [opened, setOpened] = useState<{ period: string; amount?: number } | null>(null)
+  const rows: EarningsPeriodRow[] =
+    tab === 'total' ? live.total : tab === 'monthly' ? live.monthly : tab === 'yearly' ? live.yearly : live.daily
+  const details: DriverEarning[] = opened
+    ? live.recent.filter((item) => {
+        const at = item.at.slice(0, 7)
+        if (tab === 'yearly') return item.at.startsWith(opened.period)
+        if (tab === 'monthly') return at === opened.period
+        if (tab === 'total') return true
+        return opened.period.startsWith(item.at.slice(0, 10))
       })
     : []
   const accent = isRevenue
@@ -87,7 +58,7 @@ export default function PartnerStatSheet({ kind, onClose }: { kind: Kind; onClos
                 <FileSpreadsheet className="h-3.5 w-3.5" />
                 {isRevenue ? '수익 상세 내역' : '운행 횟수 상세 내역'}
               </p>
-              <h2 className="mt-1 text-2xl font-semibold leading-snug tracking-tight text-slate-900">{isRevenue ? '엑셀 시트 · 수익 통계' : '엑셀 시트 · 운행 통계'}</h2>
+              <h2 className="mt-1 text-2xl font-semibold leading-snug tracking-tight text-slate-900">{isRevenue ? '에스크로 정산 · 수익 통계' : '에스크로 정산 · 운행 통계'}</h2>
             </div>
             <button type="button" onClick={onClose} className="rounded-full bg-slate-100 p-2 text-slate-600" aria-label="통계 닫기">
               <X className="h-5 w-5" />
@@ -108,53 +79,59 @@ export default function PartnerStatSheet({ kind, onClose }: { kind: Kind; onClos
               {isRevenue ? <><span>건수</span><span>수익(Pi)</span><span>상태</span></> : <><span>운행 횟수</span><span>완료</span><span>취소</span></>}
             </div>
             <div>
-              {isRevenue
-                ? revenueRows.map((row, index) => (
-                    <button
-                      key={row.period}
-                      type="button"
-                      onClick={() => setOpened({ period: row.period, count: row.count, cancel: 0, amount: row.amount })}
-                      className={`grid w-full grid-cols-[1.4fr_0.7fr_0.9fr_0.7fr] border-t border-slate-100 px-3 py-3 text-left text-sm font-semibold leading-snug transition ${index % 2 === 0 ? 'bg-white' : accent.zebra} ${accent.hover}`}
-                    >
-                      <span className="font-normal text-slate-900">{row.period}</span>
-                      <span className="font-normal text-slate-600">{row.count.toLocaleString()}건</span>
-                      <span className={`font-normal ${accent.amount}`}>{row.amount.toFixed(1)}</span>
-                      <span className="font-normal text-slate-800">{row.note}</span>
-                    </button>
-                  ))
-                : tripRows.map((row, index) => (
-                    <button
-                      key={row.period}
-                      type="button"
-                      onClick={() => setOpened({ period: row.period, count: row.trips, cancel: row.cancel })}
-                      className={`grid w-full grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr] border-t border-slate-100 px-3 py-3 text-left text-sm font-semibold leading-snug transition ${index % 2 === 0 ? 'bg-white' : accent.zebra} ${accent.hover}`}
-                    >
-                      <span className="font-normal text-slate-900">{row.period}</span>
-                      <span className={`font-normal ${accent.amount}`}>{row.trips.toLocaleString()}회</span>
-                      <span className="font-normal text-slate-600">{row.done.toLocaleString()}건</span>
-                      <span className="font-normal text-slate-800">{row.cancel.toLocaleString()}건</span>
-                    </button>
-                  ))}
-              <div className={`grid ${isRevenue ? 'grid-cols-[1.4fr_0.7fr_0.9fr_0.7fr]' : 'grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr]'} px-3 py-2.5 text-sm font-normal ${accent.total}`}>
-                {isRevenue ? (
-                  <>
-                    <span>합계</span>
-                    <span>{revenueRows.reduce((sum, row) => sum + row.count, 0).toLocaleString()}건</span>
-                    <span>{revenueRows.reduce((sum, row) => sum + row.amount, 0).toFixed(1)}</span>
-                    <span>Pi</span>
-                  </>
-                ) : (
-                  <>
-                    <span>합계</span>
-                    <span>{tripRows.reduce((sum, row) => sum + row.trips, 0).toLocaleString()}회</span>
-                    <span>{tripRows.reduce((sum, row) => sum + row.done, 0).toLocaleString()}건</span>
-                    <span>{tripRows.reduce((sum, row) => sum + row.cancel, 0).toLocaleString()}건</span>
-                  </>
-                )}
-              </div>
+              {rows.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm font-semibold text-slate-500">아직 정산된 운행이 없습니다</p>
+              ) : isRevenue ? (
+                rows.map((row, index) => (
+                  <button
+                    key={row.period}
+                    type="button"
+                    onClick={() => setOpened({ period: row.period, amount: row.amount })}
+                    className={`grid w-full grid-cols-[1.4fr_0.7fr_0.9fr_0.7fr] border-t border-slate-100 px-3 py-3 text-left text-sm font-semibold leading-snug transition ${index % 2 === 0 ? 'bg-white' : accent.zebra} ${accent.hover}`}
+                  >
+                    <span className="font-normal text-slate-900">{row.period}</span>
+                    <span className="font-normal text-slate-600">{row.count.toLocaleString()}건</span>
+                    <span className={`font-normal ${accent.amount}`}>{row.amount.toFixed(1)}</span>
+                    <span className="font-normal text-slate-800">{row.note}</span>
+                  </button>
+                ))
+              ) : (
+                rows.map((row, index) => (
+                  <button
+                    key={row.period}
+                    type="button"
+                    onClick={() => setOpened({ period: row.period })}
+                    className={`grid w-full grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr] border-t border-slate-100 px-3 py-3 text-left text-sm font-semibold leading-snug transition ${index % 2 === 0 ? 'bg-white' : accent.zebra} ${accent.hover}`}
+                  >
+                    <span className="font-normal text-slate-900">{row.period}</span>
+                    <span className={`font-normal ${accent.amount}`}>{row.trips.toLocaleString()}회</span>
+                    <span className="font-normal text-slate-600">{row.done.toLocaleString()}건</span>
+                    <span className="font-normal text-slate-800">{row.cancel.toLocaleString()}건</span>
+                  </button>
+                ))
+              )}
+              {rows.length > 0 ? (
+                <div className={`grid ${isRevenue ? 'grid-cols-[1.4fr_0.7fr_0.9fr_0.7fr]' : 'grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr]'} px-3 py-2.5 text-sm font-normal ${accent.total}`}>
+                  {isRevenue ? (
+                    <>
+                      <span>합계</span>
+                      <span>{rows.reduce((sum, row) => sum + row.count, 0).toLocaleString()}건</span>
+                      <span>{rows.reduce((sum, row) => sum + row.amount, 0).toFixed(1)}</span>
+                      <span>Pi</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>합계</span>
+                      <span>{rows.reduce((sum, row) => sum + row.trips, 0).toLocaleString()}회</span>
+                      <span>{rows.reduce((sum, row) => sum + row.done, 0).toLocaleString()}건</span>
+                      <span>{rows.reduce((sum, row) => sum + row.cancel, 0).toLocaleString()}건</span>
+                    </>
+                  )}
+                </div>
+              ) : null}
             </div>
           </div>
-          <p className="mt-3 text-center text-sm font-semibold leading-relaxed text-slate-800">행을 선택하면 해당 기간의 세부 운행 내역을 볼 수 있어요</p>
+          <p className="mt-3 text-center text-sm font-semibold leading-relaxed text-slate-800">행을 선택하면 에스크로 정산된 운행을 볼 수 있어요</p>
         </div>
       </section>
       {opened ? (
@@ -177,18 +154,16 @@ export default function PartnerStatSheet({ kind, onClose }: { kind: Kind; onClos
               </button>
             </div>
             <ul className="mt-4 space-y-2">
-              {details.map((item) => (
+              {details.length === 0 ? (
+                <li className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-500">해당 기간 내역이 없습니다</li>
+              ) : details.map((item) => (
                 <li key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-800">{item.time} · {item.service}</p>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.status === '완료' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>{item.status}</span>
+                    <p className="text-sm font-semibold text-slate-800">{new Date(item.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</p>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>{item.status === 'completed' ? '완료' : '취소'}</span>
                   </div>
-                  <p className="mt-1.5 text-base font-normal leading-snug text-slate-900">{item.from} → {item.to}</p>
-                  {isRevenue ? (
-                    <p className={`mt-1 text-base font-semibold ${accent.amount}`}>{item.status === '완료' ? `+${item.fare.toFixed(1)} Pi` : '정산 없음'}</p>
-                  ) : (
-                    <p className="mt-1 text-sm font-semibold text-slate-800">{item.status === '완료' ? '운행 완료' : '호출 취소'} · {item.fare ? `${item.fare.toFixed(1)} Pi` : '요금 없음'}</p>
-                  )}
+                  <p className="mt-1.5 text-base font-normal leading-snug text-slate-900">{item.route}</p>
+                  <p className={`mt-1 text-base font-semibold ${accent.amount}`}>{item.status === 'completed' ? `+${item.amount.toFixed(2)} Pi` : '정산 없음'}</p>
                 </li>
               ))}
             </ul>

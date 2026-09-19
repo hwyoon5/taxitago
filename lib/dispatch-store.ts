@@ -57,7 +57,13 @@ export function ensureSeedDrivers() {
   if (store.seeded) return
   const now = new Date().toISOString()
   for (const driver of SEED_DRIVERS) {
-    store.drivers.set(driver.id, { ...driver, status: 'online', lastSeenAt: now })
+    store.drivers.set(driver.id, {
+      ...driver,
+      status: 'online',
+      lastSeenAt: now,
+      wallet: `GBVIRTUAL-${driver.id.replace('virtual-', '').toUpperCase()}-WALLET`,
+      piUid: driver.id,
+    })
   }
   store.seeded = true
 }
@@ -71,8 +77,12 @@ export function saveRide(ride: RideRequestRecord) {
   return ride
 }
 
+export function listRides() {
+  return [...db().rides.values()]
+}
+
 export function listSearchingRides() {
-  return [...db().rides.values()].filter((ride) => ride.status === 'searching' || ride.status === 'offered')
+  return listRides().filter((ride) => ride.status === 'searching' || ride.status === 'offered')
 }
 
 export function getDriver(id: string) {

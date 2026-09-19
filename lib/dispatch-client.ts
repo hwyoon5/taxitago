@@ -1,5 +1,6 @@
 import { isUsableCoord } from '@/lib/ride-session'
 import type { PublicRide } from '@/lib/dispatch-types'
+import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 
 async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T
@@ -49,6 +50,8 @@ export async function sendDriverPresence(input: {
   name?: string
   vehicle?: string
   plate?: string
+  wallet?: string
+  piUid?: string
 }) {
   if (!isUsableCoord(input.lat, input.lng)) return
   await fetch('/api/drivers/presence', {
@@ -74,4 +77,53 @@ export async function respondToRideOffer(rideId: string, driverId: string, actio
   const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
   if (!res.ok || !data.ride) throw new Error(data.error || '콜 응답에 실패했어요.')
   return data.ride
+}
+
+export async function lockRideEscrow(input: {
+  rideId: string
+  passengerId: string
+  paymentId?: string
+  txid?: string
+  sandbox?: boolean
+}) {
+  const res = await fetch('/api/escrow/lock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
+  if (!res.ok || !data.ride) throw new Error(data.error || '에스크로 잠금에 실패했어요.')
+  return data.ride
+}
+
+export async function completeRideTrip(rideId: string, driverId: string) {
+  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ driverId }),
+  })
+  const data = await readJson<{ ride?: PublicRide; receipt?: SettlementReceipt; error?: string }>(res)
+  if (!res.ok || !data.ride) throw new Error(data.error || '정산에 실패했어요.')
+  return data
+}
+
+export async function fetchDriverActiveRide(driverId: string) {
+  const res = await fetch(`/api/drivers/active?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+  const data = await readJson<{ ride?: PublicRide | null }>(res)
+  if (!res.ok) return null
+  return data.ride ?? null
+}
+
+export async function fetchDriverEarnings(driverId: string) {
+  const res = await fetch(`/api/drivers/earnings?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+  const data = await readJson<{ stats?: DriverEarningsStats; error?: string }>(res)
+  if (!res.ok || !data.stats) return null
+  return data.stats
+}
+
+export async function fetchRideReceipt(rideId: string) {
+  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/receipt`, { cache: 'no-store' })
+  if (res.status === 404) return null
+  const data = await readJson<{ receipt?: SettlementReceipt }>(res)
+  return data.receipt ?? null
 }

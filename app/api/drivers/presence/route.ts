@@ -24,6 +24,8 @@ export async function POST(request: Request) {
     name: typeof body?.name === 'string' ? body.name : undefined,
     vehicle: typeof body?.vehicle === 'string' ? body.vehicle : undefined,
     plate: typeof body?.plate === 'string' ? body.plate : undefined,
+    wallet: typeof body?.wallet === 'string' ? body.wallet : undefined,
+    piUid: typeof body?.piUid === 'string' ? body.piUid : undefined,
   })
   return NextResponse.json({ ok: true, driver })
 }

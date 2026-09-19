@@ -23,15 +23,22 @@ import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
 import {
   cancelRideRequest,
+  completeRideTrip,
   createRideRequest,
+  fetchDriverActiveRide,
+  fetchDriverEarnings,
   fetchDriverOffer,
+  fetchRideReceipt,
   fetchRideRequest,
+  lockRideEscrow,
   respondToRideOffer,
   sendDriverPresence,
 } from '@/lib/dispatch-client'
 import type { PublicRide } from '@/lib/dispatch-types'
+import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
+import EarningsStatSheet from '@/components/partner-stat-sheet'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
 const PASSENGER_ID_KEY = 'taxitago-passenger-id'
@@ -544,6 +551,25 @@ const SAMPLE_RIDES: RideReceipt[] = [
     method: 'Pi 월렛',
   },
 ]
+
+function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
+  return {
+    route: item.route,
+    origin: item.origin,
+    dest: item.dest,
+    fare: `${item.amount.toFixed(2)} Pi`,
+    estimatedFare: `${item.estimatedFare.toFixed(2)} Pi`,
+    vehicle: '택시',
+    date: new Date(item.settledAt).toLocaleString('ko-KR'),
+    distance: '-',
+    duration: '-',
+    driver: item.driverName,
+    car: item.vehicle,
+    plate: item.plate,
+    transactionId: item.payoutTxid,
+    method: 'Pi 에스크로 정산',
+  }
+}
 
 function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
   const matched = SAMPLE_RIDES.find((ride) => ride.route === tx.place)
@@ -1794,6 +1820,7 @@ function TaxiMatchingSheet({
   onSettle,
   onNeedCharge,
   onAskReview,
+  onReceipt,
 }: {
   destination: string
   pickupLat: number
@@ -1809,6 +1836,7 @@ function TaxiMatchingSheet({
   onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }) => void
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
+  onReceipt: (ride: RideReceipt) => void
 }) {
   const [phase, setPhase] = useState<TaxiMatchPhase>('searching')
   const [callOpen, setCallOpen] = useState(false)
@@ -1835,6 +1863,9 @@ function TaxiMatchingSheet({
   const fare = ride?.estimatedFare ?? 2.34
   const billed = settleRideFare(fare, ride?.id ?? route)
   const [piPaying, setPiPaying] = useState(false)
+  const escrowLockingRef = useRef(false)
+  const escrowHeldRef = useRef(false)
+  const settledRef = useRef(false)
   const assigned = ride?.assignedDriver
   const driver = {
     name: assigned?.name || '배정 대기',
@@ -1912,21 +1943,82 @@ function TaxiMatchingSheet({
 
   useEffect(() => {
     const rideId = ride?.id
-    if (!ride || !rideId || ride.status === 'assigned' || ride.status === 'cancelled' || ride.status === 'unmatched') return
+    if (!ride || !rideId || ride.status === 'cancelled' || ride.status === 'unmatched') return
     const timer = window.setInterval(() => {
       void fetchRideRequest(rideId).then((next) => {
         if (!next) return
         setRide(next)
         if (next.status === 'assigned') {
           finishedRef.current = true
-          setPhase('arriving')
+          setPhase((current) => (current === 'searching' ? 'arriving' : current))
         }
         if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
         if (next.status === 'cancelled') onClose()
+        if (next.status === 'completed') {
+          if (settledRef.current) return
+          settledRef.current = true
+          finishedRef.current = true
+          void fetchRideReceipt(next.id).then((receipt) => {
+            if (receipt) {
+              onReceipt(receiptFromSettlement(receipt))
+              onAskReview({ name: receipt.driverName, vehicle: receipt.vehicle, plate: receipt.plate })
+            }
+            onNotice('운행이 완료되어 에스크로 요금이 기사 지갑으로 정산되었습니다.')
+            onClose()
+          })
+        }
       })
     }, 1200)
     return () => window.clearInterval(timer)
   }, [ride?.id, ride?.status])
+
+  useEffect(() => {
+    if (!ride || ride.status !== 'assigned') return
+    if (ride.escrow?.status === 'held' || ride.escrow?.status === 'released') {
+      escrowHeldRef.current = true
+      return
+    }
+    if (escrowLockingRef.current || escrowHeldRef.current) return
+    escrowLockingRef.current = true
+    setPiPaying(true)
+    void (async () => {
+      try {
+        let paymentId: string | undefined
+        let txid: string | undefined
+        try {
+          const proof = await startPiCheckout({
+            amount: ride.estimatedFare,
+            memo: '택시 에스크로',
+            metadata: { kind: 'escrow-lock', rideId: ride.id },
+          })
+          paymentId = proof.paymentId
+          txid = proof.txid
+        } catch (error) {
+          if (!PI_SANDBOX) throw error
+        }
+        const next = await lockRideEscrow({
+          rideId: ride.id,
+          passengerId: passengerIdRef.current,
+          paymentId,
+          txid,
+          sandbox: !paymentId || !txid,
+        })
+        escrowHeldRef.current = true
+        setRide(next)
+        const lockTx = next.escrow?.lockTxid || txid || `escrow-${ride.id.slice(0, 8)}`
+        onSettle(ride.estimatedFare, route, '택시 에스크로', ride.estimatedFare, {
+          paymentId: paymentId || lockTx,
+          txid: lockTx,
+        })
+        onNotice('예상 요금이 에스크로에 잠겼습니다. 운행 완료 후 기사 지갑으로 정산됩니다.')
+      } catch (error) {
+        onNotice(describePiUserMessage(error))
+      } finally {
+        escrowLockingRef.current = false
+        setPiPaying(false)
+      }
+    })()
+  }, [ride?.id, ride?.status, ride?.escrow?.status])
 
   const cancelRide = () => {
     if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
@@ -1934,31 +2026,8 @@ function TaxiMatchingSheet({
     onClose()
   }
 
-  const handleTaxiPostpay = () => {
-    if (piPaying) return
-    setPiPaying(true)
-    try {
-      void startPiCheckout({
-        amount: billed.actual,
-        memo: '택시비 결제',
-        metadata: { kind: 'taxi-postpay', route, rideId: ride?.id },
-      })
-        .then((proof) => {
-          onSettle(billed.actual, route, '택시 호출', billed.estimate, proof)
-          onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
-          onClose()
-        })
-        .catch((error) => {
-          console.error('[Pi] taxi postpay failed', error)
-          onNotice(describePiUserMessage(error))
-        })
-        .finally(() => setPiPaying(false))
-    } catch (error) {
-      setPiPaying(false)
-      console.error('[Pi] taxi postpay threw', error)
-      onNotice(describePiUserMessage(error))
-    }
-  }
+  const escrowStatus = ride?.escrow?.status
+  const escrowAmount = ride?.escrow?.amount ?? fare
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-[#241d35]/50 p-0 sm:items-center sm:p-4">
@@ -2072,15 +2141,18 @@ function TaxiMatchingSheet({
                 onContinue={() => undefined}
                 onPrepaidSettled={() => undefined}
               />
-              <button
-                type="button"
-                onClick={handleTaxiPostpay}
-                disabled={piPaying}
-                className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] disabled:opacity-60"
-              >
-                {piPaying ? 'Pi 결제 진행 중…' : '이용 완료 · 후결제'}
-              </button>
-              <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 눌러 주세요 · 하차 완료</p>
+              <div className="rounded-[22px] border-2 border-[#BFDBFE] bg-[#F8FAFC] px-4 py-3 text-center">
+                <p className="text-[11px] font-black text-[#4A82B8]">
+                  {escrowStatus === 'held' ? '에스크로 보관 중' : escrowStatus === 'released' ? '기사 지갑 정산 완료' : piPaying ? '에스크로 잠금 중' : '예상 요금 에스크로'}
+                </p>
+                <p className="mt-1 text-lg font-black text-[#0F172A]">{escrowAmount.toFixed(2)} Pi</p>
+                <p className="mt-1 text-[11px] font-bold leading-5 text-[#64748B]">
+                  {escrowStatus === 'held'
+                    ? '기사님이 운행 완료를 승인하면 등록된 Pi 지갑으로 자동 이체됩니다.'
+                    : '매칭과 함께 예상 요금이 에스크로에 잠깁니다.'}
+                </p>
+              </div>
+              <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 기사 앱에서 운행 완료를 눌러 주세요</p>
               <button type="button" onClick={cancelRide} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
                 {phase === 'moving' ? '운행 취소' : '호출 취소'}
               </button>
@@ -4813,6 +4885,8 @@ function DriverDashboard({
   onNotice: (message: string) => void
 }) {
   const [incoming, setIncoming] = useState<PublicRide | null>(null)
+  const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
+  const [earnings, setEarnings] = useState<DriverEarningsStats | null>(null)
   const [offerKm, setOfferKm] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
@@ -4834,23 +4908,36 @@ function DriverDashboard({
       lng,
       online,
       name: partner?.name,
+      wallet: partner?.wallet,
+      piUid: partner?.uid,
     })
     if (!online) return
     const beat = window.setInterval(() => {
-      void sendDriverPresence({ driverId, lat, lng, online: true, name: partner?.name })
+      void sendDriverPresence({
+        driverId,
+        lat,
+        lng,
+        online: true,
+        name: partner?.name,
+        wallet: partner?.wallet,
+        piUid: partner?.uid,
+      })
     }, 8000)
     return () => window.clearInterval(beat)
-  }, [driverId, lat, lng, online, partner?.name])
+  }, [driverId, lat, lng, online, partner?.name, partner?.wallet, partner?.uid])
 
   useEffect(() => {
-    if (!online || !driverId) {
-      setIncoming(null)
-      return
-    }
+    if (!driverId) return
     const poll = window.setInterval(() => {
-      void fetchDriverOffer(driverId).then((pending) => {
+      void Promise.all([
+        online ? fetchDriverOffer(driverId) : Promise.resolve(null),
+        fetchDriverActiveRide(driverId),
+        fetchDriverEarnings(driverId),
+      ]).then(([pending, active, stats]) => {
         setIncoming(pending?.ride ?? null)
         setOfferKm(pending?.offer?.pickupDistanceKm ?? pending?.ride?.assignedDriver?.pickupDistanceKm ?? null)
+        setActiveRide(active)
+        if (stats) setEarnings(stats)
       })
     }, 1500)
     return () => window.clearInterval(poll)
@@ -4862,8 +4949,8 @@ function DriverDashboard({
     void respondToRideOffer(incoming.id, driverId, action)
       .then((ride) => {
         if (action === 'accept') {
-          appendSettlementEntry(ride.estimatedFare, '콜 수락 정산')
-          onNotice('운행 요청을 수락했어요. 파이 지갑 정산 계정에 기록됩니다.')
+          setActiveRide(ride)
+          onNotice('운행을 수락했어요. 승객 에스크로가 잠기면 운행 완료 시 자동 정산됩니다.')
         } else {
           onNotice('요청을 거절했어요. 다음 기사에게 콜이 넘어갑니다.')
         }
@@ -4872,6 +4959,27 @@ function DriverDashboard({
       .catch((error) => {
         onNotice(error instanceof Error ? error.message : '콜 응답에 실패했어요.')
         setIncoming(null)
+      })
+      .finally(() => setBusy(false))
+  }
+
+  const finishTrip = () => {
+    if (!activeRide || busy || !driverId) return
+    setBusy(true)
+    void completeRideTrip(activeRide.id, driverId)
+      .then((result) => {
+        if (result.receipt) {
+          appendSettlementEntry(result.receipt.amount, `에스크로 정산 · ${result.receipt.route}`)
+        }
+        setActiveRide(null)
+        onNotice('운행 완료. 에스크로 Pi가 등록 지갑으로 정산되었습니다.')
+        return fetchDriverEarnings(driverId)
+      })
+      .then((stats) => {
+        if (stats) setEarnings(stats)
+      })
+      .catch((error) => {
+        onNotice(error instanceof Error ? error.message : '정산에 실패했어요. 에스크로 잠금을 확인해 주세요.')
       })
       .finally(() => setBusy(false))
   }
@@ -4907,19 +5015,38 @@ function DriverDashboard({
       <section className="mt-4 grid grid-cols-3 gap-2.5">
         <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 text-left shadow-[0_6px_18px_rgba(15,23,42,0.08)] transition active:scale-[0.98]">
           <p className="text-[10px] font-semibold text-[#64748B]">오늘의 수익</p>
-          <p className="mt-2 text-lg font-bold text-[#0F766E]">45.2 Pi</p>
+          <p className="mt-2 text-lg font-bold text-[#0F766E]">{(earnings?.todayAmount ?? 0).toFixed(1)} Pi</p>
           <p className="mt-1 text-[10px] font-bold text-[#0D9488]">상세 보기 ›</p>
         </button>
         <button type="button" onClick={() => setStatSheet('trips')} className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 text-left shadow-[0_6px_18px_rgba(15,23,42,0.08)] transition active:scale-[0.98]">
-          <p className="text-[10px] font-semibold text-[#64748B]">8건 운행</p>
-          <p className="mt-2 text-lg font-bold text-[#0F172A]">8건</p>
+          <p className="text-[10px] font-semibold text-[#64748B]">{earnings?.todayTrips ?? 0}건 운행</p>
+          <p className="mt-2 text-lg font-bold text-[#0F172A]">{earnings?.todayTrips ?? 0}건</p>
           <p className="mt-1 text-[10px] font-bold text-[#0369A1]">상세 보기 ›</p>
         </button>
         <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 shadow-[0_6px_18px_rgba(15,23,42,0.08)]">
           <p className="text-[10px] font-semibold text-[#64748B]">기사 평점</p>
-          <p className="mt-2 text-lg font-bold text-[#0F172A]">4.9</p>
+          <p className="mt-2 text-lg font-bold text-[#0F172A]">{earnings?.rating ?? '4.9'}</p>
         </div>
       </section>
+      {activeRide ? (
+        <section className="mt-4 rounded-[26px] border-2 border-[#86EFAC] bg-[#F0FDF4] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
+          <p className="text-xs font-bold text-[#047857]">배차된 운행</p>
+          <p className="mt-2 text-lg font-bold text-[#0F172A]">
+            {(activeRide.pickup.address || '출발지')} → {(activeRide.dest.label || activeRide.dest.address || '목적지')}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-[#334155]">
+            에스크로 {activeRide.escrow?.amount?.toFixed(2) ?? activeRide.estimatedFare.toFixed(2)} Pi · {activeRide.escrow?.status === 'held' ? '잠금 완료' : activeRide.escrow?.status === 'released' ? '정산됨' : '승객 입금 대기'}
+          </p>
+          <button
+            type="button"
+            disabled={busy || activeRide.escrow?.status !== 'held'}
+            onClick={finishTrip}
+            className="mt-4 w-full rounded-2xl bg-[#047857] py-3.5 font-bold text-white disabled:opacity-50"
+          >
+            운행 완료 · 자동 정산
+          </button>
+        </section>
+      ) : null}
       {online && incoming ? (
         <section className="mt-4 rounded-[26px] border-2 border-[#BFDBFE] bg-[#F8FAFC] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between">
@@ -4994,7 +5121,7 @@ function DriverDashboard({
           </section>
         </div>
       ) : null}
-      {statSheet ? <PartnerStatSheet kind={statSheet} onClose={() => setStatSheet(null)} /> : null}
+      {statSheet ? <EarningsStatSheet kind={statSheet} stats={earnings} onClose={() => setStatSheet(null)} /> : null}
     </main>
   )
 }
@@ -5618,6 +5745,7 @@ export default function HomeScreen() {
             onSettle={settlePiLedger}
             onNeedCharge={showChargePrompt}
             onAskReview={setDriverReview}
+            onReceipt={setReceiptRide}
           />
         ) : null}
         {selectedService && selectedService !== '택시' && selectedService !== '더보기' && (

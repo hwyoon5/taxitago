@@ -59,3 +59,39 @@ export async function completePiPayment(paymentId: string, txid: string) {
   await getPiPayment(paymentId)
   return piPaymentsRequest(paymentId, 'POST', '/complete', { txid })
 }
+
+export async function createA2UPayment(input: {
+  amount: number
+  memo: string
+  uid: string
+  metadata?: Record<string, unknown>
+}) {
+  const url = 'https://api.minepi.com/v2/payments'
+  const hasApiKey = Boolean((process.env.PI_API_KEY || '').trim())
+  console.log(`[Pi] POST ${url} A2U (PI_API_KEY ${hasApiKey ? 'set' : 'missing'})`)
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Key ${piApiKey()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      payment: {
+        amount: input.amount,
+        memo: input.memo.slice(0, 25),
+        metadata: input.metadata ?? {},
+        uid: input.uid,
+      },
+    }),
+    cache: 'no-store',
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+        ? payload.message
+        : `Pi A2U ${response.status}`
+    throw new Error(message)
+  }
+  return payload as { identifier?: string; transaction?: { txid?: string } }
+}
