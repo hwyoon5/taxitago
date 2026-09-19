@@ -21,10 +21,42 @@ import {
 } from '@/lib/partner-account'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
+import {
+  cancelRideRequest,
+  createRideRequest,
+  fetchDriverOffer,
+  fetchRideRequest,
+  respondToRideOffer,
+  sendDriverPresence,
+} from '@/lib/dispatch-client'
+import type { PublicRide } from '@/lib/dispatch-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
+const PASSENGER_ID_KEY = 'taxitago-passenger-id'
+const DRIVER_ID_KEY = 'taxitago-driver-id'
+
+function readOrCreateLocalId(key: string, prefix: string) {
+  try {
+    const existing = window.localStorage.getItem(key)
+    if (existing) return existing
+    const next = `${prefix}-${crypto.randomUUID()}`
+    window.localStorage.setItem(key, next)
+    return next
+  } catch {
+    return `${prefix}-local`
+  }
+}
+
+function localPassengerId() {
+  return readOrCreateLocalId(PASSENGER_ID_KEY, 'passenger')
+}
+
+function localDriverId(partnerUid?: string) {
+  if (partnerUid) return partnerUid
+  return readOrCreateLocalId(DRIVER_ID_KEY, 'driver')
+}
 
 type ServiceLabel = keyof typeof serviceIllustrations
 type Service = { label: ServiceLabel }
@@ -1781,6 +1813,10 @@ function TaxiMatchingSheet({
   const [phase, setPhase] = useState<TaxiMatchPhase>('searching')
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [ride, setRide] = useState<PublicRide | null>(null)
+  const [matchError, setMatchError] = useState('')
+  const passengerIdRef = useRef('')
+  const rideIdRef = useRef('')
   const finishedRef = useRef(false)
   const dest = destination.trim() || '선택한 목적지'
   const live = resolveLiveRidePoints({
@@ -1796,15 +1832,16 @@ function TaxiMatchingSheet({
   const [resolvedDest, setResolvedDest] = useState<RideCoords | null>(
     live.dest ? { lat: live.dest.lat, lng: live.dest.lng, address: live.dest.address } : null,
   )
-  const fare = 2.34
-  const billed = { estimate: 2.1, actual: 2.34, adjusted: true }
+  const fare = ride?.estimatedFare ?? 2.34
+  const billed = settleRideFare(fare, ride?.id ?? route)
   const [piPaying, setPiPaying] = useState(false)
+  const assigned = ride?.assignedDriver
   const driver = {
-    name: '김민수',
-    vehicle: dest === '회사' ? '현대 소나타' : '현대 아슬란',
-    plate: '서울 31바 1842',
-    rating: '4.97',
-    eta: '3분',
+    name: assigned?.name || '배정 대기',
+    vehicle: assigned?.vehicle || '택시',
+    plate: assigned?.plate || '',
+    rating: assigned?.rating || '5.00',
+    eta: assigned ? `${assigned.etaMinutes}분` : '확인 중',
   }
   const statusLabel = phase === 'arriving' ? '기사 이동 중' : phase === 'boarding' ? '탑승 중' : '목적지 이동 중'
   const statusCaption =
@@ -1835,11 +1872,64 @@ function TaxiMatchingSheet({
   }, [destination, destLat, destLng, pickupAddress])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setPhase('arriving'), 2500)
-    return () => window.clearTimeout(timer)
+    let cancelled = false
+    const pickup = live.origin ?? { lat: pickupLat, lng: pickupLng, address: pickupAddress }
+    const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
+    passengerIdRef.current = localPassengerId()
+    void createRideRequest({
+      passengerId: passengerIdRef.current,
+      pickupLat: pickup.lat,
+      pickupLng: pickup.lng,
+      pickupAddress: pickup.address,
+      destLat: drop.lat,
+      destLng: drop.lng,
+      destAddress: drop.address,
+      destLabel: dest,
+    })
+      .then((created) => {
+        if (cancelled) {
+          void cancelRideRequest(created.id, passengerIdRef.current)
+          return
+        }
+        rideIdRef.current = created.id
+        setRide(created)
+        if (created.status === 'assigned') {
+          finishedRef.current = true
+          setPhase('arriving')
+        }
+        if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요.')
+      })
+      .catch((error) => {
+        if (!cancelled) setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+      })
+    return () => {
+      cancelled = true
+      if (!finishedRef.current && rideIdRef.current) {
+        void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
+      }
+    }
   }, [])
 
+  useEffect(() => {
+    const rideId = ride?.id
+    if (!ride || !rideId || ride.status === 'assigned' || ride.status === 'cancelled' || ride.status === 'unmatched') return
+    const timer = window.setInterval(() => {
+      void fetchRideRequest(rideId).then((next) => {
+        if (!next) return
+        setRide(next)
+        if (next.status === 'assigned') {
+          finishedRef.current = true
+          setPhase('arriving')
+        }
+        if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
+        if (next.status === 'cancelled') onClose()
+      })
+    }, 1200)
+    return () => window.clearInterval(timer)
+  }, [ride?.id, ride?.status])
+
   const cancelRide = () => {
+    if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
     onNotice(phase === 'searching' ? '택시 호출을 취소했어요.' : '배차를 취소했어요.')
     onClose()
   }
@@ -1849,12 +1939,12 @@ function TaxiMatchingSheet({
     setPiPaying(true)
     try {
       void startPiCheckout({
-        amount: 2.34,
+        amount: billed.actual,
         memo: '택시비 결제',
-        metadata: { kind: 'taxi-postpay', route },
+        metadata: { kind: 'taxi-postpay', route, rideId: ride?.id },
       })
         .then((proof) => {
-          onSettle(2.34, route, '택시 호출', billed.estimate, proof)
+          onSettle(billed.actual, route, '택시 호출', billed.estimate, proof)
           onAskReview({ name: driver.name, vehicle: driver.vehicle, plate: driver.plate })
           onClose()
         })
@@ -1879,6 +1969,8 @@ function TaxiMatchingSheet({
             <p className="text-xs font-black text-[#4C1FB8]">LIVE MATCHING</p>
             <h2 className="mt-2 text-2xl font-black text-[#0F172A]">기사님을 찾는 중입니다...</h2>
             <p className="mt-2 text-sm font-bold text-[#64748B]">{route}</p>
+            {ride ? <p className="mt-1 text-xs font-black text-[#4C1FB8]">예상 요금 {ride.estimatedFare.toFixed(2)} Pi</p> : null}
+            {matchError ? <p className="mt-2 text-xs font-bold text-[#B91C1C]">{matchError}</p> : null}
             <TaxiLiveMap
               kind="taxi"
               phase="arriving"
@@ -4703,14 +4795,86 @@ function DriverNeedSignupModal({ onClose, onSignup }: { onClose: () => void; onS
   )
 }
 
-function DriverDashboard({ online, onToggleOnline, onPassengerMode, onWithdraw, onNotice }: { online: boolean; onToggleOnline: () => void; onPassengerMode: () => void; onWithdraw: () => void; onNotice: (message: string) => void }) {
-  const [requestVisible, setRequestVisible] = useState(true)
+function DriverDashboard({
+  online,
+  lat,
+  lng,
+  onToggleOnline,
+  onPassengerMode,
+  onWithdraw,
+  onNotice,
+}: {
+  online: boolean
+  lat: number
+  lng: number
+  onToggleOnline: () => void
+  onPassengerMode: () => void
+  onWithdraw: () => void
+  onNotice: (message: string) => void
+}) {
+  const [incoming, setIncoming] = useState<PublicRide | null>(null)
+  const [offerKm, setOfferKm] = useState<number | null>(null)
+  const [busy, setBusy] = useState(false)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
+  const [driverId, setDriverId] = useState('')
+
   useEffect(() => {
-    setPartner(loadPartnerProfile())
+    const profile = loadPartnerProfile()
+    setPartner(profile)
+    setDriverId(localDriverId(profile?.uid))
   }, [])
+
+  useEffect(() => {
+    if (!driverId) return
+    void sendDriverPresence({
+      driverId,
+      lat,
+      lng,
+      online,
+      name: partner?.name,
+    })
+    if (!online) return
+    const beat = window.setInterval(() => {
+      void sendDriverPresence({ driverId, lat, lng, online: true, name: partner?.name })
+    }, 8000)
+    return () => window.clearInterval(beat)
+  }, [driverId, lat, lng, online, partner?.name])
+
+  useEffect(() => {
+    if (!online || !driverId) {
+      setIncoming(null)
+      return
+    }
+    const poll = window.setInterval(() => {
+      void fetchDriverOffer(driverId).then((pending) => {
+        setIncoming(pending?.ride ?? null)
+        setOfferKm(pending?.offer?.pickupDistanceKm ?? pending?.ride?.assignedDriver?.pickupDistanceKm ?? null)
+      })
+    }, 1500)
+    return () => window.clearInterval(poll)
+  }, [driverId, online])
+
+  const respond = (action: 'accept' | 'reject') => {
+    if (!incoming || busy || !driverId) return
+    setBusy(true)
+    void respondToRideOffer(incoming.id, driverId, action)
+      .then((ride) => {
+        if (action === 'accept') {
+          appendSettlementEntry(ride.estimatedFare, '콜 수락 정산')
+          onNotice('운행 요청을 수락했어요. 파이 지갑 정산 계정에 기록됩니다.')
+        } else {
+          onNotice('요청을 거절했어요. 다음 기사에게 콜이 넘어갑니다.')
+        }
+        setIncoming(null)
+      })
+      .catch((error) => {
+        onNotice(error instanceof Error ? error.message : '콜 응답에 실패했어요.')
+        setIncoming(null)
+      })
+      .finally(() => setBusy(false))
+  }
   return (
     <main className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
       <section className="rounded-[28px] bg-[#243044] p-5 text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)]">
@@ -4756,34 +4920,31 @@ function DriverDashboard({ online, onToggleOnline, onPassengerMode, onWithdraw, 
           <p className="mt-2 text-lg font-bold text-[#0F172A]">4.9</p>
         </div>
       </section>
-      {online && requestVisible ? (
+      {online && incoming ? (
         <section className="mt-4 rounded-[26px] border-2 border-[#BFDBFE] bg-[#F8FAFC] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-[#4A82B8]">새로운 운행 요청</p>
-            <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">방금 도착</span>
+            <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
           </div>
-          <p className="mt-3 text-lg font-bold text-[#0F172A]">서울시청 → 강남역</p>
+          <p className="mt-3 text-lg font-bold text-[#0F172A]">
+            {(incoming.pickup.address || incoming.pickup.label || '출발지')} → {(incoming.dest.label || incoming.dest.address || '목적지')}
+          </p>
           <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
-            <span>승객까지 1.2 km</span>
-            <strong className="text-[#0F172A]">3.4 Pi</strong>
+            <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
+            <strong className="text-[#0F172A]">{incoming.estimatedFare.toFixed(2)} Pi</strong>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
-              onClick={() => {
-                setRequestVisible(false)
-                appendSettlementEntry(3.4, '콜 수락 정산')
-                onNotice('운행 요청을 수락했어요. 파이 지갑 정산 계정에 기록됩니다.')
-              }}
-              className="rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white"
+              disabled={busy}
+              onClick={() => respond('accept')}
+              className="rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white disabled:opacity-60"
             >
               수락
             </button>
             <button
-              onClick={() => {
-                setRequestVisible(false)
-                onNotice('요청을 거절했어요.')
-              }}
-              className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-bold text-[#475569]"
+              disabled={busy}
+              onClick={() => respond('reject')}
+              className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-bold text-[#475569] disabled:opacity-60"
             >
               거절
             </button>
@@ -5239,7 +5400,7 @@ export default function HomeScreen() {
         </header>
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (
-            <DriverDashboard online={driverOnline} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} />
+            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} />
           ) : (
             <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
           )
