@@ -1,8 +1,9 @@
 import { etaMinutesFromKm, haversineKm } from '@/lib/dispatch-geo'
 import { getEscrowByRide } from '@/lib/escrow-store'
-import { openEscrowForRide, refundEscrow, toPublicEscrow } from '@/lib/escrow-engine'
+import { openEscrowForRide, lockEscrow, refundEscrow, toPublicEscrow } from '@/lib/escrow-engine'
 import { archiveRideComms, openRideComms } from '@/lib/comms-engine'
 import {
+  ensureSeedDrivers,
   getDriver,
   getRide,
   listDrivers,
@@ -248,6 +249,45 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   openEscrowForRide(ride.id)
   openRideComms(ride.id)
   return { ok: true as const, ride }
+}
+
+export function confirmMatchOnDevice(rideId: string) {
+  ensureSeedDrivers()
+  const ride = getRide(rideId)
+  if (!ride) return { ok: false as const, error: 'not_found', ride: null }
+  if (ride.status === 'assigned') return { ok: true as const, ride }
+  if (ride.status === 'cancelled' || ride.status === 'completed') {
+    return { ok: false as const, error: ride.status, ride }
+  }
+  if (ride.status === 'unmatched') {
+    ride.status = 'searching'
+    ride.timedOutDriverIds = []
+    ride.declinedDriverIds = []
+    ride.currentOffer = null
+  }
+  clearRideTimer(ride.id)
+  const offeredId = ride.currentOffer?.driverId
+  let driver = offeredId ? getDriver(offeredId) : null
+  if (!driver) driver = rankedCandidates(ride)[0]?.driver ?? listDrivers()[0] ?? null
+  if (!driver) return { ok: false as const, error: 'no_driver', ride }
+  saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
+  ride.currentOffer = {
+    rideId: ride.id,
+    driverId: driver.id,
+    rank: ride.currentOffer?.rank ?? 1,
+    pickupDistanceKm: ride.currentOffer?.pickupDistanceKm ?? 0,
+    offeredAt: ride.currentOffer?.offeredAt ?? nowIso(),
+    expiresAt: ride.currentOffer?.expiresAt ?? nowIso(),
+    decision: 'accepted',
+  }
+  ride.assignedDriverId = driver.id
+  ride.status = 'assigned'
+  stamp(ride)
+  saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
+  openEscrowForRide(ride.id)
+  openRideComms(ride.id)
+  lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })
+  return { ok: true as const, ride: getRide(ride.id) ?? ride }
 }
 
 export function getPublicRide(rideId: string) {

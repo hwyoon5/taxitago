@@ -79,6 +79,17 @@ export async function respondToRideOffer(rideId: string, driverId: string, actio
   return data.ride
 }
 
+export async function acceptRideOnDevice(rideId: string) {
+  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'device-accept' }),
+  })
+  const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
+  if (!res.ok || !data.ride) throw new Error(data.error || '콜 수락에 실패했어요.')
+  return data.ride
+}
+
 export async function lockRideEscrow(input: {
   rideId: string
   passengerId: string

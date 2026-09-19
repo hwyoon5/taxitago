@@ -32,6 +32,7 @@ import {
   fetchRideRequest,
   lockRideEscrow,
   respondToRideOffer,
+  acceptRideOnDevice,
   sendDriverPresence,
 } from '@/lib/dispatch-client'
 import type { PublicRide } from '@/lib/dispatch-types'
@@ -1963,6 +1964,9 @@ function TaxiMatchingSheet({
           finishedRef.current = true
           setPhase((current) => (current === 'searching' ? 'arriving' : current))
         }
+        if (finishedRef.current && next.status !== 'assigned' && next.status !== 'completed' && next.status !== 'cancelled') {
+          return
+        }
         if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
         if (next.status === 'cancelled') onClose()
         if (next.status === 'completed') {
@@ -2028,19 +2032,39 @@ function TaxiMatchingSheet({
   }
 
   const acceptPendingOffer = () => {
-    const offer = ride?.pendingOffer
-    if (!ride || !offer || accepting) return
+    const rideId = ride?.id || rideIdRef.current
+    if (!rideId || accepting) return
     setAccepting(true)
-    void respondToRideOffer(ride.id, offer.driverId, 'accept')
+    setMatchError('')
+    finishedRef.current = true
+    setPhase('arriving')
+    void acceptRideOnDevice(rideId)
       .then((next) => {
         setRide(next)
-        if (next.status === 'assigned') {
-          finishedRef.current = true
-          setPhase('arriving')
-        }
+        finishedRef.current = true
+        setPhase('arriving')
+        onNotice('기사님이 콜을 수락했습니다. 탑승 후 이동을 시작해 주세요.')
       })
       .catch((error) => {
+        finishedRef.current = false
+        setPhase('searching')
         onNotice(error instanceof Error ? error.message : '콜 수락에 실패했어요.')
+      })
+      .finally(() => setAccepting(false))
+  }
+
+  const finishPassengerTrip = () => {
+    const driverId = ride?.assignedDriver?.id
+    if (!ride || !driverId || accepting) return
+    setAccepting(true)
+    void completeRideTrip(ride.id, driverId)
+      .then((result) => {
+        if (result.ride) setRide(result.ride)
+        finishedRef.current = true
+        onNotice('운행이 완료되어 정산되었습니다.')
+      })
+      .catch((error) => {
+        onNotice(error instanceof Error ? error.message : '정산에 실패했어요.')
       })
       .finally(() => setAccepting(false))
   }
@@ -2096,12 +2120,15 @@ function TaxiMatchingSheet({
               originLabel={live.origin?.address || pickupAddress}
               destLabel={resolvedDest?.address || live.dest?.address || dest}
             />
-            <p className="mt-6 text-xs font-bold text-[#8b8495]">기사님이 콜을 수락하면 배차 화면으로 이동합니다. 하단 기사/파트너에서 수락할 수도 있습니다.</p>
-            {ride?.pendingOffer ? (
-              <button type="button" disabled={accepting} onClick={acceptPendingOffer} className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60">
-                {accepting ? '수락 중…' : '이 기기에서 기사 콜 수락'}
-              </button>
-            ) : null}
+            <p className="mt-6 text-xs font-bold text-[#8b8495]">기사님이 콜을 수락하면 배차 화면으로 이동합니다. 테스트는 아래 버튼으로 바로 수락할 수 있습니다.</p>
+            <button
+              type="button"
+              disabled={accepting || !ride}
+              onClick={acceptPendingOffer}
+              className="relative z-20 mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
+            >
+              {accepting ? '수락 중…' : '이 기기에서 기사 콜 수락'}
+            </button>
             <button type="button" onClick={cancelRide} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
               호출 취소
             </button>
@@ -2188,6 +2215,11 @@ function TaxiMatchingSheet({
                   이동 시작
                 </button>
               )}
+              {phase === 'moving' && ride?.status !== 'completed' ? (
+                <button type="button" disabled={accepting} onClick={finishPassengerTrip} className="w-full rounded-2xl bg-[#047857] py-3.5 font-black text-white disabled:opacity-60">
+                  {accepting ? '정산 중…' : '운행 완료 · 정산하기'}
+                </button>
+              ) : null}
               <PaymentHandler
                 service="택시"
                 amount={phase === 'moving' ? billed.actual : fare}
