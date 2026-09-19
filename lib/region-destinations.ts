@@ -229,3 +229,87 @@ export function resolveRegion(address: string, lat?: number, lng?: number): Regi
 export function suggestedDestinationsFor(address: string, lat?: number, lng?: number): SuggestedPlace[] {
   return REGION_DESTINATIONS[resolveRegion(address, lat, lng)]
 }
+
+const PLACE_COORDS: Record<string, { lat: number; lng: number }> = {
+  서울역: { lat: 37.554678, lng: 126.970606 },
+  강남역: { lat: 37.497952, lng: 127.027619 },
+  명동: { lat: 37.563768, lng: 126.985226 },
+  홍대입구: { lat: 37.557192, lng: 126.925381 },
+  부산역: { lat: 35.115226, lng: 129.041517 },
+  '서면 롯데백화점': { lat: 35.157268, lng: 129.057396 },
+  '해운대 해수욕장': { lat: 35.158698, lng: 129.160384 },
+  김해공항: { lat: 35.179558, lng: 128.938241 },
+  인천공항: { lat: 37.460192, lng: 126.440696 },
+  '송도 센트럴파크': { lat: 37.3925, lng: 126.6395 },
+  부평역: { lat: 37.489467, lng: 126.724559 },
+  인천시청: { lat: 37.456256, lng: 126.705206 },
+  동대구역: { lat: 35.879729, lng: 128.628359 },
+  동성로: { lat: 35.869558, lng: 128.595926 },
+  수성못: { lat: 35.82885, lng: 128.6218 },
+  대구공항: { lat: 35.894108, lng: 128.658862 },
+  대전역: { lat: 36.332363, lng: 127.434217 },
+  '둔산 타임월드': { lat: 36.351848, lng: 127.377751 },
+  유성온천: { lat: 36.3548, lng: 127.345 },
+  대전복합터미널: { lat: 36.351, lng: 127.437 },
+  광주송정역: { lat: 35.137577, lng: 126.790508 },
+  충장로: { lat: 35.149, lng: 126.913 },
+  상무지구: { lat: 35.152, lng: 126.85 },
+  광주공항: { lat: 35.1264, lng: 126.8086 },
+  울산역: { lat: 35.5514, lng: 129.1386 },
+  '성남동 젊음의거리': { lat: 35.553, lng: 129.32 },
+  태화강국가정원: { lat: 35.548, lng: 129.296 },
+  울산공항: { lat: 35.5933, lng: 129.3515 },
+  세종시청: { lat: 36.48, lng: 127.289 },
+  정부세종청사: { lat: 36.504, lng: 127.265 },
+  오송역: { lat: 36.6205, lng: 127.327 },
+  조치원역: { lat: 36.601, lng: 127.296 },
+  수원역: { lat: 37.2658, lng: 126.9999 },
+  판교역: { lat: 37.394761, lng: 127.111217 },
+  킨텍스: { lat: 37.6688, lng: 126.7452 },
+  에버랜드: { lat: 37.294, lng: 127.202 },
+  강릉역: { lat: 37.764, lng: 128.899 },
+  속초해수욕장: { lat: 38.19, lng: 128.604 },
+  남이섬: { lat: 37.791, lng: 127.526 },
+  '평창 알펜시아': { lat: 37.658, lng: 128.67 },
+  '청주 성안길': { lat: 36.6357, lng: 127.489 },
+  충주호: { lat: 36.99, lng: 127.99 },
+  청주공항: { lat: 36.7166, lng: 127.4991 },
+  천안아산역: { lat: 36.7944, lng: 127.1045 },
+  '공주 공산성': { lat: 36.463, lng: 127.126 },
+  대천해수욕장: { lat: 36.31, lng: 126.514 },
+  독립기념관: { lat: 36.783, lng: 127.223 },
+  '전주 한옥마을': { lat: 35.8154, lng: 127.153 },
+  전주역: { lat: 35.8498, lng: 127.161 },
+  익산역: { lat: 35.941, lng: 126.954 },
+  '군산 은파호수공원': { lat: 35.965, lng: 126.737 },
+  여수엑스포역: { lat: 34.751, lng: 127.746 },
+  순천만국가정원: { lat: 34.928, lng: 127.509 },
+  목포역: { lat: 34.791, lng: 126.387 },
+  죽녹원: { lat: 35.325, lng: 126.986 },
+  '경주 불국사': { lat: 35.79, lng: 129.332 },
+  포항역: { lat: 36.071, lng: 129.343 },
+  '안동 하회마을': { lat: 36.539, lng: 128.518 },
+  구미역: { lat: 36.128, lng: 128.331 },
+  창원중앙역: { lat: 35.221, lng: 128.675 },
+  진주성: { lat: 35.19, lng: 128.077 },
+  '통영 동피랑': { lat: 34.845, lng: 128.424 },
+  '거제 외도': { lat: 34.769, lng: 128.71 },
+  제주국제공항: { lat: 33.5113, lng: 126.492 },
+  '서귀포 올레시장': { lat: 33.248, lng: 126.564 },
+  성산일출봉: { lat: 33.458, lng: 126.942 },
+  중문관광단지: { lat: 33.25, lng: 126.412 },
+}
+
+export function lookupSuggestedPlace(query: string) {
+  const q = query.trim()
+  if (!q) return null
+  for (const list of Object.values(REGION_DESTINATIONS)) {
+    const hit = list.find((place) => place.name === q || place.address === q)
+    if (!hit) continue
+    const coords = PLACE_COORDS[hit.name]
+    if (!coords) return { ...hit, ...centerForRegion(resolveRegion(hit.address)) }
+    return { ...hit, ...coords }
+  }
+  const coords = PLACE_COORDS[q]
+  return coords ? { name: q, address: q, ...coords } : null
+}

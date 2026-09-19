@@ -11,6 +11,7 @@ export type NaverMapInstance = {
   panBy: (offset: unknown) => void
   setZoom: (zoom: number, useEffect?: boolean) => void
   getZoom: () => number
+  fitBounds?: (bounds: unknown, margin?: unknown) => void
   autoResize?: () => void
   destroy?: () => void
 }
@@ -29,6 +30,7 @@ export type NaverPolyline = {
 export type NaverMapsSdk = {
   Map: new (el: HTMLElement, options: Record<string, unknown>) => NaverMapInstance
   LatLng: new (lat: number, lng: number) => unknown
+  LatLngBounds?: new (sw: unknown, ne: unknown) => unknown
   Point: new (x: number, y: number) => unknown
   Marker: new (options: Record<string, unknown>) => NaverMarker
   Polyline: new (options: Record<string, unknown>) => NaverPolyline
@@ -48,6 +50,10 @@ export type NaverMapsSdk = {
     reverseGeocode: (
       options: { coords: unknown; orders?: string },
       callback: (status: number, response: NaverReverseGeocodeResponse) => void,
+    ) => void
+    geocode?: (
+      options: { query: string },
+      callback: (status: number, response: { v2?: { addresses?: Array<{ x?: string; y?: string; roadAddress?: string; jibunAddress?: string }> } }) => void,
     ) => void
     Status: { OK: number; ERROR?: number }
     OrderType: { ADDR: string; ROAD_ADDR: string }

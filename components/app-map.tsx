@@ -20,85 +20,65 @@ import {
 
 export const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978, label: '서울시청' }
 
-const LIVE_BOUNDS = { north: 37.5728, south: 37.5602, west: 126.9682, east: 126.9878 }
-const ROUTE_LAT_SPAN = LIVE_BOUNDS.north - LIVE_BOUNDS.south
-const ROUTE_LNG_SPAN = LIVE_BOUNDS.east - LIVE_BOUNDS.west
 const TILE_SIZE = 256
 
 export type TaxiLivePhase = 'arriving' | 'boarding' | 'moving'
 export type TaxiMatchPhase = 'searching' | TaxiLivePhase
+export type RidePoint = { lat: number; lng: number }
 
 export function toTaxiLivePhase(phase: TaxiMatchPhase): TaxiLivePhase {
   if (phase === 'boarding' || phase === 'moving') return phase
   return 'arriving'
 }
 
-function routeAnchor(phase: TaxiLivePhase) {
-  const points = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
-  const point = phase === 'moving' ? points[0] : points[points.length - 1]
-  return { x: point[0], y: point[1] }
-}
-
-function pctToLatLng(
-  x: number,
-  y: number,
-  originLat: number,
-  originLng: number,
-  phase: TaxiLivePhase,
-  destLat?: number,
-  destLng?: number,
-) {
-  const points = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
-  if (phase === 'moving' && Number.isFinite(destLat) && Number.isFinite(destLng)) {
-    const start = points[0]
-    const end = points[points.length - 1]
-    const tx = (x - start[0]) / (end[0] - start[0] || 1)
-    const t = Math.min(1, Math.max(0, tx))
-    return {
-      lat: originLat + ((destLat as number) - originLat) * t,
-      lng: originLng + ((destLng as number) - originLng) * t,
-    }
-  }
-  const anchor = routeAnchor(phase)
+function lerpPoint(from: RidePoint, to: RidePoint, t: number): RidePoint {
   return {
-    lat: originLat - ((y - anchor.y) / 100) * ROUTE_LAT_SPAN,
-    lng: originLng + ((x - anchor.x) / 100) * ROUTE_LNG_SPAN,
+    lat: from.lat + (to.lat - from.lat) * t,
+    lng: from.lng + (to.lng - from.lng) * t,
   }
 }
 
-function pointOnRoute(points: number[][], t: number) {
+function headingAngle(from: RidePoint, to: RidePoint) {
+  return (Math.atan2(-(to.lat - from.lat), to.lng - from.lng) * 180) / Math.PI
+}
+
+export function resolveRideDestination(origin: RidePoint, destLat?: number, destLng?: number): RidePoint {
+  if (Number.isFinite(destLat) && Number.isFinite(destLng)) {
+    const dest = { lat: destLat as number, lng: destLng as number }
+    if (Math.abs(dest.lat - origin.lat) > 1e-6 || Math.abs(dest.lng - origin.lng) > 1e-6) return dest
+  }
+  return { lat: origin.lat + 0.012, lng: origin.lng + 0.01 }
+}
+
+function vehicleOnRide(phase: TaxiLivePhase, origin: RidePoint, dest: RidePoint, t: number) {
   const progress = Math.min(1, Math.max(0, t))
-  const segments = points.length - 1
-  const scaled = progress * segments
-  const index = Math.min(segments - 1, Math.floor(scaled))
-  const local = scaled - index
-  const from = points[index]
-  const to = points[index + 1]
-  return {
-    x: from[0] + (to[0] - from[0]) * local,
-    y: from[1] + (to[1] - from[1]) * local,
-    angle: (Math.atan2(to[1] - from[1], to[0] - from[0]) * 180) / Math.PI,
+  if (phase === 'boarding') return { ...origin, angle: headingAngle(origin, dest) }
+  if (phase === 'arriving') {
+    const start = lerpPoint(origin, dest, -0.18)
+    const pos = lerpPoint(start, origin, progress)
+    return { ...pos, angle: headingAngle(start, origin) }
   }
+  const pos = lerpPoint(origin, dest, progress)
+  return { ...pos, angle: headingAngle(origin, dest) }
 }
 
-const PICKUP_ROUTE = [
-  [12, 84],
-  [22, 76],
-  [32, 66],
-  [44, 56],
-  [56, 46],
-  [70, 34],
-  [84, 24],
-]
-const TRIP_ROUTE = [
-  [16, 80],
-  [28, 68],
-  [40, 56],
-  [52, 44],
-  [64, 34],
-  [76, 24],
-  [88, 16],
-]
+function fitRideBounds(sdk: NaverMapsSdk, map: NaverMapInstance, origin: RidePoint, dest: RidePoint) {
+  const mid = lerpPoint(origin, dest, 0.5)
+  const span = Math.max(Math.abs(dest.lat - origin.lat), Math.abs(dest.lng - origin.lng))
+  if (span < 0.0008) {
+    map.setCenter(new sdk.LatLng(mid.lat, mid.lng))
+    map.setZoom(16)
+    return
+  }
+  if (sdk.LatLngBounds && map.fitBounds) {
+    const sw = new sdk.LatLng(Math.min(origin.lat, dest.lat), Math.min(origin.lng, dest.lng))
+    const ne = new sdk.LatLng(Math.max(origin.lat, dest.lat), Math.max(origin.lng, dest.lng))
+    map.fitBounds(new sdk.LatLngBounds(sw, ne), { top: 56, right: 48, bottom: 56, left: 48 })
+    return
+  }
+  map.setCenter(new sdk.LatLng(mid.lat, mid.lng))
+  map.setZoom(span > 0.08 ? 12 : span > 0.03 ? 13 : 15)
+}
 
 type MapViewProps = {
   lat: number
@@ -630,40 +610,33 @@ function LiveFallbackOverlay({
   phase,
   kind,
   taxi,
-  points,
-  lat,
-  lng,
-  destLat,
-  destLng,
+  origin,
+  dest,
   zoom,
   size,
 }: {
   phase: TaxiLivePhase
   kind: 'taxi' | 'daeri'
-  taxi: { x: number; y: number; angle: number }
-  points: number[][]
-  lat: number
-  lng: number
-  destLat?: number
-  destLng?: number
+  taxi: RidePoint & { angle: number }
+  origin: RidePoint
+  dest: RidePoint
   zoom: number
   size: { width: number; height: number }
 }) {
-  const center = latLngToWorld(lat, lng, zoom)
+  const mid = lerpPoint(origin, dest, 0.5)
+  const center = latLngToWorld(mid.lat, mid.lng, zoom)
   const originX = center.x - size.width / 2
   const originY = center.y - size.height / 2
-  const toPx = (x: number, y: number) => {
-    const geo = pctToLatLng(x, y, lat, lng, phase, destLat, destLng)
-    const world = latLngToWorld(geo.lat, geo.lng, zoom)
+  const toPx = (point: RidePoint) => {
+    const world = latLngToWorld(point.lat, point.lng, zoom)
     return { left: world.x - originX, top: world.y - originY }
   }
-  const path = points.map(([x, y]) => toPx(x, y))
-  const start = path[0]
-  const end = path[path.length - 1]
-  const mover = toPx(taxi.x, taxi.y)
+  const start = toPx(origin)
+  const end = toPx(dest)
+  const mover = toPx(taxi)
   const walker = kind === 'daeri' && phase !== 'moving'
   const MarkerIcon = walker ? UserRound : Car
-  const d = path.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.left} ${point.top}`).join(' ')
+  const d = `M ${start.left} ${start.top} L ${end.left} ${end.top}`
   if (size.width < 8) return null
   return (
     <div className="pointer-events-none absolute inset-0 z-[6]">
@@ -671,10 +644,10 @@ function LiveFallbackOverlay({
         <path d={d} fill="none" stroke="#4A82B8" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 7" strokeOpacity="0.88" />
       </svg>
       <span className="absolute rounded-full bg-[#0F172A] px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ left: start.left, top: start.top, transform: 'translate(-50%, -140%)' }}>
-        {phase === 'moving' ? '출발' : '기사'}
+        출발
       </span>
       <span className="absolute rounded-full bg-[#1D4ED8] px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ left: end.left, top: end.top, transform: 'translate(-50%, -140%)' }}>
-        {phase === 'moving' ? '도착' : kind === 'daeri' ? '호출자' : '승객'}
+        도착
       </span>
       <span className="absolute" style={{ left: mover.left, top: mover.top, transform: `translate(-50%, -50%) rotate(${walker ? 0 : taxi.angle}deg)` }}>
         <MarkerIcon className="h-7 w-7 text-[#0F172A] drop-shadow-[0_1px_1px_rgba(255,255,255,0.95)]" strokeWidth={2.35} />
@@ -687,19 +660,15 @@ function NaverLiveRideMap({
   phase,
   kind,
   taxi,
-  originLat,
-  originLng,
-  destLat,
-  destLng,
+  origin,
+  dest,
   className,
 }: {
   phase: TaxiLivePhase
   kind: 'taxi' | 'daeri'
-  taxi: { x: number; y: number; angle: number }
-  originLat: number
-  originLng: number
-  destLat?: number
-  destLng?: number
+  taxi: RidePoint & { angle: number }
+  origin: RidePoint
+  dest: RidePoint
   className?: string
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -709,8 +678,10 @@ function NaverLiveRideMap({
   const moverRef = useRef<NaverMarker | null>(null)
   const moverEl = useRef<HTMLDivElement | null>(null)
   const lineRef = useRef<NaverPolyline | null>(null)
+  const startPinRef = useRef<MapHtmlPin | null>(null)
+  const endPinRef = useRef<MapHtmlPin | null>(null)
   const walker = kind === 'daeri' && phase !== 'moving'
-  const points = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
+  const mid = lerpPoint(origin, dest, 0.5)
   const [mode, setMode] = useState<'loading' | 'naver' | 'fallback'>(hasNaverMapClientId() ? 'loading' : 'fallback')
   const [zoom, setZoom] = useState(15)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -745,10 +716,8 @@ function NaverLiveRideMap({
         return
       }
       mapsRef.current = sdk
-      const startPt = pctToLatLng(points[0][0], points[0][1], originLat, originLng, phase, destLat, destLng)
-      const endPt = pctToLatLng(points[points.length - 1][0], points[points.length - 1][1], originLat, originLng, phase, destLat, destLng)
       const map = new sdk.Map(canvasRef.current, {
-        center: new sdk.LatLng(originLat, originLng),
+        center: new sdk.LatLng(mid.lat, mid.lng),
         zoom: 15,
         scaleControl: false,
         mapDataControl: false,
@@ -758,12 +727,10 @@ function NaverLiveRideMap({
         scrollWheel: true,
       })
       mapRef.current = map
+      fitRideBounds(sdk, map, origin, dest)
       lineRef.current = new sdk.Polyline({
         map,
-        path: points.map(([x, y]) => {
-          const point = pctToLatLng(x, y, originLat, originLng, phase, destLat, destLng)
-          return new sdk.LatLng(point.lat, point.lng)
-        }),
+        path: [new sdk.LatLng(origin.lat, origin.lng), new sdk.LatLng(dest.lat, dest.lng)],
         strokeColor: '#4A82B8',
         strokeWeight: 2,
         strokeOpacity: 0.88,
@@ -774,25 +741,32 @@ function NaverLiveRideMap({
       })
       const startLabel = document.createElement('div')
       startLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#0F172A;color:#fff;padding:2px 6px;font-size:9px;font-weight:700'
-      startLabel.textContent = phase === 'moving' ? '출발' : '기사'
+      startLabel.textContent = '출발'
       const endLabel = document.createElement('div')
       endLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#1D4ED8;color:#fff;padding:2px 6px;font-size:9px;font-weight:700'
-      endLabel.textContent = phase === 'moving' ? '도착' : kind === 'daeri' ? '호출자' : '승객'
-      createHtmlOverlay(sdk, map, startLabel, startPt.lat, startPt.lng, 'translate(-50%, -120%)')
-      createHtmlOverlay(sdk, map, endLabel, endPt.lat, endPt.lng, 'translate(-50%, -120%)')
+      endLabel.textContent = '도착'
+      startPinRef.current = createHtmlOverlay(sdk, map, startLabel, origin.lat, origin.lng, 'translate(-50%, -120%)')
+      endPinRef.current = createHtmlOverlay(sdk, map, endLabel, dest.lat, dest.lng, 'translate(-50%, -120%)')
       const mover = document.createElement('div')
       mover.style.willChange = 'transform'
       mover.innerHTML = markerHtml(walker)
       moverEl.current = mover
-      moverRef.current = createDomMarker(sdk, map, mover, startPt.lat, startPt.lng, 14, 14)
+      moverRef.current = createDomMarker(sdk, map, mover, taxi.lat, taxi.lng, 14, 14)
       refreshNaverMap(sdk, map)
-      window.requestAnimationFrame(() => map.panTo(new sdk.LatLng(originLat, originLng)))
-      window.setTimeout(() => refreshNaverMap(sdk, map), 80)
+      window.requestAnimationFrame(() => fitRideBounds(sdk, map, origin, dest))
+      window.setTimeout(() => {
+        fitRideBounds(sdk, map, origin, dest)
+        refreshNaverMap(sdk, map)
+      }, 80)
       window.setTimeout(() => refreshNaverMap(sdk, map), 400)
       setMode('naver')
     })()
     return () => {
       cancelled = true
+      startPinRef.current?.setMap(null)
+      startPinRef.current = null
+      endPinRef.current?.setMap(null)
+      endPinRef.current = null
       moverRef.current?.setMap(null)
       moverRef.current = null
       lineRef.current?.setMap(null)
@@ -800,17 +774,16 @@ function NaverLiveRideMap({
       mapRef.current?.destroy?.()
       mapRef.current = null
     }
-  }, [kind, phase, walker, points, originLat, originLng, destLat, destLng])
+  }, [kind, walker, origin.lat, origin.lng, dest.lat, dest.lng])
 
   useEffect(() => {
     const marker = moverRef.current
     const el = moverEl.current
     const sdk = mapsRef.current
     if (!marker || !sdk || mode !== 'naver') return
-    const geo = pctToLatLng(taxi.x, taxi.y, originLat, originLng, phase, destLat, destLng)
     if (el) el.style.transform = `rotate(${walker ? 0 : taxi.angle}deg)`
-    marker.setPosition(new sdk.LatLng(geo.lat, geo.lng))
-  }, [taxi, walker, mode, originLat, originLng, phase, destLat, destLng])
+    marker.setPosition(new sdk.LatLng(taxi.lat, taxi.lng))
+  }, [taxi, walker, mode])
 
   return (
     <MapFrame className={className}>
@@ -818,8 +791,8 @@ function NaverLiveRideMap({
         {mode !== 'fallback' ? <div ref={canvasRef} className="naver-map-canvas h-full w-full" style={{ width: '100%', height: '100%' }} /> : null}
         {mode === 'fallback' ? (
           <FallbackSlippyMap
-            lat={originLat}
-            lng={originLng}
+            lat={mid.lat}
+            lng={mid.lng}
             hidePin
             zoom={zoom}
             interactive
@@ -828,7 +801,7 @@ function NaverLiveRideMap({
             onZoomOut={() => setZoom((value) => Math.max(12, value - 1))}
             notice={loadNotice}
           >
-            <LiveFallbackOverlay phase={phase} kind={kind} taxi={taxi} points={points} lat={originLat} lng={originLng} destLat={destLat} destLng={destLng} zoom={zoom} size={size} />
+            <LiveFallbackOverlay phase={phase} kind={kind} taxi={taxi} origin={origin} dest={dest} zoom={zoom} size={size} />
           </FallbackSlippyMap>
         ) : null}
       </div>
@@ -876,26 +849,26 @@ export function TaxiLiveMap({
   destLat?: number
   destLng?: number
 }) {
-  const points = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
-  const [taxi, setTaxi] = useState(() => pointOnRoute(points, phase === 'boarding' ? 1 : 0))
+  const origin = { lat: originLat, lng: originLng }
+  const dest = resolveRideDestination(origin, destLat, destLng)
+  const [taxi, setTaxi] = useState(() => vehicleOnRide(phase, origin, dest, phase === 'boarding' ? 1 : 0))
 
   useEffect(() => {
     if (phase === 'boarding') {
-      setTaxi(pointOnRoute(PICKUP_ROUTE, 1))
+      setTaxi(vehicleOnRide(phase, origin, dest, 1))
       return
     }
     const duration = phase === 'moving' ? 24000 : 16000
-    const route = phase === 'moving' ? TRIP_ROUTE : PICKUP_ROUTE
     let frame = 0
     const started = performance.now()
     const tick = (now: number) => {
       const elapsed = (now - started) % duration
-      setTaxi(pointOnRoute(route, elapsed / duration))
+      setTaxi(vehicleOnRide(phase, origin, dest, elapsed / duration))
       frame = window.requestAnimationFrame(tick)
     }
     frame = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frame)
-  }, [phase])
+  }, [phase, origin.lat, origin.lng, dest.lat, dest.lng])
 
   return (
     <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
@@ -903,10 +876,8 @@ export function TaxiLiveMap({
         phase={phase}
         kind={kind}
         taxi={taxi}
-        originLat={originLat}
-        originLng={originLng}
-        destLat={destLat}
-        destLng={destLng}
+        origin={origin}
+        dest={dest}
         className="h-[248px]"
       />
       <div className="pointer-events-none absolute inset-x-3 top-3 z-[15] mr-14 flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
@@ -920,3 +891,4 @@ export function TaxiLiveMap({
     </div>
   )
 }
+

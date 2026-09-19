@@ -8,8 +8,8 @@ import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView 
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
-import { suggestedDestinationsFor } from '@/lib/region-destinations'
-import { BUSAN_CITY_HALL, requestBrowserPosition, resolveFlexibleFallback, reverseGeocode } from '@/lib/user-location'
+import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
+import { BUSAN_CITY_HALL, geocodeAddress, requestBrowserPosition, resolveFlexibleFallback, reverseGeocode } from '@/lib/user-location'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX } from '@/components/pi-checkout'
@@ -19,6 +19,23 @@ const LOCAL_TEST_USER = { username: 'taxitago' }
 
 type ServiceLabel = keyof typeof serviceIllustrations
 type Service = { label: ServiceLabel }
+type RideCoords = { lat: number; lng: number }
+type DaeriTrip = {
+  pickup: string
+  dest: string
+  plan: string
+  fare: number
+  pickupLat: number
+  pickupLng: number
+  destLat: number
+  destLng: number
+}
+
+function coordsFromPlaceQuery(query: string): RideCoords | null {
+  const hit = lookupSuggestedPlace(query)
+  if (!hit || !Number.isFinite(hit.lat) || !Number.isFinite(hit.lng)) return null
+  return { lat: hit.lat, lng: hit.lng }
+}
 
 const navItems = [
   { id: '전체보기', label: '전체보기', icon: LayoutGrid },
@@ -1694,6 +1711,8 @@ function TaxiMatchingSheet({
   destination,
   pickupLat,
   pickupLng,
+  destLat,
+  destLng,
   pickupAddress,
   onClose,
   onNotice,
@@ -1706,6 +1725,8 @@ function TaxiMatchingSheet({
   destination: string
   pickupLat: number
   pickupLng: number
+  destLat?: number
+  destLng?: number
   pickupAddress: string
   onClose: () => void
   onNotice: (message: string) => void
@@ -1816,6 +1837,8 @@ function TaxiMatchingSheet({
               statusLabel={statusLabel}
               originLat={pickupLat}
               originLng={pickupLng}
+              destLat={destLat}
+              destLng={destLng}
             />
             <div className="mt-4 rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
               <div className="flex items-center gap-3">
@@ -1988,7 +2011,7 @@ function ServiceSheet({
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
-  daeriTrip?: { pickup: string; dest: string; plan: string; fare: number } | null
+  daeriTrip?: DaeriTrip | null
   onSelectService?: (label: string) => void
 }) {
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
@@ -2168,8 +2191,10 @@ function ServiceSheet({
                 phase={rideStage === 'moving' ? 'moving' : 'arriving'}
                 routeLabel={place}
                 statusLabel={rideStage === 'moving' ? '목적지 이동 중' : '기사 이동 중'}
-                originLat={pickupLat}
-                originLng={pickupLng}
+                originLat={daeriTrip?.pickupLat ?? pickupLat}
+                originLng={daeriTrip?.pickupLng ?? pickupLng}
+                destLat={daeriTrip?.destLat}
+                destLng={daeriTrip?.destLng}
               />
             ) : null}
             <div className="rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
@@ -2429,17 +2454,28 @@ function ServiceSheet({
 
 function DaeriCallSetupSheet({
   destination,
+  originLat,
+  originLng,
+  originAddress,
+  destLat,
+  destLng,
   onClose,
   onCall,
 }: {
   destination: string
+  originLat: number
+  originLng: number
+  originAddress: string
+  destLat?: number
+  destLng?: number
   onClose: () => void
-  onCall: (trip: { pickup: string; dest: string; plan: string; fare: number }) => void
+  onCall: (trip: DaeriTrip) => void
 }) {
-  const [pickup, setPickup] = useState('서울특별시 중구 세종대로 110')
+  const [pickup, setPickup] = useState(originAddress)
+  const [pickupPoint, setPickupPoint] = useState<RideCoords>({ lat: originLat, lng: originLng })
   const [dest, setDest] = useState(destination.trim() || '')
   const [plan, setPlan] = useState<'착한요금' | '빠른배정'>('착한요금')
-  const [mapPlace, setMapPlace] = useState(SEOUL_CITY_HALL)
+  const [mapPlace, setMapPlace] = useState({ lat: originLat, lng: originLng, label: '현재 위치' })
   const [mapPicker, setMapPicker] = useState(false)
   const [pendingPick, setPendingPick] = useState<{ lat: number; lng: number; address: string } | null>(null)
   const [sheetOpen, setSheetOpen] = useState(true)
@@ -2461,6 +2497,7 @@ function DaeriCallSetupSheet({
         const lat = position.coords.latitude
         const lng = position.coords.longitude
         setMapPlace({ lat, lng, label: '현재 위치' })
+        setPickupPoint({ lat, lng })
         void fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=ko`, {
           headers: { Accept: 'application/json' },
         })
@@ -2551,6 +2588,7 @@ function DaeriCallSetupSheet({
               onClick={() => {
                 if (!pendingPick) return
                 setPickup(pendingPick.address)
+                setPickupPoint({ lat: pendingPick.lat, lng: pendingPick.lng })
                 closePicker()
               }}
               className="mt-4 w-full rounded-2xl bg-[#2563EB] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(37,99,235,0.38)]"
@@ -2628,7 +2666,32 @@ function DaeriCallSetupSheet({
           <button
             type="button"
             disabled={!pickup.trim() || !dest.trim()}
-            onClick={() => onCall({ pickup: pickup.trim(), dest: dest.trim(), plan: selected.id, fare: selected.fare })}
+            onClick={() => {
+              const destName = dest.trim()
+              const known =
+                coordsFromPlaceQuery(destName) ??
+                (Number.isFinite(destLat) && Number.isFinite(destLng) && destName === destination.trim()
+                  ? { lat: destLat as number, lng: destLng as number }
+                  : null)
+              const fallback = { lat: pickupPoint.lat + 0.012, lng: pickupPoint.lng + 0.01 }
+              const finish = (point: RideCoords) => {
+                onCall({
+                  pickup: pickup.trim(),
+                  dest: destName,
+                  plan: selected.id,
+                  fare: selected.fare,
+                  pickupLat: pickupPoint.lat,
+                  pickupLng: pickupPoint.lng,
+                  destLat: point.lat,
+                  destLng: point.lng,
+                })
+              }
+              if (known) {
+                finish(known)
+                return
+              }
+              void geocodeAddress(destName).then((geo) => finish(geo ?? fallback))
+            }}
             className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)] disabled:cursor-not-allowed disabled:opacity-40"
           >
             대리 호출하기
@@ -2762,7 +2825,7 @@ function Home({
   pickup: string
   pickupLat: number
   pickupLng: number
-  onDestination: (value: string) => void
+  onDestination: (value: string, coords?: RideCoords) => void
   onService: (value: string) => void
   onReceipt: (ride: RideReceipt) => void
   onOpenMap: () => void
@@ -2784,7 +2847,7 @@ function Home({
   }
   const select = (name: string, address?: string) => {
     rememberRecent(name, address)
-    onDestination(address || name)
+    onDestination(address || name, coordsFromPlaceQuery(name) ?? coordsFromPlaceQuery(address || '') ?? undefined)
     setSearchOpen(false)
   }
   const addFavorite = (place: { name: string; address: string }) => {
@@ -2813,7 +2876,7 @@ function Home({
   const suggestedDestinations = suggestedDestinationsFor(pickup, pickupLat, pickupLng)
   const pickSuggested = (name: string, address: string) => {
     rememberRecent(name, address)
-    onDestination(name)
+    onDestination(name, coordsFromPlaceQuery(name) ?? coordsFromPlaceQuery(address) ?? undefined)
   }
 
   return (
@@ -4190,10 +4253,11 @@ export default function HomeScreen() {
   const [driverOnline, setDriverOnline] = useState(true)
   const [tab, setTab] = useState('홈')
   const [destination, setDestination] = useState('')
+  const [destPoint, setDestPoint] = useState<RideCoords | null>(null)
   const [selectedService, setSelectedService] = useState<string | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const [daeriSetupOpen, setDaeriSetupOpen] = useState(false)
-  const [daeriTrip, setDaeriTrip] = useState<{ pickup: string; dest: string; plan: string; fare: number } | null>(null)
+  const [daeriTrip, setDaeriTrip] = useState<DaeriTrip | null>(null)
   const [notice, setNotice] = useState('')
   const [walletBalance, setWalletBalance] = useState(18.4)
   const [walletOpen, setWalletOpen] = useState(false)
@@ -4386,8 +4450,22 @@ export default function HomeScreen() {
     }
     setSelectedService(value)
   }
-  const selectDestination = (value: string) => {
+  const selectDestination = (value: string, coords?: RideCoords) => {
     setDestination(value)
+    if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
+      setDestPoint(coords)
+    } else {
+      const known = coordsFromPlaceQuery(value)
+      if (known) {
+        setDestPoint(known)
+      } else if (!value.trim()) {
+        setDestPoint(null)
+      } else {
+        void geocodeAddress(value).then((point) => {
+          if (point) setDestPoint(point)
+        })
+      }
+    }
     if (value) showNotice(`${value} 목적지를 선택했어요.`)
   }
   const enterDriverMode = () => {
@@ -4670,6 +4748,11 @@ export default function HomeScreen() {
         {daeriSetupOpen ? (
           <DaeriCallSetupSheet
             destination={destination}
+            originLat={origin.lat}
+            originLng={origin.lng}
+            originAddress={origin.address}
+            destLat={destPoint?.lat}
+            destLng={destPoint?.lng}
             onClose={() => setDaeriSetupOpen(false)}
             onCall={(trip) => {
               setDaeriTrip(trip)
@@ -4693,6 +4776,8 @@ export default function HomeScreen() {
             destination={destination}
             pickupLat={origin.lat}
             pickupLng={origin.lng}
+            destLat={destPoint?.lat}
+            destLng={destPoint?.lng}
             pickupAddress={origin.address}
             onClose={() => setSelectedService(null)}
             onNotice={showNotice}

@@ -187,3 +187,45 @@ export async function reverseGeocode(lat: number, lng: number) {
   if (osm) return osm
   return coordFallbackAddress(lat, lng)
 }
+
+export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
+  const q = query.trim()
+  if (!q) return null
+  const sdk = await loadNaverMaps()
+  const geocode = sdk?.Service?.geocode
+  if (sdk && geocode) {
+    const naver = await new Promise<GeoPoint | null>((resolve) => {
+      const timer = window.setTimeout(() => resolve(null), 4000)
+      try {
+        geocode({ query: q }, (status, response) => {
+          window.clearTimeout(timer)
+          if (status !== sdk.Service?.Status.OK) {
+            resolve(null)
+            return
+          }
+          const item = response.v2?.addresses?.[0]
+          const lat = Number(item?.y)
+          const lng = Number(item?.x)
+          resolve(Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null)
+        })
+      } catch {
+        window.clearTimeout(timer)
+        resolve(null)
+      }
+    })
+    if (naver) return naver
+  }
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}&accept-language=ko`,
+      { headers: { Accept: 'application/json' } },
+    )
+    if (!response.ok) return null
+    const data = (await response.json()) as Array<{ lat?: string; lon?: string }>
+    const lat = Number(data[0]?.lat)
+    const lng = Number(data[0]?.lon)
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null
+  } catch {
+    return null
+  }
+}
