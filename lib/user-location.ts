@@ -1,9 +1,9 @@
 import { loadNaverMaps } from '@/lib/naver-maps'
-import { resolveRegion } from '@/lib/region-destinations'
+import { centerForRegion, regionFromAccessText, resolveRegion } from '@/lib/region-destinations'
 
 export const BUSAN_CITY_HALL = { lat: 35.179554, lng: 129.075641 }
 
-const REGION_FALLBACK_LABEL: Record<string, string> = {
+export const REGION_FALLBACK_LABEL: Record<string, string> = {
   seoul: '서울특별시',
   busan: '부산광역시',
   incheon: '인천광역시',
@@ -50,15 +50,41 @@ export function requestBrowserPosition(): Promise<GeoPoint | null> {
   })()
 }
 
-export async function lookupAccessRegion(): Promise<GeoPoint | null> {
+export async function lookupAccessRegion(): Promise<{ lat: number; lng: number; city?: string; region?: string; country?: string } | null> {
   try {
     const response = await fetch('https://ipwho.is/', { headers: { Accept: 'application/json' } })
     if (!response.ok) return null
-    const data = (await response.json()) as { success?: boolean; latitude?: number; longitude?: number }
-    if (!data.success || !Number.isFinite(data.latitude) || !Number.isFinite(data.longitude)) return null
-    return { lat: data.latitude as number, lng: data.longitude as number }
+    const data = (await response.json()) as {
+      success?: boolean
+      latitude?: number
+      longitude?: number
+      city?: string
+      region?: string
+      country?: string
+      country_code?: string
+    }
+    if (!data.success) return null
+    return {
+      lat: Number(data.latitude),
+      lng: Number(data.longitude),
+      city: data.city,
+      region: data.region,
+      country: data.country || data.country_code,
+    }
   } catch {
     return null
+  }
+}
+
+export async function resolveFlexibleFallback() {
+  const access = await lookupAccessRegion()
+  const regionId = regionFromAccessText(access?.city, access?.region, access?.country)
+  const center = centerForRegion(regionId)
+  const label = REGION_FALLBACK_LABEL[regionId] || '부산광역시'
+  return {
+    lat: center.lat,
+    lng: center.lng,
+    address: `${label} 접속 지역`,
   }
 }
 
@@ -160,10 +186,4 @@ export async function reverseGeocode(lat: number, lng: number) {
   const osm = await reverseGeocodeNominatim(lat, lng)
   if (osm) return osm
   return coordFallbackAddress(lat, lng)
-}
-
-export async function resolveFlexibleFallback() {
-  const access = await lookupAccessRegion()
-  if (access) return access
-  return BUSAN_CITY_HALL
 }

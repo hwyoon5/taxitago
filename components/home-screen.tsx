@@ -9,7 +9,7 @@ import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, SEOUL_CITY_HALL, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { suggestedDestinationsFor } from '@/lib/region-destinations'
-import { requestBrowserPosition, resolveFlexibleFallback, reverseGeocode } from '@/lib/user-location'
+import { BUSAN_CITY_HALL, requestBrowserPosition, resolveFlexibleFallback, reverseGeocode } from '@/lib/user-location'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { isRidePayLabel, settleRideFare } from '@/lib/ride-fare'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX } from '@/components/pi-checkout'
@@ -284,9 +284,9 @@ function FullscreenMapView({
 function LocationMapModal({ onClose }: { onClose: () => void }) {
   const [gpsPending, setGpsPending] = useState(true)
   const [addressPending, setAddressPending] = useState(true)
-  const [mapCenter, setMapCenter] = useState(SEOUL_CITY_HALL)
-  const [pin, setPin] = useState({ lat: SEOUL_CITY_HALL.lat, lng: SEOUL_CITY_HALL.lng })
-  const [address, setAddress] = useState(virtualPickupAddress(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng))
+  const [mapCenter, setMapCenter] = useState(BUSAN_CITY_HALL)
+  const [pin, setPin] = useState({ lat: BUSAN_CITY_HALL.lat, lng: BUSAN_CITY_HALL.lng })
+  const [address, setAddress] = useState('접속 지역을 확인하는 중')
   const [source, setSource] = useState<'fallback' | 'gps' | 'pick'>('fallback')
   const lookupSeq = useRef(0)
 
@@ -306,7 +306,7 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
   }
 
   useEffect(() => {
-    applyPoint(SEOUL_CITY_HALL.lat, SEOUL_CITY_HALL.lng, 'fallback', true)
+    applyPoint(BUSAN_CITY_HALL.lat, BUSAN_CITY_HALL.lng, 'fallback', true)
     if (!navigator.geolocation) {
       setGpsPending(false)
       return
@@ -333,7 +333,7 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
       ? '지도를 터치한 지점의 주소입니다.'
       : source === 'gps'
         ? '스마트폰 GPS 기준 현재 위치입니다.'
-        : '위치 권한이 없어 서울시청을 기준으로 표시했어요.'
+        : '위치 권한이 없어 접속 지역 기준으로 표시했어요.'
 
   return (
     <div className="fixed inset-0 z-[90] flex items-end bg-[#1e293b]/45 sm:items-center sm:p-4" onClick={onClose}>
@@ -4182,10 +4182,10 @@ export default function HomeScreen() {
   const [gps, setGps] = useState<GpsFix>({
     status: 'pending',
     address: '현재 위치를 확인하는 중',
-    lat: SEOUL_CITY_HALL.lat,
-    lng: SEOUL_CITY_HALL.lng,
+    lat: BUSAN_CITY_HALL.lat,
+    lng: BUSAN_CITY_HALL.lng,
   })
-  const [chargePromptOpen, setChargePromptOpen] = useState(false)
+  const [locationGuideOpen, setLocationGuideOpen] = useState(false)
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'activity' | 'account' | null>(null)
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
@@ -4211,11 +4211,17 @@ export default function HomeScreen() {
     writePickupPlace(place)
   }
 
-  const applyLocatedPoint = async (point: { lat: number; lng: number }, status: GpsFix['status'], source: PickupPlace['source']) => {
-    setGps({ status, address: '주소를 확인하는 중', lat: point.lat, lng: point.lng })
+  const applyLocatedPoint = async (
+    point: { lat: number; lng: number; address?: string },
+    status: GpsFix['status'],
+    source: PickupPlace['source'],
+  ) => {
+    const pendingAddress = point.address || '주소를 확인하는 중'
+    setGps({ status, address: pendingAddress, lat: point.lat, lng: point.lng })
     if (pickupRef.current?.source !== 'map') {
-      applyPickup({ address: '주소를 확인하는 중', lat: point.lat, lng: point.lng, source })
+      applyPickup({ address: pendingAddress, lat: point.lat, lng: point.lng, source })
     }
+    if (point.address) return
     const address = await reverseGeocode(point.lat, point.lng)
     setGps({ status, address, lat: point.lat, lng: point.lng })
     if (pickupRef.current?.source !== 'map') {
@@ -4230,11 +4236,11 @@ export default function HomeScreen() {
       await applyLocatedPoint(point, 'ready', 'gps')
       return true
     }
-    if (promptOnFail) {
-      showNotice('위치 권한을 허용하면 현재 출발지를 정확히 표시할 수 있어요.')
-    }
     const fallback = await resolveFlexibleFallback()
     await applyLocatedPoint(fallback, 'approx', 'gps')
+    if (promptOnFail) {
+      showNotice('정확한 GPS를 쓰지 못해 접속 지역으로 표시했어요. 위치를 눌러 직접 바꿀 수 있어요.')
+    }
     return false
   }
 
@@ -4248,7 +4254,7 @@ export default function HomeScreen() {
     setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
     const storedPickup = readPickupPlace()
-    if (storedPickup) {
+    if (storedPickup?.source === 'map') {
       pickupRef.current = storedPickup
       setPickup(storedPickup)
     }
@@ -4436,16 +4442,23 @@ export default function HomeScreen() {
                   : 'bg-[#F1F5F9] text-[#475569]'
             }`}
           >
-            <LocateFixed className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">
-              {pickup?.source === 'map' || gps.status === 'ready'
-                ? `현재 위치 · ${origin.address}`
-                : gps.status === 'pending'
-                  ? 'GPS 위치를 수신하는 중이에요'
-                  : gps.status === 'approx'
-                    ? `접속 지역 · ${origin.address}`
-                    : `위치 권한 없음 · ${origin.address}`}
-            </span>
+            <button
+              type="button"
+              onClick={() => setLocationGuideOpen(true)}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              aria-label="현재 위치 변경"
+            >
+              <LocateFixed className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {pickup?.source === 'map' || gps.status === 'ready'
+                  ? `현재 위치 · ${origin.address}`
+                  : gps.status === 'pending'
+                    ? 'GPS 위치를 수신하는 중이에요'
+                    : gps.status === 'approx'
+                      ? `접속 지역 · ${origin.address}`
+                      : `위치 권한 없음 · ${origin.address}`}
+              </span>
+            </button>
             {gps.status !== 'ready' && pickup?.source !== 'map' ? (
               <button
                 type="button"
@@ -4533,6 +4546,43 @@ export default function HomeScreen() {
             )
           })}
         </nav>
+        {locationGuideOpen ? (
+          <div className="fixed inset-0 z-[96] flex items-end bg-[#1e1033]/45 sm:items-center sm:p-4" onClick={() => setLocationGuideOpen(false)}>
+            <section className="mx-auto w-full max-w-md rounded-t-[28px] bg-white px-5 pb-7 pt-4 shadow-2xl sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
+              <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+              <p className="text-xs font-black text-[#4C1FB8]">출발지 설정</p>
+              <h2 className="mt-1 text-xl font-black text-[#0F172A]">위치를 직접 바꿀 수 있어요</h2>
+              <p className="mt-2 text-sm font-bold leading-6 text-[#475569]">
+                {gps.status === 'ready' || pickup?.source === 'map'
+                  ? '지도에서 핀을 옮기거나 GPS를 다시 받아 출발지를 변경하세요.'
+                  : 'GPS를 가져오지 못해 접속 지역으로 표시하고 있어요. 위치 권한을 허용하거나 지도에서 출발지를 골라 주세요. 서울로 고정되지 않습니다.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLocationGuideOpen(false)
+                  void requestUserLocation(true)
+                }}
+                className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white shadow-[0_10px_20px_rgba(76,31,184,0.28)]"
+              >
+                위치 권한 다시 요청
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLocationGuideOpen(false)
+                  setFullscreenMapOpen(true)
+                }}
+                className="mt-2 w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3.5 text-sm font-black text-[#4C1FB8]"
+              >
+                지도에서 출발지 선택
+              </button>
+              <button type="button" onClick={() => setLocationGuideOpen(false)} className="mt-2 w-full py-3 text-sm font-black text-[#64748B]">
+                닫기
+              </button>
+            </section>
+          </div>
+        ) : null}
         {mapOpen ? <LocationMapModal onClose={() => setMapOpen(false)} /> : null}
         {fullscreenMapOpen ? (
           <FullscreenMapView

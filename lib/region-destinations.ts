@@ -167,7 +167,41 @@ export const REGION_DESTINATIONS: Record<RegionId, SuggestedPlace[]> = {
   ],
 }
 
-const DEFAULT_REGION: RegionId = 'seoul'
+const DEFAULT_REGION: RegionId = 'busan'
+
+export function centerForRegion(id: RegionId) {
+  return REGION_CENTERS.find((area) => area.id === id) ?? REGION_CENTERS.find((area) => area.id === 'busan') ?? REGION_CENTERS[0]
+}
+
+const ACCESS_REGION_ALIASES: { id: RegionId; pattern: RegExp }[] = [
+  { id: 'busan', pattern: /부산|busan|pusan/i },
+  { id: 'incheon', pattern: /인천|incheon/i },
+  { id: 'daegu', pattern: /대구|daegu/i },
+  { id: 'daejeon', pattern: /대전|daejeon/i },
+  { id: 'gwangju', pattern: /광주|gwangju/i },
+  { id: 'ulsan', pattern: /울산|ulsan/i },
+  { id: 'sejong', pattern: /세종|sejong/i },
+  { id: 'gyeonggi', pattern: /경기|gyeonggi|suwon|seongnam|bucheon|goyang|yongin/i },
+  { id: 'gangwon', pattern: /강원|gangwon|gangneung|sokcho|chuncheon/i },
+  { id: 'chungbuk', pattern: /충북|chungbuk|cheongju/i },
+  { id: 'chungnam', pattern: /충남|chungnam|cheonan|asan/i },
+  { id: 'jeonbuk', pattern: /전북|jeonbuk|jeonju/i },
+  { id: 'jeonnam', pattern: /전남|jeonnam|yeosu|mokpo|suncheon/i },
+  { id: 'gyeongbuk', pattern: /경북|gyeongbuk|pohang|gyeongju/i },
+  { id: 'gyeongnam', pattern: /경남|gyeongnam|changwon|gimhae|jinju/i },
+  { id: 'jeju', pattern: /제주|jeju/i },
+  { id: 'seoul', pattern: /서울|seoul/i },
+]
+
+export function regionFromAccessText(city?: string, region?: string, country?: string): RegionId {
+  const text = `${city || ''} ${region || ''} ${country || ''}`.trim()
+  const fromAddress = regionFromAddress(text)
+  if (fromAddress) return fromAddress
+  for (const item of ACCESS_REGION_ALIASES) {
+    if (item.pattern.test(text)) return item.id
+  }
+  return DEFAULT_REGION
+}
 
 function regionFromAddress(address: string): RegionId | null {
   const text = address.replace(/\s+/g, '')
