@@ -3641,7 +3641,7 @@ function WalletModal({
   onReceipt: (ride: RideReceipt) => void
 }) {
   const [tab, setTab] = useState<'charge' | 'refund' | 'history'>('charge')
-  const [chargeDraft, setChargeDraft] = useState('10')
+  const [chargeValue, setChargeValue] = useState<number | ''>(10)
   const [address, setAddress] = useState('')
   const [amount, setAmount] = useState('')
   const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
@@ -3649,13 +3649,12 @@ function WalletModal({
   const [depositEditing, setDepositEditing] = useState(false)
   const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number } | null>(null)
   const chargeUnits = [5, 10, 25, 50]
-  const chargeAmount = Number(chargeDraft.replace(/,/g, ''))
+  const chargeAmount = typeof chargeValue === 'number' ? chargeValue : Number.NaN
   const chargeValid = Number.isFinite(chargeAmount) && chargeAmount > 0
   const withdrawValue = Number(amount)
 
   const applyChargeAmount = (value: number) => {
-    const next = Math.round(value * 100) / 100
-    setChargeDraft(Number.isInteger(next) ? String(next) : next.toFixed(2))
+    setChargeValue(Math.round(value * 100) / 100)
   }
 
   useEffect(() => {
@@ -3822,22 +3821,30 @@ function WalletModal({
                   </button>
                 ))}
               </div>
-              <label className="mt-4 block">
+              <label className="mt-4 block" htmlFor="pi-charge-amount">
                 <span className="text-xs font-black text-[#334155]">직접 입력</span>
                 <div className="mt-2 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-4 py-3 focus-within:border-[#4C1FB8]">
                   <input
-                    type="text"
+                    id="pi-charge-amount"
+                    name="chargeAmount"
+                    type="number"
+                    min={0.01}
+                    step="any"
                     inputMode="decimal"
                     autoComplete="off"
-                    value={chargeDraft}
+                    value={chargeValue}
                     onChange={(event) => {
-                      const next = event.target.value.replace(/[^\d.]/g, '')
-                      const [whole, ...rest] = next.split('.')
-                      setChargeDraft(rest.length ? `${whole}.${rest.join('').slice(0, 2)}` : whole)
+                      const raw = event.target.value
+                      if (raw === '') {
+                        setChargeValue('')
+                        return
+                      }
+                      const next = event.target.valueAsNumber
+                      setChargeValue(Number.isFinite(next) ? next : '')
                     }}
-                    placeholder="수량 입력"
+                    placeholder="원하는 수량"
                     aria-label="충전할 Pi 수량 직접 입력"
-                    className="min-w-0 flex-1 bg-transparent text-lg font-black text-[#0F172A] outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-lg font-black tabular-nums text-[#0F172A] outline-none [appearance:auto]"
                   />
                   <span className="shrink-0 text-sm font-black text-[#4C1FB8]">Pi</span>
                 </div>
