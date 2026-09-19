@@ -3065,7 +3065,7 @@ function ActivityInbox({
     kind === '이벤트' ? 'bg-[#FEF3C7] text-[#B45309]' : kind === '업데이트' ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-[#EDE5FF] text-[#4C1FB8]'
 
   return (
-    <main className="flex-1 overflow-y-auto px-4 pb-28">
+    <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 pb-8 [-webkit-overflow-scrolling:touch]">
       <h2 className="pt-3 text-2xl font-black">이용/알림</h2>
       <p className="mt-1 text-sm font-bold text-[#64748B]">이용 내역과 공지사항을 전환해 확인하세요.</p>
       <div className="mt-4 grid grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
@@ -3173,14 +3173,14 @@ function TabContent({
 }) {
   if (tab === '전체보기') {
     return (
-      <main className="flex-1 overflow-y-auto px-4 pb-28">
-        <h2 className="pt-3 text-2xl font-black">전체보기</h2>
+      <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth px-4 pb-8 pt-1 [-webkit-overflow-scrolling:touch]" aria-label="전체보기">
+        <h2 className="pt-2 text-2xl font-black">전체보기</h2>
         <p className="mt-1 text-sm font-bold text-[#64748B]">모든 서비스와 안내를 한곳에서 확인하세요.</p>
-        <section className="mt-4">
+        <section className="mt-4 pb-2">
           <p className="mb-2 text-xs font-black text-[#475569]">안내 · 설정</p>
           <MoreMenu />
           <p className="mb-2 mt-5 text-xs font-black text-[#475569]">이동 서비스</p>
-          <div className="rounded-[22px] bg-[#E2E8F0] p-3">
+          <div className="rounded-[22px] bg-[#E2E8F0] p-3 pb-5">
             <div className="grid grid-cols-4 gap-x-2 gap-y-4">
               {services.map((item) => (
                 <ServiceIconButton key={item.label} service={item} onClick={() => onService(item.label)} />
@@ -4487,7 +4487,7 @@ export default function HomeScreen() {
           <div className="fixed inset-x-0 top-0 z-30 flex items-end bg-[#241d35]/35" style={{ bottom: '4.75rem' }} onClick={() => setTab('홈')}>
             <div className="mx-auto flex h-[min(92dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[30px] bg-[#f7f7fb] pt-3" onClick={(event) => event.stopPropagation()}>
               <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
-              <div className="min-h-0 flex-1 overflow-hidden">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} />
               </div>
             </div>
