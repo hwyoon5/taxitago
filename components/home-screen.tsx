@@ -274,41 +274,44 @@ function FullscreenMapView({
   const addressRef = useRef(liveAddress)
   const cameraRef = useRef(camera)
   const lookupTimer = useRef(0)
+  const lastLookupRef = useRef({ lat: Number.NaN, lng: Number.NaN })
   centerRef.current = center
   addressRef.current = liveAddress
   cameraRef.current = camera
 
   const lookupIdle = (nextLat: number, nextLng: number) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
+    if (
+      Math.abs(lastLookupRef.current.lat - nextLat) < 1e-6 &&
+      Math.abs(lastLookupRef.current.lng - nextLng) < 1e-6
+    ) {
+      return
+    }
     window.clearTimeout(lookupTimer.current)
-    const seq = lookupSeq.current + 1
-    lookupSeq.current = seq
-    setLooking(true)
-    const fallback = failedReverseAddress(nextLat, nextLng)
-    const failSafe = window.setTimeout(() => {
-      if (lookupSeq.current !== seq) return
-      const label = usableMapAddress(addressRef.current) || fallback
-      setLiveAddress(label)
-      addressRef.current = label
-      setLooking(false)
-    }, 1600)
-    lookupTimer.current = failSafe
-    void lookupMapAddress(nextLat, nextLng)
-      .then((nextAddress) => {
+    lookupTimer.current = window.setTimeout(() => {
+      lastLookupRef.current = { lat: nextLat, lng: nextLng }
+      const seq = lookupSeq.current + 1
+      lookupSeq.current = seq
+      setLooking(true)
+      const fallback = failedReverseAddress(nextLat, nextLng)
+      const settle = (nextAddress: string) => {
         if (lookupSeq.current !== seq) return
-        window.clearTimeout(failSafe)
         const label = usableMapAddress(nextAddress) || fallback
         setLiveAddress(label)
         addressRef.current = label
         setLooking(false)
-      })
-      .catch(() => {
-        if (lookupSeq.current !== seq) return
-        window.clearTimeout(failSafe)
-        setLiveAddress(fallback)
-        addressRef.current = fallback
-        setLooking(false)
-      })
+      }
+      const timer = window.setTimeout(() => settle(fallback), 2500)
+      void lookupMapAddress(nextLat, nextLng)
+        .then((nextAddress) => {
+          window.clearTimeout(timer)
+          settle(nextAddress)
+        })
+        .catch(() => {
+          window.clearTimeout(timer)
+          settle(fallback)
+        })
+    }, 220)
   }
 
   useEffect(() => {
@@ -380,7 +383,6 @@ function FullscreenMapView({
 
   const handleCenterIdle = (nextLat: number, nextLng: number) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    userMovedRef.current = true
     centerRef.current = { lat: nextLat, lng: nextLng }
     setCenter({ lat: nextLat, lng: nextLng })
     lookupIdle(nextLat, nextLng)

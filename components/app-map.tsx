@@ -681,6 +681,7 @@ function NaverLocationMap(props: MapViewProps) {
     const listeners: unknown[] = []
     let raf = 0
     let lastEmit = 0
+    let lastIdle = { lat: Number.NaN, lng: Number.NaN }
     void (async () => {
       await waitForMapSize(canvas)
       const sdk = await loadNaverMaps()
@@ -726,6 +727,8 @@ function NaverLocationMap(props: MapViewProps) {
         if (!followCenterRef.current) return
         const next = readCenter()
         if (!next) return
+        if (Math.abs(lastIdle.lat - next.lat) < 1e-6 && Math.abs(lastIdle.lng - next.lng) < 1e-6) return
+        lastIdle = next
         centerChangeRef.current?.(next.lat, next.lng, false)
         centerIdleRef.current?.(next.lat, next.lng)
       }
@@ -768,7 +771,6 @@ function NaverLocationMap(props: MapViewProps) {
       listen('center_changed', () => emitMapCenter(draggingRef.current))
       listen('zoom_changed', () => {
         pinRef.current?.draw?.()
-        if (!draggingRef.current) emitIdleCenter()
       })
       listen('dragend', () => {
         draggingRef.current = false
