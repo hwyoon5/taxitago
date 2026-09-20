@@ -1,4 +1,4 @@
-import { ensureNaverGeocoder, loadNaverMaps, type NaverMapsSdk, type NaverReverseGeocodeResponse } from '@/lib/naver-maps'
+import { callNaverReverseGeocode, ensureNaverGeocoder } from '@/lib/naver-maps'
 import { centerForRegion, lookupSuggestedPlace, regionFromAccessText, resolveRegion } from '@/lib/region-destinations'
 
 export const BUSAN_CITY_HALL = { lat: 35.179554, lng: 129.075641 }
@@ -96,88 +96,13 @@ export async function resolveFlexibleFallback() {
   }
 }
 
-function formatNaverReverse(response: {
-  v2?: {
-    address?: { roadAddress?: string; jibunAddress?: string }
-    results?: Array<{
-      region?: { area1?: { name?: string }; area2?: { name?: string }; area3?: { name?: string }; area4?: { name?: string } }
-      land?: { name?: string; number1?: string; addition0?: { value?: string } }
-    }>
-  }
-}) {
-  const road = response.v2?.address?.roadAddress?.trim()
-  const jibun = response.v2?.address?.jibunAddress?.trim()
-  if (road) return road
-  if (jibun) return jibun
-  const result = response.v2?.results?.[0]
-  if (!result) return ''
-  const parts = [
-    result.region?.area1?.name,
-    result.region?.area2?.name,
-    result.region?.area3?.name,
-    result.region?.area4?.name,
-    result.land?.name,
-    result.land?.number1,
-    result.land?.addition0?.value,
-  ].filter(Boolean)
-  return parts.join(' ').replace(/\s+/g, ' ').trim()
-}
-
-function isNaverReverseOk(status: unknown, service: NonNullable<NaverMapsSdk['Service']>) {
-  const ok = service.Status?.OK as unknown
-  const error = service.Status?.ERROR as unknown
-  if (status === error && error !== undefined) return false
-  if (ok !== undefined && status === ok) return true
-  if (status === 0 || status === 'OK' || status === 'ok') return true
-  return status !== error
-}
-
 async function reverseGeocodeNaver(lat: number, lng: number) {
   try {
-    const sdk = await ensureNaverGeocoder(400)
-    const service = sdk?.Service
-    if (!sdk || typeof service?.reverseGeocode !== 'function') return null
-    const coords = new sdk.LatLng(lat, lng)
-    const orders = [service.OrderType?.ROAD_ADDR, service.OrderType?.ADDR].filter(Boolean).join(',') || 'roadaddr,addr'
-    return await new Promise<string | null>((resolve) => {
-      let settled = false
-      const finish = (value: string | null) => {
-        if (settled) return
-        settled = true
-        window.clearTimeout(timer)
-        resolve(value)
-      }
-      const timer = window.setTimeout(() => finish(null), 900)
-      const handle = (status: unknown, response: NaverReverseGeocodeResponse) => {
-        try {
-          const payload =
-            response && typeof response === 'object' && (response.v2 || (response as { result?: unknown }).result)
-              ? response
-              : ((status as NaverReverseGeocodeResponse) || response)
-          const formatted = formatNaverReverse(payload)
-          if (formatted && isNaverReverseOk(status, service)) {
-            finish(formatted)
-            return
-          }
-          if (formatted) {
-            finish(formatted)
-            return
-          }
-          finish(null)
-        } catch {
-          finish(null)
-        }
-      }
-      try {
-        service.reverseGeocode({ coords, orders }, handle)
-      } catch {
-        try {
-          service.reverseGeocode({ coords }, handle)
-        } catch {
-          finish(null)
-        }
-      }
-    })
+    if (typeof window === 'undefined') return null
+    const sdk = await ensureNaverGeocoder(4000)
+    const serviceReady = typeof (sdk || window.naver?.maps)?.Service?.reverseGeocode === 'function'
+    if (!serviceReady) return null
+    return await callNaverReverseGeocode(lat, lng, 4000)
   } catch {
     return null
   }
@@ -225,13 +150,13 @@ export async function reverseGeocode(lat: number, lng: number) {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return failedReverseAddress(lat, lng)
     const naverPromise = reverseGeocodeNaver(lat, lng)
     const osmPromise = reverseGeocodeNominatim(lat, lng)
-    const naverQuick = await Promise.race([
+    const naver = await Promise.race([
       naverPromise,
-      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 650)),
+      new Promise<string | null>((resolve) => window.setTimeout(() => resolve(null), 2500)),
     ])
-    if (naverQuick) return naverQuick
-    const [naver, osm] = await Promise.all([naverPromise, osmPromise])
-    return naver || osm || failedReverseAddress(lat, lng)
+    if (naver) return naver
+    const [naverLate, osm] = await Promise.all([naverPromise, osmPromise])
+    return naverLate || osm || failedReverseAddress(lat, lng)
   } catch {
     return failedReverseAddress(lat, lng)
   }
@@ -240,9 +165,9 @@ export async function reverseGeocode(lat: number, lng: number) {
 export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
   const q = query.trim()
   if (!q) return null
-  const sdk = await loadNaverMaps()
+  const sdk = await ensureNaverGeocoder(4000)
   const geocode = sdk?.Service?.geocode
-  if (sdk && geocode) {
+  if (sdk && typeof geocode === 'function') {
     const naver = await new Promise<GeoPoint | null>((resolve) => {
       const timer = window.setTimeout(() => resolve(null), 4000)
       try {

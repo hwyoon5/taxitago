@@ -15,8 +15,9 @@ const notoSansKr = Noto_Sans_KR({
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
 const naverMapClientId = resolveNaverMapClientId()
+const naverMapClientQuery = encodeURIComponent(naverMapClientId)
 const naverMapScript = naverMapClientId
-  ? `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(naverMapClientId)}&submodules=geocoder`
+  ? `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${naverMapClientQuery}&ncpClientId=${naverMapClientQuery}&submodules=geocoder`
   : ''
 
 export const metadata: Metadata = {
