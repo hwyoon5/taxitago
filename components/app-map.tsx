@@ -55,25 +55,31 @@ function snapToNearbyPoint(clicked: RidePoint, anchor: RidePoint, maxMeters: num
 
 function readLatLngValue(value: unknown): RidePoint | null {
   if (!value || typeof value !== 'object') return null
-  const point = value as { lat?: unknown; lng?: unknown; y?: unknown; x?: unknown }
-  const lat = readCoordNumber(point.lat ?? point.y)
-  const lng = readCoordNumber(point.lng ?? point.x)
+  const point = value as { lat?: unknown; lng?: unknown; y?: unknown; x?: unknown; _lat?: unknown; _lng?: unknown }
+  const lat = readCoordNumber(point.lat ?? point.y ?? point._lat)
+  const lng = readCoordNumber(point.lng ?? point.x ?? point._lng)
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null
   return { lat, lng }
 }
 
 function readMapCenter(map: NaverMapInstance | null): RidePoint | null {
-  return readLatLngValue(map?.getCenter?.())
+  if (!map) return null
+  const fromGetter = readLatLngValue(map.getCenter?.())
+  if (fromGetter) return fromGetter
+  return readLatLngValue((map as { center?: unknown }).center)
 }
 
-function CenteredMapPin({ pulse }: { pulse: boolean }) {
+function CenteredMapPin({ pulse, lift }: { pulse: boolean; lift?: boolean }) {
   return (
     <div
-      className="pointer-events-none absolute z-[6]"
+      className="pointer-events-none absolute z-[8]"
       style={{
         left: '50%',
         top: '50%',
-        transform: pulse ? 'translate(-50%, -50%)' : 'translate(-50%, -100%)',
+        transform: pulse
+          ? `translate(-50%, calc(-50% - ${lift ? 10 : 0}px))`
+          : `translate(-50%, calc(-100% - ${lift ? 12 : 0}px))`,
+        transition: 'transform 120ms ease-out',
       }}
     >
       {pulse ? (
@@ -186,7 +192,7 @@ type MapViewProps = {
   onPick?: (lat: number, lng: number) => void
   onActivate?: () => void
   onLocate?: () => void
-  onCenterChange?: (lat: number, lng: number) => void
+  onCenterChange?: (lat: number, lng: number, dragging?: boolean) => void
 }
 
 function latLngToWorld(lat: number, lng: number, zoom: number) {
@@ -366,15 +372,18 @@ function FallbackSlippyMap({
   const wrapRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [view, setView] = useState({ lat, lng })
+  const [dragging, setDragging] = useState(false)
   const viewRef = useRef(view)
   const panRef = useRef({ active: false, x: 0, y: 0, lat, lng, moved: false })
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef(0)
+  const centerChangeRef = useRef(onCenterChange)
+  centerChangeRef.current = onCenterChange
   viewRef.current = view
 
-  const emitCenter = () => {
+  const emitCenter = (active = false) => {
     const next = viewRef.current
-    onCenterChange?.(next.lat, next.lng)
+    centerChangeRef.current?.(next.lat, next.lng, active)
   }
 
   useEffect(() => {
@@ -477,7 +486,13 @@ function FallbackSlippyMap({
           panRef.current.moved = true
         }
         const start = latLngToWorld(panRef.current.lat, panRef.current.lng, zoom)
-        setView(worldToLatLng(start.x - (event.clientX - panRef.current.x), start.y - (event.clientY - panRef.current.y), zoom))
+        const next = worldToLatLng(start.x - (event.clientX - panRef.current.x), start.y - (event.clientY - panRef.current.y), zoom)
+        viewRef.current = next
+        setView(next)
+        if (panRef.current.moved) {
+          setDragging(true)
+          centerChangeRef.current?.(next.lat, next.lng, true)
+        }
       }}
       onPointerUp={(event) => {
         const tapped = panRef.current.active && !panRef.current.moved && pointersRef.current.size <= 1
@@ -485,7 +500,10 @@ function FallbackSlippyMap({
         pointersRef.current.delete(event.pointerId)
         if (pointersRef.current.size < 2) pinchRef.current = 0
         if (pointersRef.current.size === 0) panRef.current.active = false
-        if (panned && pointersRef.current.size === 0) emitCenter()
+        if (panned && pointersRef.current.size === 0) {
+          setDragging(false)
+          emitCenter(false)
+        }
         if (!interactive || !tapped) return
         if (onActivate && !onPick) {
           onActivate()
@@ -509,7 +527,7 @@ function FallbackSlippyMap({
           style={{ left: tile.left, top: tile.top, width: TILE_SIZE, height: TILE_SIZE }}
         />
       ))}
-      {!hidePin && centerPin ? <CenteredMapPin pulse={Boolean(pulsePin)} /> : null}
+      {!hidePin && centerPin ? <CenteredMapPin pulse={Boolean(pulsePin)} lift={dragging} /> : null}
       {!hidePin && !centerPin ? (
         <span
           className="pointer-events-none absolute z-[5]"
@@ -538,7 +556,7 @@ function FallbackSlippyMap({
           onLocate={() => {
             setView({ lat, lng })
             onLocate?.()
-            onCenterChange?.(lat, lng)
+            centerChangeRef.current?.(lat, lng, false)
           }}
         />
       ) : null}
@@ -559,9 +577,11 @@ function NaverLocationMap(props: MapViewProps) {
   const insetRef = useRef(bottomInset)
   const centerRef = useRef({ lat, lng, pinLat, pinLng })
   const followCenterRef = useRef(Boolean(centerPin))
+  const draggingRef = useRef(false)
   const [mode, setMode] = useState<'loading' | 'naver' | 'fallback'>(hasNaverMapClientId() ? 'loading' : 'fallback')
   const [zoom, setZoom] = useState(15)
   const [pinScreen, setPinScreen] = useState<{ x: number; y: number } | null>(null)
+  const [pinLift, setPinLift] = useState(false)
   const [loadNotice, setLoadNotice] = useState<string | undefined>()
   pickRef.current = onPick
   activateRef.current = onActivate
@@ -579,12 +599,9 @@ function NaverLocationMap(props: MapViewProps) {
     const canvas = canvasRef.current
     if (!canvas) return
     let cancelled = false
-    let clickListener: unknown
-    let idleListener: unknown
-    let dragEndListener: unknown
-    let zoomListener: unknown
-    let idleTimer = 0
-    let skipIdle = 2
+    const listeners: unknown[] = []
+    let raf = 0
+    let lastEmit = 0
     void (async () => {
       await waitForMapSize(canvas)
       const sdk = await loadNaverMaps()
@@ -595,9 +612,9 @@ function NaverLocationMap(props: MapViewProps) {
         return
       }
       mapsRef.current = sdk
-      const center = centerRef.current
+      const start = centerRef.current
       const map = new sdk.Map(canvasRef.current, {
-        center: new sdk.LatLng(center.lat, center.lng),
+        center: new sdk.LatLng(start.lat, start.lng),
         zoom: 15,
         scaleControl: false,
         mapDataControl: false,
@@ -610,37 +627,36 @@ function NaverLocationMap(props: MapViewProps) {
       })
       mapRef.current = map
       if (!hidePin && !followCenterRef.current) {
-        pinRef.current = trackMapPoint(sdk, map, center.pinLat ?? center.lat, center.pinLng ?? center.lng, (x, y) => {
+        pinRef.current = trackMapPoint(sdk, map, start.pinLat ?? start.lat, start.pinLng ?? start.lng, (x, y) => {
           if (!cancelled) setPinScreen({ x, y })
         })
       }
-      applyMapBottomInset(sdk, map, center.lat, center.lng, 0)
-      window.requestAnimationFrame(() => {
-        map.panTo(new sdk.LatLng(center.lat, center.lng))
-      })
-      const emitMapCenter = () => {
+      const emitMapCenter = (active: boolean, force = false) => {
         if (!followCenterRef.current) return
+        const now = Date.now()
+        if (!force && now - lastEmit < 50) return
+        lastEmit = now
         const next = readMapCenter(map)
         if (!next) return
-        centerChangeRef.current?.(next.lat, next.lng)
+        centerChangeRef.current?.(next.lat, next.lng, active)
       }
-      const scheduleEmit = () => {
-        if (!followCenterRef.current) return
-        if (skipIdle > 0) {
-          skipIdle -= 1
-          return
-        }
-        window.clearTimeout(idleTimer)
-        idleTimer = window.setTimeout(emitMapCenter, 180)
+      const pollCenter = () => {
+        if (!draggingRef.current || cancelled) return
+        emitMapCenter(true)
+        raf = window.requestAnimationFrame(pollCenter)
       }
-      clickListener = interactive
-        ? sdk.Event.addListener(map, 'click', (event) => {
+      const listen = (eventName: string, handler: () => void) => {
+        listeners.push(sdk.Event.addListener(map, eventName, handler))
+      }
+      if (interactive) {
+        listeners.push(
+          sdk.Event.addListener(map, 'click', (event) => {
             if (activateRef.current && !pickRef.current) {
               activateRef.current()
               return
             }
             if (followCenterRef.current) {
-              emitMapCenter()
+              emitMapCenter(false, true)
               return
             }
             const clicked = readMapClickLatLng(event)
@@ -649,29 +665,48 @@ function NaverLocationMap(props: MapViewProps) {
             const anchor = { lat: pin.pinLat ?? pin.lat, lng: pin.pinLng ?? pin.lng }
             const snapped = snapToNearbyPoint(clicked, anchor, 90)
             pickRef.current?.(snapped.lat, snapped.lng)
-          })
-        : undefined
-      idleListener = sdk.Event.addListener(map, 'idle', scheduleEmit)
-      dragEndListener = sdk.Event.addListener(map, 'dragend', scheduleEmit)
-      zoomListener = sdk.Event.addListener(map, 'zoom_changed', () => {
+          }),
+        )
+      }
+      listen('dragstart', () => {
+        draggingRef.current = true
+        setPinLift(true)
+        window.cancelAnimationFrame(raf)
+        raf = window.requestAnimationFrame(pollCenter)
+        emitMapCenter(true, true)
+      })
+      listen('drag', () => emitMapCenter(true))
+      listen('bounds_changed', () => emitMapCenter(draggingRef.current))
+      listen('center_changed', () => emitMapCenter(draggingRef.current))
+      listen('zoom_changed', () => {
         pinRef.current?.draw?.()
-        scheduleEmit()
+        emitMapCenter(draggingRef.current, true)
+      })
+      listen('dragend', () => {
+        draggingRef.current = false
+        setPinLift(false)
+        window.cancelAnimationFrame(raf)
+        emitMapCenter(false, true)
+      })
+      listen('idle', () => {
+        if (draggingRef.current) return
+        emitMapCenter(false, true)
       })
       refreshNaverMap(sdk, map)
       window.setTimeout(() => refreshNaverMap(sdk, map), 80)
       window.setTimeout(() => {
         refreshNaverMap(sdk, map)
         pinRef.current?.draw?.()
+        emitMapCenter(false, true)
       }, 400)
       setMode('naver')
     })()
     return () => {
       cancelled = true
-      window.clearTimeout(idleTimer)
-      if (clickListener && mapsRef.current) mapsRef.current.Event.removeListener(clickListener)
-      if (idleListener && mapsRef.current) mapsRef.current.Event.removeListener(idleListener)
-      if (dragEndListener && mapsRef.current) mapsRef.current.Event.removeListener(dragEndListener)
-      if (zoomListener && mapsRef.current) mapsRef.current.Event.removeListener(zoomListener)
+      draggingRef.current = false
+      window.cancelAnimationFrame(raf)
+      const sdk = mapsRef.current
+      if (sdk) listeners.forEach((listener) => sdk.Event.removeListener(listener))
       pinRef.current?.setMap(null)
       pinRef.current = null
       try {
@@ -681,7 +716,7 @@ function NaverLocationMap(props: MapViewProps) {
       }
       mapRef.current = null
     }
-  }, [hidePin, interactive, pulsePin, showZoom, centerPin])
+  }, [hidePin, interactive, centerPin])
 
   useEffect(() => {
     const map = mapRef.current
@@ -695,9 +730,14 @@ function NaverLocationMap(props: MapViewProps) {
     const map = mapRef.current
     const sdk = mapsRef.current
     if (!map || !sdk || mode !== 'naver') return
+    if (centerPin) {
+      const current = readMapCenter(map)
+      if (current && Math.abs(current.lat - lat) < 1e-6 && Math.abs(current.lng - lng) < 1e-6) return
+      if (draggingRef.current) return
+    }
     map.panTo(new sdk.LatLng(lat, lng))
     pinRef.current?.draw?.()
-  }, [lat, lng, mode])
+  }, [lat, lng, mode, centerPin])
 
   useEffect(() => {
     if (centerPin) return
@@ -710,6 +750,8 @@ function NaverLocationMap(props: MapViewProps) {
     map.setZoom(Math.min(19, Math.max(11, map.getZoom() + delta)))
     refreshNaverMap(mapsRef.current, map)
     pinRef.current?.draw?.()
+    const next = readMapCenter(map)
+    if (next) onCenterChange?.(next.lat, next.lng, false)
   }
 
   return (
@@ -717,7 +759,7 @@ function NaverLocationMap(props: MapViewProps) {
       {mode !== 'fallback' ? (
         <div ref={hostRef} className="naver-map-host absolute inset-0">
           <div ref={canvasRef} className="naver-map-canvas h-full w-full touch-manipulation" style={{ width: '100%', height: '100%' }} />
-          {!hidePin && centerPin ? <CenteredMapPin pulse={Boolean(pulsePin)} /> : null}
+          {!hidePin && centerPin ? <CenteredMapPin pulse={Boolean(pulsePin)} lift={pinLift} /> : null}
           {!hidePin && !centerPin && pinScreen ? <FixedMapPin pulse={Boolean(pulsePin)} x={pinScreen.x} y={pinScreen.y} /> : null}
         </div>
       ) : (
@@ -743,8 +785,9 @@ function NaverLocationMap(props: MapViewProps) {
             const map = mapRef.current
             const sdk = mapsRef.current
             if (!map || !sdk) return
-            const pin = centerRef.current
-            map.panTo(new sdk.LatLng(pin.lat, pin.lng))
+            draggingRef.current = false
+            setPinLift(false)
+            map.panTo(new sdk.LatLng(centerRef.current.lat, centerRef.current.lng))
             pinRef.current?.draw?.()
             onLocate?.()
           }}
