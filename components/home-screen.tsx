@@ -228,6 +228,10 @@ async function lookupMapAddress(lat: number, lng: number) {
   return reverseGeocode(lat, lng)
 }
 
+function finiteCoord(value: number | undefined, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
 function FullscreenMapView({
   lat,
   lng,
@@ -245,8 +249,8 @@ function FullscreenMapView({
   onClose: () => void
   onConfirmPickup: (place: { lat: number; lng: number; address: string }) => void
 }) {
-  const startLat = Number.isFinite(pickupLat) ? pickupLat : lat
-  const startLng = Number.isFinite(pickupLng) ? pickupLng : lng
+  const startLat = finiteCoord(pickupLat, lat)
+  const startLng = finiteCoord(pickupLng, lng)
   const [pin, setPin] = useState({ lat: startLat, lng: startLng })
   const [mapCenter, setMapCenter] = useState({ lat: startLat, lng: startLng })
   const [pickedAddress, setPickedAddress] = useState<string | null>(null)
@@ -316,7 +320,7 @@ function FullscreenMapView({
     }
     navigator.geolocation.getCurrentPosition(
       (position) => applyGps(position.coords.latitude, position.coords.longitude),
-      () => applyGps(Number.isFinite(pickupLat) ? pickupLat : lat, Number.isFinite(pickupLng) ? pickupLng : lng),
+      () => applyGps(finiteCoord(pickupLat, lat), finiteCoord(pickupLng, lng)),
       { enableHighAccuracy: true, timeout: 6000, maximumAge: 5_000 },
     )
   }

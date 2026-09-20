@@ -22,12 +22,16 @@ import { resolveLiveRidePoints, isUsableCoord } from '@/lib/ride-session'
 
 const TILE_SIZE = 256
 
+export type TaxiLivePhase = 'arriving' | 'boarding' | 'moving'
+export type TaxiMatchPhase = 'searching' | TaxiLivePhase
+export type RidePoint = { lat: number; lng: number }
+
 function readCoordNumber(value: unknown): number {
   if (typeof value === 'function') return Number((value as () => number)())
   return Number(value)
 }
 
-function readMapClickLatLng(event: unknown): { lat: number; lng: number } | null {
+function readMapClickLatLng(event: unknown): RidePoint | null {
   if (!event || typeof event !== 'object') return null
   const payload = event as { latlng?: unknown; coord?: unknown }
   const raw = payload.latlng ?? payload.coord
@@ -48,10 +52,6 @@ function snapToNearbyPoint(clicked: RidePoint, anchor: RidePoint, maxMeters: num
   const meters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return meters <= maxMeters ? anchor : clicked
 }
-
-export type TaxiLivePhase = 'arriving' | 'boarding' | 'moving'
-export type TaxiMatchPhase = 'searching' | TaxiLivePhase
-export type RidePoint = { lat: number; lng: number }
 
 export function toTaxiLivePhase(phase: TaxiMatchPhase): TaxiLivePhase {
   if (phase === 'boarding' || phase === 'moving') return phase
