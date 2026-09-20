@@ -22,6 +22,33 @@ import { resolveLiveRidePoints, isUsableCoord } from '@/lib/ride-session'
 
 const TILE_SIZE = 256
 
+function readCoordNumber(value: unknown): number {
+  if (typeof value === 'function') return Number((value as () => number)())
+  return Number(value)
+}
+
+function readMapClickLatLng(event: unknown): { lat: number; lng: number } | null {
+  if (!event || typeof event !== 'object') return null
+  const payload = event as { latlng?: unknown; coord?: unknown }
+  const raw = payload.latlng ?? payload.coord
+  if (!raw || typeof raw !== 'object') return null
+  const point = raw as { lat?: unknown; lng?: unknown; y?: unknown; x?: unknown }
+  const lat = readCoordNumber(point.lat ?? point.y)
+  const lng = readCoordNumber(point.lng ?? point.x)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null
+  return { lat, lng }
+}
+
+function snapToNearbyPoint(clicked: RidePoint, anchor: RidePoint, maxMeters: number) {
+  const dLat = ((clicked.lat - anchor.lat) * Math.PI) / 180
+  const dLng = ((clicked.lng - anchor.lng) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((anchor.lat * Math.PI) / 180) * Math.cos((clicked.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+  const meters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return meters <= maxMeters ? anchor : clicked
+}
+
 export type TaxiLivePhase = 'arriving' | 'boarding' | 'moving'
 export type TaxiMatchPhase = 'searching' | TaxiLivePhase
 export type RidePoint = { lat: number; lng: number }
@@ -351,7 +378,9 @@ function FallbackSlippyMap({
     const worldX = originX + (clientX - box.left)
     const worldY = originY + (clientY - box.top)
     const point = worldToLatLng(worldX, worldY, zoom)
-    onPick(point.lat, point.lng)
+    const anchor = { lat: pinLat ?? lat, lng: pinLng ?? lng }
+    const snapped = snapToNearbyPoint(point, anchor, 90)
+    onPick(snapped.lat, snapped.lng)
   }
 
   return (
@@ -455,7 +484,7 @@ function FallbackSlippyMap({
           onZoomOut={onZoomOut}
           locatePlacement={locatePlacement}
           onLocate={() => {
-            setView({ lat, lng })
+            setView({ lat: pinLat ?? lat, lng: pinLng ?? lng })
             onLocate?.()
           }}
         />
@@ -534,13 +563,12 @@ function NaverLocationMap(props: MapViewProps) {
               activateRef.current()
               return
             }
-            const eventPoint = event as { coord?: { lat: () => number; lng: () => number; y?: number; x?: number }; latlng?: { lat: () => number; lng: () => number } }
-            const coord = eventPoint.coord ?? eventPoint.latlng
-            if (!coord) return
-            const nextLat = typeof coord.lat === 'function' ? coord.lat() : Number.NaN
-            const nextLng = typeof coord.lng === 'function' ? coord.lng() : Number.NaN
-            if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-            pickRef.current?.(nextLat, nextLng)
+            const clicked = readMapClickLatLng(event)
+            if (!clicked) return
+            const pin = centerRef.current
+            const anchor = { lat: pin.pinLat ?? pin.lat, lng: pin.pinLng ?? pin.lng }
+            const snapped = snapToNearbyPoint(clicked, anchor, 90)
+            pickRef.current?.(snapped.lat, snapped.lng)
           })
         : undefined
       zoomListener = sdk.Event.addListener(map, 'zoom_changed', () => pinRef.current?.draw?.())
@@ -621,7 +649,10 @@ function NaverLocationMap(props: MapViewProps) {
             const map = mapRef.current
             const sdk = mapsRef.current
             if (!map || !sdk) return
-            map.panTo(new sdk.LatLng(lat, lng))
+            const pin = centerRef.current
+            const targetLat = pin.pinLat ?? pin.lat
+            const targetLng = pin.pinLng ?? pin.lng
+            map.panTo(new sdk.LatLng(targetLat, targetLng))
             pinRef.current?.draw?.()
             onLocate?.()
           }}

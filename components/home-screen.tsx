@@ -232,6 +232,8 @@ function FullscreenMapView({
   lat,
   lng,
   address,
+  pickupLat,
+  pickupLng,
   onClose,
   onConfirmPickup,
 }: {
@@ -243,21 +245,56 @@ function FullscreenMapView({
   onClose: () => void
   onConfirmPickup: (place: { lat: number; lng: number; address: string }) => void
 }) {
-  const [pin, setPin] = useState({ lat, lng })
-  const [mapCenter, setMapCenter] = useState({ lat, lng })
+  const startLat = Number.isFinite(pickupLat) ? pickupLat : lat
+  const startLng = Number.isFinite(pickupLng) ? pickupLng : lng
+  const [pin, setPin] = useState({ lat: startLat, lng: startLng })
+  const [mapCenter, setMapCenter] = useState({ lat: startLat, lng: startLng })
   const [pickedAddress, setPickedAddress] = useState<string | null>(null)
   const [addressPending, setAddressPending] = useState(false)
   const [askConfirm, setAskConfirm] = useState(false)
   const lookupSeq = useRef(0)
   const pickedRef = useRef(false)
+  const pinRef = useRef(pin)
+  pinRef.current = pin
+
+  useEffect(() => {
+    if (pickedRef.current) return
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+    const sameCityHall =
+      Math.abs(lat - BUSAN_CITY_HALL.lat) < 1e-5 && Math.abs(lng - BUSAN_CITY_HALL.lng) < 1e-5
+    if (sameCityHall) return
+    setPin({ lat, lng })
+    setMapCenter({ lat, lng })
+  }, [lat, lng])
+
+  const reverseAt = (nextLat: number, nextLng: number, fallbackAddress: string) => {
+    const seq = lookupSeq.current + 1
+    lookupSeq.current = seq
+    setAddressPending(true)
+    const settle = (nextAddress: string) => {
+      if (lookupSeq.current !== seq) return
+      setPickedAddress(nextAddress)
+      setAddressPending(false)
+    }
+    const timer = window.setTimeout(() => settle(fallbackAddress), 2500)
+    void lookupMapAddress(nextLat, nextLng).then((nextAddress) => {
+      window.clearTimeout(timer)
+      settle(nextAddress || fallbackAddress)
+    })
+  }
+
+  const lockPin = (nextLat: number, nextLng: number, recenter: boolean) => {
+    setPin({ lat: nextLat, lng: nextLng })
+    if (recenter) setMapCenter({ lat: nextLat, lng: nextLng })
+  }
 
   useEffect(() => {
     if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        if (pickedRef.current) return
         const next = { lat: position.coords.latitude, lng: position.coords.longitude }
-        setMapCenter(next)
-        if (!pickedRef.current) setPin(next)
+        lockPin(next.lat, next.lng, true)
       },
       () => undefined,
       { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
@@ -267,46 +304,64 @@ function FullscreenMapView({
   const resetToGps = () => {
     lookupSeq.current += 1
     pickedRef.current = false
-    setPin(mapCenter)
-    setPickedAddress(null)
     setAskConfirm(false)
     setAddressPending(false)
+    setPickedAddress(null)
+    const applyGps = (nextLat: number, nextLng: number) => {
+      lockPin(nextLat, nextLng, true)
+    }
+    if (!navigator.geolocation) {
+      applyGps(lat, lng)
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => applyGps(position.coords.latitude, position.coords.longitude),
+      () => applyGps(Number.isFinite(pickupLat) ? pickupLat : lat, Number.isFinite(pickupLng) ? pickupLng : lng),
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 5_000 },
+    )
   }
 
   const handlePick = (nextLat: number, nextLng: number) => {
-    const seq = lookupSeq.current + 1
-    lookupSeq.current = seq
     pickedRef.current = true
-    setPin({ lat: nextLat, lng: nextLng })
+    lockPin(nextLat, nextLng, false)
     setAskConfirm(false)
-    setAddressPending(true)
-    const fallback = virtualPickupAddress(nextLat, nextLng)
-    setPickedAddress(fallback)
-    const settle = (nextAddress: string) => {
-      if (lookupSeq.current !== seq) return
-      setPickedAddress(nextAddress)
-      setAddressPending(false)
-    }
-    const timer = window.setTimeout(() => settle(fallback), 2500)
-    void lookupMapAddress(nextLat, nextLng).then((nextAddress) => {
-      window.clearTimeout(timer)
-      settle(nextAddress)
-    })
+    reverseAt(nextLat, nextLng, virtualPickupAddress(nextLat, nextLng))
   }
 
-  const confirmPickup = () => {
-    if (!pickedAddress) return
-    onConfirmPickup({ lat: pin.lat, lng: pin.lng, address: pickedAddress })
+  const confirmPickup = (nextAddress?: string) => {
+    const label = nextAddress || pickedAddress
+    if (!label) return
+    const current = pinRef.current
+    onConfirmPickup({ lat: current.lat, lng: current.lng, address: label })
+  }
+
+  const openCurrentLocationConfirm = () => {
+    const current = pinRef.current
+    pickedRef.current = false
+    setAskConfirm(true)
+    const known = address.trim()
+    if (known && !/확인하는 중|수신하는 중|불러오는 중/.test(known)) {
+      setPickedAddress(known)
+      setAddressPending(false)
+      return
+    }
+    reverseAt(current.lat, current.lng, known || virtualPickupAddress(current.lat, current.lng))
   }
 
   const handlePopup = () => {
-    if (!pickedAddress) return
+    if (!pickedAddress) {
+      openCurrentLocationConfirm()
+      return
+    }
     if (!askConfirm) {
       setAskConfirm(true)
+      reverseAt(pinRef.current.lat, pinRef.current.lng, pickedAddress)
       return
     }
     confirmPickup()
   }
+
+  const bannerAddress = pickedAddress || address
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#0B1220]" role="dialog" aria-modal="true" aria-label="전체화면 지도">
@@ -339,56 +394,61 @@ function FullscreenMapView({
         <ChevronLeft className="h-5 w-5" />
         뒤로가기
       </button>
-      {!pickedAddress ? (
-        <div className="pointer-events-none absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-30">
-          <p className="rounded-2xl bg-white/95 px-3.5 py-2.5 text-[12px] font-bold leading-snug text-[#334155] shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
-            현재 위치 · {address}
-          </p>
+      <div className="absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-30 flex justify-center">
+        <div className="w-full max-w-sm rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3 text-left shadow-[0_12px_28px_rgba(15,23,42,0.18)]">
+          {askConfirm ? (
+            <button type="button" onClick={() => confirmPickup()} className="w-full text-left">
+              <span className="block text-[11px] font-bold text-[#7C3AED]">출발지 지정</span>
+              <span className="mt-1 block text-[15px] font-black leading-snug text-[#4C1FB8]">출발지로 할까요?</span>
+              <span className="mt-1 block text-[12px] font-bold leading-snug text-[#64748B]">{bannerAddress}</span>
+            </button>
+          ) : (
+            <button type="button" onClick={handlePopup} className="w-full text-left">
+              <span className="block text-[11px] font-bold text-[#7C3AED]">{pickedRef.current ? '선택한 위치' : '현재 위치'}</span>
+              <span className="mt-1 block text-[14px] font-black leading-snug text-[#0F172A]">
+                {addressPending ? bannerAddress : bannerAddress}
+              </span>
+              <span className="mt-1 block text-[11px] font-bold text-[#94A3B8]">주소를 눌러 출발지로 지정</span>
+            </button>
+          )}
         </div>
-      ) : (
-        <div className="absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-30 flex justify-center">
-          <div className="w-full max-w-sm rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3 text-left shadow-[0_12px_28px_rgba(15,23,42,0.18)]">
-            {askConfirm ? (
-              <button type="button" onClick={confirmPickup} className="w-full text-left">
-                <span className="block text-[11px] font-bold text-[#7C3AED]">출발지 지정</span>
-                <span className="mt-1 block text-[15px] font-black leading-snug text-[#4C1FB8]">출발지로 할까요?</span>
-                <span className="mt-1 block text-[12px] font-bold leading-snug text-[#64748B]">{pickedAddress}</span>
-              </button>
-            ) : (
-              <button type="button" onClick={handlePopup} className="w-full text-left">
-                <span className="block text-[11px] font-bold text-[#7C3AED]">선택한 위치</span>
-                <span className="mt-1 block text-[14px] font-black leading-snug text-[#0F172A]">
-                  {addressPending ? `${pickedAddress}` : pickedAddress}
-                </span>
-                <span className="mt-1 block text-[11px] font-bold text-[#94A3B8]">주소를 눌러 출발지로 지정</span>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      </div>
       </div>
     </div>
   )
 }
 
-function LocationMapModal({ onClose }: { onClose: () => void }) {
+function LocationMapModal({
+  onClose,
+  initialLat,
+  initialLng,
+  initialAddress,
+}: {
+  onClose: () => void
+  initialLat?: number
+  initialLng?: number
+  initialAddress?: string
+}) {
+  const start = {
+    lat: Number.isFinite(initialLat) ? (initialLat as number) : BUSAN_CITY_HALL.lat,
+    lng: Number.isFinite(initialLng) ? (initialLng as number) : BUSAN_CITY_HALL.lng,
+  }
   const [gpsPending, setGpsPending] = useState(true)
-  const [addressPending, setAddressPending] = useState(true)
-  const [mapCenter, setMapCenter] = useState(BUSAN_CITY_HALL)
-  const [pin, setPin] = useState({ lat: BUSAN_CITY_HALL.lat, lng: BUSAN_CITY_HALL.lng })
-  const [address, setAddress] = useState('접속 지역을 확인하는 중')
-  const [source, setSource] = useState<'fallback' | 'gps' | 'pick'>('fallback')
+  const [addressPending, setAddressPending] = useState(!initialAddress)
+  const [mapCenter, setMapCenter] = useState(start)
+  const [pin, setPin] = useState(start)
+  const [address, setAddress] = useState(initialAddress || '접속 지역을 확인하는 중')
+  const [source, setSource] = useState<'fallback' | 'gps' | 'pick'>(initialAddress ? 'gps' : 'fallback')
   const lookupSeq = useRef(0)
 
-  const applyPoint = (lat: number, lng: number, nextSource: 'fallback' | 'gps' | 'pick', recenter = false) => {
+  const applyPoint = (nextLat: number, nextLng: number, nextSource: 'fallback' | 'gps' | 'pick', recenter = false) => {
     const seq = lookupSeq.current + 1
     lookupSeq.current = seq
-    setPin({ lat, lng })
-    if (recenter) setMapCenter({ lat, lng })
+    setPin({ lat: nextLat, lng: nextLng })
+    if (recenter) setMapCenter({ lat: nextLat, lng: nextLng })
     setSource(nextSource)
     setAddressPending(true)
-    setAddress(virtualPickupAddress(lat, lng))
-    void lookupMapAddress(lat, lng).then((nextAddress) => {
+    void lookupMapAddress(nextLat, nextLng).then((nextAddress) => {
       if (lookupSeq.current !== seq) return
       setAddress(nextAddress)
       setAddressPending(false)
@@ -396,9 +456,13 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
   }
 
   useEffect(() => {
-    applyPoint(BUSAN_CITY_HALL.lat, BUSAN_CITY_HALL.lng, 'fallback', true)
+    if (initialAddress) {
+      setGpsPending(false)
+      setAddressPending(false)
+    }
     if (!navigator.geolocation) {
       setGpsPending(false)
+      if (!initialAddress) applyPoint(start.lat, start.lng, 'fallback', true)
       return
     }
     const timer = window.setTimeout(() => setGpsPending(false), 6000)
@@ -411,6 +475,7 @@ function LocationMapModal({ onClose }: { onClose: () => void }) {
       () => {
         window.clearTimeout(timer)
         setGpsPending(false)
+        if (!initialAddress) applyPoint(start.lat, start.lng, 'fallback', true)
       },
       { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
     )
@@ -3060,7 +3125,6 @@ function DaeriCallSetupSheet({
   const [pickupPoint, setPickupPoint] = useState<RideCoords>({ lat: originLat, lng: originLng })
   const [dest, setDest] = useState(destination.trim() || '')
   const [plan, setPlan] = useState<'착한요금' | '빠른배정'>('착한요금')
-  const [mapPlace, setMapPlace] = useState({ lat: originLat, lng: originLng, label: '현재 위치' })
   const [mapPicker, setMapPicker] = useState(false)
   const [pendingPick, setPendingPick] = useState<{ lat: number; lng: number; address: string } | null>(null)
   const [sheetOpen, setSheetOpen] = useState(true)
@@ -3075,20 +3139,15 @@ function DaeriCallSetupSheet({
     { id: '빠른배정' as const, fare: 2.8, caption: '가까운 기사 우선 배정' },
   ]
   const selected = plans.find((item) => item.id === plan) ?? plans[0]
-  const pickMapPoint = (lat: number, lng: number) => {
-    const fallback = virtualPickupAddress(lat, lng)
-    setMapPlace({ lat, lng, label: '선택 위치' })
-    setPendingPick({ lat, lng, address: fallback })
-    void fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=ko`, {
-      headers: { Accept: 'application/json' },
+  const pickMapPoint = (nextLat: number, nextLng: number) => {
+    const fallback = pickup.trim() || virtualPickupAddress(nextLat, nextLng)
+    setPendingPick({ lat: nextLat, lng: nextLng, address: fallback })
+    void reverseGeocode(nextLat, nextLng).then((nextAddress) => {
+      if (!nextAddress) return
+      setPendingPick((current) =>
+        current && current.lat === nextLat && current.lng === nextLng ? { ...current, address: nextAddress } : current,
+      )
     })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: { display_name?: string } | null) => {
-        const address = data?.display_name?.split(',').slice(0, 3).join(' ').trim()
-        if (!address) return
-        setPendingPick((current) => (current && current.lat === lat && current.lng === lng ? { ...current, address } : current))
-      })
-      .catch(() => undefined)
   }
   const closePicker = () => {
     setMapPicker(false)
@@ -3123,8 +3182,10 @@ function DaeriCallSetupSheet({
     <div className="fixed inset-0 z-[52] bg-[#1e1033]/40">
       <div className="relative mx-auto h-full max-w-md overflow-hidden bg-[#E2E8F0]">
         <LocationTileMap
-          lat={mapPlace.lat}
-          lng={mapPlace.lng}
+          lat={pickupPoint.lat}
+          lng={pickupPoint.lng}
+          pinLat={pendingPick?.lat ?? pickupPoint.lat}
+          pinLng={pendingPick?.lng ?? pickupPoint.lng}
           className="h-full"
           interactive
           pulsePin
@@ -5594,6 +5655,7 @@ export default function HomeScreen() {
   const [fullscreenMapOpen, setFullscreenMapOpen] = useState(false)
   const [pickup, setPickup] = useState<PickupPlace | null>(null)
   const pickupRef = useRef<PickupPlace | null>(null)
+  const locateSeqRef = useRef(0)
   const [gps, setGps] = useState<GpsFix>({
     status: 'pending',
     address: '현재 위치를 확인하는 중',
@@ -5636,16 +5698,18 @@ export default function HomeScreen() {
     status: GpsFix['status'],
     source: PickupPlace['source'],
   ) => {
+    const seq = (locateSeqRef.current += 1)
     const pendingAddress = point.address || '주소를 확인하는 중'
     setGps({ status, address: pendingAddress, lat: point.lat, lng: point.lng })
     if (pickupRef.current?.source !== 'map') {
       applyPickup({ address: pendingAddress, lat: point.lat, lng: point.lng, source })
     }
     if (point.address) return
-    const address = await reverseGeocode(point.lat, point.lng)
-    setGps({ status, address, lat: point.lat, lng: point.lng })
+    const nextAddress = await reverseGeocode(point.lat, point.lng)
+    if (seq !== locateSeqRef.current) return
+    setGps({ status, address: nextAddress, lat: point.lat, lng: point.lng })
     if (pickupRef.current?.source !== 'map') {
-      applyPickup({ address, lat: point.lat, lng: point.lng, source })
+      applyPickup({ address: nextAddress, lat: point.lat, lng: point.lng, source })
     }
   }
 
@@ -6073,12 +6137,19 @@ export default function HomeScreen() {
             </section>
           </div>
         ) : null}
-        {mapOpen ? <LocationMapModal onClose={() => setMapOpen(false)} /> : null}
+        {mapOpen ? (
+          <LocationMapModal
+            onClose={() => setMapOpen(false)}
+            initialLat={origin.lat}
+            initialLng={origin.lng}
+            initialAddress={origin.address}
+          />
+        ) : null}
         {fullscreenMapOpen ? (
           <FullscreenMapView
-            lat={gps.lat}
-            lng={gps.lng}
-            address={gps.address}
+            lat={origin.lat}
+            lng={origin.lng}
+            address={origin.address}
             pickupLat={origin.lat}
             pickupLng={origin.lng}
             onClose={() => setFullscreenMapOpen(false)}
