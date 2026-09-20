@@ -8,6 +8,7 @@ import { useLocale } from '@/components/locale-provider'
 import type { AppLocale } from '@/lib/i18n'
 
 function PageFrame({ title, caption, onBack, children }: { title: string; caption: string; onBack: () => void; children: React.ReactNode }) {
+  const { t } = useLocale()
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-start gap-3">
@@ -15,7 +16,7 @@ function PageFrame({ title, caption, onBack, children }: { title: string; captio
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div className="min-w-0">
-          <p className="text-xs font-black text-[#4C1FB8]">더보기</p>
+          <p className="text-xs font-black text-[#4C1FB8]">{t('more.hub')}</p>
           <h2 className="mt-1 text-2xl font-black text-[#0F172A]">{title}</h2>
           <p className="mt-1 text-sm font-bold text-[#64748B]">{caption}</p>
         </div>

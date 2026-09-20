@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
-import { notices, type Notice } from '@/lib/notices'
+import { useLocale } from '@/components/locale-provider'
+import { translateService } from '@/lib/i18n'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
 import { TermsDetailView, TermsListView } from '@/components/more/terms-pages'
@@ -112,11 +113,11 @@ function rideRouteLabel(pickupAddress: string, destLabel: string, destAddress?: 
 }
 
 const navItems = [
-  { id: '전체보기', label: '전체보기', icon: LayoutGrid },
-  { id: '기사/파트너', label: '기사/파트너', icon: Car },
-  { id: '홈', label: '홈', icon: House },
-  { id: '이용/알림', label: '이용/알림', icon: Bell },
-  { id: '내 정보', label: '내 정보', icon: CircleUserRound },
+  { id: '전체보기', labelKey: 'nav.all' as const, icon: LayoutGrid },
+  { id: '기사/파트너', labelKey: 'nav.partner' as const, icon: Car },
+  { id: '홈', labelKey: 'nav.home' as const, icon: House },
+  { id: '이용/알림', labelKey: 'nav.inbox' as const, icon: Bell },
+  { id: '내 정보', labelKey: 'nav.mypage' as const, icon: CircleUserRound },
 ] as const
 
 const services: Service[] = [
@@ -139,7 +140,9 @@ function ServiceIconButton({
   onClick: () => void
   compact?: boolean
 }) {
+  const { locale, t } = useLocale()
   const Illustration = serviceIllustrations[service.label]
+  const name = translateService(locale, service.label)
   return (
     <button
       type="button"
@@ -148,14 +151,14 @@ function ServiceIconButton({
         onClick()
       }}
       onPointerDown={(event) => event.stopPropagation()}
-      aria-label={`${service.label} 서비스 열기`}
+      aria-label={t('service.open', { name })}
       className="group flex flex-col items-center"
     >
       <span className={`flex items-center justify-center bg-white shadow-[0_8px_22px_rgba(15,23,42,0.10)] ring-1 ring-black/[0.04] transition group-hover:-translate-y-0.5 group-active:scale-95 ${compact ? 'h-12 w-12 rounded-[16px]' : 'h-16 w-16 rounded-[22px]'}`}>
         <Illustration />
       </span>
       <span className={`whitespace-nowrap font-black tracking-tight text-[#0F172A] ${compact ? 'mt-1 text-[11px]' : 'mt-2 text-[13px]'}`}>
-        {service.label}
+        {name}
       </span>
     </button>
   )
@@ -2572,6 +2575,7 @@ function MoreHubSheet({
   onNotice: (message: string) => void
   onSelectService: (label: string) => void
 }) {
+  const { t } = useLocale()
   const [view, setView] = useState<MoreItemId | 'menu' | `notice:${string}` | `terms:${string}`>('menu')
   return (
     <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={onClose}>
@@ -2587,18 +2591,18 @@ function MoreHubSheet({
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-black text-[#4C1FB8]">TAXITAGO SERVICE</p>
-                <h2 className="mt-1 text-2xl font-black">더보기</h2>
+                <h2 className="mt-1 text-2xl font-black">{t('more.hub')}</h2>
               </div>
-              <button type="button" onClick={onClose} className="rounded-full bg-[#f4f1f8] p-2 text-[#5f566d]" aria-label="닫기">
+              <button type="button" onClick={onClose} className="rounded-full bg-[#f4f1f8] p-2 text-[#5f566d]" aria-label={t('more.close')}>
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto pb-2">
-              <p className="mb-2 mt-4 text-xs font-black text-[#8b8495]">안내 · 설정</p>
+              <p className="mb-2 mt-4 text-xs font-black text-[#8b8495]">{t('more.guide')}</p>
               <div className="-mt-5">
                 <MoreMenu onOpen={setView} />
               </div>
-              <p className="mb-2 mt-5 text-xs font-black text-[#475569]">이동 서비스</p>
+              <p className="mb-2 mt-5 text-xs font-black text-[#475569]">{t('more.mobility')}</p>
               <div className="rounded-[22px] bg-[#E2E8F0] p-3">
                 <div className="grid grid-cols-4 gap-x-2 gap-y-4">
                   {services
@@ -2667,6 +2671,7 @@ function ServiceSheet({
   daeriTrip?: DaeriTrip | null
   onSelectService?: (label: string) => void
 }) {
+  const { t } = useLocale()
   const IS_TEST_MODE = true
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
   const [deliveryVehicle, setDeliveryVehicle] = useState('오토바이')
@@ -3144,9 +3149,9 @@ function ServiceSheet({
         )}
         {more && (
           <div className="mt-5">
-            <p className="mb-2 text-xs font-black text-[#8b8495]">안내 · 설정</p>
+            <p className="mb-2 text-xs font-black text-[#8b8495]">{t('more.guide')}</p>
             <MoreMenu />
-            <p className="mb-2 mt-5 text-xs font-black text-[#475569]">이동 서비스</p>
+            <p className="mb-2 mt-5 text-xs font-black text-[#475569]">{t('more.mobility')}</p>
             <div className="rounded-[22px] bg-[#E2E8F0] p-3">
               <div className="grid grid-cols-3 gap-x-2 gap-y-4">
                 {services
@@ -3547,6 +3552,7 @@ function Home({
   onReceipt: (ride: RideReceipt) => void
   onOpenMap: () => void
 }) {
+  const { t } = useLocale()
   const [searchOpen, setSearchOpen] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [favorites, setFavorites] = useState<FavoritePlace[]>([])
@@ -3599,7 +3605,7 @@ function Home({
   return (
     <main
       className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth bg-white px-3 pb-[max(6.25rem,calc(5.25rem+env(safe-area-inset-bottom)))] pt-2 [-webkit-overflow-scrolling:touch]"
-      aria-label="홈 콘텐츠"
+      aria-label={t('home.content')}
     >
         <div className="rounded-[16px] border border-[#E2E8F0] bg-[#F8FAFC] p-1.5">
           <button type="button" onClick={onOpenMap} className="flex w-full items-center gap-2 rounded-lg bg-white px-2 py-1 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
@@ -3607,7 +3613,7 @@ function Home({
               <LocateFixed className="h-3.5 w-3.5" />
             </span>
             <span className="min-w-0 flex-1 py-0.5">
-              <span className="block text-[10px] font-bold leading-3 text-[#64748B]">출발지</span>
+              <span className="block text-[10px] font-bold leading-3 text-[#64748B]">{t('home.pickup')}</span>
               <span className="mt-0.5 block truncate text-[13px] font-black leading-4 text-[#0F172A]">{pickup}</span>
             </span>
           </button>
@@ -3616,16 +3622,16 @@ function Home({
             onClick={() => setSearchOpen(true)}
             className="mt-1 flex w-full items-stretch overflow-hidden rounded-lg border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
             style={{ WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
-            aria-label={destination ? `목적지 ${destination}` : '목적지 검색 열기'}
+            aria-label={destination ? `${t('home.dest')} ${destination}` : t('home.destSearch')}
           >
             <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-2.5 py-1.5">
-              <span className="block shrink-0 text-[11px] font-bold leading-4 text-[#7C3AED]">목적지</span>
+              <span className="block shrink-0 text-[11px] font-bold leading-4 text-[#7C3AED]">{t('home.dest')}</span>
               <span className="flex items-center gap-2">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
                   <Search className="h-3.5 w-3.5" />
                 </span>
                 <span className={`min-w-0 flex-1 truncate text-sm font-black leading-4 ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
-                  {destination || '어디로 갈까요?'}
+                  {destination || t('home.destPlaceholder')}
                 </span>
               </span>
             </span>
@@ -3654,12 +3660,12 @@ function Home({
           onClick={callTaxi}
           className="mt-3 flex min-h-12 w-full items-center justify-center rounded-2xl bg-[#4C1FB8] text-[15px] font-black tracking-tight text-white shadow-[0_8px_18px_rgba(76,31,184,0.28)] transition hover:bg-[#3B16A8] active:scale-[0.99]"
         >
-          택시 호출하기
+          {t('home.callTaxi')}
         </button>
         <section className="mt-4">
           <div className="flex items-end justify-between px-0.5">
-            <h2 className="text-sm font-black tracking-tight text-[#0F172A]">무엇을 이용할까요?</h2>
-            <span className="text-[10px] font-bold text-[#475569]">8개 서비스</span>
+            <h2 className="text-sm font-black tracking-tight text-[#0F172A]">{t('home.whatToUse')}</h2>
+            <span className="text-[10px] font-bold text-[#475569]">{t('home.serviceCount', { count: '8' })}</span>
           </div>
           <div className="mt-2 rounded-[22px] bg-[#E2E8F0] p-3">
             <div className="grid grid-cols-4 gap-x-2 gap-y-4">
@@ -3670,7 +3676,7 @@ function Home({
           </div>
         </section>
         <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-3 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
-          <p className="text-[10px] font-bold text-[#64748B]">최근 이용</p>
+          <p className="text-[10px] font-bold text-[#64748B]">{t('home.recent')}</p>
           <p className="text-[13px] font-black leading-tight">서울시청 → 강남역 · 3.2 Pi</p>
         </button>
         <HomeEventBanners onAction={onService} />
@@ -3998,15 +4004,16 @@ function TabContent({
   onOpenDriverSignup: () => void
   onOpenPartnerSignup: () => void
 }) {
+  const { t } = useLocale()
   if (tab === '전체보기') {
     return (
-      <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth px-4 pb-8 pt-1 [-webkit-overflow-scrolling:touch]" aria-label="전체보기">
-        <h2 className="pt-2 text-2xl font-black">전체보기</h2>
-        <p className="mt-1 text-sm font-bold text-[#64748B]">모든 서비스와 안내를 한곳에서 확인하세요.</p>
+      <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth px-4 pb-8 pt-1 [-webkit-overflow-scrolling:touch]" aria-label={t('nav.all')}>
+        <h2 className="pt-2 text-2xl font-black">{t('nav.all')}</h2>
+        <p className="mt-1 text-sm font-bold text-[#64748B]">{t('nav.allCaption')}</p>
         <section className="mt-4 pb-2">
-          <p className="mb-2 text-xs font-black text-[#475569]">안내 · 설정</p>
+          <p className="mb-2 text-xs font-black text-[#475569]">{t('more.guide')}</p>
           <MoreMenu />
-          <p className="mb-2 mt-5 text-xs font-black text-[#475569]">이동 서비스</p>
+          <p className="mb-2 mt-5 text-xs font-black text-[#475569]">{t('more.mobility')}</p>
           <div className="rounded-[22px] bg-[#E2E8F0] p-3 pb-5">
             <div className="grid grid-cols-4 gap-x-2 gap-y-4">
               {services.map((item) => (
@@ -5728,6 +5735,7 @@ function DriverDashboard({
 }
 
 export default function HomeScreen() {
+  const { t } = useLocale()
   const user = LOCAL_TEST_USER
   const [driverMode, setDriverMode] = useState(false)
   const [driverOnline, setDriverOnline] = useState(true)
@@ -6087,16 +6095,16 @@ export default function HomeScreen() {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-bold tracking-wide text-[#4A82B8]">TAXI TAGO</p>
-              <h1 className="truncate text-[22px] font-black leading-tight text-[#0F172A]">{tab === '기사/파트너' ? '파트너' : '택시타고'}</h1>
+              <h1 className="truncate text-[22px] font-black leading-tight text-[#0F172A]">{tab === '기사/파트너' ? t('brand.partner') : t('brand.name')}</h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button onClick={openWallet} className="rounded-full bg-[#E8F1FA] px-2.5 py-1.5 text-[11px] font-black text-[#4A82B8]">
                 {walletBalance.toFixed(2)} Pi
               </button>
-              <button onClick={() => setHeaderModal('activity')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label="시간별 활동 기록">
+              <button onClick={() => setHeaderModal('activity')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label={t('home.activity')}>
                 <Bell className="h-4 w-4" />
               </button>
-              <button onClick={() => setHeaderModal('account')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label="파이 계정 연동">
+              <button onClick={() => setHeaderModal('account')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label={t('home.piAccount')}>
                 <UserRound className="h-4 w-4" />
               </button>
             </div>
@@ -6114,17 +6122,17 @@ export default function HomeScreen() {
               type="button"
               onClick={() => setLocationGuideOpen(true)}
               className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              aria-label="현재 위치 변경"
+              aria-label={t('home.changeLocation')}
             >
               <LocateFixed className="h-4 w-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">
                 {pickup?.source === 'map' || gps.status === 'ready'
-                  ? `현재 위치 · ${origin.address}`
+                  ? t('home.gpsReady', { address: origin.address })
                   : gps.status === 'pending'
-                    ? 'GPS 위치를 수신하는 중이에요'
+                    ? t('home.gpsPending')
                     : gps.status === 'approx'
-                      ? `접속 지역 · ${origin.address}`
-                      : `위치 권한 없음 · ${origin.address}`}
+                      ? t('home.gpsApprox', { address: origin.address })
+                      : t('home.gpsDenied', { address: origin.address })}
               </span>
             </button>
             {gps.status !== 'ready' && pickup?.source !== 'map' ? (
@@ -6135,7 +6143,7 @@ export default function HomeScreen() {
                 }}
                 className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-[#4A82B8] shadow-[0_4px_10px_rgba(15,23,42,0.08)]"
               >
-                위치 허용
+                {t('home.allowLocation')}
               </button>
             ) : null}
             <button
@@ -6143,7 +6151,7 @@ export default function HomeScreen() {
               onClick={() => openPickupMap()}
               className="shrink-0 rounded-full bg-[#4A82B8] px-2.5 py-1 text-[11px] font-black text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]"
             >
-              지도확인
+              {t('home.viewMap')}
             </button>
           </div>
         </header>
@@ -6176,13 +6184,13 @@ export default function HomeScreen() {
           </div>
         )}
         <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 justify-around border-t-2 border-[#CBD5E1] bg-white px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-10px_24px_rgba(15,23,42,0.12)]">
-          {navItems.map(({ id, label, icon: Icon }) => {
+          {navItems.map(({ id, labelKey, icon: Icon }) => {
             const active = tab === id
             return (
               <button
                 key={id}
                 type="button"
-                aria-label={id}
+                aria-label={t(labelKey)}
                 onClick={() => {
                   if (id === '기사/파트너') {
                     setTab('기사/파트너')
@@ -6202,7 +6210,7 @@ export default function HomeScreen() {
                     </span>
                   ) : null}
                 </span>
-                <span className="max-w-full px-0.5 text-center text-[10px] font-black leading-tight tracking-tight">{label}</span>
+                <span className="max-w-full px-0.5 text-center text-[10px] font-black leading-tight tracking-tight">{t(labelKey)}</span>
               </button>
             )
           })}
@@ -6211,13 +6219,11 @@ export default function HomeScreen() {
           <div className="fixed inset-0 z-[96] flex items-end bg-[#1e1033]/45 sm:items-center sm:p-4" onClick={() => setLocationGuideOpen(false)}>
             <section className="mx-auto w-full max-w-md rounded-t-[28px] bg-white px-5 pb-7 pt-4 shadow-2xl sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
               <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-              <p className="text-xs font-black text-[#4C1FB8]">출발지 설정</p>
-              <h2 className="mt-1 text-xl font-black text-[#0F172A]">위치를 직접 바꿀 수 있어요</h2>
+              <p className="text-xs font-black text-[#4C1FB8]">{t('home.pickupTitle')}</p>
+              <h2 className="mt-1 text-xl font-black text-[#0F172A]">{t('home.pickupChange')}</h2>
               <p className="mt-2 rounded-2xl bg-[#F8FAFC] px-3 py-2 text-sm font-black leading-5 text-[#0F172A]">{origin.address}</p>
               <p className="mt-2 text-sm font-bold leading-6 text-[#475569]">
-                {gps.status === 'ready' || pickup?.source === 'map'
-                  ? '지도에서 핀을 옮기거나 GPS를 다시 받아 출발지를 변경하세요.'
-                  : 'GPS를 가져오지 못해 접속 지역으로 표시하고 있어요. 위치 권한을 허용하거나 지도에서 출발지를 골라 주세요. 서울로 고정되지 않습니다.'}
+                {gps.status === 'ready' || pickup?.source === 'map' ? t('home.pickupReady') : t('home.pickupNeedGps')}
               </p>
               <button
                 type="button"
@@ -6227,7 +6233,7 @@ export default function HomeScreen() {
                 }}
                 className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white shadow-[0_10px_20px_rgba(76,31,184,0.28)]"
               >
-                위치 권한 다시 요청
+                {t('home.reaskGps')}
               </button>
               <button
                 type="button"
@@ -6236,10 +6242,10 @@ export default function HomeScreen() {
                 }}
                 className="mt-2 w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3.5 text-sm font-black text-[#4C1FB8]"
               >
-                지도에서 출발지 선택
+                {t('home.pickOnMap')}
               </button>
               <button type="button" onClick={() => setLocationGuideOpen(false)} className="mt-2 w-full py-3 text-sm font-black text-[#64748B]">
-                닫기
+                {t('settings.close')}
               </button>
             </section>
           </div>
