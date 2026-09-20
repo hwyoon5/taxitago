@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { notices, type Notice } from '@/lib/notices'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
@@ -1420,6 +1420,30 @@ function InTripCancelConfirmModal({
   )
 }
 
+function RideCompleteCancelBar({
+  children,
+  onCancel,
+  hint,
+}: {
+  children?: ReactNode
+  onCancel: () => void
+  hint?: string
+}) {
+  return (
+    <div className="sticky bottom-0 z-30 -mx-5 mt-3 space-y-2 border-t-2 border-[#FECDD3] bg-white px-5 pb-[max(0.9rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_20px_rgba(15,23,42,0.06)]">
+      {children}
+      <button
+        type="button"
+        onClick={onCancel}
+        className="w-full rounded-2xl border-2 border-[#BE123C] bg-[#FFF1F2] py-3.5 text-base font-black text-[#BE123C] shadow-[0_4px_12px_rgba(190,18,60,0.12)]"
+      >
+        이용 취소
+      </button>
+      {hint ? <p className="text-center text-[11px] font-bold leading-5 text-[#BE123C]">{hint}</p> : null}
+    </div>
+  )
+}
+
 function InsufficientBalanceModal({ onConfirm }: { onConfirm: () => void }) {
   return (
     <div className="fixed inset-0 z-[96] flex items-end bg-[#1e293b]/50 sm:items-center sm:p-4">
@@ -1931,8 +1955,11 @@ function TaxiMatchingSheet({
   )
   const fare = ride?.estimatedFare ?? 2.34
   const billed = settleRideFare(fare, ride?.id ?? route)
+  const cancelSettlement = settleMidTripCancelFee(phase === 'moving' ? billed.actual : fare)
   const [piPaying, setPiPaying] = useState(false)
   const [accepting, setAccepting] = useState(false)
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const [cancelSettling, setCancelSettling] = useState(false)
   const escrowLockingRef = useRef(false)
   const escrowHeldRef = useRef(false)
   const settledRef = useRef(false)
@@ -2096,6 +2123,28 @@ function TaxiMatchingSheet({
     taxiSheetRideId = ''
     onNotice(matched ? '배차를 취소했어요.' : '택시 호출을 취소했어요.')
     onClose()
+  }
+
+  const confirmInTripCancel = async () => {
+    if (cancelSettling) return
+    if (balance < cancelSettlement.cancelFee) {
+      setCancelConfirmOpen(false)
+      onNeedCharge()
+      return
+    }
+    setCancelSettling(true)
+    try {
+      const paid = await onPay(cancelSettlement.cancelFee, route, '택시 취소 수수료', cancelSettlement.cancelFee)
+      if (!paid) return
+      if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
+      taxiSheetRideId = ''
+      onNotice(
+        `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
+      )
+      onClose()
+    } finally {
+      setCancelSettling(false)
+    }
   }
 
   const acceptPendingOffer = () => {
@@ -2282,12 +2331,6 @@ function TaxiMatchingSheet({
                   이동 시작
                 </button>
               )}
-              {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
-              {IS_TEST_MODE && phase === 'moving' && ride?.status !== 'completed' ? (
-                <button type="button" disabled={accepting} onClick={finishPassengerTrip} className="w-full rounded-2xl bg-[#047857] py-3.5 font-black text-white disabled:opacity-60">
-                  {accepting ? '정산 중…' : '운행 완료 · 정산하기'}
-                </button>
-              ) : null}
               <PaymentHandler
                 service="택시"
                 amount={phase === 'moving' ? billed.actual : fare}
@@ -2321,9 +2364,17 @@ function TaxiMatchingSheet({
                   운행 종료 · 영수증 보기
                 </button>
               ) : (
-                <button type="button" onClick={cancelRide} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
-                  {phase === 'moving' ? '운행 취소' : '호출 취소'}
-                </button>
+                <RideCompleteCancelBar
+                  onCancel={() => setCancelConfirmOpen(true)}
+                  hint="운행 중 취소 시 취소 수수료가 기사님께 지급되고 나머지는 청구되지 않습니다"
+                >
+                  {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
+                  {IS_TEST_MODE && phase === 'moving' ? (
+                    <button type="button" disabled={accepting} onClick={finishPassengerTrip} className="w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:opacity-60">
+                      {accepting ? '정산 중…' : '이용 완료'}
+                    </button>
+                  ) : null}
+                </RideCompleteCancelBar>
               )}
             </div>
           </div>
@@ -2345,6 +2396,17 @@ function TaxiMatchingSheet({
           role="passenger"
           peerName={`${driver.name} 기사님`}
           onClose={() => setChatOpen(false)}
+        />
+      ) : null}
+      {cancelConfirmOpen && matched && ride?.status !== 'completed' ? (
+        <InTripCancelConfirmModal
+          quoted={cancelSettlement.quoted}
+          cancelFee={cancelSettlement.cancelFee}
+          waived={cancelSettlement.waived}
+          driverPayout={cancelSettlement.driverPayout}
+          settling={cancelSettling}
+          onKeep={() => setCancelConfirmOpen(false)}
+          onConfirm={() => void confirmInTripCancel()}
         />
       ) : null}
     </div>
@@ -2705,38 +2767,52 @@ function ServiceSheet({
                 운행 시작
               </button>
             ) : null}
-            <PiCheckoutButton
-              amount={ride && rideStage === 'moving' ? billed.actual : fare}
-              memo={`${service} ${(ride && rideStage === 'moving' ? billed.actual : fare)} Pi`}
-              metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
-              className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
-              onPaid={(result) => {
-                if (!result.paymentId || !result.txid) return
-                const paid = ride && rideStage === 'moving' ? billed.actual : fare
-                onSettle(paid, place, `${service} 이용`, ride ? billed.estimate : undefined, result)
-                onAskReview(partner)
-                onClose()
-              }}
-              onFailed={(error) => onNotice(describePiUserMessage(error))}
-            >
-              이용 완료
-            </PiCheckoutButton>
-            {ride && rideStage === 'moving' ? (
-              <button
-                type="button"
-                onClick={() => setCancelConfirmOpen(true)}
-                className="w-full rounded-2xl border-2 border-[#FECACA] bg-white py-3.5 font-black text-[#BE123C]"
+            {ride ? (
+              <RideCompleteCancelBar
+                onCancel={() => setCancelConfirmOpen(true)}
+                hint={
+                  rideStage === 'arriving'
+                    ? '기사님이 도착하면 운행을 시작해 주세요 · 취소 시 수수료가 부과될 수 있습니다'
+                    : '운행 중 취소 시 취소 수수료가 기사님께 지급되고 나머지는 청구되지 않습니다'
+                }
               >
-                이용 취소
-              </button>
-            ) : null}
-            <p className="text-center text-[11px] font-bold text-[#8b8495]">
-              {ride && rideStage === 'arriving'
-                ? '기사님이 도착하면 운행을 시작해 주세요'
-                : ride && rideStage === 'moving'
-                  ? '운행 중 취소 시 취소 수수료가 기사님께 지급되고 나머지는 청구되지 않습니다'
-                  : '도착 후 눌러 주세요 · 하차 완료'}
-            </p>
+                <PiCheckoutButton
+                  amount={rideStage === 'moving' ? billed.actual : fare}
+                  memo={`${service} ${(rideStage === 'moving' ? billed.actual : fare)} Pi`}
+                  metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
+                  className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
+                  onPaid={(result) => {
+                    if (!result.paymentId || !result.txid) return
+                    const paid = rideStage === 'moving' ? billed.actual : fare
+                    onSettle(paid, place, `${service} 이용`, billed.estimate, result)
+                    onAskReview(partner)
+                    onClose()
+                  }}
+                  onFailed={(error) => onNotice(describePiUserMessage(error))}
+                >
+                  이용 완료
+                </PiCheckoutButton>
+              </RideCompleteCancelBar>
+            ) : (
+              <>
+                <PiCheckoutButton
+                  amount={fare}
+                  memo={`${service} ${fare} Pi`}
+                  metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
+                  className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
+                  onPaid={(result) => {
+                    if (!result.paymentId || !result.txid) return
+                    onSettle(fare, place, `${service} 이용`, undefined, result)
+                    onAskReview(partner)
+                    onClose()
+                  }}
+                  onFailed={(error) => onNotice(describePiUserMessage(error))}
+                >
+                  이용 완료
+                </PiCheckoutButton>
+                <p className="text-center text-[11px] font-bold text-[#8b8495]">도착 후 눌러 주세요 · 하차 완료</p>
+              </>
+            )}
           </div>
         )}
         {phase === 'idle' && ride && (
@@ -2946,7 +3022,7 @@ function ServiceSheet({
           }}
         />
       ) : null}
-      {cancelConfirmOpen && ride && rideStage === 'moving' ? (
+      {cancelConfirmOpen && ride ? (
         <InTripCancelConfirmModal
           quoted={cancelSettlement.quoted}
           cancelFee={cancelSettlement.cancelFee}
