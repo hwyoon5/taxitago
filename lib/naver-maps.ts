@@ -11,7 +11,8 @@ export type NaverMapInstance = {
   panBy: (offset: unknown) => void
   setZoom: (zoom: number, useEffect?: boolean) => void
   getZoom: () => number
-  getCenter?: () => NaverLatLng
+  getCenter?: () => unknown
+  getProjection?: () => { fromOffsetToCoord?: (offset: unknown) => unknown } | null
   fitBounds?: (bounds: unknown, margin?: unknown) => void
   autoResize?: () => void
   destroy?: () => void
@@ -164,6 +165,16 @@ function injectScript(src: string) {
     script.onerror = () => reject(new Error(`failed:${src}`))
     document.head.appendChild(script)
   })
+}
+
+export async function waitForNaverGeocoder(timeoutMs = 5000) {
+  const sdk = await loadNaverMaps()
+  if (!sdk) return null
+  const started = Date.now()
+  while (!sdk.Service?.reverseGeocode && Date.now() - started < timeoutMs) {
+    await new Promise((resolve) => window.setTimeout(resolve, 40))
+  }
+  return sdk.Service?.reverseGeocode ? sdk : null
 }
 
 export function loadNaverMaps(): Promise<NaverMapsSdk | null> {

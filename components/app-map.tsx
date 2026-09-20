@@ -62,33 +62,102 @@ function readLatLngValue(value: unknown): RidePoint | null {
   return { lat, lng }
 }
 
-function readMapCenter(map: NaverMapInstance | null): RidePoint | null {
+function readMapCenter(map: NaverMapInstance | null, sdk?: NaverMapsSdk | null, canvas?: HTMLDivElement | null): RidePoint | null {
   if (!map) return null
   const fromGetter = readLatLngValue(map.getCenter?.())
   if (fromGetter) return fromGetter
-  return readLatLngValue((map as { center?: unknown }).center)
+  const fromProp = readLatLngValue((map as { center?: unknown }).center)
+  if (fromProp) return fromProp
+  if (sdk && canvas) {
+    const projection = map.getProjection?.()
+    const mapped = projection?.fromOffsetToCoord?.(new sdk.Point(canvas.clientWidth / 2, canvas.clientHeight / 2))
+    return readLatLngValue(mapped)
+  }
+  return null
 }
 
-function CenteredMapPin({ pulse, lift }: { pulse: boolean; lift?: boolean }) {
+function stopMapEvent(event: { stopPropagation: () => void; preventDefault?: () => void; nativeEvent?: { stopImmediatePropagation?: () => void } }) {
+  event.stopPropagation()
+  event.nativeEvent?.stopImmediatePropagation?.()
+  event.preventDefault?.()
+}
+
+function PickupStartButton({ onConfirm }: { onConfirm: () => void }) {
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const confirmRef = useRef(onConfirm)
+  const lockRef = useRef(0)
+  confirmRef.current = onConfirm
+
+  const fire = (event?: { stopPropagation: () => void; preventDefault?: () => void }) => {
+    event?.stopPropagation()
+    event?.preventDefault?.()
+    const now = Date.now()
+    if (now - lockRef.current < 450) return
+    lockRef.current = now
+    confirmRef.current()
+  }
+
+  useEffect(() => {
+    const node = buttonRef.current
+    if (!node) return
+    const block = (event: Event) => {
+      event.stopPropagation()
+      event.preventDefault()
+    }
+    const nativeFire = (event: Event) => {
+      event.stopPropagation()
+      event.preventDefault()
+      fire()
+    }
+    const blockTypes = ['pointerdown', 'mousedown', 'touchstart', 'dblclick', 'wheel'] as const
+    const fireTypes = ['click', 'touchend'] as const
+    blockTypes.forEach((type) => node.addEventListener(type, block, { capture: true, passive: false }))
+    fireTypes.forEach((type) => node.addEventListener(type, nativeFire, { capture: true, passive: false }))
+    return () => {
+      blockTypes.forEach((type) => node.removeEventListener(type, block, true))
+      fireTypes.forEach((type) => node.removeEventListener(type, nativeFire, true))
+    }
+  }, [])
+
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      className="tt-start-balloon pointer-events-auto"
+      style={{ touchAction: 'manipulation' }}
+      onClick={(event) => fire(event)}
+      onTouchEnd={(event) => fire(event)}
+    >
+      출발
+    </button>
+  )
+}
+
+function CenteredMapPin({ pulse, lift, onConfirm }: { pulse: boolean; lift?: boolean; onConfirm?: () => void }) {
   return (
     <div
-      className="pointer-events-none absolute z-[8]"
-      style={{
-        left: '50%',
-        top: '50%',
-        transform: pulse
-          ? `translate(-50%, calc(-50% - ${lift ? 10 : 0}px))`
-          : `translate(-50%, calc(-100% - ${lift ? 12 : 0}px))`,
-        transition: 'transform 120ms ease-out',
-      }}
+      className="pointer-events-none absolute inset-0 z-[50]"
+      style={{ transform: 'none' }}
     >
-      {pulse ? (
-        <StartPulsePin />
-      ) : (
-        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-md">
-          <MapPin className="h-5 w-5" />
-        </span>
-      )}
+      <div
+        className="pointer-events-none absolute"
+        style={{
+          left: '50%',
+          top: '50%',
+          transform: pulse
+            ? `translate(-50%, calc(-50% - ${lift ? 10 : 0}px))`
+            : `translate(-50%, calc(-100% - ${lift ? 12 : 0}px))`,
+          transition: 'transform 120ms ease-out',
+        }}
+      >
+        {pulse ? (
+          <StartPulsePin onConfirm={onConfirm} />
+        ) : (
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-md">
+            <MapPin className="h-5 w-5" />
+          </span>
+        )}
+      </div>
     </div>
   )
 }
@@ -192,7 +261,9 @@ type MapViewProps = {
   onPick?: (lat: number, lng: number) => void
   onActivate?: () => void
   onLocate?: () => void
+  onConfirm?: () => void
   onCenterChange?: (lat: number, lng: number, dragging?: boolean) => void
+  onCenterIdle?: (lat: number, lng: number) => void
 }
 
 function latLngToWorld(lat: number, lng: number, zoom: number) {
@@ -289,12 +360,12 @@ function FallbackNotice({ message }: { message?: string }) {
   )
 }
 
-function StartPulsePin() {
+function StartPulsePin({ onConfirm }: { onConfirm?: () => void }) {
   return (
     <span className="tt-start-pin">
       <span className="tt-start-halo" />
       <span className="tt-start-dot" />
-      <span className="tt-start-balloon">출발</span>
+      {onConfirm ? <PickupStartButton onConfirm={onConfirm} /> : <span className="tt-start-balloon">출발</span>}
     </span>
   )
 }
@@ -363,7 +434,9 @@ function FallbackSlippyMap({
   onPick,
   onActivate,
   onLocate,
+  onConfirm,
   onCenterChange,
+  onCenterIdle,
   onZoomIn,
   onZoomOut,
   notice,
@@ -378,7 +451,9 @@ function FallbackSlippyMap({
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef(0)
   const centerChangeRef = useRef(onCenterChange)
+  const centerIdleRef = useRef(onCenterIdle)
   centerChangeRef.current = onCenterChange
+  centerIdleRef.current = onCenterIdle
   viewRef.current = view
 
   const emitCenter = (active = false) => {
@@ -503,6 +578,8 @@ function FallbackSlippyMap({
         if (panned && pointersRef.current.size === 0) {
           setDragging(false)
           emitCenter(false)
+          const next = viewRef.current
+          centerIdleRef.current?.(next.lat, next.lng)
         }
         if (!interactive || !tapped) return
         if (onActivate && !onPick) {
@@ -527,7 +604,7 @@ function FallbackSlippyMap({
           style={{ left: tile.left, top: tile.top, width: TILE_SIZE, height: TILE_SIZE }}
         />
       ))}
-      {!hidePin && centerPin ? <CenteredMapPin pulse={Boolean(pulsePin)} lift={dragging} /> : null}
+      {!hidePin && centerPin ? <CenteredMapPin pulse={Boolean(pulsePin)} lift={dragging} onConfirm={onConfirm} /> : null}
       {!hidePin && !centerPin ? (
         <span
           className="pointer-events-none absolute z-[5]"
@@ -565,7 +642,7 @@ function FallbackSlippyMap({
 }
 
 function NaverLocationMap(props: MapViewProps) {
-  const { lat, lng, pinLat, pinLng, className, interactive, pulsePin, hidePin, showZoom, bottomInset = 0, locatePlacement = 'stacked', centerPin, onPick, onActivate, onLocate, onCenterChange } = props
+  const { lat, lng, pinLat, pinLng, className, interactive, pulsePin, hidePin, showZoom, bottomInset = 0, locatePlacement = 'stacked', centerPin, onPick, onActivate, onLocate, onConfirm, onCenterChange, onCenterIdle } = props
   const hostRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<NaverMapInstance | null>(null)
@@ -574,6 +651,7 @@ function NaverLocationMap(props: MapViewProps) {
   const pickRef = useRef(onPick)
   const activateRef = useRef(onActivate)
   const centerChangeRef = useRef(onCenterChange)
+  const centerIdleRef = useRef(onCenterIdle)
   const insetRef = useRef(bottomInset)
   const centerRef = useRef({ lat, lng, pinLat, pinLng })
   const followCenterRef = useRef(Boolean(centerPin))
@@ -586,6 +664,7 @@ function NaverLocationMap(props: MapViewProps) {
   pickRef.current = onPick
   activateRef.current = onActivate
   centerChangeRef.current = onCenterChange
+  centerIdleRef.current = onCenterIdle
   insetRef.current = bottomInset
   centerRef.current = { lat, lng, pinLat, pinLng }
   followCenterRef.current = Boolean(centerPin)
@@ -619,7 +698,9 @@ function NaverLocationMap(props: MapViewProps) {
         scaleControl: false,
         mapDataControl: false,
         zoomControl: false,
-        disableDoubleClickZoom: false,
+        disableDoubleClickZoom: true,
+        disableDoubleTapZoom: true,
+        disableTwoFingerTapZoom: true,
         draggable: true,
         pinchZoom: true,
         scrollWheel: true,
@@ -631,14 +712,22 @@ function NaverLocationMap(props: MapViewProps) {
           if (!cancelled) setPinScreen({ x, y })
         })
       }
+      const readCenter = () => readMapCenter(map, sdk, canvasRef.current)
       const emitMapCenter = (active: boolean, force = false) => {
         if (!followCenterRef.current) return
         const now = Date.now()
         if (!force && now - lastEmit < 50) return
         lastEmit = now
-        const next = readMapCenter(map)
+        const next = readCenter()
         if (!next) return
         centerChangeRef.current?.(next.lat, next.lng, active)
+      }
+      const emitIdleCenter = () => {
+        if (!followCenterRef.current) return
+        const next = readCenter()
+        if (!next) return
+        centerChangeRef.current?.(next.lat, next.lng, false)
+        centerIdleRef.current?.(next.lat, next.lng)
       }
       const pollCenter = () => {
         if (!draggingRef.current || cancelled) return
@@ -656,7 +745,6 @@ function NaverLocationMap(props: MapViewProps) {
               return
             }
             if (followCenterRef.current) {
-              emitMapCenter(false, true)
               return
             }
             const clicked = readMapClickLatLng(event)
@@ -680,24 +768,24 @@ function NaverLocationMap(props: MapViewProps) {
       listen('center_changed', () => emitMapCenter(draggingRef.current))
       listen('zoom_changed', () => {
         pinRef.current?.draw?.()
-        emitMapCenter(draggingRef.current, true)
+        if (!draggingRef.current) emitIdleCenter()
       })
       listen('dragend', () => {
         draggingRef.current = false
         setPinLift(false)
         window.cancelAnimationFrame(raf)
-        emitMapCenter(false, true)
+        emitIdleCenter()
       })
       listen('idle', () => {
         if (draggingRef.current) return
-        emitMapCenter(false, true)
+        emitIdleCenter()
       })
       refreshNaverMap(sdk, map)
       window.setTimeout(() => refreshNaverMap(sdk, map), 80)
       window.setTimeout(() => {
         refreshNaverMap(sdk, map)
         pinRef.current?.draw?.()
-        emitMapCenter(false, true)
+        emitIdleCenter()
       }, 400)
       setMode('naver')
     })()
@@ -750,16 +838,18 @@ function NaverLocationMap(props: MapViewProps) {
     map.setZoom(Math.min(19, Math.max(11, map.getZoom() + delta)))
     refreshNaverMap(mapsRef.current, map)
     pinRef.current?.draw?.()
-    const next = readMapCenter(map)
-    if (next) onCenterChange?.(next.lat, next.lng, false)
+    const next = readMapCenter(map, mapsRef.current, canvasRef.current)
+    if (next) {
+      onCenterChange?.(next.lat, next.lng, false)
+      onCenterIdle?.(next.lat, next.lng)
+    }
   }
 
   return (
     <MapFrame className={className}>
       {mode !== 'fallback' ? (
-        <div ref={hostRef} className="naver-map-host absolute inset-0">
+        <div ref={hostRef} className="naver-map-host absolute inset-0 z-0">
           <div ref={canvasRef} className="naver-map-canvas h-full w-full touch-manipulation" style={{ width: '100%', height: '100%' }} />
-          {!hidePin && centerPin ? <CenteredMapPin pulse={Boolean(pulsePin)} lift={pinLift} /> : null}
           {!hidePin && !centerPin && pinScreen ? <FixedMapPin pulse={Boolean(pulsePin)} x={pinScreen.x} y={pinScreen.y} /> : null}
         </div>
       ) : (
@@ -771,6 +861,9 @@ function NaverLocationMap(props: MapViewProps) {
           notice={loadNotice}
         />
       )}
+      {!hidePin && centerPin && mode !== 'loading' ? (
+        <CenteredMapPin pulse={Boolean(pulsePin)} lift={pinLift} onConfirm={onConfirm} />
+      ) : null}
       {mode === 'loading' ? (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#dbe7ee]/80">
           <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">지도를 불러오는 중이에요</p>

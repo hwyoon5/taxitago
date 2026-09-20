@@ -1,4 +1,4 @@
-import { loadNaverMaps } from '@/lib/naver-maps'
+import { loadNaverMaps, waitForNaverGeocoder } from '@/lib/naver-maps'
 import { centerForRegion, lookupSuggestedPlace, regionFromAccessText, resolveRegion } from '@/lib/region-destinations'
 
 export const BUSAN_CITY_HALL = { lat: 35.179554, lng: 129.075641 }
@@ -119,7 +119,7 @@ function formatNaverReverse(response: {
 }
 
 async function reverseGeocodeNaver(lat: number, lng: number) {
-  const sdk = await loadNaverMaps()
+  const sdk = await waitForNaverGeocoder()
   const service = sdk?.Service
   if (!sdk || !service?.reverseGeocode) return null
   return new Promise<string | null>((resolve) => {
@@ -128,14 +128,10 @@ async function reverseGeocodeNaver(lat: number, lng: number) {
       service.reverseGeocode(
         {
           coords: new sdk.LatLng(lat, lng),
-          orders: [service.OrderType?.ROAD_ADDR, service.OrderType?.ADDR].filter(Boolean).join(','),
+          orders: [service.OrderType?.ROAD_ADDR, service.OrderType?.ADDR].filter(Boolean).join(',') || 'roadaddr,addr',
         },
         (status, response) => {
           window.clearTimeout(timer)
-          if (status !== service.Status.OK) {
-            resolve(null)
-            return
-          }
           resolve(formatNaverReverse(response) || null)
         },
       )
