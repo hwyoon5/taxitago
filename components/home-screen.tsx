@@ -114,6 +114,47 @@ function rideRouteLabel(pickupAddress: string, destLabel: string, destAddress?: 
   return `${origin} → ${dest}`
 }
 
+type RouteGap = 'pickup' | 'dest' | 'both'
+
+function isUsablePickupAddress(value?: string | null) {
+  const text = (value ?? '').trim()
+  if (!text) return false
+  if (text === '현재 위치를 확인하는 중' || text === '주소를 확인하는 중') return false
+  return true
+}
+
+function routeGap(pickup?: string | null, dest?: string | null): RouteGap | null {
+  const pickupReady = isUsablePickupAddress(pickup)
+  const destReady = Boolean((dest ?? '').trim())
+  if (pickupReady && destReady) return null
+  if (!pickupReady && !destReady) return 'both'
+  return pickupReady ? 'dest' : 'pickup'
+}
+
+function RouteRequiredModal({ onConfirm }: { onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#1e1033]/50 p-5">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="route-required-title"
+        className="w-full max-w-sm rounded-[28px] bg-white px-5 py-6 text-center shadow-[0_20px_48px_rgba(30,16,51,0.28)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#F3E8FF] text-[#4C1FB8]">
+          <MapPin className="h-7 w-7" />
+        </div>
+        <h2 id="route-required-title" className="mt-4 text-lg font-black leading-7 text-[#0F172A]">
+          먼저 출발지와 목적지를 선택 하세요
+        </h2>
+        <button type="button" onClick={onConfirm} className="mt-6 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white">
+          확인
+        </button>
+      </section>
+    </div>
+  )
+}
+
 const navItems = [
   { id: '전체보기', labelKey: 'nav.all' as const, icon: LayoutGrid },
   { id: '기사/파트너', labelKey: 'nav.partner' as const, icon: Car },
@@ -2654,6 +2695,7 @@ function ServiceSheet({
   initialPhase = 'idle',
   daeriTrip,
   onSelectService,
+  onRequireRoute,
 }: {
   service: string
   pickupLat: number
@@ -2672,6 +2714,7 @@ function ServiceSheet({
   initialPhase?: 'idle' | 'matching' | 'assigned'
   daeriTrip?: DaeriTrip | null
   onSelectService?: (label: string) => void
+  onRequireRoute?: (kind: RouteGap) => void
 }) {
   const { t } = useLocale()
   const IS_TEST_MODE = true
@@ -2744,6 +2787,13 @@ function ServiceSheet({
     onClose()
   }
   const startService = (scanned?: boolean) => {
+    if (service === '택배' || ride) {
+      const gap = routeGap(daeriTrip?.pickup || pickupAddress, daeriTrip?.dest || destAddress)
+      if (gap) {
+        onRequireRoute?.(gap)
+        return
+      }
+    }
     const didScan = scanned ?? qrScanned
     if (!canStart) return
     if (paymentPolicy?.requiresQr && !didScan) {
@@ -3226,6 +3276,7 @@ function DaeriCallSetupSheet({
   destLng,
   onClose,
   onCall,
+  onRequireRoute,
 }: {
   destination: string
   originLat: number
@@ -3235,6 +3286,7 @@ function DaeriCallSetupSheet({
   destLng?: number
   onClose: () => void
   onCall: (trip: DaeriTrip) => void
+  onRequireRoute?: (kind: RouteGap) => void
 }) {
   const [pickup, setPickup] = useState(originAddress)
   const [pickupPoint, setPickupPoint] = useState<RideCoords>({ lat: originLat, lng: originLng })
@@ -3405,9 +3457,13 @@ function DaeriCallSetupSheet({
           </div>
           <button
             type="button"
-            disabled={!pickup.trim() || !dest.trim()}
             onClick={() => {
               const destName = dest.trim()
+              const gap = routeGap(pickup, destName)
+              if (gap) {
+                onRequireRoute?.(gap)
+                return
+              }
               const known =
                 coordsFromPlaceQuery(destName) ??
                 (Number.isFinite(destLat) && Number.isFinite(destLng)
@@ -3433,7 +3489,7 @@ function DaeriCallSetupSheet({
                 if (place) finish(place)
               })
             }}
-            className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)] disabled:cursor-not-allowed disabled:opacity-40"
+            className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
           >
             대리 호출하기
           </button>
@@ -3561,6 +3617,7 @@ function Home({
   onService,
   onReceipt,
   onOpenMap,
+  destSearchTick = 0,
 }: {
   destination: string
   pickup: string
@@ -3570,6 +3627,7 @@ function Home({
   onService: (value: string) => void
   onReceipt: (ride: RideReceipt) => void
   onOpenMap: () => void
+  destSearchTick?: number
 }) {
   const { t } = useLocale()
   const [searchOpen, setSearchOpen] = useState(false)
@@ -3581,6 +3639,10 @@ function Home({
     setFavorites(readFavoritePlaces())
     setRecents(readRecentPlaces())
   }, [])
+
+  useEffect(() => {
+    if (destSearchTick) setSearchOpen(true)
+  }, [destSearchTick])
 
   const rememberRecent = (name: string, address?: string) => {
     const next = [{ id: `${Date.now()}`, name, address: address || name }, ...recents.filter((place) => place.name !== name && place.address !== address)]
@@ -3609,10 +3671,6 @@ function Home({
     writeRecentPlaces(next)
   }
   const callTaxi = () => {
-    if (!destination) {
-      setSearchOpen(true)
-      return
-    }
     onService('택시')
   }
   const suggestedDestinations = suggestedDestinationsFor(pickup, pickupLat, pickupLng)
@@ -5766,6 +5824,8 @@ export default function HomeScreen() {
   const [moreOpen, setMoreOpen] = useState(false)
   const [daeriSetupOpen, setDaeriSetupOpen] = useState(false)
   const [daeriTrip, setDaeriTrip] = useState<DaeriTrip | null>(null)
+  const [routeAlert, setRouteAlert] = useState<RouteGap | null>(null)
+  const [destSearchTick, setDestSearchTick] = useState(0)
   const [notice, setNotice] = useState('')
   const [walletBalance, setWalletBalance] = useState(18.4)
   const [walletOpen, setWalletOpen] = useState(false)
@@ -6018,12 +6078,13 @@ export default function HomeScreen() {
     })
   }
   const startTaxiCall = async () => {
-    const label = destination.trim()
-    if (!label) {
-      showNotice('목적지를 먼저 선택해 주세요.')
+    const gap = routeGap(origin.address, destination)
+    if (gap) {
+      setRouteAlert(gap)
       setTab('홈')
       return
     }
+    const label = destination.trim()
     let place = destPlace && (destPlace.label === label || destPlace.address === label) ? destPlace : null
     if (!place) {
       place = await resolveRidePlace(label, origin.address)
@@ -6190,6 +6251,7 @@ export default function HomeScreen() {
             onService={openService}
             onReceipt={setReceiptRide}
             onOpenMap={() => openPickupMap()}
+            destSearchTick={destSearchTick}
           />
         )}
         {tab !== '홈' && tab !== '기사/파트너' && (
@@ -6381,6 +6443,7 @@ export default function HomeScreen() {
               setDaeriSetupOpen(false)
               setSelectedService('대리운전')
             }}
+            onRequireRoute={setRouteAlert}
           />
         ) : null}
         {moreOpen ? (
@@ -6440,6 +6503,7 @@ export default function HomeScreen() {
             onSelectService={openService}
             initialPhase={selectedService === '대리운전' && daeriTrip ? 'matching' : 'idle'}
             daeriTrip={selectedService === '대리운전' ? daeriTrip : null}
+            onRequireRoute={setRouteAlert}
           />
         )}
         {supportDesk ? (
@@ -6486,6 +6550,19 @@ export default function HomeScreen() {
           />
         ) : null}
         {chargePromptOpen ? <InsufficientBalanceModal onConfirm={confirmChargePrompt} /> : null}
+        {routeAlert ? (
+          <RouteRequiredModal
+            onConfirm={() => {
+              const kind = routeAlert
+              setRouteAlert(null)
+              setSelectedService(null)
+              setDaeriSetupOpen(false)
+              setTab('홈')
+              if (kind === 'pickup' || kind === 'both') openPickupMap()
+              else setDestSearchTick((value) => value + 1)
+            }}
+          />
+        ) : null}
         {notice && <div className="fixed bottom-20 left-1/2 z-[100] -translate-x-1/2 rounded-full bg-[#241d35] px-4 py-3 text-xs font-black text-white">{notice}</div>}
       </div>
     </main>
