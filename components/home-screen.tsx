@@ -469,7 +469,7 @@ function FullscreenMapView({
         onTouchStart={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="w-full max-w-sm rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3 text-left shadow-[0_12px_28px_rgba(15,23,42,0.18)]">
+        <div className="w-full max-w-sm rounded-xl border border-[#E2E8F0] bg-white px-3 py-1.5 text-left shadow-[0_8px_18px_rgba(15,23,42,0.14)]">
           <button
             type="button"
             onPointerDown={(event) => event.stopPropagation()}
@@ -478,12 +478,12 @@ function FullscreenMapView({
             onDoubleClick={(event) => event.stopPropagation()}
             onClick={fireConfirm}
             onTouchEnd={fireConfirm}
-            className="w-full text-left"
+            className="w-full text-left leading-none"
             disabled={confirming}
           >
-            <span className="block text-[11px] font-bold text-[#7C3AED]">{userMovedRef.current ? '지도 위치' : '현재 위치'}</span>
-            <span className="mt-1 block text-[14px] font-black leading-snug text-[#0F172A]">{bannerAddress}</span>
-            <span className="mt-1 block text-[11px] font-bold text-[#94A3B8]">{looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : '주소를 눌러 이 위치를 출발지로 지정'}</span>
+            <span className="block text-[10px] font-bold leading-none text-[#7C3AED]">{userMovedRef.current ? '지도 위치' : '현재 위치'}</span>
+            <span className="mt-0.5 block text-[12px] font-black leading-tight text-[#0F172A]">{bannerAddress}</span>
+            <span className="mt-0.5 block text-[10px] font-bold leading-tight text-[#94A3B8]">{looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : '주소를 눌러 이 위치를 출발지로 지정'}</span>
           </button>
         </div>
       </div>
