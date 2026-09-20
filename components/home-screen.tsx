@@ -5,6 +5,7 @@ import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, Chev
 import { notices, type Notice } from '@/lib/notices'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
+import { TermsDetailView, TermsListView } from '@/components/more/terms-pages'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
@@ -2571,11 +2572,13 @@ function MoreHubSheet({
   onNotice: (message: string) => void
   onSelectService: (label: string) => void
 }) {
-  const [view, setView] = useState<MoreItemId | 'menu' | `notice:${string}`>('menu')
+  const [view, setView] = useState<MoreItemId | 'menu' | `notice:${string}` | `terms:${string}`>('menu')
   return (
     <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={onClose}>
       <section
-        className="mx-auto flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-white px-5 pb-8 pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)]"
+        className={`mx-auto flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)] ${
+          view === 'terms' || view.startsWith('terms:') ? 'bg-[#F5F6F8] px-0 pb-0' : 'bg-white px-5 pb-8'
+        }`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#ddd7e7]" />
@@ -2615,6 +2618,10 @@ function MoreHubSheet({
           <FaresView onBack={() => setView('menu')} />
         ) : view === 'support' ? (
           <SupportView onBack={() => setView('menu')} onNotice={onNotice} />
+        ) : view === 'terms' ? (
+          <TermsListView onBack={() => setView('menu')} onOpen={(id) => setView(`terms:${id}`)} />
+        ) : view.startsWith('terms:') ? (
+          <TermsDetailView id={view.slice(6)} onBack={() => setView('terms')} />
         ) : (
           <SettingsView onBack={() => setView('menu')} onNotice={onNotice} />
         )}
