@@ -122,11 +122,11 @@ const navItems = [
 const services: Service[] = [
   { label: '택시' },
   { label: '대리운전' },
-  { label: '주차' },
+  { label: '택배' },
   { label: '자전거' },
   { label: '킥보드' },
   { label: 'EV 충전' },
-  { label: '택배' },
+  { label: '주차' },
   { label: '더보기' },
 ]
 
