@@ -761,6 +761,7 @@ function NaverLocationMap(props: MapViewProps) {
       }
       listen('dragstart', () => {
         draggingRef.current = true
+        lastIdle = { lat: Number.NaN, lng: Number.NaN }
         setPinLift(true)
         window.cancelAnimationFrame(raf)
         raf = window.requestAnimationFrame(pollCenter)

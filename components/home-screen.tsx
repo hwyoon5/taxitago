@@ -274,44 +274,51 @@ function FullscreenMapView({
   const addressRef = useRef(liveAddress)
   const cameraRef = useRef(camera)
   const lookupTimer = useRef(0)
-  const lastLookupRef = useRef({ lat: Number.NaN, lng: Number.NaN })
+  const lookingWatchdogRef = useRef(0)
+  const pendingLookupRef = useRef<{ lat: number; lng: number } | null>(null)
   centerRef.current = center
   addressRef.current = liveAddress
   cameraRef.current = camera
 
   const lookupIdle = (nextLat: number, nextLng: number) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    if (
-      Math.abs(lastLookupRef.current.lat - nextLat) < 1e-6 &&
-      Math.abs(lastLookupRef.current.lng - nextLng) < 1e-6
-    ) {
-      return
-    }
+    pendingLookupRef.current = { lat: nextLat, lng: nextLng }
+    setLooking(true)
     window.clearTimeout(lookupTimer.current)
+    window.clearTimeout(lookingWatchdogRef.current)
+    lookingWatchdogRef.current = window.setTimeout(() => {
+      const t = pendingLookupRef.current || centerRef.current
+      const label = usableMapAddress(addressRef.current) || failedReverseAddress(t.lat, t.lng)
+      setLiveAddress(label)
+      addressRef.current = label
+      setLooking(false)
+    }, 2400)
     lookupTimer.current = window.setTimeout(() => {
-      lastLookupRef.current = { lat: nextLat, lng: nextLng }
-      const seq = lookupSeq.current + 1
-      lookupSeq.current = seq
-      setLooking(true)
-      const fallback = failedReverseAddress(nextLat, nextLng)
-      const settle = (nextAddress: string) => {
-        if (lookupSeq.current !== seq) return
-        const label = usableMapAddress(nextAddress) || fallback
+      const target = pendingLookupRef.current
+      if (!target) return
+      const tLat = target.lat
+      const tLng = target.lng
+      const fallback = failedReverseAddress(tLat, tLng)
+      const apply = (value: string) => {
+        const latest = pendingLookupRef.current
+        if (!latest || Math.abs(latest.lat - tLat) > 1e-5 || Math.abs(latest.lng - tLng) > 1e-5) return
+        const label = usableMapAddress(value) || fallback
         setLiveAddress(label)
         addressRef.current = label
+        window.clearTimeout(lookingWatchdogRef.current)
         setLooking(false)
       }
-      const timer = window.setTimeout(() => settle(fallback), 2500)
-      void lookupMapAddress(nextLat, nextLng)
+      const watchdog = window.setTimeout(() => apply(fallback), 2000)
+      void lookupMapAddress(tLat, tLng)
         .then((nextAddress) => {
-          window.clearTimeout(timer)
-          settle(nextAddress)
+          window.clearTimeout(watchdog)
+          apply(nextAddress)
         })
         .catch(() => {
-          window.clearTimeout(timer)
-          settle(fallback)
+          window.clearTimeout(watchdog)
+          apply(fallback)
         })
-    }, 220)
+    }, 280)
   }
 
   useEffect(() => {
@@ -319,6 +326,7 @@ function FullscreenMapView({
     return () => {
       lookupSeq.current += 1
       window.clearTimeout(lookupTimer.current)
+      window.clearTimeout(lookingWatchdogRef.current)
     }
   }, [])
 
@@ -390,16 +398,19 @@ function FullscreenMapView({
 
   const confirmPickup = async () => {
     if (confirming) return
-    const current = centerRef.current
     setConfirming(true)
+    const current = centerRef.current
     let label = usableMapAddress(addressRef.current)
-    if (!label || looking) {
-      const resolved = usableMapAddress(await lookupMapAddress(current.lat, current.lng))
-      label = resolved || failedReverseAddress(current.lat, current.lng)
+    if (!label) {
+      try {
+        label = usableMapAddress(await lookupMapAddress(current.lat, current.lng)) || failedReverseAddress(current.lat, current.lng)
+      } catch {
+        label = failedReverseAddress(current.lat, current.lng)
+      }
       setLiveAddress(label)
       addressRef.current = label
-      setLooking(false)
     }
+    setLooking(false)
     onConfirmPickup({ lat: current.lat, lng: current.lng, address: label })
   }
 
@@ -475,6 +486,22 @@ function FullscreenMapView({
             <span className="mt-1 block text-[11px] font-bold text-[#94A3B8]">{looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : '주소를 눌러 이 위치를 출발지로 지정'}</span>
           </button>
         </div>
+      </div>
+      <div
+        className="absolute inset-x-4 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-[60] pr-14"
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={fireConfirm}
+          onTouchEnd={fireConfirm}
+          disabled={confirming}
+          className="w-full min-h-12 rounded-2xl bg-[#4C1FB8] text-[16px] font-black text-white shadow-[0_8px_20px_rgba(76,31,184,0.35)] disabled:opacity-60"
+        >
+          출발
+        </button>
       </div>
       </div>
     </div>
