@@ -27,8 +27,47 @@ export type TaxiMatchPhase = 'searching' | TaxiLivePhase
 export type RidePoint = { lat: number; lng: number }
 
 function readCoordNumber(value: unknown): number {
-  if (typeof value === 'function') return Number((value as () => number)())
-  return Number(value)
+  if (typeof value === 'function') {
+    try {
+      return Number((value as () => number)())
+    } catch {
+      return Number.NaN
+    }
+  }
+  if (typeof value === 'number') return value
+  if (typeof value === 'string' && value.trim()) return Number(value)
+  return Number.NaN
+}
+
+function readLatLngValue(value: unknown): RidePoint | null {
+  if (!value || typeof value !== 'object') return null
+  const point = value as { lat?: unknown; lng?: unknown; y?: unknown; x?: unknown; _lat?: unknown; _lng?: unknown }
+  const lat = readCoordNumber(point.lat ?? point.y ?? point._lat)
+  const lng = readCoordNumber(point.lng ?? point.x ?? point._lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null
+  return { lat, lng }
+}
+
+function readMapCenter(map: NaverMapInstance | null, sdk?: NaverMapsSdk | null, canvas?: HTMLDivElement | null): RidePoint | null {
+  if (!map) return null
+  try {
+    const fromGetter = readLatLngValue(map.getCenter?.())
+    if (fromGetter) return fromGetter
+  } catch {
+    undefined
+  }
+  const fromProp = readLatLngValue((map as { center?: unknown }).center)
+  if (fromProp) return fromProp
+  if (sdk && canvas) {
+    try {
+      const projection = map.getProjection?.()
+      const mapped = projection?.fromOffsetToCoord?.(new sdk.Point(canvas.clientWidth / 2, canvas.clientHeight / 2))
+      return readLatLngValue(mapped)
+    } catch {
+      return null
+    }
+  }
+  return null
 }
 
 function readMapClickLatLng(event: unknown): RidePoint | null {
@@ -51,29 +90,6 @@ function snapToNearbyPoint(clicked: RidePoint, anchor: RidePoint, maxMeters: num
     Math.cos((anchor.lat * Math.PI) / 180) * Math.cos((clicked.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
   const meters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return meters <= maxMeters ? anchor : clicked
-}
-
-function readLatLngValue(value: unknown): RidePoint | null {
-  if (!value || typeof value !== 'object') return null
-  const point = value as { lat?: unknown; lng?: unknown; y?: unknown; x?: unknown; _lat?: unknown; _lng?: unknown }
-  const lat = readCoordNumber(point.lat ?? point.y ?? point._lat)
-  const lng = readCoordNumber(point.lng ?? point.x ?? point._lng)
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null
-  return { lat, lng }
-}
-
-function readMapCenter(map: NaverMapInstance | null, sdk?: NaverMapsSdk | null, canvas?: HTMLDivElement | null): RidePoint | null {
-  if (!map) return null
-  const fromGetter = readLatLngValue(map.getCenter?.())
-  if (fromGetter) return fromGetter
-  const fromProp = readLatLngValue((map as { center?: unknown }).center)
-  if (fromProp) return fromProp
-  if (sdk && canvas) {
-    const projection = map.getProjection?.()
-    const mapped = projection?.fromOffsetToCoord?.(new sdk.Point(canvas.clientWidth / 2, canvas.clientHeight / 2))
-    return readLatLngValue(mapped)
-  }
-  return null
 }
 
 function stopMapEvent(event: { stopPropagation: () => void; preventDefault?: () => void; nativeEvent?: { stopImmediatePropagation?: () => void } }) {
@@ -734,14 +750,18 @@ function NaverLocationMap(props: MapViewProps) {
       }
       const tracksCenter = () => followCenterRef.current || Boolean(centerChangeRef.current) || Boolean(centerIdleRef.current)
       const readCenter = () => {
-        const fromMap = readLatLngValue(map.getCenter?.())
-        return fromMap || readMapCenter(map, sdk, canvasRef.current)
+        try {
+          return readLatLngValue(map.getCenter?.()) || readMapCenter(map, sdk, canvasRef.current)
+        } catch {
+          return readMapCenter(map, sdk, canvasRef.current)
+        }
       }
-      const settlePickup = (coord?: { lat: number; lng: number } | null, force = false, fromUser = false) => {
+      const samePoint = (a: RidePoint, b: RidePoint) => Math.abs(a.lat - b.lat) < 4e-5 && Math.abs(a.lng - b.lng) < 4e-5
+      const settlePickup = (coord?: RidePoint | null, force = false, fromUser = false) => {
         if (!tracksCenter() || cancelled) return
         const next = coord || readCenter()
         if (!next) return
-        if (!force && Math.abs(lastIdle.lat - next.lat) < 1e-6 && Math.abs(lastIdle.lng - next.lng) < 1e-6) return
+        if (!force && Number.isFinite(lastIdle.lat) && samePoint(lastIdle, next)) return
         lastIdle = next
         if (fromUser) userPannedRef.current = true
         centerChangeRef.current?.(next.lat, next.lng, false)
@@ -752,13 +772,13 @@ function NaverLocationMap(props: MapViewProps) {
         window.clearTimeout(idleGeocodeTimer)
         idleGeocodeTimer = window.setTimeout(() => {
           if (cancelled || draggingRef.current) return
-          settlePickup(null, force)
-        }, 0)
+          settlePickup(readCenter(), force, userPannedRef.current)
+        }, 180)
       }
       const emitMapCenter = (active: boolean, force = false) => {
         if (!tracksCenter()) return
         const now = Date.now()
-        if (!force && now - lastEmit < 50) return
+        if (!force && now - lastEmit < 80) return
         lastEmit = now
         const next = readCenter()
         if (!next) return
@@ -789,7 +809,11 @@ function NaverLocationMap(props: MapViewProps) {
         raf = window.requestAnimationFrame(pollCenter)
       }
       const listen = (eventName: string, handler: () => void) => {
-        listeners.push(sdk.Event.addListener(map, eventName, handler))
+        try {
+          listeners.push(sdk.Event.addListener(map, eventName, handler))
+        } catch {
+          undefined
+        }
       }
       if (interactive) {
         const onMapPress = (event?: { coord?: unknown; latlng?: unknown }) => {
@@ -840,11 +864,10 @@ function NaverLocationMap(props: MapViewProps) {
       })
       listen('idle', () => {
         if (draggingRef.current) return
-        settlePickup(readCenter(), true, userPannedRef.current)
-      })
-      listen('mouseup', () => {
-        if (draggingRef.current) return
         requestIdleGeocode(true)
+      })
+      listen('tilesloaded', () => {
+        if (!draggingRef.current) requestIdleGeocode()
       })
       let pointerOrigin = { x: 0, y: 0, moved: false }
       onPointerDown = (event: PointerEvent) => {
