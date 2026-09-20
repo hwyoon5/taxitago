@@ -168,15 +168,17 @@ type GpsFix = {
   lng: number
 }
 
+type PickupSource = 'gps' | 'map' | string
+
 type PickupPlace = {
   address: string
   lat: number
   lng: number
-  source: 'gps' | 'map'
+  source?: PickupSource
 }
 
-function pickupSourceIsMap(place: { source?: string } | null | undefined) {
-  return (place?.source as string | undefined) === 'map'
+function pickupSourceIsMap(place: { source?: PickupSource } | null | undefined) {
+  return String(place?.source ?? '') === 'map'
 }
 
 const VIRTUAL_AREAS = [
@@ -243,7 +245,7 @@ function isCityHallCoord(nextLat: number, nextLng: number) {
 function usableMapAddress(value?: string | null) {
   const label = (value || '').trim()
   if (!label) return ''
-  if (/확인하는 중|수신하는 중|불러오는 중/.test(label)) return ''
+  if (/확인하는 중|수신하는 중|불러오는 중|갱신하는 중/.test(label)) return ''
   return label
 }
 
@@ -281,8 +283,7 @@ function FullscreenMapView({
   const addressRef = useRef(liveAddress)
   const cameraRef = useRef(camera)
   const lookupTimer = useRef(0)
-  const lookingWatchdogRef = useRef(0)
-  const pendingLookupRef = useRef<{ lat: number; lng: number } | null>(null)
+  const lookupWatchdog = useRef(0)
   const onPickupChangeRef = useRef(onPickupChange)
   centerRef.current = center
   addressRef.current = liveAddress
@@ -295,45 +296,34 @@ function FullscreenMapView({
     onPickupChangeRef.current?.({ lat: nextLat, lng: nextLng, address: label })
   }
 
+  const settleAddress = (requestId: number, nextLat: number, nextLng: number, value: string) => {
+    if (requestId !== lookupSeq.current) return
+    const label = usableMapAddress(value) || failedReverseAddress(nextLat, nextLng)
+    setLiveAddress(label)
+    addressRef.current = label
+    setLooking(false)
+    publishPickup(nextLat, nextLng, label)
+  }
+
   const lookupIdle = (nextLat: number, nextLng: number) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    pendingLookupRef.current = { lat: nextLat, lng: nextLng }
-    const seq = ++lookupSeq.current
+    const requestId = ++lookupSeq.current
     setLooking(true)
     window.clearTimeout(lookupTimer.current)
-    window.clearTimeout(lookingWatchdogRef.current)
-    lookingWatchdogRef.current = window.setTimeout(() => {
-      if (seq !== lookupSeq.current) return
-      lookingWatchdogRef.current = 0
-      const t = pendingLookupRef.current || centerRef.current
-      const label = usableMapAddress(addressRef.current) || failedReverseAddress(t.lat, t.lng)
-      setLiveAddress(label)
-      addressRef.current = label
-      setLooking(false)
-      publishPickup(t.lat, t.lng, label)
-    }, 2200)
+    window.clearTimeout(lookupWatchdog.current)
     lookupTimer.current = window.setTimeout(() => {
-      if (seq !== lookupSeq.current) return
-      const target = pendingLookupRef.current
-      if (!target) {
-        setLooking(false)
-        return
-      }
-      const tLat = target.lat
-      const tLng = target.lng
-      const fallback = failedReverseAddress(tLat, tLng)
-      const apply = (value: string) => {
-        if (seq !== lookupSeq.current) return
-        const label = usableMapAddress(value) || fallback
-        setLiveAddress(label)
-        addressRef.current = label
-        window.clearTimeout(lookingWatchdogRef.current)
-        lookingWatchdogRef.current = 0
-        setLooking(false)
-        publishPickup(tLat, tLng, label)
-      }
-      void lookupMapAddress(tLat, tLng).then(apply).catch(() => apply(fallback))
-    }, 80)
+      const fallback = failedReverseAddress(nextLat, nextLng)
+      lookupWatchdog.current = window.setTimeout(() => settleAddress(requestId, nextLat, nextLng, fallback), 1800)
+      void lookupMapAddress(nextLat, nextLng)
+        .then((nextAddress) => {
+          window.clearTimeout(lookupWatchdog.current)
+          settleAddress(requestId, nextLat, nextLng, nextAddress)
+        })
+        .catch(() => {
+          window.clearTimeout(lookupWatchdog.current)
+          settleAddress(requestId, nextLat, nextLng, fallback)
+        })
+    }, 100)
   }
 
   useEffect(() => {
@@ -341,7 +331,7 @@ function FullscreenMapView({
     return () => {
       lookupSeq.current += 1
       window.clearTimeout(lookupTimer.current)
-      window.clearTimeout(lookingWatchdogRef.current)
+      window.clearTimeout(lookupWatchdog.current)
     }
   }, [])
 
@@ -403,8 +393,8 @@ function FullscreenMapView({
 
   const handleCenterIdle = (nextLat: number, nextLng: number) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    const origin = cameraRef.current
-    if (Math.abs(origin.lat - nextLat) > 1e-4 || Math.abs(origin.lng - nextLng) > 1e-4) {
+    const camera = cameraRef.current
+    if (Math.abs(camera.lat - nextLat) > 2e-4 || Math.abs(camera.lng - nextLng) > 2e-4) {
       userMovedRef.current = true
     }
     centerRef.current = { lat: nextLat, lng: nextLng }
@@ -416,10 +406,7 @@ function FullscreenMapView({
     if (confirming) return
     setConfirming(true)
     const current = centerRef.current
-    const pending = pendingLookupRef.current
-    const pendingMatches =
-      pending && Math.abs(pending.lat - current.lat) < 1e-5 && Math.abs(pending.lng - current.lng) < 1e-5
-    let label = pendingMatches && !looking ? usableMapAddress(addressRef.current) : ''
+    let label = usableMapAddress(addressRef.current)
     if (!label) {
       try {
         label = usableMapAddress(await lookupMapAddress(current.lat, current.lng)) || failedReverseAddress(current.lat, current.lng)
@@ -887,8 +874,8 @@ function readPickupPlace(): PickupPlace | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<PickupPlace>
     if (typeof parsed.address !== 'string' || typeof parsed.lat !== 'number' || typeof parsed.lng !== 'number') return null
-    if (parsed.source !== 'gps' && parsed.source !== 'map') return null
-    return { address: parsed.address, lat: parsed.lat, lng: parsed.lng, source: parsed.source }
+    const source: PickupSource = typeof parsed.source === 'string' && parsed.source ? parsed.source : 'gps'
+    return { address: parsed.address, lat: parsed.lat, lng: parsed.lng, source }
   } catch {
     return null
   }
@@ -5792,7 +5779,7 @@ export default function HomeScreen() {
     writeRideSession({ origin: { lat: place.lat, lng: place.lng, address: place.address } })
   }
 
-  const commitPickup = (place: { lat: number; lng: number; address: string }, source: PickupPlace['source'] = 'map') => {
+  const commitPickup = (place: { lat: number; lng: number; address: string }, source: PickupSource = 'map') => {
     const label = usableMapAddress(place.address) || place.address
     if (!label || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return
     applyPickup({ address: label, lat: place.lat, lng: place.lng, source })
@@ -5808,7 +5795,7 @@ export default function HomeScreen() {
   const applyLocatedPoint = async (
     point: { lat: number; lng: number; address?: string },
     status: GpsFix['status'],
-    source: PickupPlace['source'],
+    source: PickupSource,
   ) => {
     const seq = (locateSeqRef.current += 1)
     if (pickingMapRef.current || pickupSourceIsMap(pickupRef.current)) return
@@ -5817,8 +5804,7 @@ export default function HomeScreen() {
     applyPickup({ address: pendingAddress, lat: point.lat, lng: point.lng, source })
     if (point.address) return
     const nextAddress = await reverseGeocode(point.lat, point.lng)
-    if (seq !== locateSeqRef.current) return
-    if (pickingMapRef.current || pickupSourceIsMap(pickupRef.current)) return
+    if (seq !== locateSeqRef.current || pickingMapRef.current || pickupSourceIsMap(pickupRef.current)) return
     setGps({ status, address: nextAddress, lat: point.lat, lng: point.lng })
     applyPickup({ address: nextAddress, lat: point.lat, lng: point.lng, source })
   }
@@ -5848,7 +5834,7 @@ export default function HomeScreen() {
     setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
     const storedPickup = readPickupPlace()
-    if (storedPickup?.source === 'map') {
+    if (pickupSourceIsMap(storedPickup)) {
       pickupRef.current = storedPickup
       setPickup(storedPickup)
     }
