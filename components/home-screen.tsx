@@ -23,6 +23,7 @@ import {
   syncPartnerLink,
 } from '@/lib/partner-account'
 import { getPaymentPolicy } from '@/lib/payment-policy'
+import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import {
   cancelRideRequest,
@@ -2675,8 +2676,8 @@ function ServiceSheet({
   const { t } = useLocale()
   const IS_TEST_MODE = true
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
-  const [deliveryVehicle, setDeliveryVehicle] = useState('오토바이')
-  const [packageSize, setPackageSize] = useState('소형')
+  const [deliveryVehicle, setDeliveryVehicle] = useState<DeliveryVehicle>('오토바이')
+  const [packageSize, setPackageSize] = useState<PackageSizeId>('document')
   const [selectedItem, setSelectedItem] = useState('')
   const [qrOpen, setQrOpen] = useState(false)
   const [qrScanned, setQrScanned] = useState(false)
@@ -2717,7 +2718,8 @@ function ServiceSheet({
   ]
   const catalog = service === '주차' ? parkingSpots : service === 'EV 충전' ? evStations : service === '자전거' ? bikes : scooters
   const selectedUsage = catalog.find((item) => item.name === selectedItem) ?? catalog[0]
-  const deliveryFare = deliveryVehicle === '오토바이' ? (packageSize === '소형' ? 1.2 : 1.8) : deliveryVehicle === '다마스' ? 2.6 : 4.2
+  const packageOption = getPackageSize(packageSize)
+  const deliveryFare = estimateDeliveryFare(deliveryVehicle, packageSize)
   const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 4 : vehicle ? 0.3 : deliveryFare
   const settleTiming = service === '주차' ? parkingOption : paymentPolicy?.timing
   const rideOriginLat = daeriTrip?.pickupLat ?? pickupLat
@@ -3117,7 +3119,7 @@ function ServiceSheet({
             <div>
               <p className="mb-2 text-sm font-black">차량 선택</p>
               <div className="grid grid-cols-3 gap-2">
-                {['오토바이', '다마스', '1톤 트럭'].map((item) => (
+                {DELIVERY_VEHICLES.map((item) => (
                   <button key={item} onClick={() => setDeliveryVehicle(item)} className={`rounded-2xl border p-3 text-xs font-black ${deliveryVehicle === item ? 'border-[#7046dc] bg-[#7046dc] text-white' : 'border-[#ece8f4] bg-white'}`}>
                     {item}
                   </button>
@@ -3126,10 +3128,16 @@ function ServiceSheet({
             </div>
             <div>
               <p className="mb-2 text-sm font-black">상품 크기</p>
-              <div className="flex gap-2">
-                {['소형', '중형', '대형'].map((item) => (
-                  <button key={item} onClick={() => setPackageSize(item)} className={`rounded-full px-4 py-2 text-xs font-black ${packageSize === item ? 'bg-[#7046dc] text-white' : 'bg-[#f1eff7] text-[#5f566d]'}`}>
-                    {item}
+              <div className="grid grid-cols-6 gap-2">
+                {PACKAGE_SIZES.map((item, index) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setPackageSize(item.id)}
+                    className={`min-h-[4.25rem] rounded-2xl px-2 py-2.5 text-center ${index >= 3 ? 'col-span-3' : 'col-span-2'} ${packageSize === item.id ? 'bg-[#7046dc] text-white' : 'bg-[#f1eff7] text-[#5f566d]'}`}
+                  >
+                    <span className="block text-[11px] font-black leading-tight">{item.label}</span>
+                    <span className={`mt-1 block text-[10px] font-bold leading-tight ${packageSize === item.id ? 'text-white/80' : 'text-[#8b8495]'}`}>{item.hint}</span>
                   </button>
                 ))}
               </div>
@@ -3137,10 +3145,10 @@ function ServiceSheet({
             <div className="rounded-3xl bg-[#f7f3ff] p-4">
               <div className="flex justify-between">
                 <span className="font-black">예상 배송 요금</span>
-                <strong className="text-xl text-[#7046dc]">{deliveryFare.toFixed(1)} Pi</strong>
+                <strong className="text-xl text-[#7046dc]">{formatDeliveryFare(deliveryFare)} Pi</strong>
               </div>
               <p className="mt-2 text-xs font-bold text-[#8b8495]">
-                {deliveryVehicle} · {packageSize} · 30분 내 배차
+                {deliveryVehicle} · {packageOption.label} · {packageOption.hint} · 30분 내 배차
               </p>
             </div>
             <button type="button" onClick={() => startService()} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white">

@@ -61,7 +61,7 @@ export function FaresView({ onBack }: { onBack: () => void }) {
     { name: '자전거', fare: '0.2 Pi', note: 'QR 이용 후 자동결제' },
     { name: '킥보드', fare: '0.3 Pi', note: 'QR 이용 후 자동결제' },
     { name: 'EV 충전', fare: '0.38~0.5 Pi', note: 'kWh 기준 선결제' },
-    { name: '택배', fare: '1.2~4.2 Pi', note: '차량·크기별 선결제' },
+    { name: '택배', fare: '1.2~4.2 Pi', note: '차량·5단계 크기별 선결제' },
   ]
   return (
     <PageFrame title="이용요금 안내" caption="기본요금과 구간별 요금 체계입니다." onBack={onBack}>
