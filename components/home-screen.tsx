@@ -9,7 +9,7 @@ import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
-import { BUSAN_CITY_HALL, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
+import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import {
   appendSettlementEntry,
@@ -284,13 +284,31 @@ function FullscreenMapView({
     const seq = lookupSeq.current + 1
     lookupSeq.current = seq
     setLooking(true)
-    void lookupMapAddress(nextLat, nextLng).then((nextAddress) => {
+    const fallback = failedReverseAddress(nextLat, nextLng)
+    const failSafe = window.setTimeout(() => {
       if (lookupSeq.current !== seq) return
-      const label = usableMapAddress(nextAddress) || virtualPickupAddress(nextLat, nextLng)
+      const label = usableMapAddress(addressRef.current) || fallback
       setLiveAddress(label)
       addressRef.current = label
       setLooking(false)
-    })
+    }, 1600)
+    lookupTimer.current = failSafe
+    void lookupMapAddress(nextLat, nextLng)
+      .then((nextAddress) => {
+        if (lookupSeq.current !== seq) return
+        window.clearTimeout(failSafe)
+        const label = usableMapAddress(nextAddress) || fallback
+        setLiveAddress(label)
+        addressRef.current = label
+        setLooking(false)
+      })
+      .catch(() => {
+        if (lookupSeq.current !== seq) return
+        window.clearTimeout(failSafe)
+        setLiveAddress(fallback)
+        addressRef.current = fallback
+        setLooking(false)
+      })
   }
 
   useEffect(() => {
@@ -358,7 +376,6 @@ function FullscreenMapView({
     if (!dragging) return
     userMovedRef.current = true
     setCenter({ lat: nextLat, lng: nextLng })
-    setLooking(true)
   }
 
   const handleCenterIdle = (nextLat: number, nextLng: number) => {
@@ -376,7 +393,7 @@ function FullscreenMapView({
     let label = usableMapAddress(addressRef.current)
     if (!label || looking) {
       const resolved = usableMapAddress(await lookupMapAddress(current.lat, current.lng))
-      label = resolved || virtualPickupAddress(current.lat, current.lng)
+      label = resolved || failedReverseAddress(current.lat, current.lng)
       setLiveAddress(label)
       addressRef.current = label
       setLooking(false)
@@ -390,7 +407,7 @@ function FullscreenMapView({
     void confirmPickup()
   }
 
-  const bannerAddress = looking && !usableMapAddress(liveAddress) ? '이 위치의 주소를 확인하는 중' : liveAddress
+  const bannerAddress = usableMapAddress(liveAddress) || (looking ? '이 위치의 주소를 확인하는 중' : failedReverseAddress(center.lat, center.lng))
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#0B1220]" role="dialog" aria-modal="true" aria-label="전체화면 지도">

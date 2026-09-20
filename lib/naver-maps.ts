@@ -167,14 +167,34 @@ function injectScript(src: string) {
   })
 }
 
-export async function waitForNaverGeocoder(timeoutMs = 5000) {
+export async function waitForNaverGeocoder(timeoutMs = 2500) {
+  return ensureNaverGeocoder(timeoutMs)
+}
+
+export function hasNaverGeocoder(sdk?: NaverMapsSdk | null) {
+  return typeof sdk?.Service?.reverseGeocode === 'function'
+}
+
+export async function ensureNaverGeocoder(timeoutMs = 2500) {
   const sdk = await loadNaverMaps()
   if (!sdk) return null
+  if (hasNaverGeocoder(sdk)) return sdk
+  const id = getNaverMapClientId()
+  if (!id) return null
   const started = Date.now()
-  while (!sdk.Service?.reverseGeocode && Date.now() - started < timeoutMs) {
-    await new Promise((resolve) => window.setTimeout(resolve, 40))
+  for (const url of scriptUrls(id)) {
+    if (Date.now() - started >= timeoutMs) break
+    try {
+      await injectScript(url)
+    } catch {
+      continue
+    }
+    while (!hasNaverGeocoder(sdk) && Date.now() - started < timeoutMs) {
+      await new Promise((resolve) => window.setTimeout(resolve, 40))
+    }
+    if (hasNaverGeocoder(sdk)) return sdk
   }
-  return sdk.Service?.reverseGeocode ? sdk : null
+  return hasNaverGeocoder(sdk) ? sdk : null
 }
 
 export function loadNaverMaps(): Promise<NaverMapsSdk | null> {

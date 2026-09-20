@@ -1,4 +1,4 @@
-import { loadNaverMaps, waitForNaverGeocoder } from '@/lib/naver-maps'
+import { ensureNaverGeocoder, loadNaverMaps, type NaverReverseGeocodeResponse } from '@/lib/naver-maps'
 import { centerForRegion, lookupSuggestedPlace, regionFromAccessText, resolveRegion } from '@/lib/region-destinations'
 
 export const BUSAN_CITY_HALL = { lat: 35.179554, lng: 129.075641 }
@@ -30,8 +30,12 @@ const NICKNAME_DESTS = new Set(['집', '회사'])
 
 function coordFallbackAddress(lat: number, lng: number) {
   const region = resolveRegion('', lat, lng)
-  const label = REGION_FALLBACK_LABEL[region] || '부산광역시'
-  return `${label} 현재 접속 지역`
+  const label = REGION_FALLBACK_LABEL[region] || '선택한 위치'
+  return `${label} (${lat.toFixed(5)}, ${lng.toFixed(5)})`
+}
+
+export function failedReverseAddress(lat: number, lng: number) {
+  return `주소를 불러오지 못했습니다 (${lat.toFixed(5)}, ${lng.toFixed(5)})`
 }
 
 export function requestBrowserPosition(): Promise<GeoPoint | null> {
@@ -119,27 +123,41 @@ function formatNaverReverse(response: {
 }
 
 async function reverseGeocodeNaver(lat: number, lng: number) {
-  const sdk = await waitForNaverGeocoder()
-  const service = sdk?.Service
-  if (!sdk || !service?.reverseGeocode) return null
-  return new Promise<string | null>((resolve) => {
-    const timer = window.setTimeout(() => resolve(null), 4000)
-    try {
-      service.reverseGeocode(
-        {
-          coords: new sdk.LatLng(lat, lng),
-          orders: [service.OrderType?.ROAD_ADDR, service.OrderType?.ADDR].filter(Boolean).join(',') || 'roadaddr,addr',
-        },
-        (status, response) => {
-          window.clearTimeout(timer)
-          resolve(formatNaverReverse(response) || null)
-        },
-      )
-    } catch {
-      window.clearTimeout(timer)
-      resolve(null)
-    }
-  })
+  try {
+    const sdk = await ensureNaverGeocoder(2200)
+    const service = sdk?.Service
+    if (!sdk || typeof service?.reverseGeocode !== 'function') return null
+    const coords = new sdk.LatLng(lat, lng)
+    const orders = [service.OrderType?.ROAD_ADDR, service.OrderType?.ADDR].filter(Boolean).join(',') || 'roadaddr,addr'
+    return await new Promise<string | null>((resolve) => {
+      let settled = false
+      const finish = (value: string | null) => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(timer)
+        resolve(value)
+      }
+      const timer = window.setTimeout(() => finish(null), 1800)
+      const handle = (_status: unknown, response: NaverReverseGeocodeResponse) => {
+        try {
+          finish(formatNaverReverse(response) || null)
+        } catch {
+          finish(null)
+        }
+      }
+      try {
+        service.reverseGeocode({ coords, orders }, handle)
+      } catch {
+        try {
+          service.reverseGeocode({ coords }, handle)
+        } catch {
+          finish(null)
+        }
+      }
+    })
+  } catch {
+    return null
+  }
 }
 
 async function reverseGeocodeNominatim(lat: number, lng: number) {
@@ -180,11 +198,16 @@ async function reverseGeocodeNominatim(lat: number, lng: number) {
 }
 
 export async function reverseGeocode(lat: number, lng: number) {
-  const naver = await reverseGeocodeNaver(lat, lng)
-  if (naver) return naver
-  const osm = await reverseGeocodeNominatim(lat, lng)
-  if (osm) return osm
-  return coordFallbackAddress(lat, lng)
+  try {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return failedReverseAddress(lat, lng)
+    const naver = await reverseGeocodeNaver(lat, lng)
+    if (naver) return naver
+    const osm = await reverseGeocodeNominatim(lat, lng)
+    if (osm) return osm
+    return failedReverseAddress(lat, lng)
+  } catch {
+    return failedReverseAddress(lat, lng)
+  }
 }
 
 export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
