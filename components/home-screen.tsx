@@ -175,6 +175,10 @@ type PickupPlace = {
   source: 'gps' | 'map'
 }
 
+function pickupSourceIsMap(place: { source?: string } | null | undefined) {
+  return (place?.source as string | undefined) === 'map'
+}
+
 const VIRTUAL_AREAS = [
   { name: '서울특별시 중구 태평로', lat: 37.5665, lng: 126.978 },
   { name: '서울특별시 강남구 역삼동', lat: 37.501, lng: 127.037 },
@@ -5807,14 +5811,14 @@ export default function HomeScreen() {
     source: PickupPlace['source'],
   ) => {
     const seq = (locateSeqRef.current += 1)
-    if (pickingMapRef.current || pickupRef.current?.source === 'map') return
+    if (pickingMapRef.current || pickupSourceIsMap(pickupRef.current)) return
     const pendingAddress = point.address || '주소를 확인하는 중'
     setGps({ status, address: pendingAddress, lat: point.lat, lng: point.lng })
     applyPickup({ address: pendingAddress, lat: point.lat, lng: point.lng, source })
     if (point.address) return
     const nextAddress = await reverseGeocode(point.lat, point.lng)
     if (seq !== locateSeqRef.current) return
-    if (pickingMapRef.current || pickupRef.current?.source === 'map') return
+    if (pickingMapRef.current || pickupSourceIsMap(pickupRef.current)) return
     setGps({ status, address: nextAddress, lat: point.lat, lng: point.lng })
     applyPickup({ address: nextAddress, lat: point.lat, lng: point.lng, source })
   }
