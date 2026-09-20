@@ -3128,18 +3128,28 @@ function ServiceSheet({
             </div>
             <div>
               <p className="mb-2 text-sm font-black">상품 크기</p>
-              <div className="grid grid-cols-6 gap-2">
-                {PACKAGE_SIZES.map((item, index) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setPackageSize(item.id)}
-                    className={`min-h-[4.25rem] rounded-2xl px-2 py-2.5 text-center ${index >= 3 ? 'col-span-3' : 'col-span-2'} ${packageSize === item.id ? 'bg-[#7046dc] text-white' : 'bg-[#f1eff7] text-[#5f566d]'}`}
-                  >
-                    <span className="block text-[11px] font-black leading-tight">{item.label}</span>
-                    <span className={`mt-1 block text-[10px] font-bold leading-tight ${packageSize === item.id ? 'text-white/80' : 'text-[#8b8495]'}`}>{item.hint}</span>
-                  </button>
-                ))}
+              <div className="flex flex-col gap-2">
+                {PACKAGE_SIZES.map((item) => {
+                  const selected = packageSize === item.id
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setPackageSize(item.id)}
+                      className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${selected ? 'border-[#7046dc] bg-[#f1ebff] ring-2 ring-[#7046dc]/15' : 'border-[#ece8f4] bg-white'}`}
+                    >
+                      <span className={`mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 p-1 ${selected ? 'border-[#7046dc]' : 'border-[#cfc7db]'}`}>
+                        <span className={`block h-full w-full rounded-full ${selected ? 'bg-[#7046dc]' : 'bg-transparent'}`} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <strong className="block text-sm font-black leading-5 text-[#1f1630]">{item.label}</strong>
+                        <span className={`mt-1 block whitespace-normal break-keep text-xs font-bold leading-5 ${selected ? 'text-[#6b57a8]' : 'text-[#8b8495]'}`}>
+                          ({item.hint})
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
             <div className="rounded-3xl bg-[#f7f3ff] p-4">
@@ -3147,8 +3157,8 @@ function ServiceSheet({
                 <span className="font-black">예상 배송 요금</span>
                 <strong className="text-xl text-[#7046dc]">{formatDeliveryFare(deliveryFare)} Pi</strong>
               </div>
-              <p className="mt-2 text-xs font-bold text-[#8b8495]">
-                {deliveryVehicle} · {packageOption.label} · {packageOption.hint} · 30분 내 배차
+              <p className="mt-2 whitespace-normal break-keep text-xs font-bold leading-5 text-[#8b8495]">
+                {deliveryVehicle} · {packageOption.label} ({packageOption.hint}) · 30분 내 배차
               </p>
             </div>
             <button type="button" onClick={() => startService()} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white">
