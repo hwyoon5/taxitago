@@ -232,6 +232,19 @@ function finiteCoord(value: number | undefined, fallback: number) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
+function isCityHallCoord(nextLat: number, nextLng: number) {
+  return Math.abs(nextLat - BUSAN_CITY_HALL.lat) < 1e-4 && Math.abs(nextLng - BUSAN_CITY_HALL.lng) < 1e-4
+}
+
+function coordsClose(a: { lat: number; lng: number }, b: { lat: number; lng: number }, maxMeters = 8) {
+  const dLat = ((a.lat - b.lat) * Math.PI) / 180
+  const dLng = ((a.lng - b.lng) * Math.PI) / 180
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+  return 6371000 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)) <= maxMeters
+}
+
 function FullscreenMapView({
   lat,
   lng,
@@ -257,21 +270,12 @@ function FullscreenMapView({
   const [addressPending, setAddressPending] = useState(false)
   const [askConfirm, setAskConfirm] = useState(false)
   const lookupSeq = useRef(0)
-  const pickedRef = useRef(false)
+  const userMovedRef = useRef(false)
   const pinRef = useRef(pin)
   pinRef.current = pin
 
-  useEffect(() => {
-    if (pickedRef.current) return
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
-    const sameCityHall =
-      Math.abs(lat - BUSAN_CITY_HALL.lat) < 1e-5 && Math.abs(lng - BUSAN_CITY_HALL.lng) < 1e-5
-    if (sameCityHall) return
-    setPin({ lat, lng })
-    setMapCenter({ lat, lng })
-  }, [lat, lng])
-
   const reverseAt = (nextLat: number, nextLng: number, fallbackAddress: string) => {
+    if (isCityHallCoord(nextLat, nextLng)) return
     const seq = lookupSeq.current + 1
     lookupSeq.current = seq
     setAddressPending(true)
@@ -288,31 +292,44 @@ function FullscreenMapView({
   }
 
   const lockPin = (nextLat: number, nextLng: number, recenter: boolean) => {
+    if (isCityHallCoord(nextLat, nextLng)) return
     setPin({ lat: nextLat, lng: nextLng })
     if (recenter) setMapCenter({ lat: nextLat, lng: nextLng })
   }
 
   useEffect(() => {
+    if (userMovedRef.current) return
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || isCityHallCoord(lat, lng)) return
+    setPin({ lat, lng })
+    setMapCenter({ lat, lng })
+  }, [lat, lng])
+
+  useEffect(() => {
     if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        if (pickedRef.current) return
-        const next = { lat: position.coords.latitude, lng: position.coords.longitude }
-        lockPin(next.lat, next.lng, true)
+        if (userMovedRef.current) return
+        lockPin(position.coords.latitude, position.coords.longitude, true)
+        reverseAt(position.coords.latitude, position.coords.longitude, virtualPickupAddress(position.coords.latitude, position.coords.longitude))
       },
       () => undefined,
       { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
     )
   }, [])
 
+  useEffect(() => () => {
+    lookupSeq.current += 1
+  }, [])
+
   const resetToGps = () => {
     lookupSeq.current += 1
-    pickedRef.current = false
+    userMovedRef.current = false
     setAskConfirm(false)
     setAddressPending(false)
     setPickedAddress(null)
     const applyGps = (nextLat: number, nextLng: number) => {
       lockPin(nextLat, nextLng, true)
+      reverseAt(nextLat, nextLng, virtualPickupAddress(nextLat, nextLng))
     }
     if (!navigator.geolocation) {
       applyGps(lat, lng)
@@ -325,47 +342,38 @@ function FullscreenMapView({
     )
   }
 
-  const handlePick = (nextLat: number, nextLng: number) => {
-    pickedRef.current = true
-    lockPin(nextLat, nextLng, false)
+  const handleCenterChange = (nextLat: number, nextLng: number) => {
+    if (isCityHallCoord(nextLat, nextLng)) return
+    if (coordsClose(pinRef.current, { lat: nextLat, lng: nextLng })) return
+    userMovedRef.current = true
+    setPin({ lat: nextLat, lng: nextLng })
     setAskConfirm(false)
     reverseAt(nextLat, nextLng, virtualPickupAddress(nextLat, nextLng))
   }
 
   const confirmPickup = (nextAddress?: string) => {
-    const label = nextAddress || pickedAddress
-    if (!label) return
     const current = pinRef.current
+    const label = (nextAddress || pickedAddress || address).trim()
+    if (!label || /확인하는 중|수신하는 중|불러오는 중/.test(label)) return
+    if (isCityHallCoord(current.lat, current.lng)) return
     onConfirmPickup({ lat: current.lat, lng: current.lng, address: label })
   }
 
   const openCurrentLocationConfirm = () => {
     const current = pinRef.current
-    pickedRef.current = false
     setAskConfirm(true)
-    const known = address.trim()
-    if (known && !/확인하는 중|수신하는 중|불러오는 중/.test(known)) {
-      setPickedAddress(known)
-      setAddressPending(false)
-      return
-    }
-    reverseAt(current.lat, current.lng, known || virtualPickupAddress(current.lat, current.lng))
+    reverseAt(current.lat, current.lng, pickedAddress || address || virtualPickupAddress(current.lat, current.lng))
   }
 
   const handlePopup = () => {
-    if (!pickedAddress) {
-      openCurrentLocationConfirm()
-      return
-    }
     if (!askConfirm) {
-      setAskConfirm(true)
-      reverseAt(pinRef.current.lat, pinRef.current.lng, pickedAddress)
+      openCurrentLocationConfirm()
       return
     }
     confirmPickup()
   }
 
-  const bannerAddress = pickedAddress || address
+  const bannerAddress = pickedAddress || (isCityHallCoord(pin.lat, pin.lng) ? '' : address)
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#0B1220]" role="dialog" aria-modal="true" aria-label="전체화면 지도">
@@ -385,8 +393,9 @@ function FullscreenMapView({
         interactive
         showZoom
         pulsePin
+        centerPin
         locatePlacement="bottom"
-        onPick={handlePick}
+        onCenterChange={handleCenterChange}
         onLocate={resetToGps}
       />
       <button
@@ -408,7 +417,7 @@ function FullscreenMapView({
             </button>
           ) : (
             <button type="button" onClick={handlePopup} className="w-full text-left">
-              <span className="block text-[11px] font-bold text-[#7C3AED]">{pickedRef.current ? '선택한 위치' : '현재 위치'}</span>
+              <span className="block text-[11px] font-bold text-[#7C3AED]">{userMovedRef.current ? '지도 위치' : '현재 위치'}</span>
               <span className="mt-1 block text-[14px] font-black leading-snug text-[#0F172A]">
                 {addressPending ? bannerAddress : bannerAddress}
               </span>

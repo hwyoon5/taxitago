@@ -11,6 +11,7 @@ export type NaverMapInstance = {
   panBy: (offset: unknown) => void
   setZoom: (zoom: number, useEffect?: boolean) => void
   getZoom: () => number
+  getCenter?: () => NaverLatLng
   fitBounds?: (bounds: unknown, margin?: unknown) => void
   autoResize?: () => void
   destroy?: () => void
@@ -42,7 +43,7 @@ export type NaverMapsSdk = {
     draw: () => void
   }
   Event: {
-    addListener: (target: unknown, eventName: string, handler: (event: { coord: NaverLatLng }) => void) => unknown
+    addListener: (target: unknown, eventName: string, handler: (event?: { coord?: NaverLatLng }) => void) => unknown
     removeListener: (listener: unknown) => void
     trigger: (target: unknown, eventName: string, ...rest: unknown[]) => void
   }
