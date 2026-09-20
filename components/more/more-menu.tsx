@@ -2,21 +2,24 @@
 
 import Link from 'next/link'
 import { Bell, ChevronRight, FileText, Headphones, Receipt, Settings } from 'lucide-react'
+import { useLocale } from '@/components/locale-provider'
+import type { MessageKey } from '@/lib/i18n'
 
 export const moreItems = [
-  { href: '/notice', id: 'notice', label: '공지사항', caption: '서비스 소식과 업데이트', icon: Bell },
-  { href: '/fares', id: 'fares', label: '이용요금 안내', caption: '기본요금과 구간 요금', icon: Receipt },
-  { href: '/support', id: 'support', label: '고객센터', caption: 'SOS · 분실물 · 1:1 문의', icon: Headphones },
-  { href: '/terms', id: 'terms', label: '약관 및 정책', caption: '이용약관 · 개인정보 · 운영정책', icon: FileText },
-  { href: '/settings', id: 'settings', label: '앱 설정', caption: '알림 및 환경설정', icon: Settings },
+  { href: '/notice', id: 'notice', labelKey: 'more.notice', captionKey: 'more.noticeCaption', icon: Bell },
+  { href: '/fares', id: 'fares', labelKey: 'more.fares', captionKey: 'more.faresCaption', icon: Receipt },
+  { href: '/support', id: 'support', labelKey: 'more.support', captionKey: 'more.supportCaption', icon: Headphones },
+  { href: '/terms', id: 'terms', labelKey: 'more.terms', captionKey: 'more.termsCaption', icon: FileText },
+  { href: '/settings', id: 'settings', labelKey: 'more.settings', captionKey: 'more.settingsCaption', icon: Settings },
 ] as const
 
 export type MoreItemId = (typeof moreItems)[number]['id']
 
 export default function MoreMenu({ onOpen }: { onOpen?: (id: MoreItemId) => void }) {
+  const { t } = useLocale()
   return (
     <div className="mt-5 space-y-2">
-      {moreItems.map(({ href, id, label, caption, icon: Icon }) => (
+      {moreItems.map(({ href, id, labelKey, captionKey, icon: Icon }) => (
         <Link
           key={href}
           href={href}
@@ -31,8 +34,8 @@ export default function MoreMenu({ onOpen }: { onOpen?: (id: MoreItemId) => void
             <Icon className="h-5 w-5" />
           </span>
           <span className="min-w-0 flex-1 text-left">
-            <strong className="block text-sm font-black">{label}</strong>
-            <span className="mt-1 block text-xs font-bold text-[#475569]">{caption}</span>
+            <strong className="block text-sm font-black">{t(labelKey as MessageKey)}</strong>
+            <span className="mt-1 block text-xs font-bold text-[#475569]">{t(captionKey as MessageKey)}</span>
           </span>
           <ChevronRight className="h-4 w-4 text-[#9a93a5]" />
         </Link>

@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ChevronLeft } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { getNotice, notices } from '@/lib/notices'
 import SupportCenter from '@/components/support-center'
+import { useLocale } from '@/components/locale-provider'
+import type { AppLocale } from '@/lib/i18n'
 
 function PageFrame({ title, caption, onBack, children }: { title: string; caption: string; onBack: () => void; children: React.ReactNode }) {
   return (
@@ -124,15 +126,23 @@ export function SupportView({
 }
 
 export function SettingsView({ onBack, onNotice }: { onBack: () => void; onNotice?: (message: string) => void }) {
+  const { t, locale, locales, current, setLocale } = useLocale()
   const [push, setPush] = useState(true)
   const [marketing, setMarketing] = useState(false)
   const [location, setLocation] = useState(true)
+  const [languageOpen, setLanguageOpen] = useState(false)
   const toggle = (label: string, value: boolean, setValue: (next: boolean) => void) => {
     setValue(!value)
-    onNotice?.(`${label}을 ${value ? '껐어요' : '켰어요'}`)
+    onNotice?.(t(value ? 'settings.toggleOff' : 'settings.toggleOn', { label }))
+  }
+  const applyLanguage = (next: AppLocale) => {
+    setLocale(next)
+    setLanguageOpen(false)
+    const selected = locales.find((item) => item.id === next)
+    onNotice?.(t('settings.applied', { name: selected?.nativeName || next }))
   }
   const Row = ({ label, caption, value, onToggle }: { label: string; caption: string; value: boolean; onToggle: () => void }) => (
-    <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+    <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.08)] active:scale-[0.99]">
       <span>
         <strong className="block text-sm font-black text-[#0F172A]">{label}</strong>
         <span className="mt-1 block text-xs font-bold text-[#64748B]">{caption}</span>
@@ -143,12 +153,66 @@ export function SettingsView({ onBack, onNotice }: { onBack: () => void; onNotic
     </button>
   )
   return (
-    <PageFrame title="앱 설정" caption="알림 및 환경설정을 관리하세요." onBack={onBack}>
+    <PageFrame title={t('settings.title')} caption={t('settings.caption')} onBack={onBack}>
       <div className="space-y-2">
-        <Row label="푸시 알림" caption="호출·배차 소식을 바로 받습니다" value={push} onToggle={() => toggle('푸시 알림', push, setPush)} />
-        <Row label="혜택 알림" caption="이벤트와 할인 정보를 받습니다" value={marketing} onToggle={() => toggle('혜택 알림', marketing, setMarketing)} />
-        <Row label="위치 서비스" caption="현재 위치 기반 호출에 사용합니다" value={location} onToggle={() => toggle('위치 서비스', location, setLocation)} />
+        <button
+          type="button"
+          onClick={() => setLanguageOpen(true)}
+          className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.08)] active:scale-[0.99]"
+        >
+          <span>
+            <strong className="block text-sm font-black text-[#0F172A]">{t('settings.language')}</strong>
+            <span className="mt-1 block text-xs font-bold text-[#64748B]">{t('settings.languageCaption')}</span>
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-sm font-black text-[#4C1FB8]">
+            {current.flag} {current.nativeName}
+            <ChevronRight className="h-4 w-4 text-[#94A3B8]" />
+          </span>
+        </button>
+        <Row label={t('settings.push')} caption={t('settings.pushCaption')} value={push} onToggle={() => toggle(t('settings.push'), push, setPush)} />
+        <Row label={t('settings.marketing')} caption={t('settings.marketingCaption')} value={marketing} onToggle={() => toggle(t('settings.marketing'), marketing, setMarketing)} />
+        <Row label={t('settings.location')} caption={t('settings.locationCaption')} value={location} onToggle={() => toggle(t('settings.location'), location, setLocation)} />
       </div>
+      {languageOpen ? (
+        <div className="fixed inset-0 z-[120] flex items-end bg-[#1e1033]/45 sm:items-center sm:p-4" onClick={() => setLanguageOpen(false)}>
+          <section
+            className="mx-auto w-full max-w-md rounded-t-[28px] bg-white px-5 pb-7 pt-4 shadow-2xl sm:rounded-[28px]"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="app-language-title"
+          >
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+            <h3 id="app-language-title" className="text-lg font-black text-[#0F172A]">
+              {t('settings.languageTitle')}
+            </h3>
+            <p className="mt-1 text-sm font-bold text-[#64748B]">{t('settings.languageHint')}</p>
+            <div className="mt-4 overflow-hidden rounded-2xl border border-[#E2E8F0]">
+              {locales.map((item, index) => {
+                const selected = item.id === locale
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => applyLanguage(item.id)}
+                    className={`flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-[#F8FAFC] ${index ? 'border-t border-[#F1F5F9]' : ''} ${selected ? 'bg-[#F5F3FF]' : 'bg-white'}`}
+                  >
+                    <span className="text-xl leading-none">{item.flag}</span>
+                    <span className="min-w-0 flex-1">
+                      <strong className="block text-sm font-black text-[#0F172A]">{item.nativeName}</strong>
+                      <span className="mt-0.5 block text-[11px] font-bold text-[#64748B]">{item.englishName}</span>
+                    </span>
+                    {selected ? <Check className="h-5 w-5 text-[#4C1FB8]" strokeWidth={2.5} /> : null}
+                  </button>
+                )
+              })}
+            </div>
+            <button type="button" onClick={() => setLanguageOpen(false)} className="mt-4 w-full py-3 text-sm font-black text-[#64748B]">
+              {t('settings.close')}
+            </button>
+          </section>
+        </div>
+      ) : null}
     </PageFrame>
   )
 }
