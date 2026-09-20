@@ -4,6 +4,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { translateService } from '@/lib/i18n'
+import { notices, type Notice } from '@/lib/notices'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
 import { TermsDetailView, TermsListView } from '@/components/more/terms-pages'
