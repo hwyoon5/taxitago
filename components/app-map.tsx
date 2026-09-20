@@ -581,6 +581,19 @@ function FallbackSlippyMap({
           const next = viewRef.current
           centerIdleRef.current?.(next.lat, next.lng)
         }
+        if (centerPin && tapped) {
+          const box = wrapRef.current?.getBoundingClientRect()
+          if (box) {
+            const worldX = originX + (event.clientX - box.left)
+            const worldY = originY + (event.clientY - box.top)
+            const point = worldToLatLng(worldX, worldY, zoom)
+            viewRef.current = point
+            setView(point)
+            centerChangeRef.current?.(point.lat, point.lng, false)
+            centerIdleRef.current?.(point.lat, point.lng)
+          }
+          return
+        }
         if (!interactive || !tapped) return
         if (onActivate && !onPick) {
           onActivate()
@@ -684,6 +697,10 @@ function NaverLocationMap(props: MapViewProps) {
     let lastEmit = 0
     let lastIdle = { lat: Number.NaN, lng: Number.NaN }
     let idleGeocodeTimer = 0
+    let onPointerDown: ((event: PointerEvent) => void) | null = null
+    let onPointerMove: ((event: PointerEvent) => void) | null = null
+    let onPointerUp: ((event: PointerEvent) => void) | null = null
+    const canvasNode = canvas
     void (async () => {
       await waitForMapSize(canvas)
       const sdk = await loadNaverMaps()
@@ -716,13 +733,23 @@ function NaverLocationMap(props: MapViewProps) {
         })
       }
       const readCenter = () => readMapCenter(map, sdk, canvasRef.current)
+      const settlePickup = (coord?: { lat: number; lng: number } | null, force = false, fromUser = false) => {
+        if (!followCenterRef.current || cancelled) return
+        const next = coord || readCenter()
+        if (!next) return
+        if (!force && Math.abs(lastIdle.lat - next.lat) < 1e-6 && Math.abs(lastIdle.lng - next.lng) < 1e-6) return
+        lastIdle = next
+        if (fromUser) userPannedRef.current = true
+        centerChangeRef.current?.(next.lat, next.lng, false)
+        centerIdleRef.current?.(next.lat, next.lng)
+      }
       const requestIdleGeocode = (force = false) => {
         if (!followCenterRef.current || cancelled) return
         window.clearTimeout(idleGeocodeTimer)
         idleGeocodeTimer = window.setTimeout(() => {
           if (cancelled || draggingRef.current) return
-          emitIdleCenter(force)
-        }, 100)
+          settlePickup(null, force)
+        }, 60)
       }
       const emitMapCenter = (active: boolean, force = false) => {
         if (!followCenterRef.current) return
@@ -733,14 +760,24 @@ function NaverLocationMap(props: MapViewProps) {
         if (!next) return
         centerChangeRef.current?.(next.lat, next.lng, active)
       }
-      const emitIdleCenter = (force = false) => {
-        if (!followCenterRef.current) return
-        const next = readCenter()
-        if (!next) return
-        if (!force && Math.abs(lastIdle.lat - next.lat) < 1e-6 && Math.abs(lastIdle.lng - next.lng) < 1e-6) return
-        lastIdle = next
-        centerChangeRef.current?.(next.lat, next.lng, false)
-        centerIdleRef.current?.(next.lat, next.lng)
+      const panAndGeocode = (point: { lat: number; lng: number }) => {
+        if (!followCenterRef.current || cancelled) return
+        userPannedRef.current = true
+        draggingRef.current = false
+        try {
+          map.panTo(new sdk.LatLng(point.lat, point.lng))
+        } catch {
+          undefined
+        }
+        settlePickup(point, true, true)
+      }
+      const pointFromMapEvent = (event?: { coord?: unknown; latlng?: unknown }) => readMapClickLatLng(event)
+      const pointFromPointer = (clientX: number, clientY: number) => {
+        const canvas = canvasRef.current
+        if (!canvas) return null
+        const box = canvas.getBoundingClientRect()
+        const mapped = map.getProjection?.()?.fromOffsetToCoord?.(new sdk.Point(clientX - box.left, clientY - box.top))
+        return readLatLngValue(mapped)
       }
       const pollCenter = () => {
         if (!draggingRef.current || cancelled) return
@@ -751,23 +788,25 @@ function NaverLocationMap(props: MapViewProps) {
         listeners.push(sdk.Event.addListener(map, eventName, handler))
       }
       if (interactive) {
-        listeners.push(
-          sdk.Event.addListener(map, 'click', (event) => {
-            if (activateRef.current && !pickRef.current) {
-              activateRef.current()
-              return
-            }
-            if (followCenterRef.current) {
-              return
-            }
-            const clicked = readMapClickLatLng(event)
-            if (!clicked) return
-            const pin = centerRef.current
-            const anchor = { lat: pin.pinLat ?? pin.lat, lng: pin.pinLng ?? pin.lng }
-            const snapped = snapToNearbyPoint(clicked, anchor, 90)
-            pickRef.current?.(snapped.lat, snapped.lng)
-          }),
-        )
+        const onMapPress = (event?: { coord?: unknown; latlng?: unknown }) => {
+          if (activateRef.current && !pickRef.current && !followCenterRef.current) {
+            activateRef.current()
+            return
+          }
+          const clicked = pointFromMapEvent(event)
+          if (followCenterRef.current) {
+            if (clicked) panAndGeocode(clicked)
+            else settlePickup(null, true, true)
+            return
+          }
+          if (!clicked) return
+          const pin = centerRef.current
+          const anchor = { lat: pin.pinLat ?? pin.lat, lng: pin.pinLng ?? pin.lng }
+          const snapped = snapToNearbyPoint(clicked, anchor, 90)
+          pickRef.current?.(snapped.lat, snapped.lng)
+        }
+        listeners.push(sdk.Event.addListener(map, 'click', onMapPress))
+        listeners.push(sdk.Event.addListener(map, 'tap', onMapPress))
       }
       listen('dragstart', () => {
         draggingRef.current = true
@@ -793,12 +832,35 @@ function NaverLocationMap(props: MapViewProps) {
         setPinLift(false)
         window.cancelAnimationFrame(raf)
         lastIdle = { lat: Number.NaN, lng: Number.NaN }
-        requestIdleGeocode(true)
+        settlePickup(null, true, true)
       })
       listen('idle', () => {
         if (draggingRef.current) return
-        requestIdleGeocode()
+        requestIdleGeocode(true)
       })
+      let pointerOrigin = { x: 0, y: 0, moved: false }
+      onPointerDown = (event: PointerEvent) => {
+        pointerOrigin = { x: event.clientX, y: event.clientY, moved: false }
+      }
+      onPointerMove = (event: PointerEvent) => {
+        if (Math.hypot(event.clientX - pointerOrigin.x, event.clientY - pointerOrigin.y) > 10) {
+          pointerOrigin.moved = true
+        }
+      }
+      onPointerUp = (event: PointerEvent) => {
+        if (!followCenterRef.current || cancelled) return
+        if (pointerOrigin.moved) {
+          draggingRef.current = false
+          setPinLift(false)
+          settlePickup(null, true, true)
+          return
+        }
+        const tapped = pointFromPointer(event.clientX, event.clientY)
+        if (tapped) panAndGeocode(tapped)
+      }
+      canvasNode.addEventListener('pointerdown', onPointerDown)
+      canvasNode.addEventListener('pointermove', onPointerMove)
+      canvasNode.addEventListener('pointerup', onPointerUp)
       refreshNaverMap(sdk, map)
       window.setTimeout(() => refreshNaverMap(sdk, map), 80)
       window.setTimeout(() => {
@@ -813,6 +875,9 @@ function NaverLocationMap(props: MapViewProps) {
       draggingRef.current = false
       window.cancelAnimationFrame(raf)
       window.clearTimeout(idleGeocodeTimer)
+      if (onPointerDown) canvasNode.removeEventListener('pointerdown', onPointerDown)
+      if (onPointerMove) canvasNode.removeEventListener('pointermove', onPointerMove)
+      if (onPointerUp) canvasNode.removeEventListener('pointerup', onPointerUp)
       const sdk = mapsRef.current
       if (sdk) listeners.forEach((listener) => sdk.Event.removeListener(listener))
       pinRef.current?.setMap(null)

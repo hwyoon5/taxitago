@@ -332,11 +332,7 @@ function FullscreenMapView({
     setCamera({ lat, lng })
     setCenter({ lat, lng })
     centerRef.current = { lat, lng }
-    if (usableMapAddress(address)) {
-      setLiveAddress(address)
-      addressRef.current = address
-    }
-  }, [lat, lng, address])
+  }, [lat, lng])
 
   useEffect(() => {
     if (!navigator.geolocation) return
@@ -387,8 +383,8 @@ function FullscreenMapView({
 
   const handleCenterIdle = (nextLat: number, nextLng: number) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    const prev = centerRef.current
-    if (Math.abs(prev.lat - nextLat) > 2e-5 || Math.abs(prev.lng - nextLng) > 2e-5) {
+    const origin = cameraRef.current
+    if (Math.abs(origin.lat - nextLat) > 1e-4 || Math.abs(origin.lng - nextLng) > 1e-4) {
       userMovedRef.current = true
     }
     centerRef.current = { lat: nextLat, lng: nextLng }

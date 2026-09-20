@@ -150,8 +150,16 @@ async function reverseGeocodeNaver(lat: number, lng: number) {
       const timer = window.setTimeout(() => finish(null), 900)
       const handle = (status: unknown, response: NaverReverseGeocodeResponse) => {
         try {
-          const formatted = formatNaverReverse(response)
+          const payload =
+            response && typeof response === 'object' && (response.v2 || (response as { result?: unknown }).result)
+              ? response
+              : ((status as NaverReverseGeocodeResponse) || response)
+          const formatted = formatNaverReverse(payload)
           if (formatted && isNaverReverseOk(status, service)) {
+            finish(formatted)
+            return
+          }
+          if (formatted) {
             finish(formatted)
             return
           }
