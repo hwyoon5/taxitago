@@ -305,6 +305,7 @@ function FullscreenMapView({
   address,
   pickupLat,
   pickupLng,
+  purpose = 'pickup',
   onClose,
   onConfirmPickup,
   onPickupChange,
@@ -314,6 +315,7 @@ function FullscreenMapView({
   address: string
   pickupLat?: number
   pickupLng?: number
+  purpose?: 'pickup' | 'dest'
   onClose: () => void
   onConfirmPickup: (place: { lat: number; lng: number; address: string }) => void
   onPickupChange?: (place: { lat: number; lng: number; address: string }) => void
@@ -340,7 +342,10 @@ function FullscreenMapView({
   cameraRef.current = camera
   onPickupChangeRef.current = onPickupChange
 
+  const isDest = purpose === 'dest'
+
   const publishPickup = (nextLat: number, nextLng: number, nextAddress: string) => {
+    if (isDest) return
     const label = usableMapAddress(nextAddress)
     if (!label || !Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
     onPickupChangeRef.current?.({ lat: nextLat, lng: nextLng, address: label })
@@ -536,17 +541,55 @@ function FullscreenMapView({
             onMouseDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
             onDoubleClick={(event) => event.stopPropagation()}
-            onClick={fireConfirm}
-            onTouchEnd={fireConfirm}
+            onClick={isDest ? undefined : fireConfirm}
+            onTouchEnd={isDest ? undefined : fireConfirm}
             className="w-full text-left leading-none"
             disabled={confirming}
           >
-            <span className="block text-[10px] font-bold leading-none text-[#7C3AED]">{userMovedRef.current ? '지도 위치' : '현재 위치'}</span>
+            <span className="block text-[10px] font-bold leading-none text-[#7C3AED]">{isDest ? (userMovedRef.current ? '지도에서 고른 목적지' : '이 위치의 목적지') : userMovedRef.current ? '지도 위치' : '현재 위치'}</span>
             <span className="mt-0.5 block text-[12px] font-black leading-tight text-[#0F172A]">{bannerAddress}</span>
-            <span className="mt-0.5 block text-[10px] font-bold leading-tight text-[#94A3B8]">{looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : '주소를 눌러 이 위치를 출발지로 지정'}</span>
+            <span className="mt-0.5 block text-[10px] font-bold leading-tight text-[#94A3B8]">{looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : isDest ? '아래 카드에서 목적지로 선택할 수 있어요' : '주소를 눌러 이 위치를 출발지로 지정'}</span>
           </button>
         </div>
       </div>
+      {isDest ? (
+        <div
+          className="absolute inset-x-3 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[70]"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
+        >
+          <div className="rounded-[26px] border-2 border-[#334155] bg-white px-4 py-4 shadow-[0_14px_28px_rgba(15,23,42,0.2)]">
+            <p className="text-xs font-black text-[#4C1FB8]">선택한 목적지</p>
+            <p className="mt-1.5 text-base font-black leading-snug text-[#0F172A]">{bannerAddress}</p>
+            <p className="mt-1 text-[11px] font-bold leading-5 text-[#64748B]">
+              {looking ? '이 좌표의 주소를 확인하는 중이에요.' : '핀을 옮기거나 지도를 터치하면 주소가 다시 갱신됩니다.'}
+            </p>
+            <button
+              type="button"
+              disabled={confirming}
+              onClick={(event) => {
+                event.stopPropagation()
+                event.preventDefault()
+                void confirmPickup()
+              }}
+              className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white shadow-[0_10px_22px_rgba(76,31,184,0.32)] disabled:opacity-60"
+            >
+              이 주소로 선택
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirming(false)
+                userMovedRef.current = true
+              }}
+              className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-black text-[#475569]"
+            >
+              다시 선택
+            </button>
+          </div>
+        </div>
+      ) : null}
       </div>
     </div>
   )
@@ -1156,6 +1199,9 @@ function DestinationSearchModal({
   destination,
   favorites,
   recents,
+  originLat,
+  originLng,
+  originAddress,
   onClose,
   onSelect,
   onAddFavorite,
@@ -1166,14 +1212,18 @@ function DestinationSearchModal({
   destination: string
   favorites: FavoritePlace[]
   recents: RecentPlace[]
+  originLat?: number
+  originLng?: number
+  originAddress?: string
   onClose: () => void
-  onSelect: (name: string, address?: string) => void
+  onSelect: (name: string, address?: string, coords?: RideCoords) => void
   onAddFavorite: () => void
   onRemoveFavorite: (id: string) => void
   onRemoveRecent: (id: string) => void
   onOpenMap: () => void
 }) {
   const [query, setQuery] = useState('')
+  const [destMapOpen, setDestMapOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     const timer = window.setTimeout(() => inputRef.current?.focus(), 80)
@@ -1182,10 +1232,13 @@ function DestinationSearchModal({
   const keyword = query.trim()
   const { items: results, recommended } = keyword ? searchDestinationPlaces(keyword) : { items: [], recommended: false }
 
-  const pick = (name: string, address?: string) => {
-    onSelect(name, address)
+  const pick = (name: string, address?: string, coords?: RideCoords) => {
+    onSelect(name, address, coords)
     onClose()
   }
+
+  const mapLat = finiteCoord(originLat, BUSAN_CITY_HALL.lat)
+  const mapLng = finiteCoord(originLng, BUSAN_CITY_HALL.lng)
 
   return (
     <div className="fixed inset-0 z-[88] flex justify-center bg-[#E2E8F0]">
@@ -1212,6 +1265,19 @@ function DestinationSearchModal({
               ) : null}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setDestMapOpen(true)}
+            className="mt-3 flex w-full items-center gap-3 rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3 text-left"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-[#4C1FB8]">
+              <MapPin className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <strong className="block text-sm font-black text-[#4C1FB8]">지도에서 찾기</strong>
+              <span className="mt-0.5 block text-[11px] font-bold text-[#64748B]">지도를 터치해 목적지를 직접 지정하세요</span>
+            </span>
+          </button>
         </header>
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-8">
           {keyword ? (
@@ -1273,11 +1339,18 @@ function DestinationSearchModal({
                       </button>
                     </div>
                   ))}
-                  <button type="button" onClick={onOpenMap} className="rounded-[22px] border-2 border-dashed border-[#4C1FB8] bg-[#F8F5FF] p-4 text-left">
+                  <button type="button" onClick={() => setDestMapOpen(true)} className="rounded-[22px] border-2 border-dashed border-[#4C1FB8] bg-[#F8F5FF] p-4 text-left">
                     <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-[#4C1FB8]">
+                      <MapPin className="h-5 w-5" />
+                    </span>
+                    <strong className="mt-3 block text-sm font-black text-[#4C1FB8]">지도에서 찾기</strong>
+                    <span className="mt-1 block text-[11px] font-bold text-[#64748B]">핀을 옮겨 목적지 지정</span>
+                  </button>
+                  <button type="button" onClick={onOpenMap} className="rounded-[22px] border-2 border-dashed border-[#94A3B8] bg-white p-4 text-left">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#F1F5F9] text-[#4C1FB8]">
                       <LocateFixed className="h-5 w-5" />
                     </span>
-                    <strong className="mt-3 block text-sm font-black text-[#4C1FB8]">내 위치</strong>
+                    <strong className="mt-3 block text-sm font-black text-[#0F172A]">내 위치</strong>
                     <span className="mt-1 block text-[11px] font-bold text-[#64748B]">현재 위치 지도 보기</span>
                   </button>
                 </div>
@@ -1311,11 +1384,24 @@ function DestinationSearchModal({
           )}
         </div>
       </section>
+      {destMapOpen ? (
+        <FullscreenMapView
+          purpose="dest"
+          lat={mapLat}
+          lng={mapLng}
+          address={originAddress || ''}
+          pickupLat={mapLat}
+          pickupLng={mapLng}
+          onClose={() => setDestMapOpen(false)}
+          onConfirmPickup={(place) => {
+            pick(place.address, place.address, { lat: place.lat, lng: place.lng, address: place.address })
+            setDestMapOpen(false)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
-
-function DestinationTaxiLoop({ className }: { className?: string }) {
   const uid = useId().replace(/:/g, '')
   return (
     <span className={`pointer-events-none relative isolate overflow-hidden ${className ?? ''}`} aria-hidden>
@@ -1437,7 +1523,7 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
     setRecents(next)
     writeRecentPlaces(next)
   }
-  const select = (name: string, address?: string) => {
+  const select = (name: string, address?: string, _coords?: RideCoords) => {
     rememberRecent(name, address)
     onSelect(address || name)
   }
@@ -3713,9 +3799,9 @@ function Home({
     setRecents(next)
     writeRecentPlaces(next)
   }
-  const select = (name: string, address?: string) => {
+  const select = (name: string, address?: string, coords?: RideCoords) => {
     rememberRecent(name, address)
-    onDestination(address || name, coordsFromPlaceQuery(name) ?? coordsFromPlaceQuery(address || '') ?? undefined)
+    onDestination(address || name, coords ?? coordsFromPlaceQuery(name) ?? coordsFromPlaceQuery(address || '') ?? undefined)
     setSearchOpen(false)
   }
   const addFavorite = (place: { name: string; address: string }) => {
@@ -3826,6 +3912,9 @@ function Home({
           destination={destination}
           favorites={favorites}
           recents={recents}
+          originLat={pickupLat}
+          originLng={pickupLng}
+          originAddress={pickup}
           onClose={() => setSearchOpen(false)}
           onSelect={select}
           onAddFavorite={() => setFormOpen(true)}
