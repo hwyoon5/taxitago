@@ -322,8 +322,10 @@ function FullscreenMapView({
 }) {
   const startLat = finiteCoord(pickupLat, lat)
   const startLng = finiteCoord(pickupLng, lng)
-  const startLabel = usableMapAddress(address)
+  const isDest = purpose === 'dest'
+  const startLabel = isDest ? '' : usableMapAddress(address)
   const seededPickup = Boolean(startLabel) && Number.isFinite(startLat) && Number.isFinite(startLng)
+  const skipGpsRelocate = isDest || seededPickup
   const [camera, setCamera] = useState({ lat: startLat, lng: startLng })
   const [center, setCenter] = useState({ lat: startLat, lng: startLng })
   const [liveAddress, setLiveAddress] = useState(startLabel || '이 위치의 주소를 확인하는 중')
@@ -341,8 +343,6 @@ function FullscreenMapView({
   addressRef.current = liveAddress
   cameraRef.current = camera
   onPickupChangeRef.current = onPickupChange
-
-  const isDest = purpose === 'dest'
 
   const publishPickup = (nextLat: number, nextLng: number, nextAddress: string) => {
     if (isDest) return
@@ -399,7 +399,7 @@ function FullscreenMapView({
   }, [lat, lng])
 
   useEffect(() => {
-    if (seededPickup) return
+    if (skipGpsRelocate) return
     if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -413,7 +413,7 @@ function FullscreenMapView({
       () => undefined,
       { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
     )
-  }, [seededPickup])
+  }, [skipGpsRelocate])
 
   const resetToGps = () => {
     lookupSeq.current += 1
@@ -444,6 +444,7 @@ function FullscreenMapView({
     if (!dragging) return
     userMovedRef.current = true
     setCenter({ lat: nextLat, lng: nextLng })
+    if (isDest) setLooking(true)
   }
 
   const handleCenterIdle = (nextLat: number, nextLng: number) => {
@@ -458,7 +459,7 @@ function FullscreenMapView({
   }
 
   const confirmPickup = async () => {
-    if (confirming) return
+    if (confirming || looking) return
     setConfirming(true)
     const current = centerRef.current
     let label = usableMapAddress(addressRef.current)
@@ -474,6 +475,13 @@ function FullscreenMapView({
     setLooking(false)
     publishPickup(current.lat, current.lng, label)
     onConfirmPickup({ lat: current.lat, lng: current.lng, address: label })
+  }
+
+  const resumePicking = () => {
+    setConfirming(false)
+    userMovedRef.current = true
+    const current = centerRef.current
+    lookupIdle(current.lat, current.lng)
   }
 
   const fireConfirm = (event: { stopPropagation: () => void; preventDefault: () => void }) => {
@@ -493,6 +501,7 @@ function FullscreenMapView({
         }
       `}</style>
       <div className="absolute inset-0 origin-bottom overflow-hidden" style={{ animation: 'ttMapRise 320ms cubic-bezier(0.22, 1, 0.36, 1) both' }}>
+      <div className="absolute inset-0" style={isDest ? { paddingBottom: '13.75rem' } : undefined}>
       <LocationTileMap
         lat={camera.lat}
         lng={camera.lng}
@@ -501,14 +510,15 @@ function FullscreenMapView({
         className="h-full min-h-0 w-full"
         interactive
         showZoom
-        pulsePin
+        pulsePin={!isDest}
         centerPin
-        locatePlacement="bottom"
+        locatePlacement={isDest ? 'stacked' : 'bottom'}
         onCenterChange={handleCenterChange}
         onCenterIdle={handleCenterIdle}
-        onConfirm={() => void confirmPickup()}
+        onConfirm={isDest ? undefined : () => void confirmPickup()}
         onLocate={resetToGps}
       />
+      </div>
       <button
         type="button"
         onPointerDown={(event) => event.stopPropagation()}
@@ -527,6 +537,7 @@ function FullscreenMapView({
         <ChevronLeft className="h-5 w-5" />
         뒤로가기
       </button>
+      {!isDest ? (
       <div
         className="absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-[60] flex justify-center"
         onPointerDown={(event) => event.stopPropagation()}
@@ -541,17 +552,18 @@ function FullscreenMapView({
             onMouseDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
             onDoubleClick={(event) => event.stopPropagation()}
-            onClick={isDest ? undefined : fireConfirm}
-            onTouchEnd={isDest ? undefined : fireConfirm}
+            onClick={fireConfirm}
+            onTouchEnd={fireConfirm}
             className="w-full text-left leading-none"
             disabled={confirming}
           >
-            <span className="block text-[10px] font-bold leading-none text-[#7C3AED]">{isDest ? (userMovedRef.current ? '지도에서 고른 목적지' : '이 위치의 목적지') : userMovedRef.current ? '지도 위치' : '현재 위치'}</span>
+            <span className="block text-[10px] font-bold leading-none text-[#7C3AED]">{userMovedRef.current ? '지도 위치' : '현재 위치'}</span>
             <span className="mt-0.5 block text-[12px] font-black leading-tight text-[#0F172A]">{bannerAddress}</span>
-            <span className="mt-0.5 block text-[10px] font-bold leading-tight text-[#94A3B8]">{looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : isDest ? '아래 카드에서 목적지로 선택할 수 있어요' : '주소를 눌러 이 위치를 출발지로 지정'}</span>
+            <span className="mt-0.5 block text-[10px] font-bold leading-tight text-[#94A3B8]">{looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : '주소를 눌러 이 위치를 출발지로 지정'}</span>
           </button>
         </div>
       </div>
+      ) : null}
       {isDest ? (
         <div
           className="absolute inset-x-3 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[70]"
@@ -567,7 +579,7 @@ function FullscreenMapView({
             </p>
             <button
               type="button"
-              disabled={confirming}
+              disabled={confirming || looking}
               onClick={(event) => {
                 event.stopPropagation()
                 event.preventDefault()
@@ -575,14 +587,11 @@ function FullscreenMapView({
               }}
               className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white shadow-[0_10px_22px_rgba(76,31,184,0.32)] disabled:opacity-60"
             >
-              이 주소로 선택
+              {looking ? '주소 확인 중' : '이 주소로 선택'}
             </button>
             <button
               type="button"
-              onClick={() => {
-                setConfirming(false)
-                userMovedRef.current = true
-              }}
+              onClick={resumePicking}
               className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-black text-[#475569]"
             >
               다시 선택
@@ -1386,7 +1395,7 @@ function DestinationSearchModal({
           purpose="dest"
           lat={mapLat}
           lng={mapLng}
-          address={originAddress || ''}
+          address=""
           pickupLat={mapLat}
           pickupLng={mapLng}
           onClose={() => setDestMapOpen(false)}
