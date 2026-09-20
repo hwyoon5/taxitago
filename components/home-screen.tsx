@@ -338,6 +338,7 @@ function FullscreenMapView({
   const cameraRef = useRef(camera)
   const lookupTimer = useRef(0)
   const lookupWatchdog = useRef(0)
+  const lastLookupAt = useRef(0)
   const onPickupChangeRef = useRef(onPickupChange)
   centerRef.current = center
   addressRef.current = liveAddress
@@ -357,16 +358,16 @@ function FullscreenMapView({
     setLiveAddress(label)
     addressRef.current = label
     setLooking(false)
-    publishPickup(nextLat, nextLng, label)
   }
 
-  const lookupIdle = (nextLat: number, nextLng: number) => {
+  const lookupCenter = (nextLat: number, nextLng: number, immediate = false) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
     const requestId = ++lookupSeq.current
     setLooking(true)
     window.clearTimeout(lookupTimer.current)
     window.clearTimeout(lookupWatchdog.current)
-    lookupTimer.current = window.setTimeout(() => {
+    const run = () => {
+      lastLookupAt.current = Date.now()
       const fallback = failedReverseAddress(nextLat, nextLng)
       lookupWatchdog.current = window.setTimeout(() => settleAddress(requestId, nextLat, nextLng, fallback), 1800)
       void lookupMapAddress(nextLat, nextLng)
@@ -378,11 +379,16 @@ function FullscreenMapView({
           window.clearTimeout(lookupWatchdog.current)
           settleAddress(requestId, nextLat, nextLng, fallback)
         })
-    }, 100)
+    }
+    if (immediate) {
+      run()
+      return
+    }
+    lookupTimer.current = window.setTimeout(run, 80)
   }
 
   useEffect(() => {
-    lookupIdle(startLat, startLng)
+    lookupCenter(startLat, startLng, true)
     return () => {
       lookupSeq.current += 1
       window.clearTimeout(lookupTimer.current)
@@ -408,7 +414,7 @@ function FullscreenMapView({
         setCamera(next)
         setCenter(next)
         centerRef.current = next
-        lookupIdle(next.lat, next.lng)
+        lookupCenter(next.lat, next.lng, true)
       },
       () => undefined,
       { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
@@ -425,7 +431,7 @@ function FullscreenMapView({
       setCamera(next)
       setCenter(next)
       centerRef.current = next
-      lookupIdle(nextLat, nextLng)
+      lookupCenter(nextLat, nextLng, true)
     }
     if (!navigator.geolocation) {
       applyGps(lat, lng)
@@ -440,11 +446,15 @@ function FullscreenMapView({
 
   const handleCenterChange = (nextLat: number, nextLng: number, dragging = false) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
+    const moved =
+      Math.abs(centerRef.current.lat - nextLat) > 1e-6 || Math.abs(centerRef.current.lng - nextLng) > 1e-6
     centerRef.current = { lat: nextLat, lng: nextLng }
-    if (!dragging) return
-    userMovedRef.current = true
+    if (!moved && !dragging) return
+    if (dragging) userMovedRef.current = true
     setCenter({ lat: nextLat, lng: nextLng })
-    if (isDest) setLooking(true)
+    const now = Date.now()
+    if (dragging && now - lastLookupAt.current >= 220) lookupCenter(nextLat, nextLng, true)
+    else lookupCenter(nextLat, nextLng, !dragging)
   }
 
   const handleCenterIdle = (nextLat: number, nextLng: number) => {
@@ -455,20 +465,18 @@ function FullscreenMapView({
     }
     centerRef.current = { lat: nextLat, lng: nextLng }
     setCenter({ lat: nextLat, lng: nextLng })
-    lookupIdle(nextLat, nextLng)
+    lookupCenter(nextLat, nextLng, true)
   }
 
   const confirmPickup = async () => {
-    if (confirming || looking) return
+    if (confirming) return
     setConfirming(true)
     const current = centerRef.current
     let label = usableMapAddress(addressRef.current)
-    if (!label) {
-      try {
-        label = usableMapAddress(await lookupMapAddress(current.lat, current.lng)) || failedReverseAddress(current.lat, current.lng)
-      } catch {
-        label = failedReverseAddress(current.lat, current.lng)
-      }
+    try {
+      label = usableMapAddress(await lookupMapAddress(current.lat, current.lng)) || label || failedReverseAddress(current.lat, current.lng)
+    } catch {
+      label = label || failedReverseAddress(current.lat, current.lng)
     }
     setLiveAddress(label)
     addressRef.current = label
@@ -481,7 +489,7 @@ function FullscreenMapView({
     setConfirming(false)
     userMovedRef.current = true
     const current = centerRef.current
-    lookupIdle(current.lat, current.lng)
+    lookupCenter(current.lat, current.lng, true)
   }
 
   const fireConfirm = (event: { stopPropagation: () => void; preventDefault: () => void }) => {
@@ -545,21 +553,29 @@ function FullscreenMapView({
         onTouchStart={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="w-full max-w-sm rounded-xl border border-[#E2E8F0] bg-white px-3 py-1.5 text-left shadow-[0_8px_18px_rgba(15,23,42,0.14)]">
+        <div className="w-full max-w-sm rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_8px_18px_rgba(15,23,42,0.14)]">
           <button
             type="button"
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
-            onDoubleClick={(event) => event.stopPropagation()}
             onClick={fireConfirm}
-            onTouchEnd={fireConfirm}
             className="w-full text-left leading-none"
             disabled={confirming}
           >
             <span className="block text-[10px] font-bold leading-none text-[#7C3AED]">{userMovedRef.current ? '지도 위치' : '현재 위치'}</span>
-            <span className="mt-0.5 block text-[12px] font-black leading-tight text-[#0F172A]">{bannerAddress}</span>
-            <span className="mt-0.5 block text-[10px] font-bold leading-tight text-[#94A3B8]">{looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : '주소를 눌러 이 위치를 출발지로 지정'}</span>
+            <span className="mt-1 block text-[13px] font-black leading-snug text-[#0F172A]">{bannerAddress}</span>
+            <span className="mt-1 block text-[10px] font-bold leading-tight text-[#94A3B8]">
+              {looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : '주소를 눌러 이 위치를 출발지로 지정'}
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={confirming}
+            onClick={fireConfirm}
+            className="mt-2.5 w-full rounded-xl bg-[#4C1FB8] py-2.5 text-[12px] font-black text-white disabled:opacity-60"
+          >
+            {confirming ? '출발지 지정 중' : '이 위치를 출발지로 지정'}
           </button>
         </div>
       </div>
