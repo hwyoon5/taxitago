@@ -35,7 +35,8 @@ function coordFallbackAddress(lat: number, lng: number) {
 }
 
 export function failedReverseAddress(lat: number, lng: number) {
-  return `주소를 불러오지 못했습니다 (${lat.toFixed(5)}, ${lng.toFixed(5)})`
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '주소를 찾을 수 없습니다'
+  return `주소를 찾을 수 없습니다 (${lat.toFixed(5)}, ${lng.toFixed(5)})`
 }
 
 export function requestBrowserPosition(): Promise<GeoPoint | null> {
@@ -124,7 +125,7 @@ function formatNaverReverse(response: {
 
 async function reverseGeocodeNaver(lat: number, lng: number) {
   try {
-    const sdk = await ensureNaverGeocoder(2200)
+    const sdk = await ensureNaverGeocoder(800)
     const service = sdk?.Service
     if (!sdk || typeof service?.reverseGeocode !== 'function') return null
     const coords = new sdk.LatLng(lat, lng)
@@ -137,10 +138,16 @@ async function reverseGeocodeNaver(lat: number, lng: number) {
         window.clearTimeout(timer)
         resolve(value)
       }
-      const timer = window.setTimeout(() => finish(null), 1800)
-      const handle = (_status: unknown, response: NaverReverseGeocodeResponse) => {
+      const timer = window.setTimeout(() => finish(null), 1200)
+      const handle = (status: unknown, response: NaverReverseGeocodeResponse) => {
         try {
-          finish(formatNaverReverse(response) || null)
+          const formatted = formatNaverReverse(response)
+          const errorStatus = service.Status?.ERROR as unknown
+          if (formatted && (errorStatus === undefined || status !== errorStatus)) {
+            finish(formatted)
+            return
+          }
+          finish(null)
         } catch {
           finish(null)
         }

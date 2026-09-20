@@ -285,30 +285,34 @@ function FullscreenMapView({
     pendingLookupRef.current = { lat: nextLat, lng: nextLng }
     setLooking(true)
     window.clearTimeout(lookupTimer.current)
-    window.clearTimeout(lookingWatchdogRef.current)
-    lookingWatchdogRef.current = window.setTimeout(() => {
-      const t = pendingLookupRef.current || centerRef.current
-      const label = usableMapAddress(addressRef.current) || failedReverseAddress(t.lat, t.lng)
-      setLiveAddress(label)
-      addressRef.current = label
-      setLooking(false)
-    }, 2400)
+    if (!lookingWatchdogRef.current) {
+      lookingWatchdogRef.current = window.setTimeout(() => {
+        lookingWatchdogRef.current = 0
+        const t = pendingLookupRef.current || centerRef.current
+        const label = usableMapAddress(addressRef.current) || failedReverseAddress(t.lat, t.lng)
+        setLiveAddress(label)
+        addressRef.current = label
+        setLooking(false)
+      }, 1800)
+    }
     lookupTimer.current = window.setTimeout(() => {
       const target = pendingLookupRef.current
-      if (!target) return
+      if (!target) {
+        setLooking(false)
+        return
+      }
       const tLat = target.lat
       const tLng = target.lng
       const fallback = failedReverseAddress(tLat, tLng)
       const apply = (value: string) => {
-        const latest = pendingLookupRef.current
-        if (!latest || Math.abs(latest.lat - tLat) > 1e-5 || Math.abs(latest.lng - tLng) > 1e-5) return
         const label = usableMapAddress(value) || fallback
         setLiveAddress(label)
         addressRef.current = label
         window.clearTimeout(lookingWatchdogRef.current)
+        lookingWatchdogRef.current = 0
         setLooking(false)
       }
-      const watchdog = window.setTimeout(() => apply(fallback), 2000)
+      const watchdog = window.setTimeout(() => apply(fallback), 1500)
       void lookupMapAddress(tLat, tLng)
         .then((nextAddress) => {
           window.clearTimeout(watchdog)
@@ -318,7 +322,7 @@ function FullscreenMapView({
           window.clearTimeout(watchdog)
           apply(fallback)
         })
-    }, 280)
+    }, 200)
   }
 
   useEffect(() => {

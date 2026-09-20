@@ -682,6 +682,7 @@ function NaverLocationMap(props: MapViewProps) {
     let raf = 0
     let lastEmit = 0
     let lastIdle = { lat: Number.NaN, lng: Number.NaN }
+    let idleGeocodeTimer = 0
     void (async () => {
       await waitForMapSize(canvas)
       const sdk = await loadNaverMaps()
@@ -714,6 +715,14 @@ function NaverLocationMap(props: MapViewProps) {
         })
       }
       const readCenter = () => readMapCenter(map, sdk, canvasRef.current)
+      const requestIdleGeocode = () => {
+        if (!followCenterRef.current || cancelled) return
+        window.clearTimeout(idleGeocodeTimer)
+        idleGeocodeTimer = window.setTimeout(() => {
+          if (cancelled || draggingRef.current) return
+          emitIdleCenter()
+        }, 140)
+      }
       const emitMapCenter = (active: boolean, force = false) => {
         if (!followCenterRef.current) return
         const now = Date.now()
@@ -777,18 +786,19 @@ function NaverLocationMap(props: MapViewProps) {
         draggingRef.current = false
         setPinLift(false)
         window.cancelAnimationFrame(raf)
-        emitIdleCenter()
+        lastIdle = { lat: Number.NaN, lng: Number.NaN }
+        requestIdleGeocode()
       })
       listen('idle', () => {
         if (draggingRef.current) return
-        emitIdleCenter()
+        requestIdleGeocode()
       })
       refreshNaverMap(sdk, map)
       window.setTimeout(() => refreshNaverMap(sdk, map), 80)
       window.setTimeout(() => {
         refreshNaverMap(sdk, map)
         pinRef.current?.draw?.()
-        emitIdleCenter()
+        requestIdleGeocode()
       }, 400)
       setMode('naver')
     })()
@@ -796,6 +806,7 @@ function NaverLocationMap(props: MapViewProps) {
       cancelled = true
       draggingRef.current = false
       window.cancelAnimationFrame(raf)
+      window.clearTimeout(idleGeocodeTimer)
       const sdk = mapsRef.current
       if (sdk) listeners.forEach((listener) => sdk.Event.removeListener(listener))
       pinRef.current?.setMap(null)
