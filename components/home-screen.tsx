@@ -1244,40 +1244,37 @@ function DestinationSearchModal({
     <div className="fixed inset-0 z-[88] flex justify-center bg-[#E2E8F0]">
       <section className="flex h-full w-full max-w-md flex-col bg-[#F4F0FB]">
         <header className="border-b border-[#E0D4FF] bg-white px-4 pb-3 pt-5">
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="검색 닫기">
+          <div className="flex items-start gap-2">
+            <button type="button" onClick={onClose} className="mt-1.5 rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="검색 닫기">
               <X className="h-5 w-5" />
             </button>
-            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3">
-              <Search className="h-5 w-5 shrink-0 text-[#4C1FB8]" />
-              <input
-                ref={inputRef}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="목적지를 검색해 주세요"
-                className="w-full bg-transparent text-sm font-extrabold text-[#0F172A] outline-none placeholder:text-[#64748B]"
-                aria-label="목적지 검색"
-              />
-              {query ? (
-                <button type="button" onClick={() => setQuery('')} className="text-[11px] font-black text-[#4C1FB8]" aria-label="검색어 지우기">
-                  지우기
-                </button>
-              ) : null}
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <div className="flex min-w-0 items-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3">
+                <Search className="h-5 w-5 shrink-0 text-[#4C1FB8]" />
+                <input
+                  ref={inputRef}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="목적지를 검색해 주세요"
+                  className="w-full bg-transparent text-sm font-extrabold text-[#0F172A] outline-none placeholder:text-[#64748B]"
+                  aria-label="목적지 검색"
+                />
+                {query ? (
+                  <button type="button" onClick={() => setQuery('')} className="text-[11px] font-black text-[#4C1FB8]" aria-label="검색어 지우기">
+                    지우기
+                  </button>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => setDestMapOpen(true)}
+                className="flex min-w-0 items-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3 text-left"
+              >
+                <MapPin className="h-5 w-5 shrink-0 text-[#4C1FB8]" />
+                <span className="w-full text-sm font-extrabold text-[#64748B]">지도에서 찾기</span>
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setDestMapOpen(true)}
-            className="mt-3 flex w-full items-center gap-3 rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3 text-left"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-[#4C1FB8]">
-              <MapPin className="h-5 w-5" />
-            </span>
-            <span className="min-w-0">
-              <strong className="block text-sm font-black text-[#4C1FB8]">지도에서 찾기</strong>
-              <span className="mt-0.5 block text-[11px] font-bold text-[#64748B]">지도를 터치해 목적지를 직접 지정하세요</span>
-            </span>
-          </button>
         </header>
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-8">
           {keyword ? (
