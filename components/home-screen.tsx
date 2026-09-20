@@ -591,11 +591,11 @@ function FullscreenMapView({
             <p className="text-xs font-black text-[#4C1FB8]">선택한 목적지</p>
             <p className="mt-1.5 text-base font-black leading-snug text-[#0F172A]">{bannerAddress}</p>
             <p className="mt-1 text-[11px] font-bold leading-5 text-[#64748B]">
-              {looking ? '이 좌표의 주소를 확인하는 중이에요.' : '핀을 옮기거나 지도를 터치하면 주소가 다시 갱신됩니다.'}
+              {looking ? '이 좌표의 주소를 확인하는 중이에요.' : '지도를 움직이면 중심 위치의 주소가 바로 바뀝니다.'}
             </p>
             <button
               type="button"
-              disabled={confirming || looking}
+              disabled={confirming}
               onClick={(event) => {
                 event.stopPropagation()
                 event.preventDefault()
@@ -603,7 +603,7 @@ function FullscreenMapView({
               }}
               className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white shadow-[0_10px_22px_rgba(76,31,184,0.32)] disabled:opacity-60"
             >
-              {looking ? '주소 확인 중' : '이 주소로 선택'}
+              {confirming ? '목적지 지정 중' : '이 주소로 선택'}
             </button>
             <button
               type="button"
@@ -639,22 +639,48 @@ function LocationMapModal({
   const [addressPending, setAddressPending] = useState(!initialAddress)
   const [mapCenter, setMapCenter] = useState(start)
   const [pin, setPin] = useState(start)
-  const [address, setAddress] = useState(initialAddress || '접속 지역을 확인하는 중')
+  const [address, setAddress] = useState(initialAddress || '이 위치의 주소를 확인하는 중')
   const [source, setSource] = useState<'fallback' | 'gps' | 'pick'>(initialAddress ? 'gps' : 'fallback')
   const lookupSeq = useRef(0)
+  const lastLookupAt = useRef(0)
+  const userMovedRef = useRef(false)
 
   const applyPoint = (nextLat: number, nextLng: number, nextSource: 'fallback' | 'gps' | 'pick', recenter = false) => {
+    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
     const seq = lookupSeq.current + 1
     lookupSeq.current = seq
+    lastLookupAt.current = Date.now()
     setPin({ lat: nextLat, lng: nextLng })
     if (recenter) setMapCenter({ lat: nextLat, lng: nextLng })
     setSource(nextSource)
     setAddressPending(true)
-    void lookupMapAddress(nextLat, nextLng).then((nextAddress) => {
-      if (lookupSeq.current !== seq) return
-      setAddress(nextAddress)
-      setAddressPending(false)
-    })
+    void lookupMapAddress(nextLat, nextLng)
+      .then((nextAddress) => {
+        if (lookupSeq.current !== seq) return
+        setAddress(usableMapAddress(nextAddress) || nextAddress || failedReverseAddress(nextLat, nextLng))
+        setAddressPending(false)
+      })
+      .catch(() => {
+        if (lookupSeq.current !== seq) return
+        setAddress(failedReverseAddress(nextLat, nextLng))
+        setAddressPending(false)
+      })
+  }
+
+  const handleCenterChange = (nextLat: number, nextLng: number, dragging = false) => {
+    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
+    if (dragging) userMovedRef.current = true
+    setPin({ lat: nextLat, lng: nextLng })
+    if (!dragging) return
+    const now = Date.now()
+    if (now - lastLookupAt.current < 220) return
+    applyPoint(nextLat, nextLng, 'pick')
+  }
+
+  const handleCenterIdle = (nextLat: number, nextLng: number) => {
+    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
+    userMovedRef.current = true
+    applyPoint(nextLat, nextLng, 'pick')
   }
 
   useEffect(() => {
@@ -671,13 +697,13 @@ function LocationMapModal({
     navigator.geolocation.getCurrentPosition(
       (position) => {
         window.clearTimeout(timer)
-        applyPoint(position.coords.latitude, position.coords.longitude, 'gps', true)
+        if (!userMovedRef.current) applyPoint(position.coords.latitude, position.coords.longitude, 'gps', true)
         setGpsPending(false)
       },
       () => {
         window.clearTimeout(timer)
         setGpsPending(false)
-        if (!initialAddress) applyPoint(start.lat, start.lng, 'fallback', true)
+        if (!initialAddress && !userMovedRef.current) applyPoint(start.lat, start.lng, 'fallback', true)
       },
       { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
     )
@@ -687,10 +713,11 @@ function LocationMapModal({
   const statusLabel = gpsPending
     ? 'GPS로 현재 위치를 확인하는 중이에요.'
     : source === 'pick'
-      ? '지도를 터치한 지점의 주소입니다.'
+      ? '지도를 움직인 중심 위치의 주소입니다.'
       : source === 'gps'
         ? '스마트폰 GPS 기준 현재 위치입니다.'
         : '위치 권한이 없어 접속 지역 기준으로 표시했어요.'
+  const displayedAddress = usableMapAddress(address) || (addressPending ? '이 위치의 주소를 확인하는 중' : address)
 
   return (
     <div className="fixed inset-0 z-[90] flex items-end bg-[#1e293b]/45 sm:items-center sm:p-4" onClick={onClose}>
@@ -708,9 +735,8 @@ function LocationMapModal({
         <div className="px-5 pb-3">
           <div className="rounded-2xl border-2 border-[#334155] bg-[#f8fafc] px-3.5 py-3">
             <p className="text-xs font-semibold text-[#3b1d8f]">{source === 'pick' ? '선택한 주소' : '현재 위치 주소'}</p>
-            <p className="mt-1 text-base font-semibold leading-snug text-[#0f172a]">
-              {addressPending ? '주소를 불러오는 중…' : address}
-            </p>
+            <p className="mt-1 text-base font-semibold leading-snug text-[#0f172a]">{displayedAddress}</p>
+            {addressPending ? <p className="mt-1 text-[11px] font-bold text-[#94A3B8]">지도 중심에 맞춰 주소를 갱신하는 중</p> : null}
           </div>
         </div>
         <div className="relative mx-4 overflow-hidden rounded-[24px] border-2 border-[#334155] bg-[#E2E8F0]">
@@ -721,22 +747,35 @@ function LocationMapModal({
             pinLng={pin.lng}
             className="h-[340px]"
             interactive
-            onPick={(lat, lng) => applyPoint(lat, lng, 'pick')}
+            centerPin
+            onCenterChange={handleCenterChange}
+            onCenterIdle={handleCenterIdle}
+            onLocate={() => {
+              userMovedRef.current = false
+              if (!navigator.geolocation) {
+                applyPoint(start.lat, start.lng, 'fallback', true)
+                return
+              }
+              navigator.geolocation.getCurrentPosition(
+                (position) => applyPoint(position.coords.latitude, position.coords.longitude, 'gps', true),
+                () => applyPoint(start.lat, start.lng, 'fallback', true),
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 5_000 },
+              )
+            }}
           />
           <div className="pointer-events-none absolute inset-x-3 top-3">
             <div className="rounded-2xl bg-white/95 px-3 py-2.5 shadow-[0_8px_18px_rgba(15,23,42,0.14)]">
               <p className="flex items-center gap-1.5 text-xs font-semibold text-[#3b1d8f]">
                 <MapPin className="h-3.5 w-3.5" />
-                {source === 'pick' ? '터치한 위치' : '현재 위치'}
+                {source === 'pick' ? '지도 위치' : '현재 위치'}
               </p>
-              <p className="mt-1 text-sm font-semibold leading-snug text-[#0f172a]">
-                {addressPending ? '주소를 불러오는 중…' : address}
-              </p>
+              <p className="mt-1 text-sm font-semibold leading-snug text-[#0f172a]">{displayedAddress}</p>
+              {addressPending ? <p className="mt-1 text-[11px] font-bold text-[#94A3B8]">지도 중심에 맞춰 주소를 갱신하는 중</p> : null}
             </div>
           </div>
           <div className="pointer-events-none absolute inset-x-3 bottom-8">
             <p className="rounded-xl bg-[#0f172a]/90 px-3 py-2 text-center text-sm font-medium leading-snug text-white">
-              지도를 터치하면 핀이 이동하고 주소가 바뀝니다
+              지도를 움직이면 중심 위치의 주소가 바로 바뀝니다
             </p>
           </div>
         </div>

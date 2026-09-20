@@ -732,9 +732,13 @@ function NaverLocationMap(props: MapViewProps) {
           if (!cancelled) setPinScreen({ x, y })
         })
       }
-      const readCenter = () => readMapCenter(map, sdk, canvasRef.current)
+      const tracksCenter = () => followCenterRef.current || Boolean(centerChangeRef.current) || Boolean(centerIdleRef.current)
+      const readCenter = () => {
+        const fromMap = readLatLngValue(map.getCenter?.())
+        return fromMap || readMapCenter(map, sdk, canvasRef.current)
+      }
       const settlePickup = (coord?: { lat: number; lng: number } | null, force = false, fromUser = false) => {
-        if (!followCenterRef.current || cancelled) return
+        if (!tracksCenter() || cancelled) return
         const next = coord || readCenter()
         if (!next) return
         if (!force && Math.abs(lastIdle.lat - next.lat) < 1e-6 && Math.abs(lastIdle.lng - next.lng) < 1e-6) return
@@ -744,15 +748,15 @@ function NaverLocationMap(props: MapViewProps) {
         centerIdleRef.current?.(next.lat, next.lng)
       }
       const requestIdleGeocode = (force = false) => {
-        if (!followCenterRef.current || cancelled) return
+        if (!tracksCenter() || cancelled) return
         window.clearTimeout(idleGeocodeTimer)
         idleGeocodeTimer = window.setTimeout(() => {
           if (cancelled || draggingRef.current) return
           settlePickup(null, force)
-        }, 60)
+        }, 0)
       }
       const emitMapCenter = (active: boolean, force = false) => {
-        if (!followCenterRef.current) return
+        if (!tracksCenter()) return
         const now = Date.now()
         if (!force && now - lastEmit < 50) return
         lastEmit = now
@@ -832,9 +836,13 @@ function NaverLocationMap(props: MapViewProps) {
         setPinLift(false)
         window.cancelAnimationFrame(raf)
         lastIdle = { lat: Number.NaN, lng: Number.NaN }
-        settlePickup(null, true, true)
+        settlePickup(readCenter(), true, true)
       })
       listen('idle', () => {
+        if (draggingRef.current) return
+        settlePickup(readCenter(), true, userPannedRef.current)
+      })
+      listen('mouseup', () => {
         if (draggingRef.current) return
         requestIdleGeocode(true)
       })
