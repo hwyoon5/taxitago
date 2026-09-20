@@ -322,7 +322,7 @@ function MapControls({
 
   if (locatePlacement === 'bottom') {
     return (
-      <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-3 z-20 flex flex-col items-end gap-2">
+      <div className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-3 z-20 flex flex-col items-end gap-2">
         <div className="flex flex-col overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
           {zoomButtons}
         </div>
@@ -656,6 +656,7 @@ function NaverLocationMap(props: MapViewProps) {
   const centerRef = useRef({ lat, lng, pinLat, pinLng })
   const followCenterRef = useRef(Boolean(centerPin))
   const draggingRef = useRef(false)
+  const userPannedRef = useRef(false)
   const [mode, setMode] = useState<'loading' | 'naver' | 'fallback'>(hasNaverMapClientId() ? 'loading' : 'fallback')
   const [zoom, setZoom] = useState(15)
   const [pinScreen, setPinScreen] = useState<{ x: number; y: number } | null>(null)
@@ -715,13 +716,13 @@ function NaverLocationMap(props: MapViewProps) {
         })
       }
       const readCenter = () => readMapCenter(map, sdk, canvasRef.current)
-      const requestIdleGeocode = () => {
+      const requestIdleGeocode = (force = false) => {
         if (!followCenterRef.current || cancelled) return
         window.clearTimeout(idleGeocodeTimer)
         idleGeocodeTimer = window.setTimeout(() => {
           if (cancelled || draggingRef.current) return
-          emitIdleCenter()
-        }, 140)
+          emitIdleCenter(force)
+        }, 100)
       }
       const emitMapCenter = (active: boolean, force = false) => {
         if (!followCenterRef.current) return
@@ -732,11 +733,11 @@ function NaverLocationMap(props: MapViewProps) {
         if (!next) return
         centerChangeRef.current?.(next.lat, next.lng, active)
       }
-      const emitIdleCenter = () => {
+      const emitIdleCenter = (force = false) => {
         if (!followCenterRef.current) return
         const next = readCenter()
         if (!next) return
-        if (Math.abs(lastIdle.lat - next.lat) < 1e-6 && Math.abs(lastIdle.lng - next.lng) < 1e-6) return
+        if (!force && Math.abs(lastIdle.lat - next.lat) < 1e-6 && Math.abs(lastIdle.lng - next.lng) < 1e-6) return
         lastIdle = next
         centerChangeRef.current?.(next.lat, next.lng, false)
         centerIdleRef.current?.(next.lat, next.lng)
@@ -770,6 +771,7 @@ function NaverLocationMap(props: MapViewProps) {
       }
       listen('dragstart', () => {
         draggingRef.current = true
+        userPannedRef.current = true
         lastIdle = { lat: Number.NaN, lng: Number.NaN }
         setPinLift(true)
         window.cancelAnimationFrame(raf)
@@ -778,16 +780,20 @@ function NaverLocationMap(props: MapViewProps) {
       })
       listen('drag', () => emitMapCenter(true))
       listen('bounds_changed', () => emitMapCenter(draggingRef.current))
-      listen('center_changed', () => emitMapCenter(draggingRef.current))
+      listen('center_changed', () => {
+        emitMapCenter(draggingRef.current)
+        if (!draggingRef.current) requestIdleGeocode()
+      })
       listen('zoom_changed', () => {
         pinRef.current?.draw?.()
+        if (!draggingRef.current) requestIdleGeocode(true)
       })
       listen('dragend', () => {
         draggingRef.current = false
         setPinLift(false)
         window.cancelAnimationFrame(raf)
         lastIdle = { lat: Number.NaN, lng: Number.NaN }
-        requestIdleGeocode()
+        requestIdleGeocode(true)
       })
       listen('idle', () => {
         if (draggingRef.current) return
@@ -835,7 +841,7 @@ function NaverLocationMap(props: MapViewProps) {
     if (centerPin) {
       const current = readMapCenter(map)
       if (current && Math.abs(current.lat - lat) < 1e-6 && Math.abs(current.lng - lng) < 1e-6) return
-      if (draggingRef.current) return
+      if (draggingRef.current || userPannedRef.current) return
     }
     map.panTo(new sdk.LatLng(lat, lng))
     pinRef.current?.draw?.()
@@ -893,6 +899,7 @@ function NaverLocationMap(props: MapViewProps) {
             const sdk = mapsRef.current
             if (!map || !sdk) return
             draggingRef.current = false
+            userPannedRef.current = false
             setPinLift(false)
             map.panTo(new sdk.LatLng(centerRef.current.lat, centerRef.current.lng))
             pinRef.current?.draw?.()
