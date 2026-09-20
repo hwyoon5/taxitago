@@ -24,6 +24,9 @@ import {
 } from '@/lib/partner-account'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
+import { loadDeliveryJob, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob } from '@/lib/delivery-job'
+import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
+import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import {
   cancelRideRequest,
@@ -2696,6 +2699,7 @@ function ServiceSheet({
   daeriTrip,
   onSelectService,
   onRequireRoute,
+  onDeliveryCreated,
 }: {
   service: string
   pickupLat: number
@@ -2715,12 +2719,16 @@ function ServiceSheet({
   daeriTrip?: DaeriTrip | null
   onSelectService?: (label: string) => void
   onRequireRoute?: (kind: RouteGap) => void
+  onDeliveryCreated?: (job: DeliveryJob) => void
 }) {
   const { t } = useLocale()
   const IS_TEST_MODE = true
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
   const [deliveryVehicle, setDeliveryVehicle] = useState<DeliveryVehicle>('오토바이')
   const [packageSize, setPackageSize] = useState<PackageSizeId>('document')
+  const [senderPhone, setSenderPhone] = useState('')
+  const [recipientPhone, setRecipientPhone] = useState('')
+  const [phoneError, setPhoneError] = useState('')
   const [selectedItem, setSelectedItem] = useState('')
   const [qrOpen, setQrOpen] = useState(false)
   const [qrScanned, setQrScanned] = useState(false)
@@ -2793,6 +2801,28 @@ function ServiceSheet({
         onRequireRoute?.(gap)
         return
       }
+    }
+    if (service === '택배') {
+      if (!isValidKoreanPhone(senderPhone) || !isValidKoreanPhone(recipientPhone)) {
+        setPhoneError('발신인과 수신인 연락처를 올바르게 입력해 주세요.')
+        return
+      }
+      const job: DeliveryJob = {
+        id: `delivery-${Date.now()}`,
+        vehicle: deliveryVehicle,
+        packageSize,
+        packageLabel: packageOption.label,
+        fare: deliveryFare,
+        pickupAddress: pickupAddress.trim(),
+        destAddress: (destAddress || '').trim(),
+        senderPhone,
+        recipientPhone,
+        status: 'requested',
+        createdAt: new Date().toISOString(),
+      }
+      saveDeliveryJob(job)
+      onDeliveryCreated?.(job)
+      setPhoneError('')
     }
     const didScan = scanned ?? qrScanned
     if (!canStart) return
@@ -3201,6 +3231,40 @@ function ServiceSheet({
                   )
                 })}
               </div>
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-black">연락처</p>
+              <label className="block">
+                <span className="text-[10px] font-black text-[#8b8495]">발신인 연락처</span>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  value={senderPhone}
+                  onChange={(event) => {
+                    setSenderPhone(formatKoreanPhone(event.target.value))
+                    setPhoneError('')
+                  }}
+                  placeholder="010-1234-5678"
+                  className="mt-1.5 w-full rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-black tracking-wide outline-none focus:border-[#7046dc]"
+                />
+              </label>
+              <label className="mt-3 block">
+                <span className="text-[10px] font-black text-[#8b8495]">수신인 연락처</span>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  value={recipientPhone}
+                  onChange={(event) => {
+                    setRecipientPhone(formatKoreanPhone(event.target.value))
+                    setPhoneError('')
+                  }}
+                  placeholder="010-9876-5432"
+                  className="mt-1.5 w-full rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-black tracking-wide outline-none focus:border-[#7046dc]"
+                />
+              </label>
+              {phoneError ? <p className="mt-2 text-xs font-bold text-[#BE123C]">{phoneError}</p> : null}
             </div>
             <div className="rounded-3xl bg-[#f7f3ff] p-4">
               <div className="flex justify-between">
@@ -5475,6 +5539,7 @@ function DriverDashboard({
   onWithdraw,
   onNotice,
   onAskPassengerReview,
+  deliveryJob,
 }: {
   online: boolean
   lat: number
@@ -5484,6 +5549,7 @@ function DriverDashboard({
   onWithdraw: () => void
   onNotice: (message: string) => void
   onAskPassengerReview: (target: RideReviewTarget) => void
+  deliveryJob?: DeliveryJob | null
 }) {
   const [incoming, setIncoming] = useState<PublicRide | null>(null)
   const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
@@ -5496,6 +5562,8 @@ function DriverDashboard({
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [deskOpen, setDeskOpen] = useState(false)
+  const [deliveryChatPeer, setDeliveryChatPeer] = useState<DeliveryChatPeer | null>(null)
+  const [localDelivery, setLocalDelivery] = useState<DeliveryJob | null>(null)
   const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([])
   const [lostItems, setLostItems] = useState<LostItem[]>([])
   const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
@@ -5506,6 +5574,10 @@ function DriverDashboard({
     setPartner(profile)
     setDriverId(localDriverId(profile?.uid))
   }, [])
+
+  useEffect(() => {
+    setLocalDelivery(deliveryJob ?? loadDeliveryJob())
+  }, [deliveryJob])
 
   useEffect(() => {
     if (!driverId) return
@@ -5551,10 +5623,11 @@ function DriverDashboard({
         if (rating) setDriverRating(rating.average.toFixed(2))
         setSosAlerts(alerts)
         setLostItems(lost)
+        setLocalDelivery(deliveryJob ?? loadDeliveryJob())
       })
     }, 1500)
     return () => window.clearInterval(poll)
-  }, [driverId, online])
+  }, [driverId, online, deliveryJob])
 
   const respond = (action: 'accept' | 'reject') => {
     if (!incoming || busy || !driverId) return
@@ -5605,6 +5678,7 @@ function DriverDashboard({
       })
       .finally(() => setBusy(false))
   }
+  const activeDelivery = deliveryJob ?? localDelivery
   return (
     <main className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
       <section className="rounded-[28px] bg-[#243044] p-5 text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)]">
@@ -5686,6 +5760,25 @@ function DriverDashboard({
               onNotice={onNotice}
             />
           </div>
+        </section>
+      ) : null}
+      {(activeDelivery) ? (
+        <section className="mt-4 rounded-[26px] border-2 border-[#86EFAC] bg-[#F0FDF4] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
+          <p className="text-xs font-bold text-[#047857]">배송 관리</p>
+          <p className="mt-2 text-lg font-bold leading-6 text-[#0F172A]">
+            {activeDelivery.pickupAddress} → {activeDelivery.destAddress}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-[#334155]">
+            {activeDelivery.vehicle} · {activeDelivery.packageLabel} · {formatDeliveryFare(activeDelivery.fare)} Pi
+          </p>
+          <div className="mt-3">
+            <DeliveryContactCard job={activeDelivery} onChat={setDeliveryChatPeer} />
+          </div>
+        </section>
+      ) : partner?.serviceType === '택배' ? (
+        <section className="mt-4 rounded-[26px] border-2 border-[#BBF7D0] bg-white p-5 text-center">
+          <p className="font-bold text-[#0F172A]">대기 중인 배송 건이 없습니다</p>
+          <p className="mt-1 text-xs font-medium text-[#64748B]">고객이 택배를 신청하면 발신인·수신인 연락처가 여기에 표시됩니다.</p>
         </section>
       ) : null}
       {sosAlerts[0] ? (
@@ -5796,6 +5889,9 @@ function DriverDashboard({
           onClose={() => setChatOpen(false)}
         />
       ) : null}
+      {deliveryChatPeer && activeDelivery ? (
+        <DeliveryChatSheet job={activeDelivery} peer={deliveryChatPeer} onClose={() => setDeliveryChatPeer(null)} />
+      ) : null}
       {deskOpen ? (
         <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={() => setDeskOpen(false)}>
           <section className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 py-5" onClick={(event) => event.stopPropagation()}>
@@ -5824,6 +5920,7 @@ export default function HomeScreen() {
   const [moreOpen, setMoreOpen] = useState(false)
   const [daeriSetupOpen, setDaeriSetupOpen] = useState(false)
   const [daeriTrip, setDaeriTrip] = useState<DaeriTrip | null>(null)
+  const [deliveryJob, setDeliveryJob] = useState<DeliveryJob | null>(null)
   const [routeAlert, setRouteAlert] = useState<RouteGap | null>(null)
   const [destSearchTick, setDestSearchTick] = useState(0)
   const [notice, setNotice] = useState('')
@@ -5951,6 +6048,10 @@ export default function HomeScreen() {
     if (!walletReady) return
     writePiWallet(walletBalance, transactions)
   }, [walletReady, walletBalance, transactions])
+
+  useEffect(() => {
+    setDeliveryJob(loadDeliveryJob())
+  }, [])
 
   const origin: PickupPlace = pickup ?? {
     address: gps.address,
@@ -6237,7 +6338,7 @@ export default function HomeScreen() {
         </header>
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (
-            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} onAskPassengerReview={setRideReview} />
+            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} onAskPassengerReview={setRideReview} deliveryJob={deliveryJob} />
           ) : (
             <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
           )
@@ -6504,6 +6605,7 @@ export default function HomeScreen() {
             initialPhase={selectedService === '대리운전' && daeriTrip ? 'matching' : 'idle'}
             daeriTrip={selectedService === '대리운전' ? daeriTrip : null}
             onRequireRoute={setRouteAlert}
+            onDeliveryCreated={setDeliveryJob}
           />
         )}
         {supportDesk ? (
