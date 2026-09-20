@@ -5810,16 +5810,13 @@ export default function HomeScreen() {
     if (pickingMapRef.current || pickupRef.current?.source === 'map') return
     const pendingAddress = point.address || '주소를 확인하는 중'
     setGps({ status, address: pendingAddress, lat: point.lat, lng: point.lng })
-    if (pickupRef.current?.source !== 'map') {
-      applyPickup({ address: pendingAddress, lat: point.lat, lng: point.lng, source })
-    }
+    applyPickup({ address: pendingAddress, lat: point.lat, lng: point.lng, source })
     if (point.address) return
     const nextAddress = await reverseGeocode(point.lat, point.lng)
     if (seq !== locateSeqRef.current) return
+    if (pickingMapRef.current || pickupRef.current?.source === 'map') return
     setGps({ status, address: nextAddress, lat: point.lat, lng: point.lng })
-    if (pickupRef.current?.source !== 'map') {
-      applyPickup({ address: nextAddress, lat: point.lat, lng: point.lng, source })
-    }
+    applyPickup({ address: nextAddress, lat: point.lat, lng: point.lng, source })
   }
 
   const requestUserLocation = async (promptOnFail = false) => {
