@@ -251,6 +251,7 @@ function FullscreenMapView({
   pickupLng,
   onClose,
   onConfirmPickup,
+  onPickupChange,
 }: {
   lat: number
   lng: number
@@ -259,10 +260,12 @@ function FullscreenMapView({
   pickupLng?: number
   onClose: () => void
   onConfirmPickup: (place: { lat: number; lng: number; address: string }) => void
+  onPickupChange?: (place: { lat: number; lng: number; address: string }) => void
 }) {
   const startLat = finiteCoord(pickupLat, lat)
   const startLng = finiteCoord(pickupLng, lng)
   const startLabel = usableMapAddress(address)
+  const seededPickup = Boolean(startLabel) && Number.isFinite(startLat) && Number.isFinite(startLng)
   const [camera, setCamera] = useState({ lat: startLat, lng: startLng })
   const [center, setCenter] = useState({ lat: startLat, lng: startLng })
   const [liveAddress, setLiveAddress] = useState(startLabel || '이 위치의 주소를 확인하는 중')
@@ -276,9 +279,17 @@ function FullscreenMapView({
   const lookupTimer = useRef(0)
   const lookingWatchdogRef = useRef(0)
   const pendingLookupRef = useRef<{ lat: number; lng: number } | null>(null)
+  const onPickupChangeRef = useRef(onPickupChange)
   centerRef.current = center
   addressRef.current = liveAddress
   cameraRef.current = camera
+  onPickupChangeRef.current = onPickupChange
+
+  const publishPickup = (nextLat: number, nextLng: number, nextAddress: string) => {
+    const label = usableMapAddress(nextAddress)
+    if (!label || !Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
+    onPickupChangeRef.current?.({ lat: nextLat, lng: nextLng, address: label })
+  }
 
   const lookupIdle = (nextLat: number, nextLng: number) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
@@ -295,6 +306,7 @@ function FullscreenMapView({
       setLiveAddress(label)
       addressRef.current = label
       setLooking(false)
+      publishPickup(t.lat, t.lng, label)
     }, 2200)
     lookupTimer.current = window.setTimeout(() => {
       if (seq !== lookupSeq.current) return
@@ -303,7 +315,9 @@ function FullscreenMapView({
         setLooking(false)
         return
       }
-      const fallback = failedReverseAddress(target.lat, target.lng)
+      const tLat = target.lat
+      const tLng = target.lng
+      const fallback = failedReverseAddress(tLat, tLng)
       const apply = (value: string) => {
         if (seq !== lookupSeq.current) return
         const label = usableMapAddress(value) || fallback
@@ -312,8 +326,9 @@ function FullscreenMapView({
         window.clearTimeout(lookingWatchdogRef.current)
         lookingWatchdogRef.current = 0
         setLooking(false)
+        publishPickup(tLat, tLng, label)
       }
-      void lookupMapAddress(target.lat, target.lng).then(apply).catch(() => apply(fallback))
+      void lookupMapAddress(tLat, tLng).then(apply).catch(() => apply(fallback))
     }, 80)
   }
 
@@ -335,6 +350,7 @@ function FullscreenMapView({
   }, [lat, lng])
 
   useEffect(() => {
+    if (seededPickup) return
     if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -348,7 +364,7 @@ function FullscreenMapView({
       () => undefined,
       { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
     )
-  }, [])
+  }, [seededPickup])
 
   const resetToGps = () => {
     lookupSeq.current += 1
@@ -396,17 +412,21 @@ function FullscreenMapView({
     if (confirming) return
     setConfirming(true)
     const current = centerRef.current
-    let label = usableMapAddress(addressRef.current)
+    const pending = pendingLookupRef.current
+    const pendingMatches =
+      pending && Math.abs(pending.lat - current.lat) < 1e-5 && Math.abs(pending.lng - current.lng) < 1e-5
+    let label = pendingMatches && !looking ? usableMapAddress(addressRef.current) : ''
     if (!label) {
       try {
         label = usableMapAddress(await lookupMapAddress(current.lat, current.lng)) || failedReverseAddress(current.lat, current.lng)
       } catch {
         label = failedReverseAddress(current.lat, current.lng)
       }
-      setLiveAddress(label)
-      addressRef.current = label
     }
+    setLiveAddress(label)
+    addressRef.current = label
     setLooking(false)
+    publishPickup(current.lat, current.lng, label)
     onConfirmPickup({ lat: current.lat, lng: current.lng, address: label })
   }
 
@@ -450,6 +470,9 @@ function FullscreenMapView({
         onTouchStart={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation()
+          const current = centerRef.current
+          const label = usableMapAddress(addressRef.current)
+          if (label) publishPickup(current.lat, current.lng, label)
           onClose()
         }}
         className="absolute left-4 top-[max(0.9rem,env(safe-area-inset-top))] z-30 inline-flex min-h-10 items-center gap-0.5 rounded-full bg-white/95 px-3.5 pr-4 text-[13px] font-black text-[#0F172A] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
@@ -5723,6 +5746,8 @@ export default function HomeScreen() {
   const [walletOpen, setWalletOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
   const [fullscreenMapOpen, setFullscreenMapOpen] = useState(false)
+  const [pickupMapSession, setPickupMapSession] = useState(0)
+  const pickingMapRef = useRef(false)
   const [pickup, setPickup] = useState<PickupPlace | null>(null)
   const pickupRef = useRef<PickupPlace | null>(null)
   const locateSeqRef = useRef(0)
@@ -5763,12 +5788,26 @@ export default function HomeScreen() {
     writeRideSession({ origin: { lat: place.lat, lng: place.lng, address: place.address } })
   }
 
+  const commitPickup = (place: { lat: number; lng: number; address: string }, source: PickupPlace['source'] = 'map') => {
+    const label = usableMapAddress(place.address) || place.address
+    if (!label || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return
+    applyPickup({ address: label, lat: place.lat, lng: place.lng, source })
+    setGps({ status: 'ready', address: label, lat: place.lat, lng: place.lng })
+  }
+
+  const openPickupMap = () => {
+    pickingMapRef.current = true
+    setPickupMapSession((value) => value + 1)
+    setFullscreenMapOpen(true)
+  }
+
   const applyLocatedPoint = async (
     point: { lat: number; lng: number; address?: string },
     status: GpsFix['status'],
     source: PickupPlace['source'],
   ) => {
     const seq = (locateSeqRef.current += 1)
+    if (pickingMapRef.current || pickupRef.current?.source === 'map') return
     const pendingAddress = point.address || '주소를 확인하는 중'
     setGps({ status, address: pendingAddress, lat: point.lat, lng: point.lng })
     if (pickupRef.current?.source !== 'map') {
@@ -5838,6 +5877,10 @@ export default function HomeScreen() {
     lng: gps.lng,
     source: 'gps',
   }
+
+  useEffect(() => {
+    pickingMapRef.current = fullscreenMapOpen
+  }, [fullscreenMapOpen])
 
   useEffect(() => {
     writeRideSession({
@@ -6103,7 +6146,7 @@ export default function HomeScreen() {
             ) : null}
             <button
               type="button"
-              onClick={() => setFullscreenMapOpen(true)}
+              onClick={() => openPickupMap()}
               className="shrink-0 rounded-full bg-[#4A82B8] px-2.5 py-1 text-[11px] font-black text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]"
             >
               지도확인
@@ -6125,7 +6168,7 @@ export default function HomeScreen() {
             onDestination={selectDestination}
             onService={openService}
             onReceipt={setReceiptRide}
-            onOpenMap={() => setFullscreenMapOpen(true)}
+            onOpenMap={() => openPickupMap()}
           />
         )}
         {tab !== '홈' && tab !== '기사/파트너' && (
@@ -6176,6 +6219,7 @@ export default function HomeScreen() {
               <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
               <p className="text-xs font-black text-[#4C1FB8]">출발지 설정</p>
               <h2 className="mt-1 text-xl font-black text-[#0F172A]">위치를 직접 바꿀 수 있어요</h2>
+              <p className="mt-2 rounded-2xl bg-[#F8FAFC] px-3 py-2 text-sm font-black leading-5 text-[#0F172A]">{origin.address}</p>
               <p className="mt-2 text-sm font-bold leading-6 text-[#475569]">
                 {gps.status === 'ready' || pickup?.source === 'map'
                   ? '지도에서 핀을 옮기거나 GPS를 다시 받아 출발지를 변경하세요.'
@@ -6194,8 +6238,7 @@ export default function HomeScreen() {
               <button
                 type="button"
                 onClick={() => {
-                  setLocationGuideOpen(false)
-                  setFullscreenMapOpen(true)
+                  openPickupMap()
                 }}
                 className="mt-2 w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3.5 text-sm font-black text-[#4C1FB8]"
               >
@@ -6217,16 +6260,22 @@ export default function HomeScreen() {
         ) : null}
         {fullscreenMapOpen ? (
           <FullscreenMapView
+            key={pickupMapSession}
             lat={origin.lat}
             lng={origin.lng}
             address={origin.address}
             pickupLat={origin.lat}
             pickupLng={origin.lng}
-            onClose={() => setFullscreenMapOpen(false)}
-            onConfirmPickup={(place) => {
-              applyPickup({ address: place.address, lat: place.lat, lng: place.lng, source: 'map' })
-              setGps({ status: 'ready', address: place.address, lat: place.lat, lng: place.lng })
+            onClose={() => {
+              pickingMapRef.current = false
               setFullscreenMapOpen(false)
+            }}
+            onPickupChange={(place) => commitPickup(place, 'map')}
+            onConfirmPickup={(place) => {
+              commitPickup(place, 'map')
+              pickingMapRef.current = false
+              setFullscreenMapOpen(false)
+              setLocationGuideOpen(false)
               showNotice('출발지를 지정했어요')
             }}
           />
