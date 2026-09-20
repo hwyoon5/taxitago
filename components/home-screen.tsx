@@ -1402,6 +1402,8 @@ function DestinationSearchModal({
     </div>
   )
 }
+
+function DestinationTaxiLoop({ className }: { className?: string }) {
   const uid = useId().replace(/:/g, '')
   return (
     <span className={`pointer-events-none relative isolate overflow-hidden ${className ?? ''}`} aria-hidden>
