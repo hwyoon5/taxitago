@@ -3,8 +3,9 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { BadgeCheck, Briefcase, Car, CircleUserRound, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
+import { BadgeCheck, Briefcase, Car, CircleUserRound, Copy, Gift, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
 import PartnerStatSheet from '@/components/partner-stat-sheet'
+import { copyInviteCode, getOrCreateInviteCode, inviteShareLink } from '@/lib/invite-code'
 
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
@@ -94,6 +95,8 @@ export default function MyPage({
   const [walletSheet, setWalletSheet] = useState(false)
   const [profileSheet, setProfileSheet] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [inviteCode, setInviteCode] = useState('')
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -104,7 +107,8 @@ export default function MyPage({
     setLocalPartner(readFlag(PARTNER_REG_KEY))
     setLocalPi(readFlag(PI_ACCOUNT_KEY) || true)
     setLocalBalance(DEFAULT_BALANCE)
-  }, [])
+    setInviteCode(getOrCreateInviteCode(username))
+  }, [username])
 
   const notify = (message: string) => {
     onNotice?.(message)
@@ -173,6 +177,20 @@ export default function MyPage({
     setProfileSheet(true)
   }
 
+  const shareLink = inviteCode ? inviteShareLink(inviteCode) : ''
+
+  const handleCopyInviteCode = async () => {
+    if (!inviteCode) return
+    try {
+      await copyInviteCode(inviteCode)
+      setCopied(true)
+      notify('초대 코드가 복사되었어요.')
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      notify('코드를 복사하지 못했어요. 다시 시도해 주세요.')
+    }
+  }
+
   return (
     <div className={`flex min-h-0 flex-col ${embedded ? 'h-full' : 'h-dvh bg-[#F4F1FA]'}`}>
       <div className="min-h-0 flex-1 overflow-y-auto pb-40">
@@ -235,6 +253,36 @@ export default function MyPage({
               파트너{partnerOk ? '' : ' · 미신청'}
             </span>
           </div>
+        </section>
+
+        <section className="mt-3 overflow-hidden rounded-[24px] border-2 border-[#EDE5FF] bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-black tracking-wide text-[#4C1FB8]">INVITE & SHARE</p>
+              <h3 className="mt-1 text-base font-black text-[#0F172A]">친구 초대 및 코드 공유</h3>
+            </div>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F3E8FF] text-[#4C1FB8]">
+              <Gift className="h-5 w-5" />
+            </span>
+          </div>
+          <div className="mt-3 rounded-2xl border border-[#FCD34D] bg-[#FFFBEB] px-3.5 py-3">
+            <p className="text-sm font-black leading-6 text-[#92400E]">친구 초대 시 각각 0.5 Pi가 지급됩니다</p>
+            <p className="mt-0.5 text-[11px] font-bold leading-5 text-[#B45309]">초대한 친구와 회원님 모두 0.5 Pi를 받아요.</p>
+          </div>
+          <div className="mt-3 rounded-2xl bg-[#F8F5FF] px-4 py-3">
+            <p className="text-[10px] font-black tracking-wide text-[#64748B]">내 초대 코드</p>
+            <p className="mt-1 break-all font-mono text-lg font-black tracking-[0.18em] text-[#4C1FB8]">{inviteCode || '생성 중…'}</p>
+            {shareLink ? <p className="mt-1 break-all text-[11px] font-bold leading-5 text-[#64748B]">{shareLink}</p> : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleCopyInviteCode()}
+            disabled={!inviteCode}
+            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)] disabled:opacity-50"
+          >
+            <Copy className="h-4 w-4" />
+            {copied ? '복사됨' : '코드 복사하기'}
+          </button>
         </section>
 
         <div className="mt-4">

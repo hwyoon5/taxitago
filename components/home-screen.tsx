@@ -3561,7 +3561,7 @@ const HOME_EVENT_BANNERS = [
     id: 'invite-pi',
     badge: 'EVENT',
     title: '친구 초대하고 Pi 적립',
-    subtitle: '초대할 때마다 0.2 Pi 지급',
+    subtitle: '친구 초대 시 각각 0.5 Pi가 지급됩니다',
     cta: '혜택 보기',
     action: '더보기' as ServiceLabel,
     icon: Gift,
