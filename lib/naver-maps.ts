@@ -526,7 +526,11 @@ export function callNaverReverseGeocode(
       try {
         reverse.call(service, options, handle)
       } catch {
-        reverse.call(service, { coords }, handle)
+        try {
+          reverse.call(service, { coords }, handle)
+        } catch {
+          finish(null)
+        }
       }
     } catch {
       finish(null)

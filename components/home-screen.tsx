@@ -364,8 +364,7 @@ function FullscreenMapView({
   }
 
   const applyGeocodedPlace = (place: { lat: number; lng: number; address: string }) => {
-    const label = usableMapAddress(place.address) || place.address
-    if (!label) return
+    const label = usableMapAddress(place.address) || place.address || failedReverseAddress(place.lat, place.lng)
     centerRef.current = { lat: place.lat, lng: place.lng }
     addressRef.current = label
     setCenterRef.current({ lat: place.lat, lng: place.lng })
@@ -718,8 +717,7 @@ function LocationMapModal({
             onCenterChange={handleCenterChange}
             onCenterIdle={handleCenterIdle}
             onAddressChange={(place) => {
-              const label = usableMapAddress(place.address) || place.address
-              if (!label) return
+              const label = usableMapAddress(place.address) || place.address || failedReverseAddress(place.lat, place.lng)
               setPinRef.current({ lat: place.lat, lng: place.lng })
               setAddressRef.current(label)
               setAddressPendingRef.current(false)

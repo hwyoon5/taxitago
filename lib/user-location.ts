@@ -173,15 +173,19 @@ export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
       const timer = window.setTimeout(() => resolve(null), 4000)
       try {
         geocode({ query: q }, (status, response) => {
-          window.clearTimeout(timer)
-          if (status !== sdk.Service?.Status.OK) {
+          try {
+            window.clearTimeout(timer)
+            if (status !== sdk.Service?.Status.OK) {
+              resolve(null)
+              return
+            }
+            const item = response.v2?.addresses?.[0]
+            const lat = Number(item?.y)
+            const lng = Number(item?.x)
+            resolve(Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null)
+          } catch {
             resolve(null)
-            return
           }
-          const item = response.v2?.addresses?.[0]
-          const lat = Number(item?.y)
-          const lng = Number(item?.x)
-          resolve(Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null)
         })
       } catch {
         window.clearTimeout(timer)
