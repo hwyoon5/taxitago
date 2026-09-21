@@ -1294,6 +1294,11 @@ function DestinationSearchModal({
 }) {
   const [query, setQuery] = useState('')
   const [destMapOpen, setDestMapOpen] = useState(false)
+  const [destMapSession, setDestMapSession] = useState(0)
+  const openDestMap = () => {
+    setDestMapSession((value) => value + 1)
+    setDestMapOpen(true)
+  }
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     const timer = window.setTimeout(() => inputRef.current?.focus(), 80)
@@ -1337,7 +1342,7 @@ function DestinationSearchModal({
               </div>
               <button
                 type="button"
-                onClick={() => setDestMapOpen(true)}
+                onClick={openDestMap}
                 className="flex min-w-0 items-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3 text-left"
               >
                 <MapPin className="h-5 w-5 shrink-0 text-[#4C1FB8]" />
@@ -1406,7 +1411,7 @@ function DestinationSearchModal({
                       </button>
                     </div>
                   ))}
-                  <button type="button" onClick={() => setDestMapOpen(true)} className="rounded-[22px] border-2 border-dashed border-[#4C1FB8] bg-[#F8F5FF] p-4 text-left">
+                  <button type="button" onClick={openDestMap} className="rounded-[22px] border-2 border-dashed border-[#4C1FB8] bg-[#F8F5FF] p-4 text-left">
                     <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-[#4C1FB8]">
                       <MapPin className="h-5 w-5" />
                     </span>
@@ -1453,6 +1458,7 @@ function DestinationSearchModal({
       </section>
       {destMapOpen ? (
         <FullscreenMapView
+          key={`dest-${destMapSession}`}
           purpose="dest"
           lat={mapLat}
           lng={mapLng}

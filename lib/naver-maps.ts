@@ -47,6 +47,8 @@ export type NaverMapsSdk = {
     addListener: (target: unknown, eventName: string, handler: (event?: { coord?: NaverLatLng }) => void) => unknown
     removeListener: (listener: unknown) => void
     trigger: (target: unknown, eventName: string, ...rest: unknown[]) => void
+    clearListeners?: (target: unknown, eventName?: string) => void
+    clearInstanceListeners?: (target: unknown) => void
   }
   Service?: {
     reverseGeocode: (

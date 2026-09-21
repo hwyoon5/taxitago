@@ -98,6 +98,40 @@ function addNaverMapListener(
   }
 }
 
+function detachNaverMap(
+  sdk: NaverMapsSdk | null | undefined,
+  map: NaverMapInstance | null,
+  listeners: unknown[],
+  canvas?: HTMLDivElement | null,
+) {
+  const eventApi = sdk?.Event ?? (typeof window === 'undefined' ? undefined : window.naver?.maps?.Event)
+  try {
+    if (map && typeof eventApi?.clearInstanceListeners === 'function') eventApi.clearInstanceListeners(map)
+  } catch {
+    undefined
+  }
+  listeners.forEach((listener) => {
+    try {
+      eventApi?.removeListener?.(listener)
+    } catch {
+      undefined
+    }
+  })
+  listeners.length = 0
+  try {
+    map?.destroy?.()
+  } catch {
+    undefined
+  }
+  if (canvas) {
+    try {
+      canvas.replaceChildren()
+    } catch {
+      canvas.innerHTML = ''
+    }
+  }
+}
+
 function readMapClickLatLng(event: unknown): RidePoint | null {
   if (!event || typeof event !== 'object') return null
   const payload = event as { latlng?: unknown; coord?: unknown }
@@ -770,15 +804,22 @@ function NaverLocationMap(props: MapViewProps) {
     if (!canvas) return
     let cancelled = false
     const listeners: unknown[] = []
+    let mapInstance: NaverMapInstance | null = null
     let raf = 0
     let lastEmit = 0
     let lastIdle = { lat: Number.NaN, lng: Number.NaN }
     let lastGeocodeKey = ''
     let idleGeocodeTimer = 0
+    let refreshTimer = 0
+    let idleBootTimer = 0
     let onPointerDown: ((event: PointerEvent) => void) | null = null
     let onPointerMove: ((event: PointerEvent) => void) | null = null
     let onPointerUp: ((event: PointerEvent) => void) | null = null
     const canvasNode = canvas
+    draggingRef.current = false
+    userPannedRef.current = false
+    geocodeSeqRef.current += 1
+    setMode('loading')
     void (async () => {
       await waitForMapSize(canvas)
       const sdk = await loadNaverMaps()
@@ -804,7 +845,13 @@ function NaverLocationMap(props: MapViewProps) {
         scrollWheel: true,
         keyboardShortcuts: true,
       })
+      mapInstance = map
       mapRef.current = map
+      if (cancelled) {
+        detachNaverMap(sdk, map, listeners, canvasRef.current)
+        if (mapRef.current === map) mapRef.current = null
+        return
+      }
       if (!hidePin && !followCenterRef.current) {
         pinRef.current = trackMapPoint(sdk, map, start.pinLat ?? start.lat, start.pinLng ?? start.lng, (x, y) => {
           if (!cancelled) setPinScreen({ x, y })
@@ -827,7 +874,7 @@ function NaverLocationMap(props: MapViewProps) {
         centerChangeRef.current?.(next.lat, next.lng, false)
         centerIdleRef.current?.(next.lat, next.lng)
         const key = `${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
-        if (key === lastGeocodeKey) return
+        if (key === lastGeocodeKey && !fromUser) return
         lastGeocodeKey = key
         requestMapAddress(geocodeSeqRef, addressChangeRef, next)
       }
@@ -979,32 +1026,41 @@ function NaverLocationMap(props: MapViewProps) {
       canvasNode.addEventListener('pointermove', onPointerMove)
       canvasNode.addEventListener('pointerup', onPointerUp)
       refreshNaverMap(sdk, map)
-      window.setTimeout(() => refreshNaverMap(sdk, map), 80)
-      window.setTimeout(() => {
+      refreshTimer = window.setTimeout(() => {
+        if (cancelled) return
+        refreshNaverMap(sdk, map)
+      }, 80)
+      idleBootTimer = window.setTimeout(() => {
+        if (cancelled) return
         refreshNaverMap(sdk, map)
         pinRef.current?.draw?.()
         requestIdleGeocode()
       }, 400)
+      if (cancelled) {
+        detachNaverMap(sdk, map, listeners, canvasRef.current)
+        if (mapRef.current === map) mapRef.current = null
+        return
+      }
       setMode('naver')
     })()
     return () => {
       cancelled = true
+      geocodeSeqRef.current += 1
       draggingRef.current = false
+      userPannedRef.current = false
       window.cancelAnimationFrame(raf)
       window.clearTimeout(idleGeocodeTimer)
+      window.clearTimeout(refreshTimer)
+      window.clearTimeout(idleBootTimer)
       if (onPointerDown) canvasNode.removeEventListener('pointerdown', onPointerDown)
       if (onPointerMove) canvasNode.removeEventListener('pointermove', onPointerMove)
       if (onPointerUp) canvasNode.removeEventListener('pointerup', onPointerUp)
-      const sdk = mapsRef.current
-      if (sdk?.Event?.removeListener) listeners.forEach((listener) => sdk.Event.removeListener(listener))
       pinRef.current?.setMap(null)
       pinRef.current = null
-      try {
-        mapRef.current?.destroy?.()
-      } catch {
-        undefined
-      }
-      mapRef.current = null
+      const sdk = mapsRef.current || (typeof window === 'undefined' ? null : window.naver?.maps || null)
+      detachNaverMap(sdk, mapInstance || mapRef.current, listeners, canvasNode)
+      if (mapRef.current === mapInstance || !mapInstance) mapRef.current = null
+      mapsRef.current = null
     }
   }, [hidePin, interactive, centerPin])
 
