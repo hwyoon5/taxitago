@@ -751,9 +751,10 @@ function NaverLocationMap(props: MapViewProps) {
       const tracksCenter = () => followCenterRef.current || Boolean(centerChangeRef.current) || Boolean(centerIdleRef.current)
       const readCenter = () => {
         try {
-          return readLatLngValue(map.getCenter?.()) || readMapCenter(map, sdk, canvasRef.current)
+          const maps = window.naver?.maps || sdk
+          return readLatLngValue(map.getCenter?.()) || readMapCenter(map, maps, canvasRef.current)
         } catch {
-          return readMapCenter(map, sdk, canvasRef.current)
+          return readMapCenter(map, window.naver?.maps || sdk, canvasRef.current)
         }
       }
       const samePoint = (a: RidePoint, b: RidePoint) => Math.abs(a.lat - b.lat) < 4e-5 && Math.abs(a.lng - b.lng) < 4e-5
@@ -809,8 +810,9 @@ function NaverLocationMap(props: MapViewProps) {
         raf = window.requestAnimationFrame(pollCenter)
       }
       const listen = (eventName: string, handler: () => void) => {
+        const eventApi = window.naver?.maps?.Event || sdk.Event
         try {
-          listeners.push(sdk.Event.addListener(map, eventName, handler))
+          listeners.push(eventApi.addListener(map, eventName, handler))
         } catch {
           undefined
         }

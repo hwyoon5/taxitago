@@ -57,8 +57,9 @@ export type NaverMapsSdk = {
       options: { query: string },
       callback: (status: number, response: { v2?: { addresses?: Array<{ x?: string; y?: string; roadAddress?: string; jibunAddress?: string }> } }) => void,
     ) => void
-    Status: { OK: number; ERROR?: number }
+    Status: { OK: number | string; ERROR?: number | string }
     OrderType: { ADDR: string; ROAD_ADDR: string }
+    CoordType?: { LATLNG?: string; TM128?: string }
   }
 }
 
@@ -127,16 +128,21 @@ export function hasNaverMapClientId() {
 let loadPromise: Promise<NaverMapsSdk | null> | null = null
 
 function mapsReady(): NaverMapsSdk | null {
-  const maps = typeof window === 'undefined' ? undefined : window.naver?.maps
-  return maps?.Map ? maps : null
+  return getNaverMaps()
 }
 
 export function getNaverMapsSdk(): NaverMapsSdk | null {
   return mapsReady()
 }
 
+export function getNaverMaps(): NaverMapsSdk | null {
+  if (typeof window === 'undefined') return null
+  const maps = window.naver?.maps
+  return maps?.Map ? maps : null
+}
+
 export function getNaverGeocoderService() {
-  const maps = mapsReady()
+  const maps = getNaverMaps()
   const service = maps?.Service
   if (!maps || typeof service?.reverseGeocode !== 'function') return null
   return { maps, service }
@@ -488,12 +494,12 @@ export function callNaverReverseGeocode(
     }
     const timer = window.setTimeout(() => finish(null), timeoutMs)
     try {
-      const loaded = getNaverGeocoderService()
-      if (!loaded) {
+      const maps = window.naver?.maps
+      const service = maps?.Service
+      if (!maps || typeof service?.reverseGeocode !== 'function' || typeof maps.LatLng !== 'function') {
         finish(null)
         return
       }
-      const { maps, service } = loaded
       const coords = new maps.LatLng(lat, lng)
       const orders = [service.OrderType?.ROAD_ADDR, service.OrderType?.ADDR].filter(Boolean).join(',') || 'roadaddr,addr'
       const handle = (status: unknown, response: NaverReverseGeocodeResponse) => {
@@ -503,13 +509,19 @@ export function callNaverReverseGeocode(
               ? response
               : ((status as NaverReverseGeocodeResponse) || response)
           const formatted = parseNaverReverseAddress(payload)
-          finish(formatted || null)
+          if (formatted) {
+            finish(formatted)
+            return
+          }
+          finish(null)
         } catch {
           finish(null)
         }
       }
+      const options: { coords: unknown; orders: string; coordType?: string } = { coords, orders }
+      if (service.CoordType?.LATLNG) options.coordType = service.CoordType.LATLNG
       try {
-        service.reverseGeocode({ coords, orders }, handle)
+        service.reverseGeocode(options, handle)
       } catch {
         service.reverseGeocode({ coords }, handle)
       }

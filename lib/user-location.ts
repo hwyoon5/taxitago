@@ -100,7 +100,8 @@ async function reverseGeocodeNaver(lat: number, lng: number) {
   try {
     if (typeof window === 'undefined') return null
     const sdk = await ensureNaverGeocoder(4000)
-    const serviceReady = typeof (sdk || window.naver?.maps)?.Service?.reverseGeocode === 'function'
+    const maps = window.naver?.maps
+    const serviceReady = typeof maps?.Service?.reverseGeocode === 'function' || typeof sdk?.Service?.reverseGeocode === 'function'
     if (!serviceReady) return null
     return await callNaverReverseGeocode(lat, lng, 4000)
   } catch {
