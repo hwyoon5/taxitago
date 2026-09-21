@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, LocateFixed, MapPin } from 'lucide-react'
 import { lookupAddressFromApi } from '@/lib/geocode-client'
-import { loadNaverMaps, waitForMapSize, type NaverMapInstance, type NaverMapsSdk } from '@/lib/naver-maps'
+import { loadNaverMaps, refreshNaverMap, waitForMapSize, type NaverMapInstance, type NaverMapsSdk } from '@/lib/naver-maps'
 
 export type PickedPlace = { lat: number; lng: number; address: string }
 
@@ -37,6 +37,7 @@ export function PlacePickerScreen({
   onConfirm: (place: PickedPlace) => void
 }) {
   const canvasRef = useRef<HTMLDivElement>(null)
+  const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<NaverMapInstance | null>(null)
   const mapsRef = useRef<NaverMapsSdk | null>(null)
   const centerRef = useRef({ lat, lng })
@@ -63,13 +64,25 @@ export function PlacePickerScreen({
   }
 
   useEffect(() => {
+    const host = hostRef.current
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!host || !canvas) return
     let cancelled = false
     let listener: unknown = null
     let map: NaverMapInstance | null = null
+    let resizeObserver: ResizeObserver | null = null
+    const timers: number[] = []
+
+    const fit = () => {
+      const sdk = mapsRef.current
+      const live = mapRef.current
+      const node = canvasRef.current
+      if (!sdk || !live || !node) return
+      refreshNaverMap(sdk, live, node)
+    }
 
     void (async () => {
+      await waitForMapSize(host)
       await waitForMapSize(canvas)
       if (cancelled) return
       const sdk = await loadNaverMaps()
@@ -78,8 +91,12 @@ export function PlacePickerScreen({
         lookup(lat, lng)
         return
       }
-      canvasRef.current.replaceChildren()
-      map = new sdk.Map(canvasRef.current, {
+      const node = canvasRef.current
+      const width = Math.max(node.clientWidth, host.clientWidth, window.innerWidth)
+      const height = Math.max(node.clientHeight, host.clientHeight, window.innerHeight)
+      node.style.width = `${width}px`
+      node.style.height = `${height}px`
+      map = new sdk.Map(node, {
         center: new sdk.LatLng(lat, lng),
         zoom: 16,
         scaleControl: false,
@@ -92,17 +109,25 @@ export function PlacePickerScreen({
       })
       mapRef.current = map
       mapsRef.current = sdk
+      refreshNaverMap(sdk, map, node)
       listener = sdk.Event.addListener(map, 'idle', () => {
         if (cancelled) return
         const center = readCenter(map)
         if (!center) return
         lookup(center.lat, center.lng)
       })
+      resizeObserver = new ResizeObserver(() => fit())
+      resizeObserver.observe(host)
+      window.addEventListener('orientationchange', fit)
+      timers.push(window.setTimeout(fit, 60), window.setTimeout(fit, 240), window.setTimeout(fit, 640))
     })()
 
     return () => {
       cancelled = true
       lookupIdRef.current += 1
+      resizeObserver?.disconnect()
+      window.removeEventListener('orientationchange', fit)
+      timers.forEach((id) => window.clearTimeout(id))
       const sdk = mapsRef.current
       try {
         if (listener != null) sdk?.Event.removeListener(listener)
@@ -151,8 +176,18 @@ export function PlacePickerScreen({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#0B1220]" role="dialog" aria-modal="true" aria-label={isDest ? '목적지 지도' : '출발지 지도'}>
-      <div ref={canvasRef} className="absolute inset-0" />
+    <div className="fixed inset-0 z-[100] bg-[#E2E8F0]" role="dialog" aria-modal="true" aria-label={isDest ? '목적지 지도' : '출발지 지도'} style={{ width: '100%', height: '100%' }}>
+      <div
+        ref={hostRef}
+        className="naver-map-host absolute inset-0 z-0"
+        style={{ width: '100%', height: '100%', minWidth: '100%', minHeight: '100%', backgroundColor: '#dbe7ee' }}
+      >
+        <div
+          ref={canvasRef}
+          className="naver-map-canvas h-full w-full touch-manipulation"
+          style={{ width: '100%', height: '100%', minWidth: '100%', minHeight: '100%' }}
+        />
+      </div>
       <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-full">
         <MapPin className="h-10 w-10 text-[#4C1FB8] drop-shadow-[0_6px_10px_rgba(15,23,42,0.35)]" />
       </div>

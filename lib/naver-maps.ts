@@ -15,6 +15,7 @@ export type NaverMapInstance = {
   getProjection?: () => { fromOffsetToCoord?: (offset: unknown) => unknown } | null
   fitBounds?: (bounds: unknown, margin?: unknown) => void
   autoResize?: () => void
+  setSize?: (size: unknown) => void
   destroy?: () => void
 }
 
@@ -34,6 +35,7 @@ export type NaverMapsSdk = {
   LatLng: new (lat: number, lng: number) => unknown
   LatLngBounds?: new (sw: unknown, ne: unknown) => unknown
   Point: new (x: number, y: number) => unknown
+  Size?: new (width: number, height: number) => unknown
   Marker: new (options: Record<string, unknown>) => NaverMarker
   Polyline: new (options: Record<string, unknown>) => NaverPolyline
   OverlayView: new () => {
@@ -285,8 +287,19 @@ export function loadNaverMaps(): Promise<NaverMapsSdk | null> {
   return loadPromise
 }
 
-export function refreshNaverMap(maps: NaverMapsSdk | null, map: NaverMapInstance | null) {
+export function refreshNaverMap(maps: NaverMapsSdk | null, map: NaverMapInstance | null, canvas?: HTMLElement | null) {
   if (!maps || !map) return
+  if (canvas) {
+    const width = Math.max(canvas.clientWidth, canvas.offsetWidth, Math.round(canvas.getBoundingClientRect().width))
+    const height = Math.max(canvas.clientHeight, canvas.offsetHeight, Math.round(canvas.getBoundingClientRect().height))
+    if (width >= 24 && height >= 24 && maps.Size && typeof map.setSize === 'function') {
+      try {
+        map.setSize(new maps.Size(width, height))
+      } catch {
+        undefined
+      }
+    }
+  }
   maps.Event?.trigger?.(map, 'resize')
   map.autoResize?.()
 }
