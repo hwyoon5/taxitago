@@ -49,8 +49,11 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="ko" className={`bg-background ${notoSansKr.variable} ${geistMono.variable}`}>
+    <html lang="ko" className={`light bg-[#F8FAFC] ${notoSansKr.variable} ${geistMono.variable}`}>
       <head>
+        <meta name="color-scheme" content="light only" />
+        <meta name="supported-color-schemes" content="light" />
+        <meta name="theme-color" content="#F8FAFC" />
         {naverMapClientId ? <meta name="naver-map-client-id" content={naverMapClientId} /> : null}
         <script
           dangerouslySetInnerHTML={{
@@ -60,7 +63,7 @@ export default function RootLayout({
         {naverMapScript ? <Script id="naver-maps-sdk" src={naverMapScript} strategy="beforeInteractive" /> : null}
         <Script id="pi-network-sdk" src="https://sdk.minepi.com/pi-sdk.js" strategy="beforeInteractive" />
       </head>
-      <body className={`${notoSansKr.className} font-medium text-[#0f172a] subpixel-antialiased`}>
+        <body className={`${notoSansKr.className} bg-[#F8FAFC] font-medium text-[#0f172a] subpixel-antialiased`}>
         <PiSdkInit />
         <LocaleProvider>{children}</LocaleProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}

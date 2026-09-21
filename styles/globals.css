@@ -119,7 +119,25 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    color-scheme: light;
+    color-scheme: light only;
+    background-color: #f8fafc;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply font-medium text-[#0f172a];
+    color-scheme: light;
+    color-scheme: light only;
+    background-color: #f8fafc;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  html,
+  body {
+    color-scheme: light;
+    color-scheme: light only;
+    background-color: #f8fafc !important;
+    color: #0f172a;
   }
 }
