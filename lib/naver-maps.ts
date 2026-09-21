@@ -285,7 +285,7 @@ export function loadNaverMaps(): Promise<NaverMapsSdk | null> {
 
 export function refreshNaverMap(maps: NaverMapsSdk | null, map: NaverMapInstance | null) {
   if (!maps || !map) return
-  maps.Event.trigger(map, 'resize')
+  maps.Event?.trigger?.(map, 'resize')
   map.autoResize?.()
 }
 
@@ -494,14 +494,15 @@ export function callNaverReverseGeocode(
     }
     const timer = window.setTimeout(() => finish(null), timeoutMs)
     try {
-      const maps = window.naver?.maps
+      const maps = typeof window === 'undefined' ? undefined : window.naver?.maps
       const service = maps?.Service
-      if (!maps || typeof service?.reverseGeocode !== 'function' || typeof maps.LatLng !== 'function') {
+      const reverse = service?.reverseGeocode
+      if (!maps || typeof reverse !== 'function' || typeof maps.LatLng !== 'function') {
         finish(null)
         return
       }
       const coords = new maps.LatLng(lat, lng)
-      const orders = [service.OrderType?.ROAD_ADDR, service.OrderType?.ADDR].filter(Boolean).join(',') || 'roadaddr,addr'
+      const orders = [service?.OrderType?.ROAD_ADDR, service?.OrderType?.ADDR].filter(Boolean).join(',') || 'roadaddr,addr'
       const handle = (status: unknown, response: NaverReverseGeocodeResponse) => {
         try {
           const payload =
@@ -519,11 +520,11 @@ export function callNaverReverseGeocode(
         }
       }
       const options: { coords: unknown; orders: string; coordType?: string } = { coords, orders }
-      if (service.CoordType?.LATLNG) options.coordType = service.CoordType.LATLNG
+      if (service?.CoordType?.LATLNG) options.coordType = service.CoordType.LATLNG
       try {
-        service.reverseGeocode(options, handle)
+        reverse.call(service, options, handle)
       } catch {
-        service.reverseGeocode({ coords }, handle)
+        reverse.call(service, { coords }, handle)
       }
     } catch {
       finish(null)

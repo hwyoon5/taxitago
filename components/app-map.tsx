@@ -53,7 +53,7 @@ function readLatLngValue(value: unknown): RidePoint | null {
 function readMapCenter(map: NaverMapInstance | null, sdk?: NaverMapsSdk | null, canvas?: HTMLDivElement | null): RidePoint | null {
   if (!map) return null
   try {
-    const fromGetter = readLatLngValue(map.getCenter?.())
+    const fromGetter = readLatLngValue(invokeMapCenter(map))
     if (fromGetter) return fromGetter
   } catch {
     undefined
@@ -70,6 +70,32 @@ function readMapCenter(map: NaverMapInstance | null, sdk?: NaverMapsSdk | null, 
     }
   }
   return null
+}
+
+function invokeMapCenter(map: NaverMapInstance | null): unknown {
+  if (!map) return undefined
+  const getter = map.getCenter
+  if (typeof getter !== 'function') return undefined
+  try {
+    return getter.call(map)
+  } catch {
+    return undefined
+  }
+}
+
+function addNaverMapListener(
+  sdk: NaverMapsSdk | null | undefined,
+  map: NaverMapInstance,
+  eventName: string,
+  handler: (event?: { coord?: unknown; latlng?: unknown }) => void,
+): unknown {
+  const addListener = sdk?.Event?.addListener ?? (typeof window === 'undefined' ? undefined : window.naver?.maps?.Event?.addListener)
+  if (typeof addListener !== 'function') return null
+  try {
+    return addListener(map, eventName, handler)
+  } catch {
+    return null
+  }
 }
 
 function readMapClickLatLng(event: unknown): RidePoint | null {
@@ -787,7 +813,7 @@ function NaverLocationMap(props: MapViewProps) {
       const readCenter = () => {
         try {
           const maps = window.naver?.maps || sdk
-          return readLatLngValue(map.getCenter?.()) || readMapCenter(map, maps, canvasRef.current)
+          return readLatLngValue(invokeMapCenter(map)) || readMapCenter(map, maps, canvasRef.current)
         } catch {
           return readMapCenter(map, window.naver?.maps || sdk, canvasRef.current)
         }
@@ -849,48 +875,41 @@ function NaverLocationMap(props: MapViewProps) {
         raf = window.requestAnimationFrame(pollCenter)
       }
       const listen = (eventName: string, handler: () => void) => {
-        const eventApi = window.naver?.maps?.Event || sdk.Event
-        try {
-          listeners.push(eventApi.addListener(map, eventName, handler))
-        } catch {
-          undefined
-        }
+        const handle = addNaverMapListener(window.naver?.maps || sdk, map, eventName, handler)
+        if (handle) listeners.push(handle)
       }
-      const naverEvent = window.naver?.maps?.Event || sdk.Event
-      listeners.push(
-        naverEvent.addListener(map, 'idle', () => {
-          if (cancelled) return
-          draggingRef.current = false
-          setPinLift(false)
-          const next = readLatLngValue(map.getCenter())
-          if (!next) {
-            publishCenterAddress(userPannedRef.current)
-            return
-          }
-          lastIdle = next
-          centerChangeRef.current?.(next.lat, next.lng, false)
-          centerIdleRef.current?.(next.lat, next.lng)
-          requestMapAddress(geocodeSeqRef, addressChangeRef, next)
-        }),
-      )
-      listeners.push(
-        naverEvent.addListener(map, 'dragend', () => {
-          if (cancelled) return
-          draggingRef.current = false
-          setPinLift(false)
-          window.cancelAnimationFrame(raf)
-          const next = readLatLngValue(map.getCenter())
-          if (!next) {
-            publishCenterAddress(true)
-            return
-          }
-          lastIdle = next
-          userPannedRef.current = true
-          centerChangeRef.current?.(next.lat, next.lng, false)
-          centerIdleRef.current?.(next.lat, next.lng)
-          requestMapAddress(geocodeSeqRef, addressChangeRef, next)
-        }),
-      )
+      const idleHandle = addNaverMapListener(window.naver?.maps || sdk, map, 'idle', () => {
+        if (cancelled) return
+        draggingRef.current = false
+        setPinLift(false)
+        const next = readLatLngValue(invokeMapCenter(map)) || readCenter()
+        if (!next) {
+          publishCenterAddress(userPannedRef.current)
+          return
+        }
+        lastIdle = next
+        centerChangeRef.current?.(next.lat, next.lng, false)
+        centerIdleRef.current?.(next.lat, next.lng)
+        requestMapAddress(geocodeSeqRef, addressChangeRef, next)
+      })
+      if (idleHandle) listeners.push(idleHandle)
+      const dragEndHandle = addNaverMapListener(window.naver?.maps || sdk, map, 'dragend', () => {
+        if (cancelled) return
+        draggingRef.current = false
+        setPinLift(false)
+        window.cancelAnimationFrame(raf)
+        const next = readLatLngValue(invokeMapCenter(map)) || readCenter()
+        if (!next) {
+          publishCenterAddress(true)
+          return
+        }
+        lastIdle = next
+        userPannedRef.current = true
+        centerChangeRef.current?.(next.lat, next.lng, false)
+        centerIdleRef.current?.(next.lat, next.lng)
+        requestMapAddress(geocodeSeqRef, addressChangeRef, next)
+      })
+      if (dragEndHandle) listeners.push(dragEndHandle)
       if (interactive) {
         const onMapPress = (event?: { coord?: unknown; latlng?: unknown }) => {
           if (activateRef.current && !pickRef.current && !followCenterRef.current) {
@@ -909,8 +928,10 @@ function NaverLocationMap(props: MapViewProps) {
           const snapped = snapToNearbyPoint(clicked, anchor, 90)
           pickRef.current?.(snapped.lat, snapped.lng)
         }
-        listeners.push(sdk.Event.addListener(map, 'click', onMapPress))
-        listeners.push(sdk.Event.addListener(map, 'tap', onMapPress))
+        const clickHandle = addNaverMapListener(window.naver?.maps || sdk, map, 'click', onMapPress)
+        const tapHandle = addNaverMapListener(window.naver?.maps || sdk, map, 'tap', onMapPress)
+        if (clickHandle) listeners.push(clickHandle)
+        if (tapHandle) listeners.push(tapHandle)
       }
       listen('dragstart', () => {
         draggingRef.current = true
@@ -975,7 +996,7 @@ function NaverLocationMap(props: MapViewProps) {
       if (onPointerMove) canvasNode.removeEventListener('pointermove', onPointerMove)
       if (onPointerUp) canvasNode.removeEventListener('pointerup', onPointerUp)
       const sdk = mapsRef.current
-      if (sdk) listeners.forEach((listener) => sdk.Event.removeListener(listener))
+      if (sdk?.Event?.removeListener) listeners.forEach((listener) => sdk.Event.removeListener(listener))
       pinRef.current?.setMap(null)
       pinRef.current = null
       try {
