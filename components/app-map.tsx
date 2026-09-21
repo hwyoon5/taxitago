@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type MutableRefObject, type ReactNode, typ
 import { Car, LocateFixed, MapPin, Minus, Plus, UserRound } from 'lucide-react'
 import {
   applyMapBottomInset,
-  callNaverReverseGeocode,
   createDomMarker,
   createHtmlOverlay,
   hasNaverMapClientId,
@@ -20,7 +19,7 @@ import {
 } from '@/lib/naver-maps'
 
 import { resolveLiveRidePoints, isUsableCoord } from '@/lib/ride-session'
-import { reverseGeocode } from '@/lib/user-location'
+import { fallbackCoordAddress, lookupAddressFromApi } from '@/lib/geocode-client'
 
 const TILE_SIZE = 256
 
@@ -515,33 +514,21 @@ function useNaverResize(mapsRef: MutableRefObject<NaverMapsSdk | null>, mapRef: 
   }, [hostRef, mapRef, mapsRef])
 }
 
-function fallbackMapAddress(lat: number, lng: number) {
-  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-}
-
-async function resolveMapAddress(lat: number, lng: number) {
+async function resolveMapAddress(lat: number, lng: number, signal?: AbortSignal) {
   try {
-    const naver = (await callNaverReverseGeocode(lat, lng, 3500))?.trim()
-    if (naver) return naver
-  } catch {
-    undefined
+    return (await lookupAddressFromApi(lat, lng, signal)).trim() || fallbackCoordAddress(lat, lng)
+  } catch (error) {
+    if (signal?.aborted) throw error
+    return fallbackCoordAddress(lat, lng)
   }
-  try {
-    const extra = (await reverseGeocode(lat, lng)).trim()
-    if (extra) return extra
-  } catch {
-    undefined
-  }
-  return fallbackMapAddress(lat, lng)
 }
 
 function createReverseGeocodePump(
   isLive: () => boolean,
   onAddress: MutableRefObject<MapViewProps['onAddressChange'] | undefined>,
 ) {
-  let pending: RidePoint | null = null
-  let busy = false
-  let stopped = false
+  let token = 0
+  let abort: AbortController | null = null
   const publish = (point: RidePoint, address: string) => {
     try {
       onAddress.current?.({ lat: point.lat, lng: point.lng, address })
@@ -549,39 +536,30 @@ function createReverseGeocodePump(
       undefined
     }
   }
-  const drain = async () => {
-    if (busy || stopped) return
-    busy = true
-    try {
-      while (!stopped && pending && isLive()) {
-        const point = pending
-        pending = null
-        let label = fallbackMapAddress(point.lat, point.lng)
-        try {
-          label = await resolveMapAddress(point.lat, point.lng)
-        } catch {
-          label = fallbackMapAddress(point.lat, point.lng)
-        }
-        if (stopped || !isLive()) return
-        if (pending) continue
-        publish(point, label || fallbackMapAddress(point.lat, point.lng))
-      }
-    } catch {
-      undefined
-    } finally {
-      busy = false
-      if (!stopped && pending && isLive()) void drain()
-    }
-  }
   return {
     run(point: RidePoint | null) {
-      if (stopped || !point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return
-      pending = point
-      void drain()
+      if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng) || !isLive()) return
+      abort?.abort()
+      const controller = new AbortController()
+      abort = controller
+      const current = ++token
+      const lat = point.lat
+      const lng = point.lng
+      void resolveMapAddress(lat, lng, controller.signal)
+        .then((label) => {
+          if (!isLive() || current !== token) return
+          publish({ lat, lng }, label || fallbackCoordAddress(lat, lng))
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted || !isLive() || current !== token) return
+          if (error instanceof DOMException && error.name === 'AbortError') return
+          publish({ lat, lng }, fallbackCoordAddress(lat, lng))
+        })
     },
     stop() {
-      stopped = true
-      pending = null
+      token += 1
+      abort?.abort()
+      abort = null
     },
   }
 }
@@ -603,12 +581,12 @@ function requestMapAddress(
       const label = await resolveMapAddress(lat, lng)
       if (isLive && !isLive()) return
       if (keyRef.current !== key) return
-      onAddress.current?.({ lat, lng, address: label || fallbackMapAddress(lat, lng) })
+      onAddress.current?.({ lat, lng, address: label || fallbackCoordAddress(lat, lng) })
     } catch {
       if (isLive && !isLive()) return
       if (keyRef.current !== key) return
       try {
-        onAddress.current?.({ lat, lng, address: fallbackMapAddress(lat, lng) })
+        onAddress.current?.({ lat, lng, address: fallbackCoordAddress(lat, lng) })
       } catch {
         undefined
       }

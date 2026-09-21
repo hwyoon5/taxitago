@@ -149,15 +149,12 @@ async function reverseGeocodeNominatim(lat: number, lng: number) {
 export async function reverseGeocode(lat: number, lng: number) {
   try {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return failedReverseAddress(lat, lng)
-    const naverPromise = reverseGeocodeNaver(lat, lng)
-    const osmPromise = reverseGeocodeNominatim(lat, lng)
-    const naver = await Promise.race([
-      naverPromise,
-      new Promise<string | null>((resolve) => window.setTimeout(() => resolve(null), 2500)),
-    ])
-    if (naver) return naver
-    const [naverLate, osm] = await Promise.all([naverPromise, osmPromise])
-    return naverLate || osm || failedReverseAddress(lat, lng)
+    if (typeof window !== 'undefined') {
+      const { lookupAddressFromApi } = await import('@/lib/geocode-client')
+      const address = (await lookupAddressFromApi(lat, lng)).trim()
+      if (address) return address
+    }
+    return failedReverseAddress(lat, lng)
   } catch {
     return failedReverseAddress(lat, lng)
   }
