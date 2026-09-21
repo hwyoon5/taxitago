@@ -19,6 +19,7 @@ import {
 } from '@/lib/naver-maps'
 
 import { resolveLiveRidePoints, isUsableCoord } from '@/lib/ride-session'
+import { reverseGeocode } from '@/lib/user-location'
 
 const TILE_SIZE = 256
 
@@ -280,6 +281,7 @@ type MapViewProps = {
   onConfirm?: () => void
   onCenterChange?: (lat: number, lng: number, dragging?: boolean) => void
   onCenterIdle?: (lat: number, lng: number) => void
+  onAddressChange?: (place: { lat: number; lng: number; address: string }) => void
 }
 
 function latLngToWorld(lat: number, lng: number, zoom: number) {
@@ -434,7 +436,22 @@ function useNaverResize(mapsRef: MutableRefObject<NaverMapsSdk | null>, mapRef: 
   }, [hostRef, mapRef, mapsRef])
 }
 
-function FallbackSlippyMap({
+function requestMapAddress(
+  seqRef: MutableRefObject<number>,
+  onAddress: MutableRefObject<MapViewProps['onAddressChange'] | undefined>,
+  point: RidePoint | null,
+) {
+  if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return
+  const seq = ++seqRef.current
+  void reverseGeocode(point.lat, point.lng)
+    .then((address) => {
+      if (seq !== seqRef.current) return
+      const label = (address || '').trim()
+      if (!label) return
+      onAddress.current?.({ lat: point.lat, lng: point.lng, address: label })
+    })
+    .catch(() => undefined)
+}
   lat,
   lng,
   pinLat,
@@ -453,6 +470,7 @@ function FallbackSlippyMap({
   onConfirm,
   onCenterChange,
   onCenterIdle,
+  onAddressChange,
   onZoomIn,
   onZoomOut,
   notice,
@@ -468,13 +486,18 @@ function FallbackSlippyMap({
   const pinchRef = useRef(0)
   const centerChangeRef = useRef(onCenterChange)
   const centerIdleRef = useRef(onCenterIdle)
+  const addressChangeRef = useRef(onAddressChange)
+  const geocodeSeqRef = useRef(0)
   centerChangeRef.current = onCenterChange
   centerIdleRef.current = onCenterIdle
+  addressChangeRef.current = onAddressChange
   viewRef.current = view
 
-  const emitCenter = (active = false) => {
+  const emitIdle = () => {
     const next = viewRef.current
-    centerChangeRef.current?.(next.lat, next.lng, active)
+    centerChangeRef.current?.(next.lat, next.lng, false)
+    centerIdleRef.current?.(next.lat, next.lng)
+    requestMapAddress(geocodeSeqRef, addressChangeRef, next)
   }
 
   useEffect(() => {
@@ -593,9 +616,7 @@ function FallbackSlippyMap({
         if (pointersRef.current.size === 0) panRef.current.active = false
         if (panned && pointersRef.current.size === 0) {
           setDragging(false)
-          emitCenter(false)
-          const next = viewRef.current
-          centerIdleRef.current?.(next.lat, next.lng)
+          emitIdle()
         }
         if (centerPin && tapped) {
           const box = wrapRef.current?.getBoundingClientRect()
@@ -605,8 +626,7 @@ function FallbackSlippyMap({
             const point = worldToLatLng(worldX, worldY, zoom)
             viewRef.current = point
             setView(point)
-            centerChangeRef.current?.(point.lat, point.lng, false)
-            centerIdleRef.current?.(point.lat, point.lng)
+            emitIdle()
           }
           return
         }
@@ -671,7 +691,7 @@ function FallbackSlippyMap({
 }
 
 function NaverLocationMap(props: MapViewProps) {
-  const { lat, lng, pinLat, pinLng, className, interactive, pulsePin, hidePin, showZoom, bottomInset = 0, locatePlacement = 'stacked', centerPin, onPick, onActivate, onLocate, onConfirm, onCenterChange, onCenterIdle } = props
+  const { lat, lng, pinLat, pinLng, className, interactive, pulsePin, hidePin, showZoom, bottomInset = 0, locatePlacement = 'stacked', centerPin, onPick, onActivate, onLocate, onConfirm, onCenterChange, onCenterIdle, onAddressChange } = props
   const hostRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<NaverMapInstance | null>(null)
@@ -681,6 +701,8 @@ function NaverLocationMap(props: MapViewProps) {
   const activateRef = useRef(onActivate)
   const centerChangeRef = useRef(onCenterChange)
   const centerIdleRef = useRef(onCenterIdle)
+  const addressChangeRef = useRef(onAddressChange)
+  const geocodeSeqRef = useRef(0)
   const insetRef = useRef(bottomInset)
   const centerRef = useRef({ lat, lng, pinLat, pinLng })
   const followCenterRef = useRef(Boolean(centerPin))
@@ -695,6 +717,7 @@ function NaverLocationMap(props: MapViewProps) {
   activateRef.current = onActivate
   centerChangeRef.current = onCenterChange
   centerIdleRef.current = onCenterIdle
+  addressChangeRef.current = onAddressChange
   insetRef.current = bottomInset
   centerRef.current = { lat, lng, pinLat, pinLng }
   followCenterRef.current = Boolean(centerPin)
@@ -748,7 +771,7 @@ function NaverLocationMap(props: MapViewProps) {
           if (!cancelled) setPinScreen({ x, y })
         })
       }
-      const tracksCenter = () => followCenterRef.current || Boolean(centerChangeRef.current) || Boolean(centerIdleRef.current)
+      const tracksCenter = () => followCenterRef.current || Boolean(centerChangeRef.current) || Boolean(centerIdleRef.current) || Boolean(addressChangeRef.current)
       const readCenter = () => {
         try {
           const maps = window.naver?.maps || sdk
@@ -767,6 +790,7 @@ function NaverLocationMap(props: MapViewProps) {
         if (fromUser) userPannedRef.current = true
         centerChangeRef.current?.(next.lat, next.lng, false)
         centerIdleRef.current?.(next.lat, next.lng)
+        requestMapAddress(geocodeSeqRef, addressChangeRef, next)
       }
       const requestIdleGeocode = (force = false) => {
         if (!tracksCenter() || cancelled) return
@@ -960,6 +984,7 @@ function NaverLocationMap(props: MapViewProps) {
     if (next) {
       onCenterChange?.(next.lat, next.lng, false)
       onCenterIdle?.(next.lat, next.lng)
+      requestMapAddress(geocodeSeqRef, addressChangeRef, next)
     }
   }
 

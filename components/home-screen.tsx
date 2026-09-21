@@ -442,6 +442,7 @@ function FullscreenMapView({
     if (!moved && !dragging) return
     if (dragging) userMovedRef.current = true
     setCenter({ lat: nextLat, lng: nextLng })
+    if (moved) setLooking(true)
   }
 
   const handleCenterIdle = (nextLat: number, nextLng: number) => {
@@ -509,6 +510,15 @@ function FullscreenMapView({
         locatePlacement={isDest ? 'stacked' : 'bottom'}
         onCenterChange={handleCenterChange}
         onCenterIdle={handleCenterIdle}
+        onAddressChange={(place) => {
+          const label = usableMapAddress(place.address) || place.address
+          if (!label) return
+          centerRef.current = { lat: place.lat, lng: place.lng }
+          setCenter({ lat: place.lat, lng: place.lng })
+          setLiveAddress(label)
+          addressRef.current = label
+          setLooking(false)
+        }}
         onConfirm={isDest ? undefined : () => void confirmPickup()}
         onLocate={resetToGps}
       />
@@ -740,6 +750,14 @@ function LocationMapModal({
             centerPin
             onCenterChange={handleCenterChange}
             onCenterIdle={handleCenterIdle}
+            onAddressChange={(place) => {
+              const label = usableMapAddress(place.address) || place.address
+              if (!label) return
+              setPin({ lat: place.lat, lng: place.lng })
+              setAddress(label)
+              setAddressPending(false)
+              if (userMovedRef.current) setSource('pick')
+            }}
             onLocate={() => {
               userMovedRef.current = false
               if (!navigator.geolocation) {
