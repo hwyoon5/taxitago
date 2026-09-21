@@ -856,6 +856,41 @@ function NaverLocationMap(props: MapViewProps) {
           undefined
         }
       }
+      const naverEvent = window.naver?.maps?.Event || sdk.Event
+      listeners.push(
+        naverEvent.addListener(map, 'idle', () => {
+          if (cancelled) return
+          draggingRef.current = false
+          setPinLift(false)
+          const next = readLatLngValue(map.getCenter())
+          if (!next) {
+            publishCenterAddress(userPannedRef.current)
+            return
+          }
+          lastIdle = next
+          centerChangeRef.current?.(next.lat, next.lng, false)
+          centerIdleRef.current?.(next.lat, next.lng)
+          requestMapAddress(geocodeSeqRef, addressChangeRef, next)
+        }),
+      )
+      listeners.push(
+        naverEvent.addListener(map, 'dragend', () => {
+          if (cancelled) return
+          draggingRef.current = false
+          setPinLift(false)
+          window.cancelAnimationFrame(raf)
+          const next = readLatLngValue(map.getCenter())
+          if (!next) {
+            publishCenterAddress(true)
+            return
+          }
+          lastIdle = next
+          userPannedRef.current = true
+          centerChangeRef.current?.(next.lat, next.lng, false)
+          centerIdleRef.current?.(next.lat, next.lng)
+          requestMapAddress(geocodeSeqRef, addressChangeRef, next)
+        }),
+      )
       if (interactive) {
         const onMapPress = (event?: { coord?: unknown; latlng?: unknown }) => {
           if (activateRef.current && !pickRef.current && !followCenterRef.current) {
@@ -895,24 +930,6 @@ function NaverLocationMap(props: MapViewProps) {
       listen('zoom_changed', () => {
         pinRef.current?.draw?.()
         if (!draggingRef.current) requestIdleGeocode(true)
-      })
-      listen('dragend', () => {
-        draggingRef.current = false
-        setPinLift(false)
-        window.cancelAnimationFrame(raf)
-        publishCenterAddress(true)
-      })
-      listen('idle', () => {
-        if (draggingRef.current) return
-        publishCenterAddress(userPannedRef.current)
-      })
-      listen('mouseup', () => {
-        if (draggingRef.current) return
-        requestIdleGeocode(userPannedRef.current)
-      })
-      listen('touchend', () => {
-        if (draggingRef.current) return
-        requestIdleGeocode(true)
       })
       listen('tilesloaded', () => {
         if (!draggingRef.current) requestIdleGeocode()
