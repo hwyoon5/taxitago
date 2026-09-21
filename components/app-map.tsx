@@ -83,18 +83,33 @@ function invokeMapCenter(map: NaverMapInstance | null): unknown {
   }
 }
 
+function naverEventApi(sdk?: NaverMapsSdk | null) {
+  return sdk?.Event ?? (typeof window === 'undefined' ? undefined : window.naver?.maps?.Event)
+}
+
 function addNaverMapListener(
   sdk: NaverMapsSdk | null | undefined,
   map: NaverMapInstance,
   eventName: string,
   handler: (event?: { coord?: unknown; latlng?: unknown }) => void,
 ): unknown {
-  const addListener = sdk?.Event?.addListener ?? (typeof window === 'undefined' ? undefined : window.naver?.maps?.Event?.addListener)
+  const addListener = naverEventApi(sdk)?.addListener
   if (typeof addListener !== 'function') return null
   try {
     return addListener(map, eventName, handler)
   } catch {
     return null
+  }
+}
+
+function removeNaverMapListener(sdk: NaverMapsSdk | null | undefined, listener: unknown) {
+  if (listener == null) return
+  const removeListener = naverEventApi(sdk)?.removeListener
+  if (typeof removeListener !== 'function') return
+  try {
+    removeListener(listener)
+  } catch {
+    undefined
   }
 }
 
@@ -104,19 +119,22 @@ function detachNaverMap(
   listeners: unknown[],
   canvas?: HTMLDivElement | null,
 ) {
-  const eventApi = sdk?.Event ?? (typeof window === 'undefined' ? undefined : window.naver?.maps?.Event)
-  try {
-    if (map && typeof eventApi?.clearInstanceListeners === 'function') eventApi.clearInstanceListeners(map)
-  } catch {
-    undefined
-  }
-  listeners.forEach((listener) => {
+  const eventApi = naverEventApi(sdk)
+  if (map) {
+    for (const eventName of ['idle', 'dragend', 'dragstart', 'drag', 'bounds_changed', 'center_changed', 'zoom_changed', 'tilesloaded', 'click', 'tap']) {
+      try {
+        eventApi?.clearListeners?.(map, eventName)
+      } catch {
+        undefined
+      }
+    }
     try {
-      eventApi?.removeListener?.(listener)
+      eventApi?.clearInstanceListeners?.(map)
     } catch {
       undefined
     }
-  })
+  }
+  listeners.forEach((listener) => removeNaverMapListener(sdk, listener))
   listeners.length = 0
   try {
     map?.destroy?.()
@@ -498,30 +516,38 @@ function useNaverResize(mapsRef: MutableRefObject<NaverMapsSdk | null>, mapRef: 
 }
 
 function requestMapAddress(
-  seqRef: MutableRefObject<number>,
+  keyRef: MutableRefObject<string>,
   onAddress: MutableRefObject<MapViewProps['onAddressChange'] | undefined>,
   point: RidePoint | null,
   isLive?: () => boolean,
 ) {
   if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return
-  const seq = ++seqRef.current
+  const lat = point.lat
+  const lng = point.lng
+  const key = `${lat.toFixed(6)},${lng.toFixed(6)}`
+  keyRef.current = key
   void (async () => {
     if (isLive && !isLive()) return
     let label = ''
     try {
-      label = (await callNaverReverseGeocode(point.lat, point.lng, 4000))?.trim() || ''
+      label = (await callNaverReverseGeocode(lat, lng, 4000))?.trim() || ''
     } catch {
       label = ''
     }
     if (!label) {
       try {
-        label = (await reverseGeocode(point.lat, point.lng)).trim()
+        label = (await reverseGeocode(lat, lng)).trim()
       } catch {
         label = ''
       }
     }
-    if ((isLive && !isLive()) || seq !== seqRef.current || !label) return
-    onAddress.current?.({ lat: point.lat, lng: point.lng, address: label })
+    if (isLive && !isLive()) return
+    if (keyRef.current !== key) return
+    onAddress.current?.({
+      lat,
+      lng,
+      address: label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+    })
   })()
 }
 
@@ -561,7 +587,7 @@ function FallbackSlippyMap({
   const centerChangeRef = useRef(onCenterChange)
   const centerIdleRef = useRef(onCenterIdle)
   const addressChangeRef = useRef(onAddressChange)
-  const geocodeSeqRef = useRef(0)
+  const geocodeKeyRef = useRef('')
   centerChangeRef.current = onCenterChange
   centerIdleRef.current = onCenterIdle
   addressChangeRef.current = onAddressChange
@@ -571,7 +597,7 @@ function FallbackSlippyMap({
     const next = viewRef.current
     centerChangeRef.current?.(next.lat, next.lng, false)
     centerIdleRef.current?.(next.lat, next.lng)
-    requestMapAddress(geocodeSeqRef, addressChangeRef, next)
+    requestMapAddress(geocodeKeyRef, addressChangeRef, next)
   }
 
   useEffect(() => {
@@ -776,7 +802,7 @@ function NaverLocationMap(props: MapViewProps) {
   const centerChangeRef = useRef(onCenterChange)
   const centerIdleRef = useRef(onCenterIdle)
   const addressChangeRef = useRef(onAddressChange)
-  const geocodeSeqRef = useRef(0)
+  const geocodeKeyRef = useRef('')
   const sessionRef = useRef(0)
   const insetRef = useRef(bottomInset)
   const centerRef = useRef({ lat, lng, pinLat, pinLng })
@@ -810,8 +836,6 @@ function NaverLocationMap(props: MapViewProps) {
     let mapInstance: NaverMapInstance | null = null
     let raf = 0
     let lastEmit = 0
-    let lastIdle = { lat: Number.NaN, lng: Number.NaN }
-    let lastGeocodeKey = ''
     let idleGeocodeTimer = 0
     let refreshTimer = 0
     let idleBootTimer = 0
@@ -823,7 +847,7 @@ function NaverLocationMap(props: MapViewProps) {
     const isLive = () => !cancelled && session === sessionRef.current
     draggingRef.current = false
     userPannedRef.current = false
-    geocodeSeqRef.current += 1
+    geocodeKeyRef.current = ''
     void (async () => {
       await waitForMapSize(canvas)
       const sdk = await loadNaverMaps()
@@ -873,12 +897,10 @@ function NaverLocationMap(props: MapViewProps) {
         if (!isLive()) return
         const next = readCenter()
         if (!next) return
-        lastIdle = next
         if (fromUser) userPannedRef.current = true
         centerChangeRef.current?.(next.lat, next.lng, false)
         centerIdleRef.current?.(next.lat, next.lng)
-        lastGeocodeKey = `${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
-        requestMapAddress(geocodeSeqRef, addressChangeRef, next, isLive)
+        requestMapAddress(geocodeKeyRef, addressChangeRef, next, isLive)
       }
       const requestIdleGeocode = (fromUser = false) => {
         if (!isLive()) return
@@ -905,10 +927,9 @@ function NaverLocationMap(props: MapViewProps) {
         } catch {
           undefined
         }
-        lastIdle = point
         centerChangeRef.current?.(point.lat, point.lng, false)
         centerIdleRef.current?.(point.lat, point.lng)
-        requestMapAddress(geocodeSeqRef, addressChangeRef, point, isLive)
+        requestMapAddress(geocodeKeyRef, addressChangeRef, point, isLive)
       }
       const pointFromMapEvent = (event?: { coord?: unknown; latlng?: unknown }) => readMapClickLatLng(event)
       const pointFromPointer = (clientX: number, clientY: number) => {
@@ -931,16 +952,8 @@ function NaverLocationMap(props: MapViewProps) {
         if (!isLive()) return
         draggingRef.current = false
         setPinLift(false)
-        const next = readLatLngValue(invokeMapCenter(map)) || readCenter()
-        if (!next) {
-          publishCenterAddress(userPannedRef.current)
-          return
-        }
-        lastIdle = next
-        lastGeocodeKey = `${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
-        centerChangeRef.current?.(next.lat, next.lng, false)
-        centerIdleRef.current?.(next.lat, next.lng)
-        requestMapAddress(geocodeSeqRef, addressChangeRef, next, isLive)
+        window.cancelAnimationFrame(raf)
+        requestIdleGeocode(userPannedRef.current)
       })
       if (idleHandle) listeners.push(idleHandle)
       const dragEndHandle = addNaverMapListener(window.naver?.maps || sdk, map, 'dragend', () => {
@@ -948,17 +961,8 @@ function NaverLocationMap(props: MapViewProps) {
         draggingRef.current = false
         setPinLift(false)
         window.cancelAnimationFrame(raf)
-        const next = readLatLngValue(invokeMapCenter(map)) || readCenter()
-        if (!next) {
-          publishCenterAddress(true)
-          return
-        }
-        lastIdle = next
-        lastGeocodeKey = `${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
         userPannedRef.current = true
-        centerChangeRef.current?.(next.lat, next.lng, false)
-        centerIdleRef.current?.(next.lat, next.lng)
-        requestMapAddress(geocodeSeqRef, addressChangeRef, next, isLive)
+        requestIdleGeocode(true)
       })
       if (dragEndHandle) listeners.push(dragEndHandle)
       if (interactive) {
@@ -987,7 +991,6 @@ function NaverLocationMap(props: MapViewProps) {
       listen('dragstart', () => {
         draggingRef.current = true
         userPannedRef.current = true
-        lastIdle = { lat: Number.NaN, lng: Number.NaN }
         setPinLift(true)
         window.cancelAnimationFrame(raf)
         raf = window.requestAnimationFrame(pollCenter)
@@ -995,16 +998,9 @@ function NaverLocationMap(props: MapViewProps) {
       })
       listen('drag', () => emitMapCenter(true))
       listen('bounds_changed', () => emitMapCenter(draggingRef.current))
-      listen('center_changed', () => {
-        emitMapCenter(draggingRef.current)
-        if (!draggingRef.current) requestIdleGeocode()
-      })
+      listen('center_changed', () => emitMapCenter(draggingRef.current))
       listen('zoom_changed', () => {
         pinRef.current?.draw?.()
-        if (!draggingRef.current) requestIdleGeocode(true)
-      })
-      listen('tilesloaded', () => {
-        if (!draggingRef.current) requestIdleGeocode()
       })
       let pointerOrigin = { x: 0, y: 0, moved: false }
       onPointerDown = (event: PointerEvent) => {
@@ -1050,7 +1046,7 @@ function NaverLocationMap(props: MapViewProps) {
     return () => {
       cancelled = true
       sessionRef.current += 1
-      geocodeSeqRef.current += 1
+      geocodeKeyRef.current = ''
       draggingRef.current = false
       userPannedRef.current = false
       window.cancelAnimationFrame(raf)
@@ -1105,7 +1101,7 @@ function NaverLocationMap(props: MapViewProps) {
     if (next) {
       onCenterChange?.(next.lat, next.lng, false)
       onCenterIdle?.(next.lat, next.lng)
-      requestMapAddress(geocodeSeqRef, addressChangeRef, next)
+      requestMapAddress(geocodeKeyRef, addressChangeRef, next, () => Boolean(mapRef.current))
     }
   }
 

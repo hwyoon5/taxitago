@@ -331,19 +331,23 @@ function FullscreenMapView({
   const [liveAddress, setLiveAddress] = useState(startLabel || '이 위치의 주소를 확인하는 중')
   const [looking, setLooking] = useState(!startLabel)
   const [confirming, setConfirming] = useState(false)
-  const lookupSeq = useRef(0)
   const userMovedRef = useRef(false)
   const centerRef = useRef(center)
   const addressRef = useRef(liveAddress)
   const cameraRef = useRef(camera)
-  const lookupTimer = useRef(0)
-  const lookupWatchdog = useRef(0)
-  const lastLookupKey = useRef('')
+  const lookingRef = useRef(looking)
   const onPickupChangeRef = useRef(onPickupChange)
+  const setLiveAddressRef = useRef(setLiveAddress)
+  const setLookingRef = useRef(setLooking)
+  const setCenterRef = useRef(setCenter)
   centerRef.current = center
   addressRef.current = liveAddress
   cameraRef.current = camera
+  lookingRef.current = looking
   onPickupChangeRef.current = onPickupChange
+  setLiveAddressRef.current = setLiveAddress
+  setLookingRef.current = setLooking
+  setCenterRef.current = setCenter
 
   const publishPickup = (nextLat: number, nextLng: number, nextAddress: string) => {
     if (isDest) return
@@ -352,45 +356,15 @@ function FullscreenMapView({
     onPickupChangeRef.current?.({ lat: nextLat, lng: nextLng, address: label })
   }
 
-  const settleAddress = (requestId: number, nextLat: number, nextLng: number, value: string) => {
-    if (requestId !== lookupSeq.current) return
-    const label = usableMapAddress(value) || failedReverseAddress(nextLat, nextLng)
-    setLiveAddress(label)
+  const applyGeocodedPlace = (place: { lat: number; lng: number; address: string }) => {
+    const label = usableMapAddress(place.address) || place.address
+    if (!label) return
+    centerRef.current = { lat: place.lat, lng: place.lng }
     addressRef.current = label
-    setLooking(false)
+    setCenterRef.current({ lat: place.lat, lng: place.lng })
+    setLiveAddressRef.current(label)
+    setLookingRef.current(false)
   }
-
-  useEffect(() => {
-    const nextLat = center.lat
-    const nextLng = center.lng
-    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    const key = `${nextLat.toFixed(5)},${nextLng.toFixed(5)}`
-    if (key === lastLookupKey.current) return
-    const requestId = ++lookupSeq.current
-    setLooking(true)
-    window.clearTimeout(lookupTimer.current)
-    window.clearTimeout(lookupWatchdog.current)
-    lookupTimer.current = window.setTimeout(() => {
-      lastLookupKey.current = key
-      const fallback = failedReverseAddress(nextLat, nextLng)
-      lookupWatchdog.current = window.setTimeout(() => settleAddress(requestId, nextLat, nextLng, fallback), 2800)
-      void lookupMapAddress(nextLat, nextLng)
-        .then((nextAddress) => {
-          if (requestId !== lookupSeq.current) return
-          window.clearTimeout(lookupWatchdog.current)
-          settleAddress(requestId, nextLat, nextLng, nextAddress)
-        })
-        .catch(() => {
-          if (requestId !== lookupSeq.current) return
-          window.clearTimeout(lookupWatchdog.current)
-          settleAddress(requestId, nextLat, nextLng, fallback)
-        })
-    }, 160)
-    return () => {
-      window.clearTimeout(lookupTimer.current)
-      window.clearTimeout(lookupWatchdog.current)
-    }
-  }, [center.lat, center.lng])
 
   useEffect(() => {
     if (userMovedRef.current) return
@@ -445,7 +419,7 @@ function FullscreenMapView({
     if (!moved && !dragging) return
     if (dragging) userMovedRef.current = true
     setCenter({ lat: nextLat, lng: nextLng })
-    if (moved) setLooking(true)
+    if (moved) setLookingRef.current(true)
   }
 
   const handleCenterIdle = (nextLat: number, nextLng: number) => {
@@ -468,9 +442,9 @@ function FullscreenMapView({
     } catch {
       label = label || failedReverseAddress(current.lat, current.lng)
     }
-    setLiveAddress(label)
+    setLiveAddressRef.current(label)
     addressRef.current = label
-    setLooking(false)
+    setLookingRef.current(false)
     publishPickup(current.lat, current.lng, label)
     onConfirmPickup({ lat: current.lat, lng: current.lng, address: label })
   }
@@ -513,16 +487,7 @@ function FullscreenMapView({
         locatePlacement={isDest ? 'stacked' : 'bottom'}
         onCenterChange={handleCenterChange}
         onCenterIdle={handleCenterIdle}
-        onAddressChange={(place) => {
-          const label = usableMapAddress(place.address) || place.address
-          if (!label) return
-          lastLookupKey.current = `${place.lat.toFixed(5)},${place.lng.toFixed(5)}`
-          lookupSeq.current += 1
-          centerRef.current = { lat: place.lat, lng: place.lng }
-          setLiveAddress(label)
-          addressRef.current = label
-          setLooking(false)
-        }}
+        onAddressChange={applyGeocodedPlace}
         onConfirm={isDest ? undefined : () => void confirmPickup()}
         onLocate={resetToGps}
       />
@@ -641,9 +606,15 @@ function LocationMapModal({
   const [pin, setPin] = useState(start)
   const [address, setAddress] = useState(initialAddress || '이 위치의 주소를 확인하는 중')
   const [source, setSource] = useState<'fallback' | 'gps' | 'pick'>(initialAddress ? 'gps' : 'fallback')
-  const lookupSeq = useRef(0)
-  const lastAddressKey = useRef('')
   const userMovedRef = useRef(false)
+  const setAddressRef = useRef(setAddress)
+  const setAddressPendingRef = useRef(setAddressPending)
+  const setPinRef = useRef(setPin)
+  const setSourceRef = useRef(setSource)
+  setAddressRef.current = setAddress
+  setAddressPendingRef.current = setAddressPending
+  setPinRef.current = setPin
+  setSourceRef.current = setSource
 
   const applyPoint = (nextLat: number, nextLng: number, nextSource: 'fallback' | 'gps' | 'pick', recenter = false) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
@@ -654,42 +625,20 @@ function LocationMapModal({
 
   const handleCenterChange = (nextLat: number, nextLng: number, dragging = false) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    if (dragging) userMovedRef.current = true
-    setPin({ lat: nextLat, lng: nextLng })
-    if (dragging || userMovedRef.current) setSource('pick')
+    if (dragging) {
+      userMovedRef.current = true
+      setAddressPendingRef.current(true)
+    }
+    setPinRef.current({ lat: nextLat, lng: nextLng })
+    if (dragging || userMovedRef.current) setSourceRef.current('pick')
   }
 
   const handleCenterIdle = (nextLat: number, nextLng: number) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
     userMovedRef.current = true
-    setPin({ lat: nextLat, lng: nextLng })
-    setSource('pick')
+    setPinRef.current({ lat: nextLat, lng: nextLng })
+    setSourceRef.current('pick')
   }
-
-  useEffect(() => {
-    const nextLat = pin.lat
-    const nextLng = pin.lng
-    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    const key = `${nextLat.toFixed(5)},${nextLng.toFixed(5)}`
-    if (key === lastAddressKey.current) return
-    const seq = ++lookupSeq.current
-    setAddressPending(true)
-    const timer = window.setTimeout(() => {
-      lastAddressKey.current = key
-      void lookupMapAddress(nextLat, nextLng)
-        .then((nextAddress) => {
-          if (lookupSeq.current !== seq) return
-          setAddress(usableMapAddress(nextAddress) || nextAddress || failedReverseAddress(nextLat, nextLng))
-          setAddressPending(false)
-        })
-        .catch(() => {
-          if (lookupSeq.current !== seq) return
-          setAddress(failedReverseAddress(nextLat, nextLng))
-          setAddressPending(false)
-        })
-    }, 160)
-    return () => window.clearTimeout(timer)
-  }, [pin.lat, pin.lng])
 
   useEffect(() => {
     if (initialAddress) {
@@ -761,12 +710,10 @@ function LocationMapModal({
             onAddressChange={(place) => {
               const label = usableMapAddress(place.address) || place.address
               if (!label) return
-              lookupSeq.current += 1
-              lastAddressKey.current = `${place.lat.toFixed(5)},${place.lng.toFixed(5)}`
-              setPin({ lat: place.lat, lng: place.lng })
-              setAddress(label)
-              setAddressPending(false)
-              if (userMovedRef.current) setSource('pick')
+              setPinRef.current({ lat: place.lat, lng: place.lng })
+              setAddressRef.current(label)
+              setAddressPendingRef.current(false)
+              if (userMovedRef.current) setSourceRef.current('pick')
             }}
             onLocate={() => {
               userMovedRef.current = false
@@ -3543,17 +3490,20 @@ function DaeriCallSetupSheet({
     { id: '빠른배정' as const, fare: 2.8, caption: '가까운 기사 우선 배정' },
   ]
   const selected = plans.find((item) => item.id === plan) ?? plans[0]
+  const pickSeq = useRef(0)
   const pickMapPoint = (nextLat: number, nextLng: number) => {
+    const seq = ++pickSeq.current
     const fallback = pickup.trim() || virtualPickupAddress(nextLat, nextLng)
     setPendingPick({ lat: nextLat, lng: nextLng, address: fallback })
     void reverseGeocode(nextLat, nextLng).then((nextAddress) => {
-      if (!nextAddress) return
+      if (seq !== pickSeq.current || !nextAddress) return
       setPendingPick((current) =>
         current && current.lat === nextLat && current.lng === nextLng ? { ...current, address: nextAddress } : current,
       )
     })
   }
   const closePicker = () => {
+    pickSeq.current += 1
     setMapPicker(false)
     setPendingPick(null)
   }
