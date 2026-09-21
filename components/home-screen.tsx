@@ -12,6 +12,7 @@ import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { PlacePickerScreen } from '@/components/place-picker-map'
+import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { lookupSuggestedPlace, REGION_DESTINATIONS, regionDisplayName, regionFromQuery, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { searchPlacesFromApi } from '@/lib/geocode-client'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
@@ -2330,8 +2331,8 @@ function TaxiMatchingSheet({
   const escrowAmount = ride?.escrow?.amount ?? fare
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-[#241d35]/50 p-0 sm:items-center sm:p-4">
-      <section className="mx-auto max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 pb-7 pt-3 shadow-[0_-18px_40px_rgba(36,27,56,0.22)] sm:rounded-[32px]">
+    <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-50 flex items-stretch bg-[#241d35]/50">
+      <section className="mx-auto flex h-full max-h-full w-full max-w-md flex-col overflow-y-auto rounded-t-[32px] bg-white px-5 pb-7 pt-3 shadow-[0_-18px_40px_rgba(36,27,56,0.22)]">
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" />
         {!matched && phase === 'searching' ? (
           <div className="pb-4 pt-2 text-center">
@@ -2785,8 +2786,8 @@ function ServiceSheet({
     }
   }
   return (
-    <div className="fixed inset-0 z-[90] flex items-end bg-[#241d35]/45 p-0 sm:p-4">
-      <div className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 pb-8 pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)] sm:rounded-[32px]">
+    <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-[90] flex items-stretch bg-[#241d35]/45">
+      <div className="mx-auto flex h-full max-h-full w-full max-w-md flex-col overflow-y-auto rounded-t-[32px] bg-white px-5 pb-8 pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)]">
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" />
         <div className="flex items-start justify-between">
           <div>
@@ -3390,7 +3391,7 @@ function DaeriCallSetupSheet({
         </div>
         <section
           ref={sheetRef}
-          className={`absolute inset-x-0 bottom-0 z-30 rounded-t-[28px] bg-white px-5 pb-7 pt-1 shadow-[0_-16px_32px_rgba(36,27,56,0.16)] ${sheetDragging ? '' : 'transition-transform duration-300 ease-out'}`}
+          className={`absolute inset-x-0 bottom-0 z-30 flex max-h-[calc(100%-var(--app-header-offset))] h-[calc(100%-var(--app-header-offset))] flex-col overflow-y-auto rounded-t-[28px] bg-white px-5 pb-7 pt-1 shadow-[0_-16px_32px_rgba(36,27,56,0.16)] ${sheetDragging ? '' : 'transition-transform duration-300 ease-out'}`}
           style={{ transform: `translateY(${sheetY}px)` }}
         >
           <button
@@ -3570,6 +3571,7 @@ const HOME_EVENT_BANNERS = [
 ] as const
 
 function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => void }) {
+  const [inviteOpen, setInviteOpen] = useState(false)
   return (
     <section className="mt-3" aria-label="이벤트 및 광고">
       <div className="flex items-end justify-between px-0.5">
@@ -3583,7 +3585,13 @@ function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => v
             <button
               key={banner.id}
               type="button"
-              onClick={() => onAction(banner.action)}
+              onClick={() => {
+                if (banner.id === 'invite-pi') {
+                  setInviteOpen(true)
+                  return
+                }
+                onAction(banner.action)
+              }}
               className={`relative min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start overflow-hidden rounded-[22px] bg-gradient-to-br p-4 text-left text-white shadow-[0_12px_24px_rgba(76,31,184,0.22)] ${banner.className}`}
               aria-label={`${banner.badge} ${banner.title}`}
             >
@@ -3603,6 +3611,7 @@ function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => v
           )
         })}
       </div>
+      {inviteOpen ? <InviteLaunchModal onClose={() => setInviteOpen(false)} /> : null}
     </section>
   )
 }

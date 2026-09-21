@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { BadgeCheck, Briefcase, Car, CircleUserRound, Copy, Gift, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
 import PartnerStatSheet from '@/components/partner-stat-sheet'
+import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { copyInviteCode, getOrCreateInviteCode, inviteShareLink } from '@/lib/invite-code'
 
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
@@ -97,6 +98,7 @@ export default function MyPage({
   const [mounted, setMounted] = useState(false)
   const [inviteCode, setInviteCode] = useState('')
   const [copied, setCopied] = useState(false)
+  const [inviteLaunchOpen, setInviteLaunchOpen] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -256,7 +258,7 @@ export default function MyPage({
         </section>
 
         <section className="mt-3 overflow-hidden rounded-[24px] border-2 border-[#EDE5FF] bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
-          <div className="flex items-start justify-between gap-3">
+          <button type="button" onClick={() => setInviteLaunchOpen(true)} className="flex w-full items-start justify-between gap-3 text-left">
             <div>
               <p className="text-[11px] font-black tracking-wide text-[#4C1FB8]">INVITE & SHARE</p>
               <h3 className="mt-1 text-base font-black text-[#0F172A]">친구 초대 및 코드 공유</h3>
@@ -264,11 +266,15 @@ export default function MyPage({
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F3E8FF] text-[#4C1FB8]">
               <Gift className="h-5 w-5" />
             </span>
-          </div>
-          <div className="mt-3 rounded-2xl border border-[#FCD34D] bg-[#FFFBEB] px-3.5 py-3">
+          </button>
+          <button
+            type="button"
+            onClick={() => setInviteLaunchOpen(true)}
+            className="mt-3 w-full rounded-2xl border border-[#FCD34D] bg-[#FFFBEB] px-3.5 py-3 text-left"
+          >
             <p className="text-sm font-black leading-6 text-[#92400E]">친구 초대 시 각각 0.5 Pi가 지급됩니다</p>
             <p className="mt-0.5 text-[11px] font-bold leading-5 text-[#B45309]">초대한 친구와 회원님 모두 0.5 Pi를 받아요.</p>
-          </div>
+          </button>
           <div className="mt-3 rounded-2xl bg-[#F8F5FF] px-4 py-3">
             <p className="text-[10px] font-black tracking-wide text-[#64748B]">내 초대 코드</p>
             <p className="mt-1 break-all font-mono text-lg font-black tracking-[0.18em] text-[#4C1FB8]">{inviteCode || '생성 중…'}</p>
@@ -413,6 +419,7 @@ export default function MyPage({
         <p className="pointer-events-none fixed bottom-24 left-1/2 z-[80] -translate-x-1/2 rounded-full bg-[#0F172A] px-4 py-2 text-xs font-black text-white">{toast}</p>
       ) : null}
       {statSheet ? <PartnerStatSheet kind={statSheet} onClose={() => setStatSheet(null)} /> : null}
+      {inviteLaunchOpen ? <InviteLaunchModal onClose={() => setInviteLaunchOpen(false)} /> : null}
       {mounted && walletSheet
         ? createPortal(
             <div className="fixed inset-0 z-[120] flex items-end justify-center bg-[#1e1033]/45 p-0 sm:items-center sm:p-4" onClick={() => setWalletSheet(false)}>
