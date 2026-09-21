@@ -11,6 +11,7 @@ import { TermsDetailView, TermsListView } from '@/components/more/terms-pages'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
+import { PickupLocationBar, PlacePickerScreen } from '@/components/place-picker-map'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
@@ -280,10 +281,6 @@ function formatMapAddress(data: {
   return data.display_name?.split(',').slice(0, 3).join(' ').replace(/\s+/g, ' ').trim() || ''
 }
 
-async function lookupMapAddress(lat: number, lng: number) {
-  return reverseGeocode(lat, lng)
-}
-
 function openFreshMapModal(setOpen: (open: boolean) => void, bumpSession: () => void) {
   setOpen(false)
   bumpSession()
@@ -303,293 +300,6 @@ function usableMapAddress(value?: string | null) {
   if (!label) return ''
   if (/확인하는 중|수신하는 중|불러오는 중|갱신하는 중/.test(label)) return ''
   return label
-}
-
-function FullscreenMapView({
-  lat,
-  lng,
-  address,
-  pickupLat,
-  pickupLng,
-  purpose = 'pickup',
-  onClose,
-  onConfirmPickup,
-  onPickupChange,
-}: {
-  lat: number
-  lng: number
-  address: string
-  pickupLat?: number
-  pickupLng?: number
-  purpose?: 'pickup' | 'dest'
-  onClose: () => void
-  onConfirmPickup: (place: { lat: number; lng: number; address: string }) => void
-  onPickupChange?: (place: { lat: number; lng: number; address: string }) => void
-}) {
-  const startLat = finiteCoord(pickupLat, lat)
-  const startLng = finiteCoord(pickupLng, lng)
-  const isDest = purpose === 'dest'
-  const startLabel = isDest ? '' : usableMapAddress(address)
-  const seededPickup = Boolean(startLabel) && Number.isFinite(startLat) && Number.isFinite(startLng)
-  const skipGpsRelocate = isDest || seededPickup
-  const [camera, setCamera] = useState({ lat: startLat, lng: startLng })
-  const [center, setCenter] = useState({ lat: startLat, lng: startLng })
-  const [liveAddress, setLiveAddress] = useState(startLabel || '이 위치의 주소를 확인하는 중')
-  const [looking, setLooking] = useState(!startLabel)
-  const [confirming, setConfirming] = useState(false)
-  const [mapInstanceKey] = useState(() => `fs-map-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
-  const userMovedRef = useRef(false)
-  const centerRef = useRef(center)
-  const addressRef = useRef(liveAddress)
-  const cameraRef = useRef(camera)
-  const lookingRef = useRef(looking)
-  const onPickupChangeRef = useRef(onPickupChange)
-  const setLiveAddressRef = useRef(setLiveAddress)
-  const setLookingRef = useRef(setLooking)
-  const setCenterRef = useRef(setCenter)
-  centerRef.current = center
-  addressRef.current = liveAddress
-  cameraRef.current = camera
-  lookingRef.current = looking
-  onPickupChangeRef.current = onPickupChange
-  setLiveAddressRef.current = setLiveAddress
-  setLookingRef.current = setLooking
-  setCenterRef.current = setCenter
-
-  const publishPickup = (nextLat: number, nextLng: number, nextAddress: string) => {
-    if (isDest) return
-    const label = usableMapAddress(nextAddress)
-    if (!label || !Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    onPickupChangeRef.current?.({ lat: nextLat, lng: nextLng, address: label })
-  }
-
-  const applyGeocodedPlace = (place: { lat: number; lng: number; address: string }) => {
-    const label = usableMapAddress(place.address) || place.address || failedReverseAddress(place.lat, place.lng)
-    centerRef.current = { lat: place.lat, lng: place.lng }
-    addressRef.current = label
-    setCenterRef.current({ lat: place.lat, lng: place.lng })
-    setLiveAddressRef.current(label)
-    setLookingRef.current(false)
-  }
-
-  useEffect(() => {
-    if (userMovedRef.current) return
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || isCityHallCoord(lat, lng)) return
-    setCamera({ lat, lng })
-    setCenter({ lat, lng })
-    centerRef.current = { lat, lng }
-  }, [lat, lng])
-
-  useEffect(() => {
-    if (skipGpsRelocate) return
-    if (!navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (userMovedRef.current) return
-        const next = { lat: position.coords.latitude, lng: position.coords.longitude }
-        setCamera(next)
-        setCenter(next)
-        centerRef.current = next
-      },
-      () => undefined,
-      { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
-    )
-  }, [skipGpsRelocate])
-
-  const resetToGps = () => {
-    userMovedRef.current = false
-    setConfirming(false)
-    const applyGps = (nextLat: number, nextLng: number) => {
-      if (isCityHallCoord(nextLat, nextLng) && !isCityHallCoord(lat, lng)) return
-      const next = { lat: nextLat, lng: nextLng }
-      setCamera(next)
-      setCenter(next)
-      centerRef.current = next
-    }
-    if (!navigator.geolocation) {
-      applyGps(lat, lng)
-      return
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => applyGps(position.coords.latitude, position.coords.longitude),
-      () => applyGps(finiteCoord(pickupLat, lat), finiteCoord(pickupLng, lng)),
-      { enableHighAccuracy: true, timeout: 6000, maximumAge: 5_000 },
-    )
-  }
-
-  const handleCenterChange = (nextLat: number, nextLng: number, dragging = false) => {
-    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    const moved =
-      Math.abs(centerRef.current.lat - nextLat) > 1e-6 || Math.abs(centerRef.current.lng - nextLng) > 1e-6
-    centerRef.current = { lat: nextLat, lng: nextLng }
-    if (!moved && !dragging) return
-    if (dragging) userMovedRef.current = true
-    setCenter({ lat: nextLat, lng: nextLng })
-    if (moved) setLookingRef.current(true)
-  }
-
-  const handleCenterIdle = (nextLat: number, nextLng: number) => {
-    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    const camera = cameraRef.current
-    if (Math.abs(camera.lat - nextLat) > 2e-4 || Math.abs(camera.lng - nextLng) > 2e-4) {
-      userMovedRef.current = true
-    }
-    centerRef.current = { lat: nextLat, lng: nextLng }
-    setCenter({ lat: nextLat, lng: nextLng })
-  }
-
-  const confirmPickup = async () => {
-    if (confirming) return
-    setConfirming(true)
-    const current = centerRef.current
-    let label = usableMapAddress(addressRef.current)
-    try {
-      label = usableMapAddress(await lookupMapAddress(current.lat, current.lng)) || label || failedReverseAddress(current.lat, current.lng)
-    } catch {
-      label = label || failedReverseAddress(current.lat, current.lng)
-    }
-    setLiveAddressRef.current(label)
-    addressRef.current = label
-    setLookingRef.current(false)
-    publishPickup(current.lat, current.lng, label)
-    onConfirmPickup({ lat: current.lat, lng: current.lng, address: label })
-  }
-
-  const resumePicking = () => {
-    setConfirming(false)
-    userMovedRef.current = true
-    const current = centerRef.current
-    setCenter({ lat: current.lat, lng: current.lng })
-  }
-
-  const fireConfirm = (event: { stopPropagation: () => void; preventDefault: () => void }) => {
-    event.stopPropagation()
-    event.preventDefault()
-    void confirmPickup()
-  }
-
-  const bannerAddress = usableMapAddress(liveAddress) || (looking ? '이 위치의 주소를 확인하는 중' : failedReverseAddress(center.lat, center.lng))
-
-  return (
-    <div className="fixed inset-0 z-[100] bg-[#0B1220]" role="dialog" aria-modal="true" aria-label="전체화면 지도">
-      <style>{`
-        @keyframes ttMapRise {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-      `}</style>
-      <div className="absolute inset-0 overflow-hidden" style={{ animation: 'ttMapRise 240ms ease-out' }}>
-      <div className="absolute inset-0" style={isDest ? { paddingBottom: '13.75rem' } : undefined}>
-      <LocationTileMap
-        key={mapInstanceKey}
-        lat={camera.lat}
-        lng={camera.lng}
-        pinLat={center.lat}
-        pinLng={center.lng}
-        className="h-full min-h-0 w-full"
-        interactive
-        showZoom
-        pulsePin={!isDest}
-        centerPin
-        locatePlacement={isDest ? 'stacked' : 'bottom'}
-        onCenterChange={handleCenterChange}
-        onCenterIdle={handleCenterIdle}
-        onAddressChange={applyGeocodedPlace}
-        onConfirm={isDest ? undefined : () => void confirmPickup()}
-        onLocate={resetToGps}
-      />
-      </div>
-      <button
-        type="button"
-        onPointerDown={(event) => event.stopPropagation()}
-        onMouseDown={(event) => event.stopPropagation()}
-        onTouchStart={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation()
-          const current = centerRef.current
-          const label = usableMapAddress(addressRef.current)
-          if (label) publishPickup(current.lat, current.lng, label)
-          onClose()
-        }}
-        className="absolute left-4 top-[max(0.9rem,env(safe-area-inset-top))] z-30 inline-flex min-h-10 items-center gap-0.5 rounded-full bg-white/95 px-3.5 pr-4 text-[13px] font-black text-[#0F172A] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
-        aria-label="뒤로가기"
-      >
-        <ChevronLeft className="h-5 w-5" />
-        뒤로가기
-      </button>
-      {!isDest ? (
-      <div
-        className="absolute inset-x-4 top-[max(4.2rem,calc(env(safe-area-inset-top)+3.3rem))] z-[60] flex justify-center"
-        onPointerDown={(event) => event.stopPropagation()}
-        onMouseDown={(event) => event.stopPropagation()}
-        onTouchStart={(event) => event.stopPropagation()}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="w-full max-w-sm rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_8px_18px_rgba(15,23,42,0.14)]">
-          <button
-            type="button"
-            onPointerDown={(event) => event.stopPropagation()}
-            onMouseDown={(event) => event.stopPropagation()}
-            onTouchStart={(event) => event.stopPropagation()}
-            onClick={fireConfirm}
-            className="w-full text-left leading-none"
-            disabled={confirming}
-          >
-            <span className="block text-[10px] font-bold leading-none text-[#7C3AED]">{userMovedRef.current ? '지도 위치' : '현재 위치'}</span>
-            <span className="mt-1 block text-[13px] font-black leading-snug text-[#0F172A]">{bannerAddress}</span>
-            <span className="mt-1 block text-[10px] font-bold leading-tight text-[#94A3B8]">
-              {looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : '주소를 눌러 이 위치를 출발지로 지정'}
-            </span>
-          </button>
-          <button
-            type="button"
-            disabled={confirming}
-            onClick={fireConfirm}
-            className="mt-2.5 w-full rounded-xl bg-[#4C1FB8] py-2.5 text-[12px] font-black text-white disabled:opacity-60"
-          >
-            {confirming ? '출발지 지정 중' : '이 위치를 출발지로 지정'}
-          </button>
-        </div>
-      </div>
-      ) : null}
-      {isDest ? (
-        <div
-          className="absolute inset-x-3 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[70]"
-          onPointerDown={(event) => event.stopPropagation()}
-          onMouseDown={(event) => event.stopPropagation()}
-          onTouchStart={(event) => event.stopPropagation()}
-        >
-          <div className="rounded-[26px] border-2 border-[#334155] bg-white px-4 py-4 shadow-[0_14px_28px_rgba(15,23,42,0.2)]">
-            <p className="text-xs font-black text-[#4C1FB8]">선택한 목적지</p>
-            <p className="mt-1.5 text-base font-black leading-snug text-[#0F172A]">{bannerAddress}</p>
-            <p className="mt-1 text-[11px] font-bold leading-5 text-[#64748B]">
-              {looking ? '이 좌표의 주소를 확인하는 중이에요.' : '지도를 움직이면 중심 위치의 주소가 바로 바뀝니다.'}
-            </p>
-            <button
-              type="button"
-              disabled={confirming}
-              onClick={(event) => {
-                event.stopPropagation()
-                event.preventDefault()
-                void confirmPickup()
-              }}
-              className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white shadow-[0_10px_22px_rgba(76,31,184,0.32)] disabled:opacity-60"
-            >
-              {confirming ? '목적지 지정 중' : '이 주소로 선택'}
-            </button>
-            <button
-              type="button"
-              onClick={resumePicking}
-              className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-black text-[#475569]"
-            >
-              다시 선택
-            </button>
-          </div>
-        </div>
-      ) : null}
-      </div>
-    </div>
-  )
 }
 
 function LocationMapModal({
@@ -1263,7 +973,8 @@ function DestinationSearchModal({
   const [destMapOpen, setDestMapOpen] = useState(false)
   const [destMapSession, setDestMapSession] = useState(0)
   const openDestMap = () => {
-    openFreshMapModal(setDestMapOpen, () => setDestMapSession((value) => value + 1))
+    setDestMapSession((value) => value + 1)
+    setDestMapOpen(true)
   }
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -1423,16 +1134,13 @@ function DestinationSearchModal({
         </div>
       </section>
       {destMapOpen ? (
-        <FullscreenMapView
+        <PlacePickerScreen
           key={`dest-map-${destMapSession}`}
-          purpose="dest"
+          variant="dest"
           lat={mapLat}
           lng={mapLng}
-          address=""
-          pickupLat={mapLat}
-          pickupLng={mapLng}
           onClose={() => setDestMapOpen(false)}
-          onConfirmPickup={(place) => {
+          onConfirm={(place) => {
             pick(place.address, place.address, { lat: place.lat, lng: place.lng, address: place.address })
             setDestMapOpen(false)
           }}
@@ -6068,10 +5776,8 @@ export default function HomeScreen() {
   const [notice, setNotice] = useState('')
   const [walletBalance, setWalletBalance] = useState(18.4)
   const [walletOpen, setWalletOpen] = useState(false)
-  const [mapOpen, setMapOpen] = useState(false)
-  const [locationMapSession, setLocationMapSession] = useState(0)
-  const [fullscreenMapOpen, setFullscreenMapOpen] = useState(false)
-  const [pickupMapSession, setPickupMapSession] = useState(0)
+  const [pickupMapOpen, setPickupMapOpen] = useState(false)
+  const [pickupMapKey, setPickupMapKey] = useState(0)
   const pickingMapRef = useRef(false)
   const [pickup, setPickup] = useState<PickupPlace | null>(null)
   const pickupRef = useRef<PickupPlace | null>(null)
@@ -6082,7 +5788,6 @@ export default function HomeScreen() {
     lat: BUSAN_CITY_HALL.lat,
     lng: BUSAN_CITY_HALL.lng,
   })
-  const [locationGuideOpen, setLocationGuideOpen] = useState(false)
   const [chargePromptOpen, setChargePromptOpen] = useState(false)
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'activity' | 'account' | null>(null)
@@ -6122,7 +5827,8 @@ export default function HomeScreen() {
 
   const openPickupMap = () => {
     pickingMapRef.current = true
-    openFreshMapModal(setFullscreenMapOpen, () => setPickupMapSession((value) => value + 1))
+    setPickupMapKey((value) => value + 1)
+    setPickupMapOpen(true)
   }
 
   const applyLocatedPoint = async (
@@ -6203,8 +5909,8 @@ export default function HomeScreen() {
   }
 
   useEffect(() => {
-    pickingMapRef.current = fullscreenMapOpen
-  }, [fullscreenMapOpen])
+    pickingMapRef.current = pickupMapOpen
+  }, [pickupMapOpen])
 
   useEffect(() => {
     writeRideSession({
@@ -6432,51 +6138,15 @@ export default function HomeScreen() {
               </button>
             </div>
           </div>
-          <div
-            className={`mt-3 flex min-h-10 items-center gap-2 rounded-2xl px-3 py-2 text-[12px] font-bold ${
-              pickup?.source === 'map' || gps.status === 'ready'
-                ? 'bg-[#ECFDF5] text-[#047857]'
-                : gps.status === 'pending'
-                  ? 'bg-[#FFFBEB] text-[#B45309]'
-                  : 'bg-[#F1F5F9] text-[#475569]'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={() => setLocationGuideOpen(true)}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              aria-label={t('home.changeLocation')}
-            >
-              <LocateFixed className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">
-                {pickup?.source === 'map' || gps.status === 'ready'
-                  ? t('home.gpsReady', { address: origin.address })
-                  : gps.status === 'pending'
-                    ? t('home.gpsPending')
-                    : gps.status === 'approx'
-                      ? t('home.gpsApprox', { address: origin.address })
-                      : t('home.gpsDenied', { address: origin.address })}
-              </span>
-            </button>
-            {gps.status !== 'ready' && pickup?.source !== 'map' ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void requestUserLocation(true)
-                }}
-                className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-[#4A82B8] shadow-[0_4px_10px_rgba(15,23,42,0.08)]"
-              >
-                {t('home.allowLocation')}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => openPickupMap()}
-              className="shrink-0 rounded-full bg-[#4A82B8] px-2.5 py-1 text-[11px] font-black text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]"
-            >
-              {t('home.viewMap')}
-            </button>
-          </div>
+          <PickupLocationBar
+            address={origin.address}
+            status={gps.status}
+            fromMap={pickup?.source === 'map'}
+            onOpenMap={openPickupMap}
+            onRetryGps={() => {
+              void requestUserLocation(true)
+            }}
+          />
         </header>
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (
@@ -6539,68 +6209,21 @@ export default function HomeScreen() {
             )
           })}
         </nav>
-        {locationGuideOpen ? (
-          <div className="fixed inset-0 z-[96] flex items-end bg-[#1e1033]/45 sm:items-center sm:p-4" onClick={() => setLocationGuideOpen(false)}>
-            <section className="mx-auto w-full max-w-md rounded-t-[28px] bg-white px-5 pb-7 pt-4 shadow-2xl sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
-              <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-              <p className="text-xs font-black text-[#4C1FB8]">{t('home.pickupTitle')}</p>
-              <h2 className="mt-1 text-xl font-black text-[#0F172A]">{t('home.pickupChange')}</h2>
-              <p className="mt-2 rounded-2xl bg-[#F8FAFC] px-3 py-2 text-sm font-black leading-5 text-[#0F172A]">{origin.address}</p>
-              <p className="mt-2 text-sm font-bold leading-6 text-[#475569]">
-                {gps.status === 'ready' || pickup?.source === 'map' ? t('home.pickupReady') : t('home.pickupNeedGps')}
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setLocationGuideOpen(false)
-                  void requestUserLocation(true)
-                }}
-                className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white shadow-[0_10px_20px_rgba(76,31,184,0.28)]"
-              >
-                {t('home.reaskGps')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  openPickupMap()
-                }}
-                className="mt-2 w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3.5 text-sm font-black text-[#4C1FB8]"
-              >
-                {t('home.pickOnMap')}
-              </button>
-              <button type="button" onClick={() => setLocationGuideOpen(false)} className="mt-2 w-full py-3 text-sm font-black text-[#64748B]">
-                {t('settings.close')}
-              </button>
-            </section>
-          </div>
-        ) : null}
-        {mapOpen ? (
-          <LocationMapModal
-            key={`home-loc-${locationMapSession}`}
-            onClose={() => setMapOpen(false)}
-            initialLat={origin.lat}
-            initialLng={origin.lng}
-            initialAddress={origin.address}
-          />
-        ) : null}
-        {fullscreenMapOpen ? (
-          <FullscreenMapView
-            key={`pickup-map-${pickupMapSession}`}
+        {pickupMapOpen ? (
+          <PlacePickerScreen
+            key={`pickup-map-${pickupMapKey}`}
+            variant="pickup"
             lat={origin.lat}
             lng={origin.lng}
             address={origin.address}
-            pickupLat={origin.lat}
-            pickupLng={origin.lng}
             onClose={() => {
               pickingMapRef.current = false
-              setFullscreenMapOpen(false)
+              setPickupMapOpen(false)
             }}
-            onPickupChange={(place) => commitPickup(place, 'map')}
-            onConfirmPickup={(place) => {
+            onConfirm={(place) => {
               commitPickup(place, 'map')
               pickingMapRef.current = false
-              setFullscreenMapOpen(false)
-              setLocationGuideOpen(false)
+              setPickupMapOpen(false)
               showNotice('출발지를 지정했어요')
             }}
           />
