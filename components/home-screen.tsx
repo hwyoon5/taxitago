@@ -513,8 +513,6 @@ function FullscreenMapView({
         onAddressChange={(place) => {
           const label = usableMapAddress(place.address) || place.address
           if (!label) return
-          centerRef.current = { lat: place.lat, lng: place.lng }
-          setCenter({ lat: place.lat, lng: place.lng })
           setLiveAddress(label)
           addressRef.current = label
           setLooking(false)

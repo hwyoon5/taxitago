@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type MutableRefObject, type ReactNode, typ
 import { Car, LocateFixed, MapPin, Minus, Plus, UserRound } from 'lucide-react'
 import {
   applyMapBottomInset,
+  callNaverReverseGeocode,
   createDomMarker,
   createHtmlOverlay,
   hasNaverMapClientId,
@@ -443,15 +444,26 @@ function requestMapAddress(
 ) {
   if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return
   const seq = ++seqRef.current
-  void reverseGeocode(point.lat, point.lng)
-    .then((address) => {
-      if (seq !== seqRef.current) return
-      const label = (address || '').trim()
-      if (!label) return
-      onAddress.current?.({ lat: point.lat, lng: point.lng, address: label })
-    })
-    .catch(() => undefined)
+  void (async () => {
+    let label = ''
+    try {
+      label = (await callNaverReverseGeocode(point.lat, point.lng, 4000))?.trim() || ''
+    } catch {
+      label = ''
+    }
+    if (!label) {
+      try {
+        label = (await reverseGeocode(point.lat, point.lng)).trim()
+      } catch {
+        label = ''
+      }
+    }
+    if (seq !== seqRef.current || !label) return
+    onAddress.current?.({ lat: point.lat, lng: point.lng, address: label })
+  })()
 }
+
+function FallbackSlippyMap({
   lat,
   lng,
   pinLat,
@@ -735,6 +747,7 @@ function NaverLocationMap(props: MapViewProps) {
     let raf = 0
     let lastEmit = 0
     let lastIdle = { lat: Number.NaN, lng: Number.NaN }
+    let lastGeocodeKey = ''
     let idleGeocodeTimer = 0
     let onPointerDown: ((event: PointerEvent) => void) | null = null
     let onPointerMove: ((event: PointerEvent) => void) | null = null
@@ -771,7 +784,6 @@ function NaverLocationMap(props: MapViewProps) {
           if (!cancelled) setPinScreen({ x, y })
         })
       }
-      const tracksCenter = () => followCenterRef.current || Boolean(centerChangeRef.current) || Boolean(centerIdleRef.current) || Boolean(addressChangeRef.current)
       const readCenter = () => {
         try {
           const maps = window.naver?.maps || sdk
@@ -780,28 +792,28 @@ function NaverLocationMap(props: MapViewProps) {
           return readMapCenter(map, window.naver?.maps || sdk, canvasRef.current)
         }
       }
-      const samePoint = (a: RidePoint, b: RidePoint) => Math.abs(a.lat - b.lat) < 4e-5 && Math.abs(a.lng - b.lng) < 4e-5
-      const settlePickup = (coord?: RidePoint | null, force = false, fromUser = false) => {
-        if (!tracksCenter() || cancelled) return
-        const next = coord || readCenter()
+      const publishCenterAddress = (fromUser = false) => {
+        if (cancelled) return
+        const next = readCenter()
         if (!next) return
-        if (!force && Number.isFinite(lastIdle.lat) && samePoint(lastIdle, next)) return
         lastIdle = next
         if (fromUser) userPannedRef.current = true
         centerChangeRef.current?.(next.lat, next.lng, false)
         centerIdleRef.current?.(next.lat, next.lng)
+        const key = `${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
+        if (key === lastGeocodeKey) return
+        lastGeocodeKey = key
         requestMapAddress(geocodeSeqRef, addressChangeRef, next)
       }
-      const requestIdleGeocode = (force = false) => {
-        if (!tracksCenter() || cancelled) return
+      const requestIdleGeocode = (fromUser = false) => {
+        if (cancelled) return
         window.clearTimeout(idleGeocodeTimer)
         idleGeocodeTimer = window.setTimeout(() => {
           if (cancelled || draggingRef.current) return
-          settlePickup(readCenter(), force, userPannedRef.current)
-        }, 180)
+          publishCenterAddress(fromUser || userPannedRef.current)
+        }, 120)
       }
       const emitMapCenter = (active: boolean, force = false) => {
-        if (!tracksCenter()) return
         const now = Date.now()
         if (!force && now - lastEmit < 80) return
         lastEmit = now
@@ -818,7 +830,10 @@ function NaverLocationMap(props: MapViewProps) {
         } catch {
           undefined
         }
-        settlePickup(point, true, true)
+        lastIdle = point
+        centerChangeRef.current?.(point.lat, point.lng, false)
+        centerIdleRef.current?.(point.lat, point.lng)
+        requestMapAddress(geocodeSeqRef, addressChangeRef, point)
       }
       const pointFromMapEvent = (event?: { coord?: unknown; latlng?: unknown }) => readMapClickLatLng(event)
       const pointFromPointer = (clientX: number, clientY: number) => {
@@ -850,7 +865,7 @@ function NaverLocationMap(props: MapViewProps) {
           const clicked = pointFromMapEvent(event)
           if (followCenterRef.current) {
             if (clicked) panAndGeocode(clicked)
-            else settlePickup(null, true, true)
+            else publishCenterAddress(true)
             return
           }
           if (!clicked) return
@@ -885,10 +900,17 @@ function NaverLocationMap(props: MapViewProps) {
         draggingRef.current = false
         setPinLift(false)
         window.cancelAnimationFrame(raf)
-        lastIdle = { lat: Number.NaN, lng: Number.NaN }
-        settlePickup(readCenter(), true, true)
+        publishCenterAddress(true)
       })
       listen('idle', () => {
+        if (draggingRef.current) return
+        publishCenterAddress(userPannedRef.current)
+      })
+      listen('mouseup', () => {
+        if (draggingRef.current) return
+        requestIdleGeocode(userPannedRef.current)
+      })
+      listen('touchend', () => {
         if (draggingRef.current) return
         requestIdleGeocode(true)
       })
@@ -909,7 +931,7 @@ function NaverLocationMap(props: MapViewProps) {
         if (pointerOrigin.moved) {
           draggingRef.current = false
           setPinLift(false)
-          settlePickup(null, true, true)
+          publishCenterAddress(true)
           return
         }
         const tapped = pointFromPointer(event.clientX, event.clientY)
