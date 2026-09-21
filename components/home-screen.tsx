@@ -3596,7 +3596,12 @@ function Home({
       aria-label={t('home.content')}
     >
         <div className="rounded-[16px] border border-[#E2E8F0] bg-[#F8FAFC] p-1.5">
-          <button type="button" onClick={onOpenMap} className="flex w-full items-center gap-2 rounded-lg bg-white px-2 py-1 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
+          <button
+            type="button"
+            onClick={() => onOpenMap()}
+            className="flex w-full items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]"
+            aria-label={`${t('home.pickup')} ${pickup}`}
+          >
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
               <LocateFixed className="h-3.5 w-3.5" />
             </span>
@@ -3604,6 +3609,7 @@ function Home({
               <span className="block text-[10px] font-bold leading-3 text-[#64748B]">{t('home.pickup')}</span>
               <span className="mt-0.5 block truncate text-[13px] font-black leading-4 text-[#0F172A]">{pickup}</span>
             </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-[#94A3B8]" />
           </button>
           <button
             type="button"
@@ -6154,7 +6160,7 @@ export default function HomeScreen() {
             onDestination={selectDestination}
             onService={openService}
             onReceipt={setReceiptRide}
-            onOpenMap={() => openPickupMap()}
+            onOpenMap={openPickupMap}
             destSearchTick={destSearchTick}
           />
         )}
