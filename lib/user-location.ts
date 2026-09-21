@@ -1,5 +1,5 @@
 import { callNaverReverseGeocode, ensureNaverGeocoder } from '@/lib/naver-maps'
-import { centerForRegion, lookupSuggestedPlace, regionFromAccessText, resolveRegion } from '@/lib/region-destinations'
+import { centerForRegion, lookupSuggestedPlace, regionDisplayName, regionFromAccessText, regionFromQuery, resolveRegion } from '@/lib/region-destinations'
 
 export const BUSAN_CITY_HALL = { lat: 35.179554, lng: 129.075641 }
 
@@ -163,37 +163,21 @@ export async function reverseGeocode(lat: number, lng: number) {
 export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
   const q = query.trim()
   if (!q) return null
-  const sdk = await ensureNaverGeocoder(4000)
-  const geocode = sdk?.Service?.geocode
-  if (sdk && typeof geocode === 'function') {
-    const naver = await new Promise<GeoPoint | null>((resolve) => {
-      const timer = window.setTimeout(() => resolve(null), 4000)
-      try {
-        geocode({ query: q }, (status, response) => {
-          try {
-            window.clearTimeout(timer)
-            if (status !== sdk.Service?.Status.OK) {
-              resolve(null)
-              return
-            }
-            const item = response.v2?.addresses?.[0]
-            const lat = Number(item?.y)
-            const lng = Number(item?.x)
-            resolve(Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null)
-          } catch {
-            resolve(null)
-          }
-        })
-      } catch {
-        window.clearTimeout(timer)
-        resolve(null)
+  if (typeof window !== 'undefined') {
+    try {
+      const { searchPlacesFromApi } = await import('@/lib/geocode-client')
+      const places = await searchPlacesFromApi(q)
+      const first = places[0]
+      if (first && Number.isFinite(first.lat) && Number.isFinite(first.lng)) {
+        return { lat: first.lat, lng: first.lng }
       }
-    })
-    if (naver) return naver
+    } catch {
+      undefined
+    }
   }
   try {
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}&accept-language=ko`,
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&q=${encodeURIComponent(q)}&accept-language=ko`,
       { headers: { Accept: 'application/json' } },
     )
     if (!response.ok) return null
@@ -213,11 +197,28 @@ export async function resolveRidePlace(query: string, contextAddress = ''): Prom
   if (known && Number.isFinite(known.lat) && Number.isFinite(known.lng)) {
     return { label: known.name, address: known.address || q, lat: known.lat, lng: known.lng }
   }
-  const regionHint = contextAddress.trim()
-  const queries = regionHint && !q.includes(regionHint.slice(0, 2)) ? [q, `${q} ${regionHint}`] : [q]
-  for (const item of queries) {
-    const geo = await geocodeAddress(item)
-    if (geo) return { label: q, address: q, lat: geo.lat, lng: geo.lng }
+  const namedRegion = regionFromQuery(q)
+  const geo = await geocodeAddress(q)
+  if (geo) {
+    if (typeof window !== 'undefined') {
+      try {
+        const { searchPlacesFromApi } = await import('@/lib/geocode-client')
+        const places = await searchPlacesFromApi(q)
+        const preferred =
+          (namedRegion ? places.find((place) => regionFromQuery(place.address) === namedRegion) : null) || places[0]
+        if (preferred) return { label: q, address: preferred.address, lat: preferred.lat, lng: preferred.lng }
+      } catch {
+        undefined
+      }
+    }
+    return { label: q, address: q, lat: geo.lat, lng: geo.lng }
+  }
+  if (!namedRegion) {
+    const contextRegion = regionFromQuery(contextAddress)
+    if (contextRegion) {
+      const nearby = await geocodeAddress(`${regionDisplayName(contextRegion)} ${q}`)
+      if (nearby) return { label: q, address: q, lat: nearby.lat, lng: nearby.lng }
+    }
   }
   return null
 }

@@ -64,12 +64,14 @@ const REGION_CENTERS: { id: RegionId; lat: number; lng: number }[] = [
 
 export const REGION_DESTINATIONS: Record<RegionId, SuggestedPlace[]> = {
   seoul: [
+    { name: '서울시청', address: '서울특별시 중구 세종대로 110' },
     { name: '서울역', address: '서울특별시 용산구 한강대로 405' },
     { name: '강남역', address: '서울특별시 강남구 강남대로 396' },
     { name: '명동', address: '서울특별시 중구 명동길 14' },
     { name: '홍대입구', address: '서울특별시 마포구 양화로 160' },
   ],
   busan: [
+    { name: '부산시청', address: '부산광역시 연제구 중앙대로 1001' },
     { name: '부산역', address: '부산광역시 동구 중앙대로 206' },
     { name: '서면 롯데백화점', address: '부산광역시 부산진구 가야대로 772' },
     { name: '해운대 해수욕장', address: '부산광역시 해운대구 해운대해변로 264' },
@@ -82,18 +84,21 @@ export const REGION_DESTINATIONS: Record<RegionId, SuggestedPlace[]> = {
     { name: '인천시청', address: '인천광역시 남동구 정각로 29' },
   ],
   daegu: [
+    { name: '대구시청', address: '대구광역시 중구 공평로 88' },
     { name: '동대구역', address: '대구광역시 동구 동대구로 550' },
     { name: '동성로', address: '대구광역시 중구 동성로 2' },
     { name: '수성못', address: '대구광역시 수성구 무학로 43' },
     { name: '대구공항', address: '대구광역시 동구 공항로 221' },
   ],
   daejeon: [
+    { name: '대전시청', address: '대전광역시 서구 둔산로 100' },
     { name: '대전역', address: '대전광역시 동구 중앙로 215' },
     { name: '둔산 타임월드', address: '대전광역시 서구 둔산로 30' },
     { name: '유성온천', address: '대전광역시 유성구 온천로 87' },
     { name: '대전복합터미널', address: '대전광역시 동구 동서대로 1689' },
   ],
   gwangju: [
+    { name: '광주광역시청', address: '광주광역시 서구 내방로 111' },
     { name: '광주송정역', address: '광주광역시 광산구 상무대로 201' },
     { name: '충장로', address: '광주광역시 동구 충장로 1' },
     { name: '상무지구', address: '광주광역시 서구 치평동 1171' },
@@ -203,6 +208,26 @@ export function regionFromAccessText(city?: string, region?: string, country?: s
   return DEFAULT_REGION
 }
 
+export const REGION_DISPLAY: Record<RegionId, string> = {
+  seoul: '서울특별시',
+  busan: '부산광역시',
+  incheon: '인천광역시',
+  daegu: '대구광역시',
+  daejeon: '대전광역시',
+  gwangju: '광주광역시',
+  ulsan: '울산광역시',
+  sejong: '세종특별자치시',
+  gyeonggi: '경기도',
+  gangwon: '강원특별자치도',
+  chungbuk: '충청북도',
+  chungnam: '충청남도',
+  jeonbuk: '전북특별자치도',
+  jeonnam: '전라남도',
+  gyeongbuk: '경상북도',
+  gyeongnam: '경상남도',
+  jeju: '제주특별자치도',
+}
+
 function regionFromAddress(address: string): RegionId | null {
   const text = address.replace(/\s+/g, '')
   if (!text) return null
@@ -219,6 +244,14 @@ function regionFromCoords(lat: number, lng: number): RegionId {
   }, { id: DEFAULT_REGION, distance: Number.POSITIVE_INFINITY }).id
 }
 
+export function regionFromQuery(text: string): RegionId | null {
+  return regionFromAddress(text)
+}
+
+export function regionDisplayName(id: RegionId) {
+  return REGION_DISPLAY[id]
+}
+
 export function resolveRegion(address: string, lat?: number, lng?: number): RegionId {
   const fromAddress = regionFromAddress(address)
   if (fromAddress) return fromAddress
@@ -231,10 +264,12 @@ export function suggestedDestinationsFor(address: string, lat?: number, lng?: nu
 }
 
 const PLACE_COORDS: Record<string, { lat: number; lng: number }> = {
+  서울시청: { lat: 37.566395, lng: 126.977952 },
   서울역: { lat: 37.554678, lng: 126.970606 },
   강남역: { lat: 37.497952, lng: 127.027619 },
   명동: { lat: 37.563768, lng: 126.985226 },
   홍대입구: { lat: 37.557192, lng: 126.925381 },
+  부산시청: { lat: 35.179554, lng: 129.075641 },
   부산역: { lat: 35.115226, lng: 129.041517 },
   '서면 롯데백화점': { lat: 35.157268, lng: 129.057396 },
   '해운대 해수욕장': { lat: 35.158698, lng: 129.160384 },
@@ -243,14 +278,18 @@ const PLACE_COORDS: Record<string, { lat: number; lng: number }> = {
   '송도 센트럴파크': { lat: 37.3925, lng: 126.6395 },
   부평역: { lat: 37.489467, lng: 126.724559 },
   인천시청: { lat: 37.456256, lng: 126.705206 },
+  대구시청: { lat: 35.87139, lng: 128.601445 },
+  대구광역시청: { lat: 35.87139, lng: 128.601445 },
   동대구역: { lat: 35.879729, lng: 128.628359 },
   동성로: { lat: 35.869558, lng: 128.595926 },
   수성못: { lat: 35.82885, lng: 128.6218 },
   대구공항: { lat: 35.894108, lng: 128.658862 },
+  대전시청: { lat: 36.350412, lng: 127.384548 },
   대전역: { lat: 36.332363, lng: 127.434217 },
   '둔산 타임월드': { lat: 36.351848, lng: 127.377751 },
   유성온천: { lat: 36.3548, lng: 127.345 },
   대전복합터미널: { lat: 36.351, lng: 127.437 },
+  광주광역시청: { lat: 35.159545, lng: 126.852601 },
   광주송정역: { lat: 35.137577, lng: 126.790508 },
   충장로: { lat: 35.149, lng: 126.913 },
   상무지구: { lat: 35.152, lng: 126.85 },
@@ -303,13 +342,23 @@ const PLACE_COORDS: Record<string, { lat: number; lng: number }> = {
 export function lookupSuggestedPlace(query: string) {
   const q = query.trim()
   if (!q) return null
+  const compact = q.replace(/\s+/g, '')
+  const ranked: Array<{ name: string; address: string; lat: number; lng: number; score: number }> = []
   for (const list of Object.values(REGION_DESTINATIONS)) {
-    const hit = list.find((place) => place.name === q || place.address === q)
-    if (!hit) continue
-    const coords = PLACE_COORDS[hit.name]
-    if (!coords) return { ...hit, ...centerForRegion(resolveRegion(hit.address)) }
-    return { ...hit, ...coords }
+    for (const place of list) {
+      const name = place.name.replace(/\s+/g, '')
+      let score = 0
+      if (place.name === q || place.address === q) score = 100
+      else if (name === compact) score = 90
+      else if (name.includes(compact) || compact.includes(name)) score = 70
+      if (!score) continue
+      const coords = PLACE_COORDS[place.name] || centerForRegion(resolveRegion(place.address))
+      ranked.push({ ...place, ...coords, score })
+    }
   }
-  const coords = PLACE_COORDS[q]
-  return coords ? { name: q, address: q, ...coords } : null
+  const coords = PLACE_COORDS[q] || PLACE_COORDS[compact]
+  if (coords) ranked.push({ name: q, address: q, ...coords, score: 80 })
+  ranked.sort((a, b) => b.score - a.score)
+  const hit = ranked[0]
+  return hit ? { name: hit.name, address: hit.address, lat: hit.lat, lng: hit.lng } : null
 }

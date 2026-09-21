@@ -12,7 +12,8 @@ import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { PlacePickerScreen } from '@/components/place-picker-map'
-import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
+import { lookupSuggestedPlace, REGION_DESTINATIONS, regionDisplayName, regionFromQuery, suggestedDestinationsFor } from '@/lib/region-destinations'
+import { searchPlacesFromApi } from '@/lib/geocode-client'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import {
@@ -782,18 +783,14 @@ const PLACE_CATALOG = [
   { name: '동래역', address: '부산 동래구 충렬대로 237', hint: '지하철 1·4호선' },
   { name: '연산역', address: '부산 연제구 중앙대로 1001', hint: '시청 · 연산' },
   { name: '김해국제공항', address: '부산 강서구 공항진입로 108', hint: '국내선' },
+  { name: '대구시청', address: '대구광역시 중구 공평로 88', hint: '대구 중구 동인동' },
+  { name: '동대구역', address: '대구광역시 동구 동대구로 550', hint: 'KTX' },
+  { name: '동성로', address: '대구광역시 중구 동성로 2', hint: '대구 중심가' },
+  { name: '서울시청', address: '서울특별시 중구 세종대로 110', hint: '서울 중구' },
+  { name: '부산시청', address: '부산광역시 연제구 중앙대로 1001', hint: '부산 연제구' },
 ] as const
 
-type PlaceItem = (typeof PLACE_CATALOG)[number] | { name: string; address: string; hint: string }
-
-const BUSAN_RECOMMENDED: PlaceItem[] = [
-  { name: '서면역 2번 출구', address: '부산 부산진구 중앙대로 672', hint: '부산 대표 장소' },
-  { name: '부산역 KTX', address: '부산 동구 중앙대로 206', hint: '부산 대표 장소' },
-  { name: '해운대해수욕장', address: '부산 해운대구 해운대해변로 264', hint: '부산 대표 장소' },
-  { name: '사상역 서부터미널', address: '부산 사상구 사상로 201', hint: '부산 대표 장소' },
-  { name: '주례역', address: '부산 사상구 백양대로 500', hint: '백양대로 인근' },
-  { name: '센텀시티역', address: '부산 해운대구 센텀동로 99', hint: '부산 대표 장소' },
-]
+type PlaceItem = { name: string; address: string; hint: string; lat?: number; lng?: number }
 
 function compactAddress(value: string) {
   return value
@@ -801,6 +798,11 @@ function compactAddress(value: string) {
     .replace(/서울특별시/g, '서울')
     .replace(/부산광역시/g, '부산')
     .replace(/인천광역시/g, '인천')
+    .replace(/대구광역시/g, '대구')
+    .replace(/대전광역시/g, '대전')
+    .replace(/광주광역시/g, '광주')
+    .replace(/울산광역시/g, '울산')
+    .replace(/세종특별자치시/g, '세종')
     .replace(/\s+/g, '')
     .replace(/번\s*길/g, '번길')
     .replace(/[()[\].,·'"“”]/g, '')
@@ -814,6 +816,36 @@ function uniquePlaces(places: PlaceItem[]) {
     seen.add(key)
     return true
   })
+}
+
+function placesForRegion(region: ReturnType<typeof regionFromQuery>): PlaceItem[] {
+  if (!region) return []
+  return REGION_DESTINATIONS[region].map((place) => {
+    const known = lookupSuggestedPlace(place.name)
+    return {
+      name: place.name,
+      address: place.address,
+      hint: `${regionDisplayName(region)} 추천 장소`,
+      lat: known?.lat,
+      lng: known?.lng,
+    }
+  })
+}
+
+function allCatalogPlaces(): PlaceItem[] {
+  const fromRegions = Object.values(REGION_DESTINATIONS).flatMap((list) =>
+    list.map((place) => {
+      const known = lookupSuggestedPlace(place.name)
+      return {
+        name: place.name,
+        address: place.address,
+        hint: '전국 장소',
+        lat: known?.lat,
+        lng: known?.lng,
+      }
+    }),
+  )
+  return uniquePlaces([...PLACE_CATALOG.map((place) => ({ ...place })), ...fromRegions])
 }
 
 function queryTokens(raw: string) {
@@ -831,7 +863,7 @@ function queryTokens(raw: string) {
   return [...new Set([compact, ...parts.map(compactAddress), ...extras].filter((token) => token.length >= 2))]
 }
 
-function scorePlace(place: PlaceItem, compact: string, tokens: string[]) {
+function scorePlace(place: PlaceItem, compact: string, tokens: string[], namedRegion: ReturnType<typeof regionFromQuery>) {
   const hay = compactAddress(`${place.name} ${place.address} ${place.hint}`)
   let score = 0
   if (hay.includes(compact)) score += compact.length >= 6 ? 140 : 90
@@ -839,51 +871,58 @@ function scorePlace(place: PlaceItem, compact: string, tokens: string[]) {
   for (const token of tokens) {
     if (hay.includes(token)) score += token.length >= 4 ? 28 : 14
   }
-  if (compact.length >= 3) {
-    let cursor = 0
-    for (const ch of hay) {
-      if (ch === compact[cursor]) cursor += 1
-      if (cursor === compact.length) {
-        score += 10
-        break
-      }
-    }
+  const placeRegion = regionFromQuery(`${place.name} ${place.address}`)
+  if (namedRegion) {
+    if (placeRegion === namedRegion) score += 80
+    else if (placeRegion && placeRegion !== namedRegion) score -= 120
   }
   return score
 }
 
-function synthesizeFromQuery(raw: string): PlaceItem[] {
+function synthesizeFromQuery(raw: string, originAddress = ''): PlaceItem[] {
   const cleaned = raw.replace(/\s+/g, ' ').trim()
   const compact = compactAddress(cleaned)
   if (compact.length < 2) return []
-  const road = compact.match(/[가-힣0-9]+(?:대로|로|길).*/)?.[0] ?? compact
-  const prettyRoad = cleaned
-  return [
-    { name: prettyRoad, address: `부산 사상구 ${road}`, hint: '입력한 도로명 주소' },
-    { name: `${prettyRoad} 인근`, address: `부산 사상구 ${road} 일대`, hint: '주변 지역' },
-    { name: '주례동 인근 지번', address: '부산 사상구 주례동 119-8', hint: '가까운 지번 주소' },
-    { name: '학장동 인근 지번', address: '부산 사상구 학장동 573-3', hint: '가까운 지번 주소' },
-  ]
+  const named = regionFromQuery(cleaned)
+  const region = named || regionFromQuery(originAddress)
+  const area = region ? regionDisplayName(region) : ''
+  const known = lookupSuggestedPlace(cleaned)
+  const items: PlaceItem[] = []
+  if (known) {
+    items.push({ name: known.name, address: known.address, hint: '전국 검색', lat: known.lat, lng: known.lng })
+  }
+  items.push({
+    name: cleaned,
+    address: area ? `${area} ${cleaned}` : cleaned,
+    hint: named ? `${area} 장소` : '입력한 주소',
+    lat: known?.lat,
+    lng: known?.lng,
+  })
+  if (named) items.push(...placesForRegion(named))
+  return uniquePlaces(items)
 }
 
-function searchDestinationPlaces(raw: string) {
+function searchDestinationPlaces(raw: string, originAddress = '') {
   const keyword = raw.trim()
   const compact = compactAddress(keyword)
   if (!compact) return { items: [] as PlaceItem[], recommended: false }
+  const namedRegion = regionFromQuery(keyword)
   const tokens = queryTokens(keyword)
-  const ranked = PLACE_CATALOG
-    .map((place) => ({ place, score: scorePlace(place, compact, tokens) }))
+  const ranked = allCatalogPlaces()
+    .map((place) => ({ place, score: scorePlace(place, compact, tokens, namedRegion) }))
     .filter((row) => row.score >= 14)
     .sort((a, b) => b.score - a.score)
     .slice(0, 10)
     .map((row) => row.place)
   const looksAddress = /대로|로|길|동|번지|번길|\d/.test(compact)
   if (ranked.length > 0) {
-    const extras = looksAddress ? synthesizeFromQuery(keyword).slice(0, 2) : []
+    const extras = looksAddress ? synthesizeFromQuery(keyword, originAddress).slice(0, 2) : []
     return { items: uniquePlaces([...ranked, ...extras]).slice(0, 12), recommended: false }
   }
+  const nearbyRegion = namedRegion || regionFromQuery(originAddress)
+  const recommended = nearbyRegion ? placesForRegion(nearbyRegion) : placesForRegion('busan')
   return {
-    items: uniquePlaces([...synthesizeFromQuery(keyword), ...BUSAN_RECOMMENDED]).slice(0, 10),
+    items: uniquePlaces([...synthesizeFromQuery(keyword, originAddress), ...recommended]).slice(0, 10),
     recommended: true,
   }
 }
@@ -972,6 +1011,7 @@ function DestinationSearchModal({
   const [query, setQuery] = useState('')
   const [destMapOpen, setDestMapOpen] = useState(false)
   const [destMapSession, setDestMapSession] = useState(0)
+  const [remotePlaces, setRemotePlaces] = useState<PlaceItem[]>([])
   const openDestMap = () => {
     setDestMapSession((value) => value + 1)
     setDestMapOpen(true)
@@ -982,7 +1022,45 @@ function DestinationSearchModal({
     return () => window.clearTimeout(timer)
   }, [])
   const keyword = query.trim()
-  const { items: results, recommended } = keyword ? searchDestinationPlaces(keyword) : { items: [], recommended: false }
+  useEffect(() => {
+    if (!keyword) {
+      setRemotePlaces([])
+      return
+    }
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      void searchPlacesFromApi(keyword, controller.signal)
+        .then((places) => {
+          const named = regionFromQuery(keyword)
+          const mapped = places.map((place) => ({
+            name: place.name,
+            address: place.address,
+            hint: '전국 검색',
+            lat: place.lat,
+            lng: place.lng,
+          }))
+          const preferred = named
+            ? mapped.filter((place) => regionFromQuery(`${place.name} ${place.address}`) === named)
+            : mapped
+          setRemotePlaces(preferred.length ? preferred : mapped)
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setRemotePlaces([])
+        })
+    }, 180)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [keyword])
+  const local = keyword ? searchDestinationPlaces(keyword, originAddress) : { items: [] as PlaceItem[], recommended: false }
+  const known = keyword ? lookupSuggestedPlace(keyword) : null
+  const knownItem: PlaceItem[] = known
+    ? [{ name: known.name, address: known.address, hint: '전국 검색', lat: known.lat, lng: known.lng }]
+    : []
+  const results = keyword ? uniquePlaces([...knownItem, ...local.items, ...remotePlaces]).slice(0, 12) : []
+  const recommended = Boolean(keyword) && remotePlaces.length === 0 && !known && local.recommended
+  const namedRegion = regionFromQuery(keyword)
 
   const pick = (name: string, address?: string, coords?: RideCoords) => {
     onSelect(name, address, coords)
@@ -1033,21 +1111,31 @@ function DestinationSearchModal({
             <div>
               <p className="text-xs font-black text-[#4C1FB8]">{recommended ? '가까운 추천 장소' : `검색 결과 ${results.length}곳`}</p>
               {recommended ? (
-                <p className="mt-1 text-[11px] font-bold text-[#64748B]">입력하신 주소와 비슷한 도로명·지번·부산 대표 장소를 보여드려요.</p>
+                <p className="mt-1 text-[11px] font-bold text-[#64748B]">
+                  {namedRegion
+                    ? `${regionDisplayName(namedRegion)} 기준으로 대표 장소를 보여드려요.`
+                    : '입력하신 주소와 비슷한 장소, 또는 현재 지역 추천 장소를 보여드려요.'}
+                </p>
               ) : null}
               <div className="mt-3 space-y-2">
-                {results.map((place) => (
-                  <button key={`${place.name}-${place.address}`} type="button" onClick={() => pick(place.name, place.address)} className="flex w-full items-start gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.06)] active:scale-[0.99]">
-                    <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
-                      <MapPin className="h-5 w-5" />
-                    </span>
-                    <span className="min-w-0">
-                      <strong className="block text-sm font-black text-[#0F172A]">{place.name}</strong>
-                      <span className="mt-1 block text-xs font-bold text-[#64748B]">{place.address}</span>
-                      <span className="mt-1 block text-[11px] font-black text-[#4C1FB8]">{place.hint}</span>
-                    </span>
-                  </button>
-                ))}
+                {results.map((place) => {
+                  const coords =
+                    Number.isFinite(place.lat) && Number.isFinite(place.lng)
+                      ? { lat: place.lat as number, lng: place.lng as number, address: place.address }
+                      : coordsFromPlaceQuery(place.name) ?? coordsFromPlaceQuery(place.address)
+                  return (
+                    <button key={`${place.name}-${place.address}`} type="button" onClick={() => pick(place.name, place.address, coords ?? undefined)} className="flex w-full items-start gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.06)] active:scale-[0.99]">
+                      <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
+                        <MapPin className="h-5 w-5" />
+                      </span>
+                      <span className="min-w-0">
+                        <strong className="block text-sm font-black text-[#0F172A]">{place.name}</strong>
+                        <span className="mt-1 block text-xs font-bold text-[#64748B]">{place.address}</span>
+                        <span className="mt-1 block text-[11px] font-black text-[#4C1FB8]">{place.hint}</span>
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           ) : (
