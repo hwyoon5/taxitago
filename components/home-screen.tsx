@@ -11,7 +11,7 @@ import { TermsDetailView, TermsListView } from '@/components/more/terms-pages'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
-import { PickupLocationBar, PlacePickerScreen } from '@/components/place-picker-map'
+import { PlacePickerScreen } from '@/components/place-picker-map'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
@@ -6138,15 +6138,6 @@ export default function HomeScreen() {
               </button>
             </div>
           </div>
-          <PickupLocationBar
-            address={origin.address}
-            status={gps.status}
-            fromMap={pickup?.source === 'map'}
-            onOpenMap={openPickupMap}
-            onRetryGps={() => {
-              void requestUserLocation(true)
-            }}
-          />
         </header>
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (

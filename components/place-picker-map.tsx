@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, LocateFixed, MapPin } from 'lucide-react'
-import { useLocale } from '@/components/locale-provider'
 import { lookupAddressFromApi } from '@/lib/geocode-client'
 import { loadNaverMaps, waitForMapSize, type NaverMapInstance, type NaverMapsSdk } from '@/lib/naver-maps'
 
@@ -190,59 +189,6 @@ export function PlacePickerScreen({
           </button>
         </div>
       </div>
-    </div>
-  )
-}
-
-export function PickupLocationBar({
-  address,
-  status,
-  fromMap,
-  onOpenMap,
-  onRetryGps,
-}: {
-  address: string
-  status: 'pending' | 'ready' | 'approx' | string
-  fromMap: boolean
-  onOpenMap: () => void
-  onRetryGps: () => void
-}) {
-  const { t } = useLocale()
-  const ready = fromMap || status === 'ready'
-  return (
-    <div
-      className={`mt-3 flex min-h-10 items-center gap-2 rounded-2xl px-3 py-2 text-[12px] font-bold ${
-        ready ? 'bg-[#ECFDF5] text-[#047857]' : status === 'pending' ? 'bg-[#FFFBEB] text-[#B45309]' : 'bg-[#F1F5F9] text-[#475569]'
-      }`}
-    >
-      <button type="button" onClick={onOpenMap} className="flex min-w-0 flex-1 items-center gap-2 text-left" aria-label={t('home.changeLocation')}>
-        <LocateFixed className="h-4 w-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">
-          {ready
-            ? t('home.gpsReady', { address })
-            : status === 'pending'
-              ? t('home.gpsPending')
-              : status === 'approx'
-                ? t('home.gpsApprox', { address })
-                : t('home.gpsDenied', { address })}
-        </span>
-      </button>
-      {!ready ? (
-        <button
-          type="button"
-          onClick={onRetryGps}
-          className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-[#4A82B8] shadow-[0_4px_10px_rgba(15,23,42,0.08)]"
-        >
-          {t('home.allowLocation')}
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={onOpenMap}
-        className="shrink-0 rounded-full bg-[#4A82B8] px-2.5 py-1 text-[11px] font-black text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]"
-      >
-        {t('home.viewMap')}
-      </button>
     </div>
   )
 }
