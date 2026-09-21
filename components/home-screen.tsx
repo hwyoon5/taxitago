@@ -284,6 +284,12 @@ async function lookupMapAddress(lat: number, lng: number) {
   return reverseGeocode(lat, lng)
 }
 
+function openFreshMapModal(setOpen: (open: boolean) => void, bumpSession: () => void) {
+  setOpen(false)
+  bumpSession()
+  window.setTimeout(() => setOpen(true), 0)
+}
+
 function finiteCoord(value: number | undefined, fallback: number) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
@@ -331,6 +337,7 @@ function FullscreenMapView({
   const [liveAddress, setLiveAddress] = useState(startLabel || '이 위치의 주소를 확인하는 중')
   const [looking, setLooking] = useState(!startLabel)
   const [confirming, setConfirming] = useState(false)
+  const [mapInstanceKey] = useState(() => `fs-map-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
   const userMovedRef = useRef(false)
   const centerRef = useRef(center)
   const addressRef = useRef(liveAddress)
@@ -475,6 +482,7 @@ function FullscreenMapView({
       <div className="absolute inset-0 overflow-hidden" style={{ animation: 'ttMapRise 240ms ease-out' }}>
       <div className="absolute inset-0" style={isDest ? { paddingBottom: '13.75rem' } : undefined}>
       <LocationTileMap
+        key={mapInstanceKey}
         lat={camera.lat}
         lng={camera.lng}
         pinLat={center.lat}
@@ -606,6 +614,7 @@ function LocationMapModal({
   const [pin, setPin] = useState(start)
   const [address, setAddress] = useState(initialAddress || '이 위치의 주소를 확인하는 중')
   const [source, setSource] = useState<'fallback' | 'gps' | 'pick'>(initialAddress ? 'gps' : 'fallback')
+  const [mapInstanceKey] = useState(() => `loc-map-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
   const userMovedRef = useRef(false)
   const setAddressRef = useRef(setAddress)
   const setAddressPendingRef = useRef(setAddressPending)
@@ -698,6 +707,7 @@ function LocationMapModal({
         </div>
         <div className="relative mx-4 overflow-hidden rounded-[24px] border-2 border-[#334155] bg-[#E2E8F0]">
           <LocationTileMap
+            key={mapInstanceKey}
             lat={mapCenter.lat}
             lng={mapCenter.lng}
             pinLat={pin.lat}
@@ -1255,8 +1265,7 @@ function DestinationSearchModal({
   const [destMapOpen, setDestMapOpen] = useState(false)
   const [destMapSession, setDestMapSession] = useState(0)
   const openDestMap = () => {
-    setDestMapSession((value) => value + 1)
-    setDestMapOpen(true)
+    openFreshMapModal(setDestMapOpen, () => setDestMapSession((value) => value + 1))
   }
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -1417,7 +1426,7 @@ function DestinationSearchModal({
       </section>
       {destMapOpen ? (
         <FullscreenMapView
-          key={`dest-${destMapSession}`}
+          key={`dest-map-${destMapSession}`}
           purpose="dest"
           lat={mapLat}
           lng={mapLng}
@@ -1545,7 +1554,11 @@ function DestinationTaxiLoop({ className }: { className?: string }) {
 function SearchCard({ destination, onSelect }: { destination: string; onSelect: (value: string) => void }) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
+  const [locationMapSession, setLocationMapSession] = useState(0)
   const [formOpen, setFormOpen] = useState(false)
+  const openLocationMap = () => {
+    openFreshMapModal(setMapOpen, () => setLocationMapSession((value) => value + 1))
+  }
   const [favorites, setFavorites] = useState<FavoritePlace[]>([])
   const [recents, setRecents] = useState<RecentPlace[]>([])
   useEffect(() => {
@@ -1621,7 +1634,7 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
         <button type="button" onClick={() => setFormOpen(true)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[#4C1FB8] bg-white text-[#4C1FB8] transition hover:bg-[#EDE5FF] active:scale-95" aria-label="즐겨찾기 장소 추가">
           <Plus className="h-4 w-4" strokeWidth={3} />
         </button>
-        <button type="button" onClick={() => setMapOpen(true)} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border-2 border-[#4C1FB8] bg-[#EDE5FF] px-4 py-2 text-xs font-black text-[#3B16A8] shadow-[0_6px_14px_rgba(76,31,184,0.18)] transition hover:bg-[#E0D4FF] active:scale-95">
+        <button type="button" onClick={openLocationMap} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border-2 border-[#4C1FB8] bg-[#EDE5FF] px-4 py-2 text-xs font-black text-[#3B16A8] shadow-[0_6px_14px_rgba(76,31,184,0.18)] transition hover:bg-[#E0D4FF] active:scale-95">
           <LocateFixed className="h-3.5 w-3.5" />
           내 위치
         </button>
@@ -1636,10 +1649,10 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
           onAddFavorite={() => setFormOpen(true)}
           onRemoveFavorite={removeFavorite}
           onRemoveRecent={removeRecent}
-          onOpenMap={() => setMapOpen(true)}
+          onOpenMap={openLocationMap}
         />
       ) : null}
-      {mapOpen ? <LocationMapModal onClose={() => setMapOpen(false)} /> : null}
+      {mapOpen ? <LocationMapModal key={`search-loc-${locationMapSession}`} onClose={() => setMapOpen(false)} /> : null}
       {formOpen ? <FavoritePlaceModal onClose={() => setFormOpen(false)} onSave={addFavorite} /> : null}
     </section>
   )
@@ -3477,6 +3490,7 @@ function DaeriCallSetupSheet({
   const [dest, setDest] = useState(destination.trim() || '')
   const [plan, setPlan] = useState<'착한요금' | '빠른배정'>('착한요금')
   const [mapPicker, setMapPicker] = useState(false)
+  const [pickerMapSession, setPickerMapSession] = useState(0)
   const [pendingPick, setPendingPick] = useState<{ lat: number; lng: number; address: string } | null>(null)
   const [sheetOpen, setSheetOpen] = useState(true)
   const [sheetHeight, setSheetHeight] = useState(360)
@@ -3536,6 +3550,7 @@ function DaeriCallSetupSheet({
     <div className="fixed inset-0 z-[52] bg-[#1e1033]/40">
       <div className="relative mx-auto h-full max-w-md overflow-hidden bg-[#E2E8F0]">
         <LocationTileMap
+          key={mapPicker ? `daeri-pick-${pickerMapSession}` : 'daeri-preview'}
           lat={pickupPoint.lat}
           lng={pickupPoint.lng}
           pinLat={pendingPick?.lat ?? pickupPoint.lat}
@@ -3544,7 +3559,10 @@ function DaeriCallSetupSheet({
           interactive
           pulsePin
           bottomInset={bottomInset}
-          onActivate={mapPicker ? undefined : () => setMapPicker(true)}
+          onActivate={mapPicker ? undefined : () => {
+            setPickerMapSession((value) => value + 1)
+            setMapPicker(true)
+          }}
           onPick={mapPicker ? pickMapPoint : undefined}
         />
         {mapPicker ? (
@@ -6053,6 +6071,7 @@ export default function HomeScreen() {
   const [walletBalance, setWalletBalance] = useState(18.4)
   const [walletOpen, setWalletOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
+  const [locationMapSession, setLocationMapSession] = useState(0)
   const [fullscreenMapOpen, setFullscreenMapOpen] = useState(false)
   const [pickupMapSession, setPickupMapSession] = useState(0)
   const pickingMapRef = useRef(false)
@@ -6105,8 +6124,7 @@ export default function HomeScreen() {
 
   const openPickupMap = () => {
     pickingMapRef.current = true
-    setPickupMapSession((value) => value + 1)
-    setFullscreenMapOpen(true)
+    openFreshMapModal(setFullscreenMapOpen, () => setPickupMapSession((value) => value + 1))
   }
 
   const applyLocatedPoint = async (
@@ -6560,6 +6578,7 @@ export default function HomeScreen() {
         ) : null}
         {mapOpen ? (
           <LocationMapModal
+            key={`home-loc-${locationMapSession}`}
             onClose={() => setMapOpen(false)}
             initialLat={origin.lat}
             initialLng={origin.lng}
@@ -6568,7 +6587,7 @@ export default function HomeScreen() {
         ) : null}
         {fullscreenMapOpen ? (
           <FullscreenMapView
-            key={pickupMapSession}
+            key={`pickup-map-${pickupMapSession}`}
             lat={origin.lat}
             lng={origin.lng}
             address={origin.address}
