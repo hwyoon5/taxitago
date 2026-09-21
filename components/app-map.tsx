@@ -501,10 +501,12 @@ function requestMapAddress(
   seqRef: MutableRefObject<number>,
   onAddress: MutableRefObject<MapViewProps['onAddressChange'] | undefined>,
   point: RidePoint | null,
+  isLive?: () => boolean,
 ) {
   if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return
   const seq = ++seqRef.current
   void (async () => {
+    if (isLive && !isLive()) return
     let label = ''
     try {
       label = (await callNaverReverseGeocode(point.lat, point.lng, 4000))?.trim() || ''
@@ -518,7 +520,7 @@ function requestMapAddress(
         label = ''
       }
     }
-    if (seq !== seqRef.current || !label) return
+    if ((isLive && !isLive()) || seq !== seqRef.current || !label) return
     onAddress.current?.({ lat: point.lat, lng: point.lng, address: label })
   })()
 }
@@ -775,6 +777,7 @@ function NaverLocationMap(props: MapViewProps) {
   const centerIdleRef = useRef(onCenterIdle)
   const addressChangeRef = useRef(onAddressChange)
   const geocodeSeqRef = useRef(0)
+  const sessionRef = useRef(0)
   const insetRef = useRef(bottomInset)
   const centerRef = useRef({ lat, lng, pinLat, pinLng })
   const followCenterRef = useRef(Boolean(centerPin))
@@ -816,14 +819,15 @@ function NaverLocationMap(props: MapViewProps) {
     let onPointerMove: ((event: PointerEvent) => void) | null = null
     let onPointerUp: ((event: PointerEvent) => void) | null = null
     const canvasNode = canvas
+    const session = ++sessionRef.current
+    const isLive = () => !cancelled && session === sessionRef.current
     draggingRef.current = false
     userPannedRef.current = false
     geocodeSeqRef.current += 1
-    setMode('loading')
     void (async () => {
       await waitForMapSize(canvas)
       const sdk = await loadNaverMaps()
-      if (cancelled || !canvasRef.current) return
+      if (!isLive() || !canvasRef.current) return
       if (!sdk?.Map) {
         setLoadNotice('네이버 지도를 불러오지 못해 대체 지도를 표시합니다.')
         setMode('fallback')
@@ -847,14 +851,14 @@ function NaverLocationMap(props: MapViewProps) {
       })
       mapInstance = map
       mapRef.current = map
-      if (cancelled) {
+      if (!isLive()) {
         detachNaverMap(sdk, map, listeners, canvasRef.current)
         if (mapRef.current === map) mapRef.current = null
         return
       }
       if (!hidePin && !followCenterRef.current) {
         pinRef.current = trackMapPoint(sdk, map, start.pinLat ?? start.lat, start.pinLng ?? start.lng, (x, y) => {
-          if (!cancelled) setPinScreen({ x, y })
+          if (isLive()) setPinScreen({ x, y })
         })
       }
       const readCenter = () => {
@@ -866,23 +870,21 @@ function NaverLocationMap(props: MapViewProps) {
         }
       }
       const publishCenterAddress = (fromUser = false) => {
-        if (cancelled) return
+        if (!isLive()) return
         const next = readCenter()
         if (!next) return
         lastIdle = next
         if (fromUser) userPannedRef.current = true
         centerChangeRef.current?.(next.lat, next.lng, false)
         centerIdleRef.current?.(next.lat, next.lng)
-        const key = `${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
-        if (key === lastGeocodeKey && !fromUser) return
-        lastGeocodeKey = key
-        requestMapAddress(geocodeSeqRef, addressChangeRef, next)
+        lastGeocodeKey = `${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
+        requestMapAddress(geocodeSeqRef, addressChangeRef, next, isLive)
       }
       const requestIdleGeocode = (fromUser = false) => {
-        if (cancelled) return
+        if (!isLive()) return
         window.clearTimeout(idleGeocodeTimer)
         idleGeocodeTimer = window.setTimeout(() => {
-          if (cancelled || draggingRef.current) return
+          if (!isLive() || draggingRef.current) return
           publishCenterAddress(fromUser || userPannedRef.current)
         }, 120)
       }
@@ -895,7 +897,7 @@ function NaverLocationMap(props: MapViewProps) {
         centerChangeRef.current?.(next.lat, next.lng, active)
       }
       const panAndGeocode = (point: { lat: number; lng: number }) => {
-        if (!followCenterRef.current || cancelled) return
+        if (!followCenterRef.current || !isLive()) return
         userPannedRef.current = true
         draggingRef.current = false
         try {
@@ -906,7 +908,7 @@ function NaverLocationMap(props: MapViewProps) {
         lastIdle = point
         centerChangeRef.current?.(point.lat, point.lng, false)
         centerIdleRef.current?.(point.lat, point.lng)
-        requestMapAddress(geocodeSeqRef, addressChangeRef, point)
+        requestMapAddress(geocodeSeqRef, addressChangeRef, point, isLive)
       }
       const pointFromMapEvent = (event?: { coord?: unknown; latlng?: unknown }) => readMapClickLatLng(event)
       const pointFromPointer = (clientX: number, clientY: number) => {
@@ -917,7 +919,7 @@ function NaverLocationMap(props: MapViewProps) {
         return readLatLngValue(mapped)
       }
       const pollCenter = () => {
-        if (!draggingRef.current || cancelled) return
+        if (!draggingRef.current || !isLive()) return
         emitMapCenter(true)
         raf = window.requestAnimationFrame(pollCenter)
       }
@@ -926,7 +928,7 @@ function NaverLocationMap(props: MapViewProps) {
         if (handle) listeners.push(handle)
       }
       const idleHandle = addNaverMapListener(window.naver?.maps || sdk, map, 'idle', () => {
-        if (cancelled) return
+        if (!isLive()) return
         draggingRef.current = false
         setPinLift(false)
         const next = readLatLngValue(invokeMapCenter(map)) || readCenter()
@@ -935,13 +937,14 @@ function NaverLocationMap(props: MapViewProps) {
           return
         }
         lastIdle = next
+        lastGeocodeKey = `${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
         centerChangeRef.current?.(next.lat, next.lng, false)
         centerIdleRef.current?.(next.lat, next.lng)
-        requestMapAddress(geocodeSeqRef, addressChangeRef, next)
+        requestMapAddress(geocodeSeqRef, addressChangeRef, next, isLive)
       })
       if (idleHandle) listeners.push(idleHandle)
       const dragEndHandle = addNaverMapListener(window.naver?.maps || sdk, map, 'dragend', () => {
-        if (cancelled) return
+        if (!isLive()) return
         draggingRef.current = false
         setPinLift(false)
         window.cancelAnimationFrame(raf)
@@ -951,10 +954,11 @@ function NaverLocationMap(props: MapViewProps) {
           return
         }
         lastIdle = next
+        lastGeocodeKey = `${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
         userPannedRef.current = true
         centerChangeRef.current?.(next.lat, next.lng, false)
         centerIdleRef.current?.(next.lat, next.lng)
-        requestMapAddress(geocodeSeqRef, addressChangeRef, next)
+        requestMapAddress(geocodeSeqRef, addressChangeRef, next, isLive)
       })
       if (dragEndHandle) listeners.push(dragEndHandle)
       if (interactive) {
@@ -1012,7 +1016,7 @@ function NaverLocationMap(props: MapViewProps) {
         }
       }
       onPointerUp = (event: PointerEvent) => {
-        if (!followCenterRef.current || cancelled) return
+        if (!followCenterRef.current || !isLive()) return
         if (pointerOrigin.moved) {
           draggingRef.current = false
           setPinLift(false)
@@ -1027,16 +1031,16 @@ function NaverLocationMap(props: MapViewProps) {
       canvasNode.addEventListener('pointerup', onPointerUp)
       refreshNaverMap(sdk, map)
       refreshTimer = window.setTimeout(() => {
-        if (cancelled) return
+        if (!isLive()) return
         refreshNaverMap(sdk, map)
       }, 80)
       idleBootTimer = window.setTimeout(() => {
-        if (cancelled) return
+        if (!isLive()) return
         refreshNaverMap(sdk, map)
         pinRef.current?.draw?.()
         requestIdleGeocode()
       }, 400)
-      if (cancelled) {
+      if (!isLive()) {
         detachNaverMap(sdk, map, listeners, canvasRef.current)
         if (mapRef.current === map) mapRef.current = null
         return
@@ -1045,6 +1049,7 @@ function NaverLocationMap(props: MapViewProps) {
     })()
     return () => {
       cancelled = true
+      sessionRef.current += 1
       geocodeSeqRef.current += 1
       draggingRef.current = false
       userPannedRef.current = false

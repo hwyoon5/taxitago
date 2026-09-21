@@ -365,6 +365,7 @@ function FullscreenMapView({
     const nextLng = center.lng
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
     const key = `${nextLat.toFixed(5)},${nextLng.toFixed(5)}`
+    if (key === lastLookupKey.current) return
     const requestId = ++lookupSeq.current
     setLooking(true)
     window.clearTimeout(lookupTimer.current)
@@ -375,14 +376,16 @@ function FullscreenMapView({
       lookupWatchdog.current = window.setTimeout(() => settleAddress(requestId, nextLat, nextLng, fallback), 2800)
       void lookupMapAddress(nextLat, nextLng)
         .then((nextAddress) => {
+          if (requestId !== lookupSeq.current) return
           window.clearTimeout(lookupWatchdog.current)
           settleAddress(requestId, nextLat, nextLng, nextAddress)
         })
         .catch(() => {
+          if (requestId !== lookupSeq.current) return
           window.clearTimeout(lookupWatchdog.current)
           settleAddress(requestId, nextLat, nextLng, fallback)
         })
-    }, 80)
+    }, 160)
     return () => {
       window.clearTimeout(lookupTimer.current)
       window.clearTimeout(lookupWatchdog.current)
@@ -513,6 +516,9 @@ function FullscreenMapView({
         onAddressChange={(place) => {
           const label = usableMapAddress(place.address) || place.address
           if (!label) return
+          lastLookupKey.current = `${place.lat.toFixed(5)},${place.lng.toFixed(5)}`
+          lookupSeq.current += 1
+          centerRef.current = { lat: place.lat, lng: place.lng }
           setLiveAddress(label)
           addressRef.current = label
           setLooking(false)
@@ -636,6 +642,7 @@ function LocationMapModal({
   const [address, setAddress] = useState(initialAddress || '이 위치의 주소를 확인하는 중')
   const [source, setSource] = useState<'fallback' | 'gps' | 'pick'>(initialAddress ? 'gps' : 'fallback')
   const lookupSeq = useRef(0)
+  const lastAddressKey = useRef('')
   const userMovedRef = useRef(false)
 
   const applyPoint = (nextLat: number, nextLng: number, nextSource: 'fallback' | 'gps' | 'pick', recenter = false) => {
@@ -663,9 +670,12 @@ function LocationMapModal({
     const nextLat = pin.lat
     const nextLng = pin.lng
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
+    const key = `${nextLat.toFixed(5)},${nextLng.toFixed(5)}`
+    if (key === lastAddressKey.current) return
     const seq = ++lookupSeq.current
     setAddressPending(true)
     const timer = window.setTimeout(() => {
+      lastAddressKey.current = key
       void lookupMapAddress(nextLat, nextLng)
         .then((nextAddress) => {
           if (lookupSeq.current !== seq) return
@@ -677,7 +687,7 @@ function LocationMapModal({
           setAddress(failedReverseAddress(nextLat, nextLng))
           setAddressPending(false)
         })
-    }, 80)
+    }, 160)
     return () => window.clearTimeout(timer)
   }, [pin.lat, pin.lng])
 
@@ -751,6 +761,8 @@ function LocationMapModal({
             onAddressChange={(place) => {
               const label = usableMapAddress(place.address) || place.address
               if (!label) return
+              lookupSeq.current += 1
+              lastAddressKey.current = `${place.lat.toFixed(5)},${place.lng.toFixed(5)}`
               setPin({ lat: place.lat, lng: place.lng })
               setAddress(label)
               setAddressPending(false)
