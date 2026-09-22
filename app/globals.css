@@ -141,15 +141,6 @@
   }
 }
 
-@keyframes taxi-route-dash {
-  to { stroke-dashoffset: -56; }
-}
-
-.taxi-live-dash {
-  stroke-dasharray: 7 10;
-  animation: taxi-route-dash 1.15s linear infinite;
-}
-
 @keyframes taxi-live-pulse {
   0%, 100% { opacity: 0.28; transform: scale(1); }
   50% { opacity: 0.72; transform: scale(1.55); }
@@ -161,7 +152,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .taxi-live-dash,
   .taxi-live-pulse {
     animation: none;
   }
@@ -225,6 +215,10 @@
   min-height: 220px;
 }
 
+.naver-map-shell.naver-map-shell-compact {
+  min-height: 0;
+}
+
 .naver-map-host,
 .naver-map-canvas {
   width: 100%;
@@ -238,6 +232,20 @@
   height: 100% !important;
 }
 
+.service-naver-map-host,
+.service-naver-map-host > div,
+.service-naver-map-host .nmap {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 160px;
+}
+
+.naver-map-canvas svg path,
+.naver-map-canvas svg polyline {
+  stroke: black !important;
+  stroke-dasharray: none !important;
+  stroke-dashoffset: 0 !important;
+}
 .tt-start-pin {
   position: relative;
   display: block;

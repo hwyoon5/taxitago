@@ -36,7 +36,7 @@ function formatGcResults(payload: unknown) {
   return parts.join(' ').replace(/\s+/g, ' ').trim()
 }
 
-function naverGatewayHeaders() {
+export function naverGatewayHeaders() {
   const keyId = resolveNaverMapClientId()
   const secret = resolveNaverMapSecret()
   const headers: Record<string, string> = { Accept: 'application/json' }

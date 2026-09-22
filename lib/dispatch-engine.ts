@@ -1,4 +1,4 @@
-import { etaMinutesFromKm, haversineKm } from '@/lib/dispatch-geo'
+import { etaMinutesFromKm, haversineKm, headingDegrees, stepToward } from '@/lib/dispatch-geo'
 import { getEscrowByRide } from '@/lib/escrow-store'
 import { openEscrowForRide, lockEscrow, refundEscrow, toPublicEscrow } from '@/lib/escrow-engine'
 import { archiveRideComms, openRideComms } from '@/lib/comms-engine'
@@ -12,6 +12,7 @@ import {
   nowIso,
   saveDriver,
   saveRide,
+  subscribeRideLive,
 } from '@/lib/dispatch-store'
 import {
   DRIVER_STALE_MS,
@@ -24,6 +25,8 @@ import {
 } from '@/lib/dispatch-types'
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
+const virtualAcceptTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const liveMoveTimers = new Map<string, ReturnType<typeof setInterval>>()
 
 function clearRideTimer(rideId: string) {
   const timer = timers.get(rideId)
@@ -51,6 +54,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
             driverName: getDriver(ride.currentOffer.driverId)?.name || '기사',
           }
         : null,
+    kind: ride.kind === 'daeri' ? 'daeri' : 'taxi',
     assignedDriver: assigned
       ? {
           id: assigned.id,
@@ -60,6 +64,10 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
           rating: assigned.rating,
           etaMinutes: etaMinutesFromKm(pickupKm),
           pickupDistanceKm: Math.round(pickupKm * 10) / 10,
+          lat: assigned.lat,
+          lng: assigned.lng,
+          heading: assigned.heading ?? 0,
+          updatedAt: assigned.lastSeenAt,
         }
       : null,
     escrow: toPublicEscrow(getEscrowByRide(ride.id)),
@@ -97,7 +105,8 @@ function stamp(ride: RideRequestRecord) {
   return saveRide(ride)
 }
 
-function scheduleOfferWatch(ride: RideRequestRecord) {
+function scheduleOfferWatch(ride: RideRequestRecord, restart = true) {
+  if (!restart && timers.has(ride.id)) return
   clearRideTimer(ride.id)
   const offer = ride.currentOffer
   if (!offer || offer.decision !== 'pending') return
@@ -124,7 +133,55 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
   ride.currentOffer = offer
   stamp(ride)
   scheduleOfferWatch(ride)
+  if (driver.virtual) scheduleVirtualAccept(ride.id, driver.id)
   return ride
+}
+
+function scheduleVirtualAccept(rideId: string, driverId: string) {
+  const existing = virtualAcceptTimers.get(rideId)
+  if (existing) clearTimeout(existing)
+  const timer = setTimeout(() => {
+    virtualAcceptTimers.delete(rideId)
+    respondToOffer(rideId, driverId, 'accept')
+  }, 2200)
+  virtualAcceptTimers.set(rideId, timer)
+}
+
+function clearVirtualAccept(rideId: string) {
+  const timer = virtualAcceptTimers.get(rideId)
+  if (timer) clearTimeout(timer)
+  virtualAcceptTimers.delete(rideId)
+}
+
+function stopLiveDriverMove(rideId: string) {
+  const timer = liveMoveTimers.get(rideId)
+  if (timer) clearInterval(timer)
+  liveMoveTimers.delete(rideId)
+}
+
+export function startLiveDriverTracking(rideId: string) {
+  if (liveMoveTimers.has(rideId)) return
+  const timer = setInterval(() => {
+    const ride = getRide(rideId)
+    if (!ride || ride.status !== 'assigned' || !ride.assignedDriverId) {
+      stopLiveDriverMove(rideId)
+      return
+    }
+    const driver = getDriver(ride.assignedDriverId)
+    if (!driver?.virtual) return
+    const pickupKm = haversineKm({ lat: driver.lat, lng: driver.lng }, ride.pickup)
+    const target = pickupKm > 0.08 ? ride.pickup : ride.dest
+    const next = stepToward(driver, target, 0.18)
+    saveDriver({
+      ...driver,
+      lat: next.lat,
+      lng: next.lng,
+      heading: headingDegrees(driver, next),
+      lastSeenAt: nowIso(),
+      status: 'busy',
+    })
+  }, 1000)
+  liveMoveTimers.set(rideId, timer)
 }
 
 export function assignNextDriver(rideId: string) {
@@ -163,6 +220,7 @@ export function refreshRideTimers(ride: RideRequestRecord) {
 
 export function createRideAndMatch(input: {
   id: string
+  kind?: RideRequestRecord['kind']
   passengerId: string
   pickup: RideRequestRecord['pickup']
   dest: RideRequestRecord['dest']
@@ -171,6 +229,7 @@ export function createRideAndMatch(input: {
   const createdAt = nowIso()
   const ride = saveRide({
     ...input,
+    kind: input.kind === 'daeri' ? 'daeri' : 'taxi',
     status: 'searching',
     assignedDriverId: null,
     currentOffer: null,
@@ -188,6 +247,8 @@ export function cancelRide(rideId: string, passengerId?: string) {
   if (passengerId && ride.passengerId !== passengerId) return ride
   if (ride.status === 'completed') return ride
   clearRideTimer(ride.id)
+  clearVirtualAccept(ride.id)
+  stopLiveDriverMove(ride.id)
   if (ride.assignedDriverId) {
     const driver = getDriver(ride.assignedDriverId)
     if (driver && driver.status === 'busy' && !driver.virtual) {
@@ -224,6 +285,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   }
 
   clearRideTimer(ride.id)
+  clearVirtualAccept(ride.id)
   if (action === 'reject') {
     ride.declinedDriverIds = [...new Set([...ride.declinedDriverIds, driverId])]
     ride.currentOffer = { ...ride.currentOffer, decision: 'rejected' }
@@ -248,6 +310,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
   openEscrowForRide(ride.id)
   openRideComms(ride.id)
+  startLiveDriverTracking(ride.id)
   return { ok: true as const, ride }
 }
 
@@ -266,6 +329,7 @@ export function confirmMatchOnDevice(rideId: string) {
     ride.currentOffer = null
   }
   clearRideTimer(ride.id)
+  clearVirtualAccept(ride.id)
   const offeredId = ride.currentOffer?.driverId
   let driver = offeredId ? getDriver(offeredId) : null
   if (!driver) driver = rankedCandidates(ride)[0]?.driver ?? listDrivers()[0] ?? null
@@ -287,13 +351,24 @@ export function confirmMatchOnDevice(rideId: string) {
   openEscrowForRide(ride.id)
   openRideComms(ride.id)
   lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })
+  startLiveDriverTracking(ride.id)
   return { ok: true as const, ride: getRide(ride.id) ?? ride }
 }
 
 export function getPublicRide(rideId: string) {
+  resumeAssignedTracking()
   const ride = getRide(rideId)
   if (!ride) return null
   return toPublicRide(refreshRideTimers(ride) ?? ride)
+}
+
+export function resumeAssignedTracking() {
+  for (const ride of listRides()) {
+    if (ride.status === 'assigned') startLiveDriverTracking(ride.id)
+    else if (ride.status === 'offered' && ride.currentOffer?.decision === 'pending') {
+      scheduleOfferWatch(ride, false)
+    }
+  }
 }
 
 export function completeAssignedRide(rideId: string, driverId: string) {
@@ -302,6 +377,9 @@ export function completeAssignedRide(rideId: string, driverId: string) {
   if (ride.assignedDriverId !== driverId) return ride
   ride.status = 'completed'
   stamp(ride)
+  stopLiveDriverMove(rideId)
+  const driver = getDriver(driverId)
+  if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
   archiveRideComms(rideId, 'completed')
   return ride
 }
@@ -343,6 +421,10 @@ export function upsertDriverPresence(input: {
     rating: input.rating?.trim() || current?.rating || '5.00',
     lat: input.lat,
     lng: input.lng,
+    heading:
+      current && (current.lat !== input.lat || current.lng !== input.lng)
+        ? headingDegrees(current, input)
+        : current?.heading ?? 0,
     status: input.status === 'offline' ? 'offline' : current?.status === 'busy' ? 'busy' : 'online',
     lastSeenAt: nowIso(),
     virtual: false,
@@ -351,3 +433,5 @@ export function upsertDriverPresence(input: {
   }
   return saveDriver(next)
 }
+
+export { subscribeRideLive }

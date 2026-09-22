@@ -6,6 +6,8 @@ export type RideStatus =
   | 'cancelled'
   | 'completed'
 
+export type RideKind = 'taxi' | 'daeri'
+
 export type DriverDutyStatus = 'online' | 'offline' | 'busy'
 
 export type OfferDecision = 'pending' | 'accepted' | 'rejected' | 'timeout'
@@ -20,6 +22,7 @@ export type GeoPoint = {
 /** Ride request row: pickup/dest + quoted fare. */
 export type RideRequestRecord = {
   id: string
+  kind: RideKind
   passengerId: string
   pickup: GeoPoint
   dest: GeoPoint
@@ -51,6 +54,7 @@ export type DriverRecord = {
   rating: string
   lat: number
   lng: number
+  heading: number
   status: DriverDutyStatus
   lastSeenAt: string
   virtual: boolean
@@ -66,6 +70,10 @@ export type PublicDriver = {
   rating: string
   etaMinutes: number
   pickupDistanceKm: number
+  lat: number
+  lng: number
+  heading: number
+  updatedAt: string
 }
 
 export type EscrowStatus = 'pending' | 'held' | 'released' | 'refunded'
@@ -80,6 +88,7 @@ export type PublicEscrow = {
 
 export type PublicRide = {
   id: string
+  kind: RideKind
   passengerId: string
   pickup: GeoPoint
   dest: GeoPoint

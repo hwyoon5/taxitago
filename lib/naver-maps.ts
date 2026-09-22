@@ -28,6 +28,8 @@ export type NaverMarker = {
 export type NaverPolyline = {
   setMap: (map: NaverMapInstance | null) => void
   setPath: (path: unknown[]) => void
+  setOptions?: (options: Record<string, unknown>) => void
+  setStyle?: (options: Record<string, unknown>) => void
 }
 
 export type NaverMapsSdk = {
@@ -142,7 +144,19 @@ export function getNaverMapsSdk(): NaverMapsSdk | null {
 export function getNaverMaps(): NaverMapsSdk | null {
   if (typeof window === 'undefined') return null
   const maps = window.naver?.maps
-  return maps?.Map ? maps : null
+  if (!maps) return null
+  if (typeof maps.Map !== 'function' || typeof maps.LatLng !== 'function' || typeof maps.Point !== 'function') return null
+  return maps
+}
+
+export function createNaverLatLng(maps: NaverMapsSdk | null | undefined, lat: number, lng: number) {
+  const LatLng = maps?.LatLng ?? (typeof window === 'undefined' ? undefined : window.naver?.maps?.LatLng)
+  if (typeof LatLng !== 'function') return null
+  try {
+    return new LatLng(lat, lng)
+  } catch {
+    return null
+  }
 }
 
 export function getNaverGeocoderService() {
@@ -340,15 +354,21 @@ export function createDomMarker(
   lng: number,
   anchorX: number,
   anchorY: number,
-): NaverMarker {
-  return new maps.Marker({
+): NaverMarker | null {
+  const LatLng = maps?.LatLng
+  const Marker = maps?.Marker
+  const Point = maps?.Point
+  if (typeof LatLng !== 'function' || typeof Marker !== 'function' || typeof Point !== 'function') return null
+  const position = createNaverLatLng(maps, lat, lng)
+  if (!position) return null
+  return new Marker({
     map,
-    position: new maps.LatLng(lat, lng),
+    position,
     clickable: false,
     icon: {
       content: element,
-      size: new maps.Point(anchorX * 2, anchorY * 2),
-      anchor: new maps.Point(anchorX, anchorY),
+      size: new Point(anchorX * 2, anchorY * 2),
+      anchor: new Point(anchorX, anchorY),
     },
   })
 }
@@ -389,20 +409,25 @@ export function createHtmlOverlay(
   const asMarkerPin = (): MapHtmlPin => {
     const marker = createDomMarker(maps, map, element, lat, lng, 12, 12)
     return {
-      setMap: (next) => marker.setMap(next),
-      setPosition: (nextLat, nextLng) => marker.setPosition(new maps.LatLng(nextLat, nextLng)),
+      setMap: (next) => marker?.setMap(next),
+      setPosition: (nextLat, nextLng) => {
+        const position = createNaverLatLng(maps, nextLat, nextLng)
+        if (position) marker?.setPosition(position)
+      },
     }
   }
-  if (typeof maps.OverlayView !== 'function') return asMarkerPin()
+  if (typeof maps?.OverlayView !== 'function' || typeof maps?.LatLng !== 'function') return asMarkerPin()
 
   try {
     const Overlay = function Overlay(this: MapHtmlPin & { _position: unknown }) {
       maps.OverlayView.call(this as never)
       this.setPosition = (nextLat: number, nextLng: number) => {
-        this._position = new maps.LatLng(nextLat, nextLng)
+        const position = createNaverLatLng(maps, nextLat, nextLng)
+        if (!position) return
+        this._position = position
         this.draw?.()
       }
-      this._position = new maps.LatLng(lat, lng)
+      this._position = createNaverLatLng(maps, lat, lng)
     } as unknown as {
       new (): MapHtmlPin & {
         _position: unknown
@@ -457,8 +482,9 @@ export function trackMapPoint(
 }
 
 export function applyMapBottomInset(maps: NaverMapsSdk, map: NaverMapInstance, lat: number, lng: number, bottomInset: number) {
-  map.setCenter(new maps.LatLng(lat, lng))
-  if (bottomInset > 0) map.panBy(new maps.Point(0, Math.round(bottomInset / 2)))
+  const center = createNaverLatLng(maps, lat, lng)
+  if (center) map.setCenter(center)
+  if (bottomInset > 0 && typeof maps?.Point === 'function') map.panBy(new maps.Point(0, Math.round(bottomInset / 2)))
 }
 
 function cleanAddress(value: unknown) {

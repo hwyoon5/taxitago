@@ -29,3 +29,27 @@ export function estimateTaxiFarePi(distanceKm: number) {
 export function etaMinutesFromKm(distanceKm: number) {
   return Math.max(2, Math.round(distanceKm / 0.35))
 }
+
+export function headingDegrees(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+) {
+  const y = to.lng - from.lng
+  const x = to.lat - from.lat
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
+}
+
+export function stepToward(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+  stepKm: number,
+) {
+  const remaining = haversineKm(from, to)
+  if (remaining <= stepKm || remaining <= 0.02) return { lat: to.lat, lng: to.lng, arrived: true }
+  const ratio = stepKm / remaining
+  return {
+    lat: from.lat + (to.lat - from.lat) * ratio,
+    lng: from.lng + (to.lng - from.lng) * ratio,
+    arrived: false,
+  }
+}

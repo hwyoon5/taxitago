@@ -11,6 +11,7 @@ import { TermsDetailView, TermsListView } from '@/components/more/terms-pages'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
+import { NearbyServiceMap } from '@/components/nearby-service-map'
 import { PlacePickerScreen } from '@/components/place-picker-map'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { lookupSuggestedPlace, REGION_DESTINATIONS, regionDisplayName, regionFromQuery, suggestedDestinationsFor } from '@/lib/region-destinations'
@@ -31,6 +32,7 @@ import { loadDeliveryJob, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJ
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
+import { listNearbyServiceSpots, nearbyKindFromService } from '@/lib/nearby-services'
 import {
   cancelRideRequest,
   completeRideTrip,
@@ -44,6 +46,7 @@ import {
   respondToRideOffer,
   acceptRideOnDevice,
   sendDriverPresence,
+  subscribeRideLive,
 } from '@/lib/dispatch-client'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
@@ -63,6 +66,7 @@ const LOCAL_TEST_USER = { username: 'taxitago' }
 const PASSENGER_ID_KEY = 'taxitago-passenger-id'
 const DRIVER_ID_KEY = 'taxitago-driver-id'
 let taxiSheetRideId = ''
+let daeriSheetRideId = ''
 
 function readOrCreateLocalId(key: string, prefix: string) {
   try {
@@ -83,6 +87,12 @@ function localPassengerId() {
 function localDriverId(partnerUid?: string) {
   if (partnerUid) return partnerUid
   return readOrCreateLocalId(DRIVER_ID_KEY, 'driver')
+}
+
+function liveVehicleFromRide(ride: PublicRide | null | undefined) {
+  const driver = ride?.assignedDriver
+  if (!driver || !Number.isFinite(driver.lat) || !Number.isFinite(driver.lng)) return {}
+  return { vehicleLat: driver.lat, vehicleLng: driver.lng, vehicleHeading: driver.heading }
 }
 
 type ServiceLabel = keyof typeof serviceIllustrations
@@ -2158,6 +2168,7 @@ function TaxiMatchingSheet({
     const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
     void createRideRequest({
       passengerId: passengerIdRef.current,
+      kind: 'taxi',
       pickupLat: pickup.lat,
       pickupLng: pickup.lng,
       pickupAddress: pickup.address,
@@ -2180,21 +2191,27 @@ function TaxiMatchingSheet({
   useEffect(() => {
     const rideId = ride?.id || rideIdRef.current
     if (!rideId) return
+    const apply = (next: PublicRide) => {
+      if (matchedRef.current) {
+        if (next.status === 'assigned' || next.status === 'completed') setRide(next)
+        return
+      }
+      setRide(next)
+      if (next.status === 'assigned') lockMatched(next)
+      if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
+      if (next.status === 'cancelled') onClose()
+      if (next.status === 'completed') lockMatched(next)
+    }
+    const unsubscribe = subscribeRideLive(rideId, apply)
     const timer = window.setInterval(() => {
       void fetchRideRequest(rideId).then((next) => {
-        if (!next) return
-        if (matchedRef.current) {
-          if (next.status === 'assigned' || next.status === 'completed') setRide(next)
-          return
-        }
-        setRide(next)
-        if (next.status === 'assigned') lockMatched(next)
-        if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
-        if (next.status === 'cancelled') onClose()
-        if (next.status === 'completed') lockMatched(next)
+        if (next) apply(next)
       })
-    }, 2500)
-    return () => window.clearInterval(timer)
+    }, 1500)
+    return () => {
+      unsubscribe()
+      window.clearInterval(timer)
+    }
   }, [ride?.id])
 
   useEffect(() => {
@@ -2357,8 +2374,9 @@ function TaxiMatchingSheet({
               destLng={destLng}
               originLabel={live.origin?.address || pickupAddress}
               destLabel={resolvedDest?.address || live.dest?.address || dest}
+              {...liveVehicleFromRide(ride)}
             />
-            <p className="mt-6 text-xs font-bold text-[#8b8495]">기사님이 콜을 수락하면 배차 화면으로 이동합니다. 테스트는 아래 버튼으로 바로 수락할 수 있습니다.</p>
+            <p className="mt-6 text-xs font-bold text-[#8b8495]">기사님이 콜을 수락하면 실시간 위치가 지도에 표시됩니다. 테스트는 아래 버튼으로 바로 수락할 수 있습니다.</p>
             {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
             {IS_TEST_MODE ? (
               <button
@@ -2397,6 +2415,7 @@ function TaxiMatchingSheet({
               destLng={destLng}
               originLabel={live.origin?.address || pickupAddress}
               destLabel={resolvedDest?.address || live.dest?.address || dest}
+              {...liveVehicleFromRide(ride)}
             />
             <div className="mt-4 rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
               <div className="flex items-center gap-3">
@@ -2652,12 +2671,18 @@ function ServiceSheet({
   const { t } = useLocale()
   const IS_TEST_MODE = true
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
+  const [dispatchRide, setDispatchRide] = useState<PublicRide | null>(null)
+  const [daeriMatchError, setDaeriMatchError] = useState('')
+  const [daeriAccepting, setDaeriAccepting] = useState(false)
+  const daeriPassengerIdRef = useRef('')
+  const daeriRideIdRef = useRef(daeriSheetRideId)
   const [deliveryVehicle, setDeliveryVehicle] = useState<DeliveryVehicle>('오토바이')
   const [packageSize, setPackageSize] = useState<PackageSizeId>('document')
   const [senderPhone, setSenderPhone] = useState('')
   const [recipientPhone, setRecipientPhone] = useState('')
   const [phoneError, setPhoneError] = useState('')
   const [selectedItem, setSelectedItem] = useState('')
+  const [mapFocusId, setMapFocusId] = useState('')
   const [qrOpen, setQrOpen] = useState(false)
   const [qrScanned, setQrScanned] = useState(false)
   const [parkingOption, setParkingOption] = useState<'prepaid' | 'postpaid'>('prepaid')
@@ -2671,32 +2696,18 @@ function ServiceSheet({
   const vehicle = service === '자전거' || service === '킥보드'
   const more = service === '더보기'
   const selfServe = service === '주차' || service === '자전거' || service === '킥보드' || service === 'EV 충전'
-  const parkingSpots = [
-    { name: '서울시청 주차장', distance: '220m', extra: '잔여 24자리', rate: '2 Pi / 시간' },
-    { name: '세종로 공영주차장', distance: '380m', extra: '잔여 8자리', rate: '1.5 Pi / 시간' },
-    { name: '광화문 주차타워', distance: '510m', extra: '잔여 3자리', rate: '2.4 Pi / 시간' },
-    { name: '시청역 민간주차장', distance: '690m', extra: '잔여 12자리', rate: '3 Pi / 시간' },
-  ]
-  const evStations = [
-    { name: '시청역 EV 스테이션', distance: '180m', extra: '잔여 전력 78%', rate: '0.4 Pi / kWh' },
-    { name: '덕수궁 EV 충전소', distance: '340m', extra: '잔여 전력 62%', rate: '0.45 Pi / kWh' },
-    { name: '서울광장 충전 허브', distance: '490m', extra: '잔여 전력 91%', rate: '0.38 Pi / kWh' },
-    { name: '을지로 급속 충전소', distance: '720m', extra: '잔여 전력 44%', rate: '0.5 Pi / kWh' },
-  ]
-  const bikes = [
-    { name: 'BIKE-2048', distance: '180m', extra: '배터리 85%', rate: '0.2 Pi' },
-    { name: 'BIKE-1176', distance: '260m', extra: '배터리 72%', rate: '0.2 Pi' },
-    { name: 'BIKE-3901', distance: '340m', extra: '배터리 94%', rate: '0.2 Pi' },
-    { name: 'BIKE-5520', distance: '480m', extra: '배터리 61%', rate: '0.2 Pi' },
-  ]
-  const scooters = [
-    { name: 'SCOOT-7312', distance: '120m', extra: '배터리 85%', rate: '0.3 Pi' },
-    { name: 'SCOOT-2104', distance: '230m', extra: '배터리 68%', rate: '0.3 Pi' },
-    { name: 'SCOOT-8870', distance: '390m', extra: '배터리 91%', rate: '0.3 Pi' },
-    { name: 'SCOOT-6402', distance: '520m', extra: '배터리 77%', rate: '0.3 Pi' },
-  ]
-  const catalog = service === '주차' ? parkingSpots : service === 'EV 충전' ? evStations : service === '자전거' ? bikes : scooters
-  const selectedUsage = catalog.find((item) => item.name === selectedItem) ?? catalog[0]
+  const nearbyKind = nearbyKindFromService(service)
+  const nearbySpots = nearbyKind
+    ? listNearbyServiceSpots(nearbyKind, pickupLat, pickupLng, nearbyKind === 'bike' || nearbyKind === 'scooter' ? 7 : 6)
+    : []
+  const catalog = nearbySpots.map((item) => ({
+    id: item.id,
+    name: item.name,
+    distance: item.distanceLabel,
+    extra: item.extra,
+    rate: item.rate,
+  }))
+  const selectedUsage = catalog.find((item) => item.id === selectedItem) ?? catalog[0]
   const packageOption = getPackageSize(packageSize)
   const deliveryFare = estimateDeliveryFare(deliveryVehicle, packageSize)
   const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 4 : vehicle ? 0.3 : deliveryFare
@@ -2707,17 +2718,27 @@ function ServiceSheet({
   const rideDestLng = daeriTrip?.destLng ?? destLng
   const place = ride
     ? rideRouteLabel(daeriTrip?.pickup || pickupAddress, daeriTrip?.dest || destAddress || '목적지')
-    : selectedItem || `${pickupAddress || '현재 위치'} → ${service} 이용`
+    : selectedUsage?.name || `${pickupAddress || '현재 위치'} → ${service} 이용`
   const billed = ride ? settleRideFare(fare, `daeri:${place}`) : { estimate: fare, actual: fare, adjusted: false }
   const chargeAmount = ride ? billed.actual : fare
   const cancelSettlement = settleMidTripCancelFee(billed.actual)
   const partner =
     ride
-      ? { name: '김민수', vehicle: '대리운전', plate: '파이 모빌리티' as string, kind: 'driver' as const }
+      ? {
+          name: dispatchRide?.assignedDriver?.name || '배정 대기',
+          vehicle: dispatchRide?.assignedDriver?.vehicle || '대리운전',
+          plate: dispatchRide?.assignedDriver?.plate || '파이 모빌리티',
+          kind: 'driver' as const,
+        }
       : service === '택배'
         ? { name: '최배송', vehicle: `${deliveryVehicle} 택배`, plate: '서울 88바 2201', kind: 'driver' as const }
-        : { name: selectedUsage.name, vehicle: service, plate: selectedUsage.rate, kind: 'service' as const }
+        : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate || '', kind: 'service' as const }
   const canStart = more || ride || service === '택배' || Boolean(selectedItem)
+  useEffect(() => {
+    if (!selfServe || !nearbySpots.length) return
+    if (nearbySpots.some((item) => item.id === selectedItem)) return
+    setSelectedItem(nearbySpots[0].id)
+  }, [selfServe, service, nearbySpots, selectedItem])
   const action = (message: string) => {
     onNotice(message)
     onClose()
@@ -2761,6 +2782,76 @@ function ServiceSheet({
     setPhase('matching')
     onNotice(selfServe ? `${service} 이용을 시작했어요.` : `${service} 호출을 시작했어요.`)
   }
+
+  useEffect(() => {
+    if (!ride || (phase !== 'matching' && phase !== 'assigned')) return
+    let cancelled = false
+    daeriPassengerIdRef.current = localPassengerId()
+    const attach = (created: PublicRide) => {
+      if (cancelled) return
+      daeriSheetRideId = created.id
+      daeriRideIdRef.current = created.id
+      setDispatchRide(created)
+      if (created.status === 'assigned' || created.status === 'completed') {
+        setPhase('assigned')
+        setRideStage('arriving')
+      }
+      if (created.status === 'unmatched') setDaeriMatchError('지금은 배차 가능한 기사가 없어요.')
+    }
+    if (daeriSheetRideId) {
+      daeriRideIdRef.current = daeriSheetRideId
+      void fetchRideRequest(daeriSheetRideId).then((existing) => {
+        if (existing) attach(existing)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+    void createRideRequest({
+      passengerId: daeriPassengerIdRef.current,
+      kind: 'daeri',
+      pickupLat: rideOriginLat,
+      pickupLng: rideOriginLng,
+      pickupAddress: daeriTrip?.pickup || pickupAddress,
+      destLat: rideDestLat ?? rideOriginLat,
+      destLng: rideDestLng ?? rideOriginLng,
+      destAddress: daeriTrip?.dest || destAddress,
+      destLabel: daeriTrip?.dest || destAddress,
+      estimatedFare: fare,
+    })
+      .then(attach)
+      .catch((error) => {
+        if (!cancelled) setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [phase, ride])
+
+  useEffect(() => {
+    const rideId = dispatchRide?.id || daeriRideIdRef.current
+    if (!ride || !rideId) return
+    const apply = (next: PublicRide) => {
+      setDispatchRide(next)
+      if (next.status === 'assigned' || next.status === 'completed') {
+        setPhase('assigned')
+        setRideStage((current) => current)
+      }
+      if (next.status === 'unmatched') setDaeriMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
+      if (next.status === 'cancelled') onClose()
+    }
+    const unsubscribe = subscribeRideLive(rideId, apply)
+    const timer = window.setInterval(() => {
+      void fetchRideRequest(rideId).then((next) => {
+        if (next) apply(next)
+      })
+    }, 1500)
+    return () => {
+      unsubscribe()
+      window.clearInterval(timer)
+    }
+  }, [dispatchRide?.id, ride])
+
   const confirmAssignment = () => {
     setPhase('assigned')
     if (ride) setRideStage('arriving')
@@ -2826,15 +2917,49 @@ function ServiceSheet({
                 destLng={rideDestLng}
                 originLabel={daeriTrip?.pickup || pickupAddress}
                 destLabel={daeriTrip?.dest || destAddress}
+                {...liveVehicleFromRide(dispatchRide)}
               />
             ) : null}
-            {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
+            {ride && dispatchRide?.pendingOffer ? (
+              <p className="mt-3 text-sm font-bold text-[#4C1FB8]">{dispatchRide.pendingOffer.driverName} 기사님에게 콜을 요청했어요.</p>
+            ) : null}
+            {daeriMatchError ? <p className="mt-2 text-xs font-bold text-[#B91C1C]">{daeriMatchError}</p> : null}
             {IS_TEST_MODE ? (
-              <button type="button" onClick={confirmAssignment} className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
-                {selfServe ? '이용 시작' : '배정 확인'}
+              <button
+                type="button"
+                disabled={ride ? daeriAccepting || !dispatchRide : false}
+                onClick={() => {
+                  if (!ride) {
+                    confirmAssignment()
+                    return
+                  }
+                  if (!dispatchRide) return
+                  setDaeriAccepting(true)
+                  void acceptRideOnDevice(dispatchRide.id)
+                    .then((next) => {
+                      setDispatchRide(next)
+                      setPhase('assigned')
+                      setRideStage('arriving')
+                    })
+                    .catch((error) => setDaeriMatchError(error instanceof Error ? error.message : '콜 수락에 실패했어요.'))
+                    .finally(() => setDaeriAccepting(false))
+                }}
+                className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
+              >
+                {ride ? (daeriAccepting ? '수락 중…' : '이 기기에서 기사 콜 수락') : selfServe ? '이용 시작' : '배정 확인'}
               </button>
             ) : null}
-            <button type="button" onClick={onClose} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
+            <button
+              type="button"
+              onClick={() => {
+                if (ride && (dispatchRide?.id || daeriRideIdRef.current)) {
+                  daeriSheetRideId = ''
+                  void cancelRideRequest(dispatchRide?.id || daeriRideIdRef.current, daeriPassengerIdRef.current || localPassengerId())
+                }
+                onClose()
+              }}
+              className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]"
+            >
               {selfServe ? '이용 취소' : '호출 취소'}
             </button>
           </div>
@@ -2843,23 +2968,23 @@ function ServiceSheet({
           <div className="mt-5 space-y-3">
             <div className="rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
               <p className="text-xs font-black text-[#4C1FB8]">{service} 이용 정보</p>
-              <p className="mt-2 text-lg font-black text-[#0F172A]">{selectedUsage.name}</p>
+              <p className="mt-2 text-lg font-black text-[#0F172A]">{selectedUsage?.name}</p>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">{service === '주차' || service === 'EV 충전' ? '위치' : '거리'}</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{selectedUsage.distance}</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{selectedUsage?.distance}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">{service === '주차' ? '잔여 자리' : service === 'EV 충전' ? '잔여 전력' : '대여 상태'}</p>
-                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{service === '자전거' || service === '킥보드' ? '대여 중' : selectedUsage.extra}</p>
+                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{service === '자전거' || service === '킥보드' ? '대여 중' : selectedUsage?.extra}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">{service === 'EV 충전' ? '충전 요금' : '이용 요금'}</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{selectedUsage.rate}</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{selectedUsage?.rate}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">{service === '자전거' || service === '킥보드' ? '배터리' : '진행 상태'}</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{service === '자전거' || service === '킥보드' ? selectedUsage.extra : service === 'EV 충전' ? '충전 중' : '주차 이용 중'}</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{service === '자전거' || service === '킥보드' ? selectedUsage?.extra : service === 'EV 충전' ? '충전 중' : '주차 이용 중'}</p>
                 </div>
               </div>
             </div>
@@ -2911,6 +3036,7 @@ function ServiceSheet({
                 destLng={rideDestLng}
                 originLabel={daeriTrip?.pickup || pickupAddress}
                 destLabel={daeriTrip?.dest || destAddress}
+                {...liveVehicleFromRide(dispatchRide)}
               />
             ) : null}
             <div className="rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
@@ -3014,72 +3140,38 @@ function ServiceSheet({
             <p className="text-center text-[11px] font-bold text-[#8b8495]">호출 후 기사 배정이 시작됩니다.</p>
           </div>
         )}
-        {phase === 'idle' && (service === '주차' || service === 'EV 충전') && (
+        {phase === 'idle' && selfServe && (
           <div className="mt-5 space-y-3">
-            <div className="relative h-32 overflow-hidden rounded-3xl bg-[#e8f0f2]" style={{ backgroundImage: 'linear-gradient(35deg, transparent 46%, #c2d0d2 47%, #c2d0d2 50%, transparent 51%), linear-gradient(120deg, transparent 42%, #c2d0d2 43%, #c2d0d2 46%, transparent 47%)' }}>
-              <span className="absolute left-[25%] top-[35%] rounded-full bg-[#7046dc] p-2 text-white">
-                <MapPin className="h-4 w-4" />
-              </span>
-              <p className="absolute bottom-3 left-3 rounded-xl bg-white/90 px-3 py-2 text-xs font-black">주변 500m 실시간 현황</p>
+            <div className="relative w-full shrink-0 overflow-hidden rounded-3xl" style={{ height: 160, minHeight: 160 }}>
+              <NearbyServiceMap
+                key={`service-map-${service}`}
+                originLat={pickupLat}
+                originLng={pickupLng}
+                spots={nearbySpots}
+                selectedId={selectedItem}
+                focusId={mapFocusId}
+                onSelect={(id) => {
+                  setSelectedItem(id)
+                  setMapFocusId(id)
+                }}
+                className="h-full w-full"
+              />
             </div>
             <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-              {(service === '주차' ? parkingSpots : evStations).map((item) => (
-                <button key={item.name} onClick={() => setSelectedItem(item.name)} className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${selectedItem === item.name ? 'border-[#7046dc] bg-[#f1ebff] ring-2 ring-[#7046dc]/15' : 'border-[#ece8f4] bg-white'}`}>
-                  <span className={`h-5 w-5 rounded-full border-2 p-1 ${selectedItem === item.name ? 'border-[#7046dc]' : 'border-[#cfc7db]'}`}>
-                    <span className={`block h-full w-full rounded-full ${selectedItem === item.name ? 'bg-[#7046dc]' : 'bg-transparent'}`} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <strong className="block text-sm font-black">{item.name}</strong>
-                    <span className="mt-1 block text-xs font-bold text-[#8b8495]">
-                      {item.distance} · <b className="text-[#36a76b]">{item.extra}</b>
-                    </span>
-                  </span>
-                  <span className="text-xs font-black text-[#7046dc]">{item.rate}</span>
-                </button>
-              ))}
-            </div>
-            <PaymentHandler
-              service={service}
-              amount={fare}
-              balance={balance}
-              place={place}
-              qrScanned={qrScanned}
-              parkingOption={parkingOption}
-              prepaidSettled={prepaidSettled}
-              continueLabel={selectedItem ? '이용 시작' : '장소를 선택해 주세요'}
-              canProceed={Boolean(selectedItem)}
-              onParkingOption={setParkingOption}
-              onRequestQr={() => {
-                if (!selectedItem) {
-                  onNotice('먼저 장소를 선택해 주세요.')
-                  return
-                }
-                setQrOpen(true)
-              }}
-              onPay={onPay}
-              onNeedCharge={onNeedCharge}
-              onContinue={() => startService()}
-              onPrepaidSettled={() => {
-                setPrepaidSettled(true)
-                startService(true)
-              }}
-            />
-          </div>
-        )}
-        {phase === 'idle' && vehicle && (
-          <div className="mt-5 space-y-3">
-            <div className="relative h-28 rounded-3xl bg-[#edf8f0]">
-              <span className="absolute left-[42%] top-[30%] rounded-full bg-[#36a76b] p-3 text-white shadow-lg">
-                <Bike className="h-5 w-5" />
-              </span>
-              <p className="absolute bottom-3 left-4 text-xs font-black text-[#277a4d]">가까운 차량 4대</p>
-            </div>
-            <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-              {(service === '자전거' ? bikes : scooters).map((item) => (
-                <button key={item.name} onClick={() => setSelectedItem(item.name)} className={`w-full rounded-2xl border p-3 text-left transition ${selectedItem === item.name ? 'border-[#7046dc] bg-[#f1ebff] ring-2 ring-[#7046dc]/15' : 'border-[#ece8f4] bg-white'}`}>
-                  <div className="flex items-center gap-3">
-                    <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${selectedItem === item.name ? 'bg-[#7046dc] text-white' : 'bg-[#edf8f0] text-[#36a76b]'}`}>
-                      <Bike className="h-4 w-4" />
+              {catalog.map((item, index) => {
+                const active = selectedItem === item.id
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedItem(item.id)
+                      setMapFocusId(item.id)
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${active ? 'border-[#7046dc] bg-[#f1ebff] ring-2 ring-[#7046dc]/15' : 'border-[#ece8f4] bg-white'}`}
+                  >
+                    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${active ? 'bg-[#4C1FB8] text-white' : vehicle ? 'bg-[#edf8f0] text-[#36a76b]' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
+                      {index + 1}
                     </span>
                     <span className="min-w-0 flex-1">
                       <strong className="block text-sm font-black">{item.name}</strong>
@@ -3087,12 +3179,10 @@ function ServiceSheet({
                         {item.distance} · <b className="text-[#36a76b]">{item.extra}</b>
                       </span>
                     </span>
-                    <span className={`h-5 w-5 rounded-full border-2 p-1 ${selectedItem === item.name ? 'border-[#7046dc]' : 'border-[#cfc7db]'}`}>
-                      <span className={`block h-full w-full rounded-full ${selectedItem === item.name ? 'bg-[#7046dc]' : 'bg-transparent'}`} />
-                    </span>
-                  </div>
-                </button>
-              ))}
+                    <span className="text-xs font-black text-[#7046dc]">{item.rate}</span>
+                  </button>
+                )
+              })}
             </div>
             <PaymentHandler
               service={service}
@@ -3102,19 +3192,19 @@ function ServiceSheet({
               qrScanned={qrScanned}
               parkingOption={parkingOption}
               prepaidSettled={prepaidSettled}
-              continueLabel={selectedItem ? '이용 시작' : '차량을 선택해 주세요'}
+              continueLabel={selectedItem ? '이용 시작' : vehicle ? '차량을 선택해 주세요' : '장소를 선택해 주세요'}
               canProceed={Boolean(selectedItem)}
               onParkingOption={setParkingOption}
               onRequestQr={() => {
                 if (!selectedItem) {
-                  onNotice('먼저 차량을 선택해 주세요.')
+                  onNotice(vehicle ? '먼저 차량을 선택해 주세요.' : '먼저 장소를 선택해 주세요.')
                   return
                 }
                 setQrOpen(true)
               }}
               onPay={onPay}
               onNeedCharge={onNeedCharge}
-              onContinue={() => startService(true)}
+              onContinue={() => startService(vehicle)}
               onPrepaidSettled={() => {
                 setPrepaidSettled(true)
                 startService(true)
@@ -5554,7 +5644,7 @@ function DriverDashboard({
         wallet: partner?.wallet,
         piUid: partner?.uid,
       })
-    }, 8000)
+    }, 2500)
     return () => window.clearInterval(beat)
   }, [driverId, lat, lng, online, partner?.name, partner?.wallet, partner?.uid])
 

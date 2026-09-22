@@ -30,8 +30,10 @@ export async function POST(request: Request) {
     typeof body?.estimatedFare === 'number' && Number.isFinite(body.estimatedFare)
       ? Math.round(body.estimatedFare * 100) / 100
       : estimateTaxiFarePi(haversineKm(pickup, dest))
+  const kind = body?.kind === 'daeri' ? 'daeri' : 'taxi'
   const ride = createRideAndMatch({
     id: crypto.randomUUID(),
+    kind,
     passengerId,
     pickup,
     dest,

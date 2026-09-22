@@ -44,3 +44,34 @@ export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
     })
     .filter((item): item is SearchedPlace => Boolean(item))
 }
+
+export type DrivingPathPoint = { lat: number; lng: number }
+
+export async function fetchDrivingPath(
+  origin: DrivingPathPoint,
+  dest: DrivingPathPoint,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({
+    startLat: String(origin.lat),
+    startLng: String(origin.lng),
+    destLat: String(dest.lat),
+    destLng: String(dest.lng),
+  })
+  const response = await fetch(`/api/directions?${params.toString()}`, {
+    method: 'GET',
+    cache: 'no-store',
+    signal,
+    headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) return [] as DrivingPathPoint[]
+  const data = (await response.json()) as { path?: Array<{ lat?: unknown; lng?: unknown }> }
+  return (data.path || [])
+    .map((item) => {
+      const lat = Number(item.lat)
+      const lng = Number(item.lng)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+      return { lat, lng }
+    })
+    .filter((item): item is DrivingPathPoint => Boolean(item))
+}

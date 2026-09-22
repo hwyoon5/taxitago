@@ -8,6 +8,7 @@ async function readJson<T>(res: Response): Promise<T> {
 
 export async function createRideRequest(input: {
   passengerId: string
+  kind?: 'taxi' | 'daeri'
   pickupLat: number
   pickupLng: number
   pickupAddress?: string
@@ -15,6 +16,7 @@ export async function createRideRequest(input: {
   destLng: number
   destAddress?: string
   destLabel?: string
+  estimatedFare?: number
 }): Promise<PublicRide> {
   const res = await fetch('/api/rides', {
     method: 'POST',
@@ -32,6 +34,21 @@ export async function fetchRideRequest(rideId: string): Promise<PublicRide | nul
   const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
   if (!res.ok || !data.ride) throw new Error(data.error || '호출 상태를 확인하지 못했어요.')
   return data.ride
+}
+
+export function subscribeRideLive(rideId: string, onRide: (ride: PublicRide) => void) {
+  const source = new EventSource(`/api/rides/${encodeURIComponent(rideId)}/live`)
+  const apply = (raw: string) => {
+    try {
+      const data = JSON.parse(raw) as { ride?: PublicRide }
+      if (data.ride) onRide(data.ride)
+    } catch {
+      undefined
+    }
+  }
+  source.addEventListener('ride', (event) => apply((event as MessageEvent).data))
+  source.onmessage = (event) => apply(event.data)
+  return () => source.close()
 }
 
 export async function cancelRideRequest(rideId: string, passengerId: string) {
