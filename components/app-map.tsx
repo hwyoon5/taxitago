@@ -369,35 +369,58 @@ const SOLID_POLYLINE_STROKE = {
   strokeStyle: 'solid',
   strokeWeight: 4,
   strokeOpacity: 1,
+  strokeLineCap: 'round',
+  strokeLineJoin: 'round',
 } as const
 
-function applySolidPolylineStyle(line: NaverPolyline | null) {
-  if (!line) return
-  try {
-    line.setOptions?.(SOLID_POLYLINE_STROKE)
-  } catch {
-    undefined
+function stripPolylineDash(root?: ParentNode | null) {
+  if (!root || typeof (root as Element).querySelectorAll !== 'function') return
+  ;(root as Element).querySelectorAll('svg path, svg polyline').forEach((node) => {
+    const el = node as SVGElement
+    el.removeAttribute('stroke-dasharray')
+    el.removeAttribute('stroke-dashoffset')
+    el.style.strokeDasharray = '0'
+    el.style.strokeDashoffset = '0'
+    el.style.stroke = '#000000'
+    el.style.strokeLinecap = 'round'
+    el.style.strokeLinejoin = 'round'
+  })
+}
+
+function applySolidPolylineStyle(line: NaverPolyline | null, canvas?: HTMLElement | null) {
+  if (line) {
+    try {
+      line.setOptions?.(SOLID_POLYLINE_STROKE)
+    } catch {
+      undefined
+    }
+    try {
+      line.setStyle?.(SOLID_POLYLINE_STROKE)
+    } catch {
+      undefined
+    }
   }
-  try {
-    line.setStyle?.(SOLID_POLYLINE_STROKE)
-  } catch {
-    undefined
+  stripPolylineDash(canvas)
+  if (typeof window !== 'undefined') {
+    window.requestAnimationFrame(() => stripPolylineDash(canvas))
   }
 }
 
-function solidRidePath(sdk: NaverMapsSdk, map: NaverMapInstance, points: RidePoint[]) {
+function solidRidePath(sdk: NaverMapsSdk, map: NaverMapInstance, points: RidePoint[], canvas?: HTMLElement | null) {
   const maps = liveNaverMaps(sdk)
   const path = ridePathPoints(sdk, points)
   if (!maps || typeof maps.Polyline !== 'function' || path.length < 2) return null
   const line = new maps.Polyline({
-    map: map,
-    path: path,
-    strokeColor: '#000000', // 검은색 명시
-    strokeStyle: 'solid',   // 실선 명시
+    map,
+    path,
+    strokeColor: '#000000',
+    strokeStyle: 'solid',
     strokeWeight: 4,
     strokeOpacity: 1,
-  });
-  applySolidPolylineStyle(line)
+    strokeLineCap: 'round',
+    strokeLineJoin: 'round',
+  })
+  applySolidPolylineStyle(line, canvas)
   return line
 }
 
@@ -406,13 +429,14 @@ function replaceSolidRidePath(
   map: NaverMapInstance,
   current: NaverPolyline | null,
   points: RidePoint[],
+  canvas?: HTMLElement | null,
 ) {
   try {
     current?.setMap(null)
   } catch {
     undefined
   }
-  return solidRidePath(sdk, map, points)
+  return solidRidePath(sdk, map, points, canvas)
 }
 
 type MapViewProps = {
@@ -1403,10 +1427,8 @@ function NaverLiveRideMap({
   dest: RidePoint;
   className?: string;
 }) {
-  console.log("NaverLiveRideMap 컴포넌트 실행됨!"); // 👈 이 줄을 1403번에 추가
   const hostRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
-  
   const mapRef = useRef<NaverMapInstance | null>(null)
   const mapsRef = useRef<NaverMapsSdk | null>(null)
   const moverRef = useRef<NaverMarker | null>(null)
@@ -1428,34 +1450,11 @@ function NaverLiveRideMap({
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [loadNotice, setLoadNotice] = useState<string | undefined>()
   const [routePath, setRoutePath] = useState<RidePoint[]>([origin, dest])
-  useEffect(() => {
-    console.log("👉 fetchDrivingRoute 실행 시도됨 - origin:", origin, "dest:", dest);
-     async function fetchDrivingRoute() {
-      console.log("출발지:", origin, "도착지:", dest); // 👈 이 줄을 추가해서 값이 잘 나오는지 확인해 보세요!
-      if (!origin || !dest) return;
-      try {
-        // 기존 길찾기 API 호출 코드 (예: fetchDrivingRoute 등)
-      } catch (error) {
-        console.log("경로 데이터를 불러오는 중 일시적인 오류가 발생했습니다:", error);
-      }
-        const data = await response.json();
-        console.log("API 응답 데이터:", data); // 👈 API가 뭘 리턴하는지 확인
-  
-        if (data && data.path && data.path.length > 0) {
-          routePathRef.current = data.path;
-          const sdk = window.naver?.maps;
-          if (sdk && mapRef.current) {
-            applyPolyline(sdk);
-          }
-        }
-        try {
-          const data = await fetchDrivingRoute(origin, dest);
-          if (data) {
-            applyPolyline(sdk);
-          }
-        } catch (error) {
-          console.error("도로 경로를 불러오지 못했습니다:", error);
-        }
+
+  const keepSolidStroke = () => {
+    applySolidPolylineStyle(lineRef.current, canvasRef.current)
+  }
+
   const applyPolyline = (sdk: NaverMapsSdk) => {
     const map = mapRef.current
     const points = routePathRef.current
@@ -1465,13 +1464,13 @@ function NaverLiveRideMap({
     if (lineRef.current) {
       try {
         lineRef.current.setPath(coords)
-        applySolidPolylineStyle(lineRef.current)
+        keepSolidStroke()
         return
       } catch {
         undefined
       }
     }
-    lineRef.current = replaceSolidRidePath(sdk, map, lineRef.current, points)
+    lineRef.current = replaceSolidRidePath(sdk, map, lineRef.current, points, canvasRef.current)
   }
 
   const applyCamera = () => {
@@ -1483,6 +1482,7 @@ function NaverLiveRideMap({
     startPinRef.current?.setPosition(originRef.current.lat, originRef.current.lng)
     endPinRef.current?.setPosition(destRef.current.lat, destRef.current.lng)
     applyPolyline(sdk)
+    keepSolidStroke()
   }
 
   useEffect(() => {
@@ -1526,8 +1526,9 @@ function NaverLiveRideMap({
         const sdk = liveNaverMaps(mapsRef.current)
         const map = mapRef.current
         if (!sdk || !map) return
-        lineRef.current = replaceSolidRidePath(sdk, map, lineRef.current, path)
+        lineRef.current = replaceSolidRidePath(sdk, map, lineRef.current, path, canvasRef.current)
         forceRideCamera(sdk, map, origin, dest, phaseRef.current === 'moving' ? 'dest' : 'route', path)
+        applySolidPolylineStyle(lineRef.current, canvasRef.current)
       })
       .catch(() => undefined)
     return () => controller.abort()
@@ -1542,6 +1543,7 @@ function NaverLiveRideMap({
     const canvas = canvasRef.current
     if (!canvas) return
     let cancelled = false
+    const strokeListeners: unknown[] = []
     void (async () => {
       await waitForMapSize(canvas)
       const [sdk, roadPath] = await Promise.all([loadNaverMaps(), fetchDrivingPath(origin, dest).catch(() => [] as RidePoint[])])
@@ -1583,8 +1585,20 @@ function NaverLiveRideMap({
       mapRef.current = map
       map.setCenter(center)
       forceRideCamera(maps, map, origin, dest, phase === 'moving' ? 'dest' : 'route', routePathRef.current)
-      lineRef.current = solidRidePath(maps, map, routePathRef.current)
-      applySolidPolylineStyle(lineRef.current)
+      lineRef.current = solidRidePath(maps, map, routePathRef.current, canvasRef.current)
+      applySolidPolylineStyle(lineRef.current, canvasRef.current)
+      const keepStrokeOnRender = () => {
+        if (cancelled) return
+        applySolidPolylineStyle(lineRef.current, canvasRef.current)
+      }
+      for (const eventName of ['idle', 'tilesloaded', 'zoom_changed', 'bounds_changed', 'center_changed', 'dragend']) {
+        const handle = addNaverMapListener(maps, map, eventName, keepStrokeOnRender)
+        if (handle) strokeListeners.push(handle)
+      }
+      if (cancelled) {
+        strokeListeners.forEach((listener) => removeNaverMapListener(maps, listener))
+        return
+      }
       const startLabel = document.createElement('div')
       startLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#0F172A;color:#fff;padding:3px 8px;font-size:10px;font-weight:800;letter-spacing:0.02em;box-shadow:0 4px 10px rgba(15,23,42,0.22)'
       startLabel.textContent = '출발'
@@ -1605,6 +1619,7 @@ function NaverLiveRideMap({
         startPinRef.current?.setPosition(origin.lat, origin.lng)
         endPinRef.current?.setPosition(dest.lat, dest.lng)
         applyPolyline(maps)
+        applySolidPolylineStyle(lineRef.current, canvasRef.current)
         if (phase === 'moving') {
           const destLatLng = naverLatLng(maps, dest.lat, dest.lng)
           if (destLatLng) map.setCenter(destLatLng)
@@ -1619,6 +1634,8 @@ function NaverLiveRideMap({
     })()
     return () => {
       cancelled = true
+      const sdk = liveNaverMaps(mapsRef.current)
+      strokeListeners.forEach((listener) => removeNaverMapListener(sdk, listener))
       startPinRef.current?.setMap(null)
       startPinRef.current = null
       endPinRef.current?.setMap(null)
