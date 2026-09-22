@@ -3762,6 +3762,8 @@ function Home({
   pickup,
   pickupLat,
   pickupLng,
+  gpsStatus = 'ready',
+  pickupFromMap = false,
   onDestination,
   onService,
   onReceipt,
@@ -3772,6 +3774,8 @@ function Home({
   pickup: string
   pickupLat: number
   pickupLng: number
+  gpsStatus?: GpsFix['status']
+  pickupFromMap?: boolean
   onDestination: (value: string, coords?: RideCoords) => void
   onService: (value: string) => void
   onReceipt: (ride: RideReceipt) => void
@@ -3827,6 +3831,12 @@ function Home({
     rememberRecent(name, address)
     onDestination(name, coordsFromPlaceQuery(name) ?? coordsFromPlaceQuery(address) ?? undefined)
   }
+  const pickupHint =
+    pickupFromMap || gpsStatus === 'ready'
+      ? null
+      : gpsStatus === 'pending'
+        ? 'GPS로 위치를 확인하는 중이에요'
+        : '탭해서 지도에서 출발지를 지정하세요'
 
   return (
     <main
@@ -3834,14 +3844,22 @@ function Home({
       aria-label={t('home.content')}
     >
         <div className="rounded-[16px] border border-[#E2E8F0] bg-[#F8FAFC] p-1.5">
-          <button type="button" onClick={onOpenMap} className="flex w-full items-center gap-2 rounded-lg bg-white px-2 py-1 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
-              <LocateFixed className="h-3.5 w-3.5" />
+          <button
+            type="button"
+            onClick={onOpenMap}
+            className="flex w-full items-center gap-2 rounded-lg bg-white px-2.5 py-2 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]"
+            aria-label={`${t('home.pickup')} ${pickup}`}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
+              <LocateFixed className="h-4 w-4" />
             </span>
             <span className="min-w-0 flex-1 py-0.5">
               <span className="block text-[10px] font-bold leading-3 text-[#64748B]">{t('home.pickup')}</span>
               <span className="mt-0.5 block truncate text-[13px] font-black leading-4 text-[#0F172A]">{pickup}</span>
+              {pickupHint ? <span className="mt-0.5 block truncate text-[10px] font-bold leading-3 text-[#64748B]">{pickupHint}</span> : null}
             </span>
+            <span className="shrink-0 text-[11px] font-black text-[#4C1FB8]">{t('home.viewMap')}</span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-[#94A3B8]" />
           </button>
           <button
             type="button"
@@ -6027,7 +6045,6 @@ export default function HomeScreen() {
     lat: BUSAN_CITY_HALL.lat,
     lng: BUSAN_CITY_HALL.lng,
   })
-  const [locationGuideOpen, setLocationGuideOpen] = useState(false)
   const [chargePromptOpen, setChargePromptOpen] = useState(false)
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'activity' | 'account' | null>(null)
@@ -6378,51 +6395,6 @@ export default function HomeScreen() {
               </button>
             </div>
           </div>
-          <div
-            className={`mt-3 flex min-h-10 items-center gap-2 rounded-2xl px-3 py-2 text-[12px] font-bold ${
-              pickup?.source === 'map' || gps.status === 'ready'
-                ? 'bg-[#ECFDF5] text-[#047857]'
-                : gps.status === 'pending'
-                  ? 'bg-[#FFFBEB] text-[#B45309]'
-                  : 'bg-[#F1F5F9] text-[#475569]'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={() => setLocationGuideOpen(true)}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              aria-label={t('home.changeLocation')}
-            >
-              <LocateFixed className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">
-                {pickup?.source === 'map' || gps.status === 'ready'
-                  ? t('home.gpsReady', { address: origin.address })
-                  : gps.status === 'pending'
-                    ? t('home.gpsPending')
-                    : gps.status === 'approx'
-                      ? t('home.gpsApprox', { address: origin.address })
-                      : t('home.gpsDenied', { address: origin.address })}
-              </span>
-            </button>
-            {gps.status !== 'ready' && pickup?.source !== 'map' ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void requestUserLocation(true)
-                }}
-                className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-[#4A82B8] shadow-[0_4px_10px_rgba(15,23,42,0.08)]"
-              >
-                {t('home.allowLocation')}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => openPickupMap()}
-              className="shrink-0 rounded-full bg-[#4A82B8] px-2.5 py-1 text-[11px] font-black text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]"
-            >
-              {t('home.viewMap')}
-            </button>
-          </div>
         </header>
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (
@@ -6436,6 +6408,8 @@ export default function HomeScreen() {
             pickup={origin.address}
             pickupLat={origin.lat}
             pickupLng={origin.lng}
+            gpsStatus={gps.status}
+            pickupFromMap={pickup?.source === 'map'}
             onDestination={selectDestination}
             onService={openService}
             onReceipt={setReceiptRide}
@@ -6485,41 +6459,6 @@ export default function HomeScreen() {
             )
           })}
         </nav>
-        {locationGuideOpen ? (
-          <div className="fixed inset-0 z-[96] flex items-end bg-[#1e1033]/45 sm:items-center sm:p-4" onClick={() => setLocationGuideOpen(false)}>
-            <section className="mx-auto w-full max-w-md rounded-t-[28px] bg-white px-5 pb-7 pt-4 shadow-2xl sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
-              <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-              <p className="text-xs font-black text-[#4C1FB8]">{t('home.pickupTitle')}</p>
-              <h2 className="mt-1 text-xl font-black text-[#0F172A]">{t('home.pickupChange')}</h2>
-              <p className="mt-2 rounded-2xl bg-[#F8FAFC] px-3 py-2 text-sm font-black leading-5 text-[#0F172A]">{origin.address}</p>
-              <p className="mt-2 text-sm font-bold leading-6 text-[#475569]">
-                {gps.status === 'ready' || pickup?.source === 'map' ? t('home.pickupReady') : t('home.pickupNeedGps')}
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setLocationGuideOpen(false)
-                  void requestUserLocation(true)
-                }}
-                className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white shadow-[0_10px_20px_rgba(76,31,184,0.28)]"
-              >
-                {t('home.reaskGps')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  openPickupMap()
-                }}
-                className="mt-2 w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3.5 text-sm font-black text-[#4C1FB8]"
-              >
-                {t('home.pickOnMap')}
-              </button>
-              <button type="button" onClick={() => setLocationGuideOpen(false)} className="mt-2 w-full py-3 text-sm font-black text-[#64748B]">
-                {t('settings.close')}
-              </button>
-            </section>
-          </div>
-        ) : null}
         {mapOpen ? (
           <LocationMapModal
             onClose={() => setMapOpen(false)}
@@ -6545,7 +6484,6 @@ export default function HomeScreen() {
               commitPickup(place, 'map')
               pickingMapRef.current = false
               setFullscreenMapOpen(false)
-              setLocationGuideOpen(false)
               showNotice('출발지를 지정했어요')
             }}
           />
