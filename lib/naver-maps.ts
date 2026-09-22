@@ -145,7 +145,7 @@ export function getNaverMaps(): NaverMapsSdk | null {
   if (typeof window === 'undefined') return null
   const maps = window.naver?.maps
   if (!maps) return null
-  if (typeof maps.Map !== 'function' || typeof maps.LatLng !== 'function' || typeof maps.Point !== 'function') return null
+  if (typeof maps.Map !== 'function' || typeof maps.LatLng !== 'function') return null
   return maps
 }
 
@@ -269,31 +269,24 @@ export function loadNaverMaps(): Promise<NaverMapsSdk | null> {
   if (loadPromise) return loadPromise
 
   loadPromise = (async () => {
-    const existing = existingMapsScript()
-    if (existing && !scriptHasGeocoder(existing.getAttribute('src'))) {
-      const urls = scriptUrls(getNaverMapClientId())
-      for (const url of urls) {
-        try {
-          await injectScript(url)
-          break
-        } catch {
-          continue
-        }
+    const alreadyReady = mapsReady()
+    if (alreadyReady) return alreadyReady
+
+    let ready = await waitUntilMapsReady(600)
+    if (ready) return ready
+
+    const urls = scriptUrls(getNaverMapClientId())
+    for (const url of urls) {
+      try {
+        await injectScript(url)
+        ready = await waitUntilMapsReady(3500)
+        if (ready) return ready
+      } catch {
+        continue
       }
     }
-    if (!existingMapsScript()) {
-      const urls = scriptUrls(getNaverMapClientId())
-      for (const url of urls) {
-        try {
-          await injectScript(url)
-          const ready = await waitUntilMapsReady(2500)
-          if (ready) return ready
-        } catch {
-          continue
-        }
-      }
-    }
-    const ready = await waitUntilMapsReady(8000)
+
+    ready = await waitUntilMapsReady(2500)
     if (!ready) loadPromise = null
     return ready
   })()

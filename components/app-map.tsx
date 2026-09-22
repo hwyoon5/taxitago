@@ -7,6 +7,7 @@ import {
   createDomMarker,
   createHtmlOverlay,
   hasNaverMapClientId,
+  getNaverMapClientId,
   loadNaverMaps,
   createNaverLatLng,
   getNaverMaps,
@@ -89,7 +90,72 @@ function invokeMapCenter(map: NaverMapInstance | null): unknown {
 
 function liveNaverMaps(sdk?: NaverMapsSdk | null): NaverMapsSdk | null {
   if (sdk && typeof sdk.Map === 'function' && typeof sdk.LatLng === 'function') return sdk
-  return getNaverMaps()
+  const bundled = getNaverMaps()
+  if (bundled) return bundled
+  if (typeof window === 'undefined') return null
+  const maps = window.naver?.maps
+  if (maps && typeof maps.Map === 'function' && typeof maps.LatLng === 'function') return maps
+  return null
+}
+
+async function waitForNaverSdk(timeoutMs = 10000): Promise<NaverMapsSdk | null> {
+  if (typeof window === 'undefined' || !getNaverMapClientId()) return null
+  const loaded = liveNaverMaps(await loadNaverMaps())
+  if (loaded) return loaded
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const ready = liveNaverMaps()
+    if (ready) return ready
+    await new Promise((resolve) => window.setTimeout(resolve, 80))
+  }
+  return liveNaverMaps()
+}
+
+const NAVER_MAP_INTERACTION = {
+  scaleControl: false,
+  mapDataControl: false,
+  zoomControl: false,
+  draggable: true,
+  pinchZoom: true,
+  scrollWheel: true,
+  keyboardShortcuts: true,
+  disableDoubleClickZoom: false,
+  disableDoubleTapZoom: false,
+  disableTwoFingerTapZoom: false,
+} as const
+
+function applyNaverMapInteraction(map: NaverMapInstance | null) {
+  if (!map) return
+  const options = { ...NAVER_MAP_INTERACTION }
+  try {
+    ;(map as { setOptions?: (next: Record<string, unknown>) => void }).setOptions?.(options)
+  } catch {
+    undefined
+  }
+}
+
+function createNaverMapInstance(
+  maps: NaverMapsSdk,
+  canvas: HTMLElement,
+  center: unknown,
+  zoom: number,
+) {
+  const attempts: Record<string, unknown>[] = [
+    { center, zoom, ...NAVER_MAP_INTERACTION },
+    { center, zoom, draggable: true, pinchZoom: true, scrollWheel: true },
+    { center, zoom },
+  ]
+  let lastError: unknown
+  for (const options of attempts) {
+    try {
+      const map = new maps.Map(canvas, options)
+      applyNaverMapInteraction(map)
+      return map
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('naver-map-init-failed')
 }
 
 function naverLatLng(sdk: NaverMapsSdk | null | undefined, lat: number, lng: number) {
@@ -813,7 +879,7 @@ function FallbackSlippyMap({
   return (
     <div
       ref={wrapRef}
-      className="absolute inset-0 touch-none overflow-hidden"
+      className="absolute inset-0 overflow-hidden touch-manipulation"
       onWheel={(event) => {
         event.preventDefault()
         if (event.deltaY < 0) onZoomIn()
@@ -1007,7 +1073,7 @@ function NaverLocationMap(props: MapViewProps) {
     void (async () => {
       try {
         await waitForMapSize(canvasNode)
-        const sdk = await loadNaverMaps()
+        const sdk = await waitForNaverSdk()
         if (!isLive()) return
         canvasNode = replaceMapCanvas(canvasRef.current || canvasNode)
         canvasRef.current = canvasNode
@@ -1027,20 +1093,7 @@ function NaverLocationMap(props: MapViewProps) {
         }
         let map: NaverMapInstance
         try {
-          map = new maps.Map(canvasNode, {
-          center,
-          zoom: 15,
-          scaleControl: false,
-          mapDataControl: false,
-          zoomControl: false,
-          disableDoubleClickZoom: true,
-          disableDoubleTapZoom: true,
-          disableTwoFingerTapZoom: true,
-          draggable: true,
-          pinchZoom: true,
-          scrollWheel: true,
-          keyboardShortcuts: true,
-        })
+          map = createNaverMapInstance(maps, canvasNode, center, 15)
         } catch {
           setLoadNotice('네이버 지도를 불러오지 못해 대체 지도를 표시합니다.')
           setMode('fallback')
@@ -1314,6 +1367,8 @@ function NaverLocationMap(props: MapViewProps) {
         <FallbackSlippyMap
           {...props}
           zoom={zoom}
+          interactive
+          showZoom
           onZoomIn={() => setZoom((value) => Math.min(18, value + 1))}
           onZoomOut={() => setZoom((value) => Math.max(12, value - 1))}
           notice={loadNotice}
@@ -1546,7 +1601,7 @@ function NaverLiveRideMap({
     const strokeListeners: unknown[] = []
     void (async () => {
       await waitForMapSize(canvas)
-      const [sdk, roadPath] = await Promise.all([loadNaverMaps(), fetchDrivingPath(origin, dest).catch(() => [] as RidePoint[])])
+      const [sdk, roadPath] = await Promise.all([waitForNaverSdk(), fetchDrivingPath(origin, dest).catch(() => [] as RidePoint[])])
       if (cancelled || !canvasRef.current) return
       const maps = liveNaverMaps(sdk)
       if (!maps || !isUsableCoord(origin.lat, origin.lng)) {
@@ -1567,16 +1622,7 @@ function NaverLiveRideMap({
       }
       let map: NaverMapInstance
       try {
-        map = new maps.Map(canvasRef.current, {
-        center,
-        zoom: 15,
-        scaleControl: false,
-        mapDataControl: false,
-        zoomControl: false,
-        draggable: true,
-        pinchZoom: true,
-        scrollWheel: true,
-      })
+        map = createNaverMapInstance(maps, canvasRef.current, center, 15)
       } catch {
         setLoadNotice('네이버 지도를 불러오지 못해 대체 지도를 표시합니다.')
         setMode('fallback')
@@ -1663,23 +1709,23 @@ function NaverLiveRideMap({
   return (
     <MapFrame className={className}>
       <div ref={hostRef} className="naver-map-host absolute inset-0">
-        {mode !== 'fallback' ? <div ref={canvasRef} className="naver-map-canvas h-full w-full" style={{ width: '100%', height: '100%' }} /> : null}
-        {mode === 'fallback' ? (
-          <FallbackSlippyMap
-            lat={mid.lat}
-            lng={mid.lng}
-            hidePin
-            zoom={zoom}
-            interactive
-            showZoom
-            onZoomIn={() => setZoom((value) => Math.min(18, value + 1))}
-            onZoomOut={() => setZoom((value) => Math.max(12, value - 1))}
-            notice={loadNotice}
-          >
-            <LiveFallbackOverlay phase={phase} kind={kind} taxi={taxi} origin={origin} dest={dest} path={routePath} zoom={zoom} size={size} />
-          </FallbackSlippyMap>
-        ) : null}
+        {mode !== 'fallback' ? <div ref={canvasRef} className="naver-map-canvas h-full w-full touch-manipulation" style={{ width: '100%', height: '100%' }} /> : null}
       </div>
+      {mode === 'fallback' ? (
+        <FallbackSlippyMap
+          lat={mid.lat}
+          lng={mid.lng}
+          hidePin
+          zoom={zoom}
+          interactive
+          showZoom
+          onZoomIn={() => setZoom((value) => Math.min(18, value + 1))}
+          onZoomOut={() => setZoom((value) => Math.max(12, value - 1))}
+          notice={loadNotice}
+        >
+          <LiveFallbackOverlay phase={phase} kind={kind} taxi={taxi} origin={origin} dest={dest} path={routePath} zoom={zoom} size={size} />
+        </FallbackSlippyMap>
+      ) : null}
       {mode === 'loading' ? (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#dbe7ee]/80">
           <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">지도를 불러오는 중이에요</p>
@@ -1929,7 +1975,7 @@ function NaverNearbyServiceMap({
     let mapInstance: NaverMapInstance | null = null
     void (async () => {
       await waitForMapSize(canvas)
-      const sdk = await loadNaverMaps()
+      const sdk = await waitForNaverSdk()
       if (cancelled || !canvasRef.current) return
       const maps = liveNaverMaps(sdk)
       const center = maps ? naverLatLng(maps, origin.lat, origin.lng) : null
@@ -1939,16 +1985,7 @@ function NaverNearbyServiceMap({
       }
       mapsRef.current = maps
       try {
-        mapInstance = new maps.Map(canvasRef.current, {
-          center,
-          zoom: 16,
-          scaleControl: false,
-          mapDataControl: false,
-          zoomControl: false,
-          draggable: true,
-          pinchZoom: true,
-          scrollWheel: true,
-        })
+        mapInstance = createNaverMapInstance(maps, canvasRef.current, center, 16)
       } catch {
         setMode('fallback')
         return
