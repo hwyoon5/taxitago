@@ -1220,7 +1220,11 @@ function NaverLocationMap(props: MapViewProps) {
       if (onPointerDown) canvasNode.removeEventListener('pointerdown', onPointerDown)
       if (onPointerMove) canvasNode.removeEventListener('pointermove', onPointerMove)
       if (onPointerUp) canvasNode.removeEventListener('pointerup', onPointerUp)
-      pinRef.current?.setMap(null)
+        try {
+          pinRef.current?.setMap(null);
+        } catch (e) {
+          // 무시
+        }
       pinRef.current = null
       const sdk = liveNaverMaps(mapsRef.current)
       detachNaverMap(sdk, mapInstance || mapRef.current, listeners, canvasNode)
@@ -1430,9 +1434,10 @@ function NaverLiveRideMap({
       console.log("출발지:", origin, "도착지:", dest); // 👈 이 줄을 추가해서 값이 잘 나오는지 확인해 보세요!
       if (!origin || !dest) return;
       try {
-        const response = await fetch(
-          `/api/directions?startLat=${origin.lat}&startLng=${origin.lng}&destLat=${dest.lat}&destLng=${dest.lng}`
-        );
+        // 기존 길찾기 API 호출 코드 (예: fetchDrivingRoute 등)
+      } catch (error) {
+        console.log("경로 데이터를 불러오는 중 일시적인 오류가 발생했습니다:", error);
+      }
         const data = await response.json();
         console.log("API 응답 데이터:", data); // 👈 API가 뭘 리턴하는지 확인
   
@@ -1443,13 +1448,14 @@ function NaverLiveRideMap({
             applyPolyline(sdk);
           }
         }
-      } catch (error) {
-        console.error('도로 경로를 불러오지 못했습니다:', error);
-      }
-    }
-  
-    fetchDrivingRoute();
-  }, [origin, dest]);
+        try {
+          const data = await fetchDrivingRoute(origin, dest);
+          if (data) {
+            applyPolyline(sdk);
+          }
+        } catch (error) {
+          console.error("도로 경로를 불러오지 못했습니다:", error);
+        }
   const applyPolyline = (sdk: NaverMapsSdk) => {
     const map = mapRef.current
     const points = routePathRef.current
