@@ -47,6 +47,30 @@ export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
 
 export type DrivingPathPoint = { lat: number; lng: number }
 
+function parseDrivingPathPayload(data: unknown): DrivingPathPoint[] {
+  if (!data || typeof data !== 'object') return []
+  const root = data as { path?: unknown; route?: unknown }
+  const rows = Array.isArray(root.path) ? root.path : Array.isArray(root.route) ? root.route : []
+  return rows
+    .map((item) => {
+      if (Array.isArray(item) && item.length >= 2) {
+        const first = Number(item[0])
+        const second = Number(item[1])
+        if (!Number.isFinite(first) || !Number.isFinite(second)) return null
+        if (Math.abs(second) <= 90 && Math.abs(first) <= 180) return { lat: second, lng: first }
+        if (Math.abs(first) <= 90 && Math.abs(second) <= 180) return { lat: first, lng: second }
+        return null
+      }
+      if (!item || typeof item !== 'object') return null
+      const point = item as { lat?: unknown; lng?: unknown }
+      const lat = Number(point.lat)
+      const lng = Number(point.lng)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+      return { lat, lng }
+    })
+    .filter((item): item is DrivingPathPoint => Boolean(item))
+}
+
 export async function fetchDrivingPath(
   origin: DrivingPathPoint,
   dest: DrivingPathPoint,
@@ -58,20 +82,23 @@ export async function fetchDrivingPath(
     destLat: String(dest.lat),
     destLng: String(dest.lng),
   })
-  const response = await fetch(`/api/directions?${params.toString()}`, {
-    method: 'GET',
-    cache: 'no-store',
-    signal,
-    headers: { Accept: 'application/json' },
-  })
-  if (!response.ok) return [] as DrivingPathPoint[]
-  const data = (await response.json()) as { path?: Array<{ lat?: unknown; lng?: unknown }> }
-  return (data.path || [])
-    .map((item) => {
-      const lat = Number(item.lat)
-      const lng = Number(item.lng)
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-      return { lat, lng }
-    })
-    .filter((item): item is DrivingPathPoint => Boolean(item))
+  const query = params.toString()
+  const originBase = typeof window === 'undefined' ? '' : window.location.origin
+  const urls = [`${originBase}/api/directions/?${query}`, `${originBase}/api/directions?${query}`]
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        signal,
+        headers: { Accept: 'application/json' },
+      })
+      if (!response.ok) continue
+      const points = parseDrivingPathPayload(await response.json())
+      if (points.length >= 2) return points
+    } catch (error) {
+      if (signal?.aborted) throw error
+    }
+  }
+  return [] as DrivingPathPoint[]
 }

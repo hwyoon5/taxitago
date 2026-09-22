@@ -430,10 +430,37 @@ function ridePathPoints(sdk: NaverMapsSdk, points: RidePoint[]) {
     .filter((point): point is NonNullable<typeof point> => Boolean(point))
 }
 
+function polylineDom(line: NaverPolyline | null): Element | null {
+  if (!line) return null
+  const raw = line as unknown as {
+    getElement?: () => Element | null
+    _element?: Element
+    _el?: Element
+  }
+  try {
+    return raw.getElement?.() || raw._element || raw._el || null
+  } catch {
+    return null
+  }
+}
+
+function mapOverlayRoots(map: NaverMapInstance | null, canvas?: HTMLElement | null): Array<ParentNode | null> {
+  const roots: Array<ParentNode | null> = [canvas, canvas?.parentElement ?? null]
+  try {
+    const panes = (map as { getPanes?: () => Record<string, HTMLElement | undefined> }).getPanes?.()
+    if (panes) {
+      roots.push(panes.overlayLayer ?? null, panes.overlayMouseTarget ?? null, panes.floatPane ?? null)
+    }
+  } catch {
+    undefined
+  }
+  return roots
+}
+
 const SOLID_POLYLINE_STROKE = {
   strokeColor: '#000000',
   strokeStyle: 'solid',
-  strokeWeight: 4,
+  strokeWeight: 5,
   strokeOpacity: 1,
   strokeLineCap: 'round',
   strokeLineJoin: 'round',
@@ -441,19 +468,25 @@ const SOLID_POLYLINE_STROKE = {
 
 function stripPolylineDash(root?: ParentNode | null) {
   if (!root || typeof (root as Element).querySelectorAll !== 'function') return
-  ;(root as Element).querySelectorAll('svg path, svg polyline').forEach((node) => {
-    const el = node as SVGElement
+  const visit = (el: Element) => {
     el.removeAttribute('stroke-dasharray')
     el.removeAttribute('stroke-dashoffset')
-    el.style.strokeDasharray = '0'
-    el.style.strokeDashoffset = '0'
-    el.style.stroke = '#000000'
-    el.style.strokeLinecap = 'round'
-    el.style.strokeLinejoin = 'round'
-  })
+    const svg = el as SVGElement
+    svg.style.strokeDasharray = '0'
+    svg.style.strokeDashoffset = '0'
+    svg.style.stroke = '#000000'
+    svg.style.strokeLinecap = 'round'
+    svg.style.strokeLinejoin = 'round'
+  }
+  if (root instanceof Element && (root.tagName === 'PATH' || root.tagName === 'POLYLINE')) visit(root)
+  ;(root as Element).querySelectorAll?.('svg path, svg polyline, path, polyline').forEach(visit)
 }
 
-function applySolidPolylineStyle(line: NaverPolyline | null, canvas?: HTMLElement | null) {
+function applySolidPolylineStyle(
+  line: NaverPolyline | null,
+  canvas?: HTMLElement | null,
+  map?: NaverMapInstance | null,
+) {
   if (line) {
     try {
       line.setOptions?.(SOLID_POLYLINE_STROKE)
@@ -466,9 +499,15 @@ function applySolidPolylineStyle(line: NaverPolyline | null, canvas?: HTMLElemen
       undefined
     }
   }
-  stripPolylineDash(canvas)
+  const extra = polylineDom(line)
+  stripPolylineDash(extra)
+  stripPolylineDash(extra?.parentElement ?? null)
+  for (const root of mapOverlayRoots(map ?? null, canvas)) stripPolylineDash(root)
   if (typeof window !== 'undefined') {
-    window.requestAnimationFrame(() => stripPolylineDash(canvas))
+    window.requestAnimationFrame(() => {
+      stripPolylineDash(extra)
+      for (const root of mapOverlayRoots(map ?? null, canvas)) stripPolylineDash(root)
+    })
   }
 }
 
@@ -479,14 +518,16 @@ function solidRidePath(sdk: NaverMapsSdk, map: NaverMapInstance, points: RidePoi
   const line = new maps.Polyline({
     map,
     path,
+    clickable: false,
+    zIndex: 80,
     strokeColor: '#000000',
     strokeStyle: 'solid',
-    strokeWeight: 4,
+    strokeWeight: 5,
     strokeOpacity: 1,
     strokeLineCap: 'round',
     strokeLineJoin: 'round',
   })
-  applySolidPolylineStyle(line, canvas)
+  applySolidPolylineStyle(line, canvas, map)
   return line
 }
 
@@ -1507,7 +1548,7 @@ function NaverLiveRideMap({
   const [routePath, setRoutePath] = useState<RidePoint[]>([origin, dest])
 
   const keepSolidStroke = () => {
-    applySolidPolylineStyle(lineRef.current, canvasRef.current)
+    applySolidPolylineStyle(lineRef.current, canvasRef.current, mapRef.current)
   }
 
   const applyPolyline = (sdk: NaverMapsSdk) => {
@@ -1516,16 +1557,17 @@ function NaverLiveRideMap({
     if (!map || points.length < 2) return
     const coords = ridePathPoints(sdk, points)
     if (coords.length < 2) return
-    if (lineRef.current) {
-      try {
+    try {
+      if (lineRef.current) {
         lineRef.current.setPath(coords)
         keepSolidStroke()
         return
-      } catch {
-        undefined
       }
+    } catch {
+      undefined
     }
     lineRef.current = replaceSolidRidePath(sdk, map, lineRef.current, points, canvasRef.current)
+    keepSolidStroke()
   }
 
   const applyCamera = () => {
@@ -1575,7 +1617,7 @@ function NaverLiveRideMap({
     const controller = new AbortController()
     void fetchDrivingPath(origin, dest, controller.signal)
       .then((path) => {
-        if (controller.signal.aborted || path.length < 2) return
+        if (controller.signal.aborted || path.length < 3) return
         routePathRef.current = path
         setRoutePath(path)
         const sdk = liveNaverMaps(mapsRef.current)
@@ -1583,7 +1625,7 @@ function NaverLiveRideMap({
         if (!sdk || !map) return
         lineRef.current = replaceSolidRidePath(sdk, map, lineRef.current, path, canvasRef.current)
         forceRideCamera(sdk, map, origin, dest, phaseRef.current === 'moving' ? 'dest' : 'route', path)
-        applySolidPolylineStyle(lineRef.current, canvasRef.current)
+        applySolidPolylineStyle(lineRef.current, canvasRef.current, map)
       })
       .catch(() => undefined)
     return () => controller.abort()
@@ -1599,6 +1641,7 @@ function NaverLiveRideMap({
     if (!canvas) return
     let cancelled = false
     const strokeListeners: unknown[] = []
+    let dashObserver: MutationObserver | null = null
     void (async () => {
       await waitForMapSize(canvas)
       const [sdk, roadPath] = await Promise.all([waitForNaverSdk(), fetchDrivingPath(origin, dest).catch(() => [] as RidePoint[])])
@@ -1609,7 +1652,7 @@ function NaverLiveRideMap({
         setMode('fallback')
         return
       }
-      if (roadPath.length >= 2) {
+      if (roadPath.length >= 3) {
         routePathRef.current = roadPath
         setRoutePath(roadPath)
       }
@@ -1632,10 +1675,10 @@ function NaverLiveRideMap({
       map.setCenter(center)
       forceRideCamera(maps, map, origin, dest, phase === 'moving' ? 'dest' : 'route', routePathRef.current)
       lineRef.current = solidRidePath(maps, map, routePathRef.current, canvasRef.current)
-      applySolidPolylineStyle(lineRef.current, canvasRef.current)
+      applySolidPolylineStyle(lineRef.current, canvasRef.current, map)
       const keepStrokeOnRender = () => {
         if (cancelled) return
-        applySolidPolylineStyle(lineRef.current, canvasRef.current)
+        applySolidPolylineStyle(lineRef.current, canvasRef.current, map)
       }
       for (const eventName of ['idle', 'tilesloaded', 'zoom_changed', 'bounds_changed', 'center_changed', 'dragend']) {
         const handle = addNaverMapListener(maps, map, eventName, keepStrokeOnRender)
@@ -1644,6 +1687,30 @@ function NaverLiveRideMap({
       if (cancelled) {
         strokeListeners.forEach((listener) => removeNaverMapListener(maps, listener))
         return
+      }
+      const observeRoot = canvasRef.current || hostRef.current
+      if (observeRoot && typeof MutationObserver === 'function') {
+        dashObserver = new MutationObserver(() => keepStrokeOnRender())
+        dashObserver.observe(observeRoot, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ['style', 'stroke-dasharray', 'stroke-dashoffset', 'd'],
+        })
+      }
+      if (routePathRef.current.length < 3) {
+        void fetchDrivingPath(origin, dest)
+          .then((path) => {
+            if (cancelled || path.length < 3 || !mapRef.current) return
+            routePathRef.current = path
+            setRoutePath(path)
+            const live = liveNaverMaps(maps)
+            if (!live) return
+            lineRef.current = replaceSolidRidePath(live, mapRef.current, lineRef.current, path, canvasRef.current)
+            applySolidPolylineStyle(lineRef.current, canvasRef.current, mapRef.current)
+            forceRideCamera(live, mapRef.current, origin, dest, phase === 'moving' ? 'dest' : 'route', path)
+          })
+          .catch(() => undefined)
       }
       const startLabel = document.createElement('div')
       startLabel.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#0F172A;color:#fff;padding:3px 8px;font-size:10px;font-weight:800;letter-spacing:0.02em;box-shadow:0 4px 10px rgba(15,23,42,0.22)'
@@ -1665,7 +1732,7 @@ function NaverLiveRideMap({
         startPinRef.current?.setPosition(origin.lat, origin.lng)
         endPinRef.current?.setPosition(dest.lat, dest.lng)
         applyPolyline(maps)
-        applySolidPolylineStyle(lineRef.current, canvasRef.current)
+        applySolidPolylineStyle(lineRef.current, canvasRef.current, map)
         if (phase === 'moving') {
           const destLatLng = naverLatLng(maps, dest.lat, dest.lng)
           if (destLatLng) map.setCenter(destLatLng)
@@ -1680,6 +1747,7 @@ function NaverLiveRideMap({
     })()
     return () => {
       cancelled = true
+      dashObserver?.disconnect()
       const sdk = liveNaverMaps(mapsRef.current)
       strokeListeners.forEach((listener) => removeNaverMapListener(sdk, listener))
       startPinRef.current?.setMap(null)

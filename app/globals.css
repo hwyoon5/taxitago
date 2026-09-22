@@ -240,10 +240,14 @@
   min-height: 160px;
 }
 
+.naver-map-shell svg path,
+.naver-map-shell svg polyline,
 .naver-map-canvas svg path,
-.naver-map-canvas svg polyline {
-  stroke: black !important;
-  stroke-dasharray: none !important;
+.naver-map-canvas svg polyline,
+.naver-map-host svg path,
+.naver-map-host svg polyline {
+  stroke: #000000 !important;
+  stroke-dasharray: 0 !important;
   stroke-dashoffset: 0 !important;
 }
 .tt-start-pin {
