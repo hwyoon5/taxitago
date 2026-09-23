@@ -3518,6 +3518,8 @@ function Home({
   pickup,
   pickupLat,
   pickupLng,
+  gpsStatus = 'ready',
+  pickupFromMap = false,
   onDestination,
   onService,
   onReceipt,
@@ -3528,6 +3530,8 @@ function Home({
   pickup: string
   pickupLat: number
   pickupLng: number
+  gpsStatus?: GpsFix['status']
+  pickupFromMap?: boolean
   onDestination: (value: string, coords?: RideCoords) => void
   onService: (value: string) => void
   onReceipt: (ride: RideReceipt) => void
@@ -3583,6 +3587,12 @@ function Home({
     rememberRecent(name, address)
     onDestination(name, coordsFromPlaceQuery(name) ?? coordsFromPlaceQuery(address) ?? undefined)
   }
+  const pickupHint =
+    pickupFromMap || gpsStatus === 'ready'
+      ? null
+      : gpsStatus === 'pending'
+        ? 'GPS로 위치를 확인하는 중이에요'
+        : '탭해서 지도에서 출발지를 지정하세요'
 
   return (
     <main
@@ -3592,17 +3602,31 @@ function Home({
         <div className="rounded-[16px] border border-[#E2E8F0] bg-[#F8FAFC] p-1.5">
           <button
             type="button"
+<<<<<<< HEAD
             onClick={() => onOpenMap()}
             className="flex w-full items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]"
             aria-label={`${t('home.pickup')} ${pickup}`}
           >
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
               <LocateFixed className="h-3.5 w-3.5" />
+=======
+            onClick={onOpenMap}
+            className="flex w-full items-center gap-2 rounded-lg bg-white px-2.5 py-2 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]"
+            aria-label={`${t('home.pickup')} ${pickup}`}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
+              <LocateFixed className="h-4 w-4" />
+>>>>>>> d3dd37b77582a5ef744437d140a70e89a977a2f2
             </span>
             <span className="min-w-0 flex-1 py-0.5">
               <span className="block text-[10px] font-bold leading-3 text-[#64748B]">{t('home.pickup')}</span>
               <span className="mt-0.5 block truncate text-[13px] font-black leading-4 text-[#0F172A]">{pickup}</span>
+              {pickupHint ? <span className="mt-0.5 block truncate text-[10px] font-bold leading-3 text-[#64748B]">{pickupHint}</span> : null}
             </span>
+<<<<<<< HEAD
+=======
+            <span className="shrink-0 text-[11px] font-black text-[#4C1FB8]">{t('home.viewMap')}</span>
+>>>>>>> d3dd37b77582a5ef744437d140a70e89a977a2f2
             <ChevronRight className="h-4 w-4 shrink-0 text-[#94A3B8]" />
           </button>
           <button
@@ -6155,6 +6179,8 @@ export default function HomeScreen() {
             pickup={origin.address}
             pickupLat={origin.lat}
             pickupLng={origin.lng}
+            gpsStatus={gps.status}
+            pickupFromMap={pickup?.source === 'map'}
             onDestination={selectDestination}
             onService={openService}
             onReceipt={setReceiptRide}
@@ -6204,10 +6230,24 @@ export default function HomeScreen() {
             )
           })}
         </nav>
+<<<<<<< HEAD
         {pickupMapOpen ? (
           <PlacePickerScreen
             key={`pickup-map-${pickupMapKey}`}
             variant="pickup"
+=======
+        {mapOpen ? (
+          <LocationMapModal
+            onClose={() => setMapOpen(false)}
+            initialLat={origin.lat}
+            initialLng={origin.lng}
+            initialAddress={origin.address}
+          />
+        ) : null}
+        {fullscreenMapOpen ? (
+          <FullscreenMapView
+            key={pickupMapSession}
+>>>>>>> d3dd37b77582a5ef744437d140a70e89a977a2f2
             lat={origin.lat}
             lng={origin.lng}
             address={origin.address}
@@ -6218,7 +6258,11 @@ export default function HomeScreen() {
             onConfirm={(place) => {
               commitPickup(place, 'map')
               pickingMapRef.current = false
+<<<<<<< HEAD
               setPickupMapOpen(false)
+=======
+              setFullscreenMapOpen(false)
+>>>>>>> d3dd37b77582a5ef744437d140a70e89a977a2f2
               showNotice('출발지를 지정했어요')
             }}
           />
