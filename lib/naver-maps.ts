@@ -1,8 +1,3 @@
-export const NAVER_MAPS_SCRIPT_HOSTS = [
-  'https://oapi.map.naver.com/openapi/v3/maps.js',
-  'https://openapi.map.naver.com/openapi/v3/maps.js',
-] as const
-
 export type NaverLatLng = { lat: () => number; lng: () => number }
 
 export type NaverMapInstance = {
@@ -12,7 +7,10 @@ export type NaverMapInstance = {
   setZoom: (zoom: number, useEffect?: boolean) => void
   getZoom: () => number
   getCenter?: () => unknown
-  getProjection?: () => { fromOffsetToCoord?: (offset: unknown) => unknown } | null
+  getProjection?: () => {
+    fromOffsetToCoord?: (offset: unknown) => unknown
+    fromCoordToOffset?: (coord: unknown) => { x: number; y: number } | null
+  } | null
   fitBounds?: (bounds: unknown, margin?: unknown) => void
   autoResize?: () => void
   setSize?: (size: unknown) => void
@@ -54,35 +52,6 @@ export type NaverMapsSdk = {
     clearListeners?: (target: unknown, eventName?: string) => void
     clearInstanceListeners?: (target: unknown) => void
   }
-  Service?: {
-    reverseGeocode: (
-      options: { coords: unknown; orders?: string; coordType?: string },
-      callback: (status: number | string, response: NaverReverseGeocodeResponse) => void,
-    ) => void
-    geocode?: (
-      options: { query: string },
-      callback: (status: number, response: { v2?: { addresses?: Array<{ x?: string; y?: string; roadAddress?: string; jibunAddress?: string }> } }) => void,
-    ) => void
-    Status: { OK: number | string; ERROR?: number | string }
-    OrderType: { ADDR: string; ROAD_ADDR: string }
-    CoordType?: { LATLNG?: string; TM128?: string }
-  }
-}
-
-export type NaverReverseGeocodeResponse = {
-  address?: { roadAddress?: string; jibunAddress?: string; address?: string }
-  result?: {
-    items?: Array<{ address?: string; roadAddress?: string; jibunAddress?: string }>
-    address?: { roadAddress?: string; jibunAddress?: string }
-  }
-  v2?: {
-    address?: { roadAddress?: string; jibunAddress?: string; jibunaddr?: string; roadaddr?: string }
-    results?: Array<{
-      name?: string
-      region?: { area1?: { name?: string }; area2?: { name?: string }; area3?: { name?: string }; area4?: { name?: string } }
-      land?: { name?: string; number1?: string; addition0?: { value?: string } }
-    }>
-  }
 }
 
 declare global {
@@ -118,13 +87,13 @@ export function resolveNaverMapClientId() {
 }
 
 export function getNaverMapClientId() {
-  const bundled = resolveNaverMapClientId()
-  if (bundled) return bundled
-  if (typeof window === 'undefined') return ''
-  return (
-    normalizeClientId(window.__NAVER_MAP_CLIENT_ID__) ||
-    normalizeClientId(document.querySelector('meta[name="naver-map-client-id"]')?.getAttribute('content'))
-  )
+  if (typeof window !== 'undefined') {
+    const fromPage =
+      normalizeClientId(window.__NAVER_MAP_CLIENT_ID__) ||
+      normalizeClientId(document.querySelector('meta[name="naver-map-client-id"]')?.getAttribute('content'))
+    if (fromPage) return fromPage
+  }
+  return resolveNaverMapClientId()
 }
 
 export function hasNaverMapClientId() {
@@ -159,20 +128,11 @@ export function createNaverLatLng(maps: NaverMapsSdk | null | undefined, lat: nu
   }
 }
 
-export function getNaverGeocoderService() {
-  const maps = getNaverMaps()
-  const service = maps?.Service
-  if (!maps || typeof service?.reverseGeocode !== 'function') return null
-  return { maps, service }
-}
-
-function scriptHasGeocoder(src?: string | null) {
-  return /(?:[?&]submodules=)[^&]*geocoder/i.test(src || '')
-}
-
 function existingMapsScript() {
   if (typeof document === 'undefined') return null
-  return document.querySelector<HTMLScriptElement>('script[src*="map.naver.com"][src*="maps.js"]')
+  return document.querySelector<HTMLScriptElement>(
+    'script#naver-maps-sdk, script#naver-maps-sdk-loader, script[src*="/api/naver-maps/sdk"], script[src*="map.naver.com"][src*="maps.js"]',
+  )
 }
 
 function waitUntilMapsReady(timeoutMs = 8000) {
@@ -196,11 +156,7 @@ function waitUntilMapsReady(timeoutMs = 8000) {
 
 function scriptUrls(id: string) {
   const encoded = encodeURIComponent(id)
-  return NAVER_MAPS_SCRIPT_HOSTS.flatMap((host) => [
-    `${host}?ncpKeyId=${encoded}&ncpClientId=${encoded}&submodules=geocoder`,
-    `${host}?ncpKeyId=${encoded}&submodules=geocoder`,
-    `${host}?ncpClientId=${encoded}&submodules=geocoder`,
-  ])
+  return [`/api/naver-maps/sdk/?ncpKeyId=${encoded}`]
 }
 
 function injectScript(src: string) {
@@ -210,55 +166,11 @@ function injectScript(src: string) {
     const script = document.createElement('script')
     script.id = 'naver-maps-sdk-loader'
     script.async = true
-    window.__naverMapsReady = () => resolve()
-    script.src = `${src}${src.includes('?') ? '&' : '?'}callback=__naverMapsReady`
+    script.src = src
     script.onload = () => resolve()
     script.onerror = () => reject(new Error(`failed:${src}`))
     document.head.appendChild(script)
   })
-}
-
-export async function waitForNaverGeocoder(timeoutMs = 2500) {
-  return ensureNaverGeocoder(timeoutMs)
-}
-
-export function hasNaverGeocoder(sdk?: NaverMapsSdk | null) {
-  return typeof (sdk || mapsReady())?.Service?.reverseGeocode === 'function'
-}
-
-async function waitForGeocoder(timeoutMs: number) {
-  const started = Date.now()
-  while (Date.now() - started < timeoutMs) {
-    const live = mapsReady()
-    if (hasNaverGeocoder(live)) return live
-    await new Promise((resolve) => window.setTimeout(resolve, 50))
-  }
-  const live = mapsReady()
-  return hasNaverGeocoder(live) ? live : null
-}
-
-export async function ensureNaverGeocoder(timeoutMs = 4000) {
-  const sdk = await loadNaverMaps()
-  if (!sdk) return null
-  const already = await waitForGeocoder(Math.min(1200, timeoutMs))
-  if (already) return already
-  const id = getNaverMapClientId()
-  if (!id) return mapsReady()
-  const existing = existingMapsScript()
-  if (!scriptHasGeocoder(existing?.getAttribute('src'))) {
-    const started = Date.now()
-    for (const url of scriptUrls(id)) {
-      if (Date.now() - started >= timeoutMs) break
-      try {
-        await injectScript(url)
-      } catch {
-        continue
-      }
-      const ready = await waitForGeocoder(Math.max(400, timeoutMs - (Date.now() - started)))
-      if (ready) return ready
-    }
-  }
-  return waitForGeocoder(Math.max(0, timeoutMs))
 }
 
 export function loadNaverMaps(): Promise<NaverMapsSdk | null> {
@@ -272,7 +184,8 @@ export function loadNaverMaps(): Promise<NaverMapsSdk | null> {
     const alreadyReady = mapsReady()
     if (alreadyReady) return alreadyReady
 
-    let ready = await waitUntilMapsReady(600)
+    const existing = existingMapsScript()
+    let ready = await waitUntilMapsReady(existing ? 8000 : 1200)
     if (ready) return ready
 
     const urls = scriptUrls(getNaverMapClientId())
@@ -478,94 +391,4 @@ export function applyMapBottomInset(maps: NaverMapsSdk, map: NaverMapInstance, l
   const center = createNaverLatLng(maps, lat, lng)
   if (center) map.setCenter(center)
   if (bottomInset > 0 && typeof maps?.Point === 'function') map.panBy(new maps.Point(0, Math.round(bottomInset / 2)))
-}
-
-function cleanAddress(value: unknown) {
-  const text = typeof value === 'string' ? value.trim() : ''
-  return text && !/^(undefined|null)$/i.test(text) ? text : ''
-}
-
-export function parseNaverReverseAddress(response: unknown): string {
-  if (!response || typeof response !== 'object') return ''
-  const root = response as NaverReverseGeocodeResponse & Record<string, unknown>
-  const v2 = (root.v2 || root) as NonNullable<NaverReverseGeocodeResponse['v2']> & Record<string, unknown>
-  const address = (v2.address || root.address || root.result?.address) as
-    | { roadAddress?: string; jibunAddress?: string; address?: string; roadaddr?: string; jibunaddr?: string }
-    | undefined
-  const road = cleanAddress(address?.roadAddress) || cleanAddress(address?.roadaddr)
-  const jibun = cleanAddress(address?.jibunAddress) || cleanAddress(address?.jibunaddr) || cleanAddress(address?.address)
-  if (road) return road
-  if (jibun) return jibun
-  const item = root.result?.items?.[0]
-  const itemAddress = cleanAddress(item?.roadAddress) || cleanAddress(item?.jibunAddress) || cleanAddress(item?.address)
-  if (itemAddress) return itemAddress
-  const result = v2.results?.[0]
-  if (!result) return ''
-  const parts = [
-    result.region?.area1?.name,
-    result.region?.area2?.name,
-    result.region?.area3?.name,
-    result.region?.area4?.name,
-    result.land?.name,
-    result.land?.number1,
-    result.land?.addition0?.value,
-  ].filter(Boolean)
-  return parts.join(' ').replace(/\s+/g, ' ').trim()
-}
-
-export function callNaverReverseGeocode(
-  lat: number,
-  lng: number,
-  timeoutMs = 4000,
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    let settled = false
-    const finish = (value: string | null) => {
-      if (settled) return
-      settled = true
-      window.clearTimeout(timer)
-      resolve(value)
-    }
-    const timer = window.setTimeout(() => finish(null), timeoutMs)
-    try {
-      const maps = typeof window === 'undefined' ? undefined : window.naver?.maps
-      const service = maps?.Service
-      const reverse = service?.reverseGeocode
-      if (!maps || typeof reverse !== 'function' || typeof maps.LatLng !== 'function') {
-        finish(null)
-        return
-      }
-      const coords = new maps.LatLng(lat, lng)
-      const orders = [service?.OrderType?.ROAD_ADDR, service?.OrderType?.ADDR].filter(Boolean).join(',') || 'roadaddr,addr'
-      const handle = (status: unknown, response: NaverReverseGeocodeResponse) => {
-        try {
-          const payload =
-            response && typeof response === 'object'
-              ? response
-              : ((status as NaverReverseGeocodeResponse) || response)
-          const formatted = parseNaverReverseAddress(payload)
-          if (formatted) {
-            finish(formatted)
-            return
-          }
-          finish(null)
-        } catch {
-          finish(null)
-        }
-      }
-      const options: { coords: unknown; orders: string; coordType?: string } = { coords, orders }
-      if (service?.CoordType?.LATLNG) options.coordType = service.CoordType.LATLNG
-      try {
-        reverse.call(service, options, handle)
-      } catch {
-        try {
-          reverse.call(service, { coords }, handle)
-        } catch {
-          finish(null)
-        }
-      }
-    } catch {
-      finish(null)
-    }
-  })
 }

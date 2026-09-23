@@ -1,3 +1,4 @@
+import { apiFetch, localEventSourceUrl } from '@/lib/app-origin'
 import { isUsableCoord } from '@/lib/ride-session'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
@@ -18,7 +19,7 @@ export async function createRideRequest(input: {
   destLabel?: string
   estimatedFare?: number
 }): Promise<PublicRide> {
-  const res = await fetch('/api/rides', {
+  const res = await apiFetch('/api/rides', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -29,7 +30,7 @@ export async function createRideRequest(input: {
 }
 
 export async function fetchRideRequest(rideId: string): Promise<PublicRide | null> {
-  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}`, { cache: 'no-store' })
   if (res.status === 404) return null
   const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
   if (!res.ok || !data.ride) throw new Error(data.error || '호출 상태를 확인하지 못했어요.')
@@ -37,7 +38,7 @@ export async function fetchRideRequest(rideId: string): Promise<PublicRide | nul
 }
 
 export function subscribeRideLive(rideId: string, onRide: (ride: PublicRide) => void) {
-  const source = new EventSource(`/api/rides/${encodeURIComponent(rideId)}/live`)
+  const source = new EventSource(localEventSourceUrl(`api/rides/${encodeURIComponent(rideId)}/live`))
   const apply = (raw: string) => {
     try {
       const data = JSON.parse(raw) as { ride?: PublicRide }
@@ -52,7 +53,7 @@ export function subscribeRideLive(rideId: string, onRide: (ride: PublicRide) => 
 }
 
 export async function cancelRideRequest(rideId: string, passengerId: string) {
-  await fetch(`/api/rides/${encodeURIComponent(rideId)}/cancel`, {
+  await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/cancel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ passengerId }),
@@ -71,7 +72,7 @@ export async function sendDriverPresence(input: {
   piUid?: string
 }) {
   if (!isUsableCoord(input.lat, input.lng)) return
-  await fetch('/api/drivers/presence', {
+  await apiFetch('/api/drivers/presence', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -79,14 +80,14 @@ export async function sendDriverPresence(input: {
 }
 
 export async function fetchDriverOffer(driverId: string) {
-  const res = await fetch(`/api/drivers/offer?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/drivers/offer?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
   const data = await readJson<{ ride?: PublicRide | null; offer?: { pickupDistanceKm: number; expiresAt: string } | null }>(res)
   if (!res.ok) return null
   return data.ride ? { ride: data.ride, offer: data.offer ?? null } : null
 }
 
 export async function respondToRideOffer(rideId: string, driverId: string, action: 'accept' | 'reject') {
-  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ driverId, action }),
@@ -97,7 +98,7 @@ export async function respondToRideOffer(rideId: string, driverId: string, actio
 }
 
 export async function acceptRideOnDevice(rideId: string) {
-  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'device-accept' }),
@@ -114,7 +115,7 @@ export async function lockRideEscrow(input: {
   txid?: string
   sandbox?: boolean
 }) {
-  const res = await fetch('/api/escrow/lock', {
+  const res = await apiFetch('/api/escrow/lock', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -125,7 +126,7 @@ export async function lockRideEscrow(input: {
 }
 
 export async function completeRideTrip(rideId: string, driverId: string) {
-  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/complete`, {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/complete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ driverId }),
@@ -136,21 +137,21 @@ export async function completeRideTrip(rideId: string, driverId: string) {
 }
 
 export async function fetchDriverActiveRide(driverId: string) {
-  const res = await fetch(`/api/drivers/active?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/drivers/active?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
   const data = await readJson<{ ride?: PublicRide | null }>(res)
   if (!res.ok) return null
   return data.ride ?? null
 }
 
 export async function fetchDriverEarnings(driverId: string) {
-  const res = await fetch(`/api/drivers/earnings?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/drivers/earnings?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
   const data = await readJson<{ stats?: DriverEarningsStats; error?: string }>(res)
   if (!res.ok || !data.stats) return null
   return data.stats
 }
 
 export async function fetchRideReceipt(rideId: string) {
-  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/receipt`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/receipt`, { cache: 'no-store' })
   if (res.status === 404) return null
   const data = await readJson<{ receipt?: SettlementReceipt }>(res)
   return data.receipt ?? null

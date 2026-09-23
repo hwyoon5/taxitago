@@ -8,6 +8,7 @@ const rawNaverMapClientId = (
   process.env.NAVER_MAP_CLIENT_ID ||
   process.env.NAVER_CLIENT_ID ||
   process.env.NCP_KEY_ID ||
+  process.env.NCP_APIGW_API_KEY_ID ||
   process.env.NAVER_MAP_NCP_KEY_ID ||
   ''
 ).trim()
@@ -38,6 +39,22 @@ const nextConfig = {
     return [
       { source: '/validation-key.txt', headers: validationKeyHeaders },
       { source: '/validation-key.txt/', headers: validationKeyHeaders },
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'Referrer-Policy', value: 'origin' },
+          { key: 'Permissions-Policy', value: 'geolocation=(self)' },
+        ],
+      },
+      {
+        source: '/api/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,PATCH,DELETE,OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Accept' },
+          { key: 'Cache-Control', value: 'no-store' },
+        ],
+      },
     ]
   },
   async rewrites() {

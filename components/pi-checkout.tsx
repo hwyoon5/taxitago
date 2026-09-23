@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { apiFetch } from '@/lib/app-origin'
 
 type IncompletePiPayment = {
   identifier?: string
@@ -159,7 +160,7 @@ function waitForPi(timeoutMs = 12000) {
 
 async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, string>) {
   logPi('log', `${path} request`, body)
-  const response = await fetch(path, {
+  const response = await apiFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -325,7 +326,7 @@ function isCancelError(error: unknown) {
 
 async function postSandboxCharge(amount: number, memo: string) {
   logPi('log', '/api/pi/charge request', { amount, memo })
-  const response = await fetch('/api/pi/charge', {
+  const response = await apiFetch('/api/pi/charge', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ amount, memo, metadata: { kind: 'wallet-charge' } }),

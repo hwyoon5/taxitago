@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { fetchChatRoom, sendChatMessage } from '@/lib/comms-client'
+import { localEventSourceUrl } from '@/lib/app-origin'
 import type { ChatMessage, CommsRole, PublicChatRoom } from '@/lib/comms-types'
 
 const PASSENGER_QUICK = ['문 앞에 도착했습니다', '안전하게 이동 중입니다', '빨리 와주세요', '짐이 있어요']
@@ -36,7 +37,7 @@ export default function RideChat({
     })
 
     const params = new URLSearchParams({ actorId, role })
-    const source = new EventSource(`/api/rides/${encodeURIComponent(rideId)}/chat/stream?${params.toString()}`)
+    const source = new EventSource(localEventSourceUrl(`api/rides/${encodeURIComponent(rideId)}/chat/stream`, params))
     source.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data) as { type?: string; message?: ChatMessage; room?: PublicChatRoom; reason?: string }

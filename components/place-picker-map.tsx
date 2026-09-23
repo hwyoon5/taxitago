@@ -2,23 +2,25 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, LocateFixed, MapPin } from 'lucide-react'
-import { lookupAddressFromApi } from '@/lib/geocode-client'
+import { ADDRESS_LOADING, fallbackCoordAddress, lookupAddressFromApi } from '@/lib/geocode-client'
 import { loadNaverMaps, refreshNaverMap, waitForMapSize, type NaverMapInstance, type NaverMapsSdk } from '@/lib/naver-maps'
+import { watchMapSettle } from '@/lib/watch-map-settle'
 
 export type PickedPlace = { lat: number; lng: number; address: string }
 
-function readCenter(map: NaverMapInstance | null): PickedPlace | null {
-  if (!map || typeof map.getCenter !== 'function') return null
-  try {
-    const raw = map.getCenter() as { lat?: unknown; lng?: unknown } | null
-    if (!raw) return null
-    const lat = typeof raw.lat === 'function' ? Number((raw.lat as () => number)()) : Number(raw.lat)
-    const lng = typeof raw.lng === 'function' ? Number((raw.lng as () => number)()) : Number(raw.lng)
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-    return { lat, lng, address: '' }
-  } catch {
-    return null
-  }
+type PlacePickerScreenProps = {
+  lat: number
+  lng: number
+  address?: string
+  variant: 'pickup' | 'dest'
+  onClose: () => void
+  onConfirm: (place: PickedPlace) => void
+}
+
+function isUsableAddress(value?: string) {
+  const label = (value || '').trim()
+  if (!label || label === ADDRESS_LOADING) return false
+  return !/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(label)
 }
 
 export function PlacePickerScreen({
@@ -28,48 +30,25 @@ export function PlacePickerScreen({
   variant,
   onClose,
   onConfirm,
-}: {
-  lat: number
-  lng: number
-  address?: string
-  variant: 'pickup' | 'dest'
-  onClose: () => void
-  onConfirm: (place: PickedPlace) => void
-}) {
+}: PlacePickerScreenProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<NaverMapInstance | null>(null)
   const mapsRef = useRef<NaverMapsSdk | null>(null)
   const centerRef = useRef({ lat, lng })
   const lookupIdRef = useRef(0)
-  const [label, setLabel] = useState(address?.trim() || '이 위치의 주소를 확인하는 중')
-  const [looking, setLooking] = useState(!address?.trim())
+  const initialReady = isUsableAddress(address)
+  const [label, setLabel] = useState(initialReady ? (address as string).trim() : ADDRESS_LOADING)
+  const [looking, setLooking] = useState(!initialReady)
   const isDest = variant === 'dest'
-
-  const lookup = (nextLat: number, nextLng: number) => {
-    centerRef.current = { lat: nextLat, lng: nextLng }
-    const id = ++lookupIdRef.current
-    setLooking(true)
-    void lookupAddressFromApi(nextLat, nextLng)
-      .then((next) => {
-        if (id !== lookupIdRef.current) return
-        setLabel(next)
-        setLooking(false)
-      })
-      .catch(() => {
-        if (id !== lookupIdRef.current) return
-        setLabel(`${nextLat.toFixed(5)}, ${nextLng.toFixed(5)}`)
-        setLooking(false)
-      })
-  }
 
   useEffect(() => {
     const host = hostRef.current
     const canvas = canvasRef.current
     if (!host || !canvas) return
     let cancelled = false
-    let listener: unknown = null
     let map: NaverMapInstance | null = null
+    let stopWatch: (() => void) | null = null
     let resizeObserver: ResizeObserver | null = null
     const timers: number[] = []
 
@@ -86,16 +65,10 @@ export function PlacePickerScreen({
       await waitForMapSize(canvas)
       if (cancelled) return
       const sdk = await loadNaverMaps()
-      if (cancelled || !canvasRef.current) return
-      if (!sdk?.Map) {
-        lookup(lat, lng)
-        return
-      }
+      if (cancelled || !canvasRef.current || !sdk?.Map) return
       const node = canvasRef.current
-      const width = Math.max(node.clientWidth, host.clientWidth, window.innerWidth)
-      const height = Math.max(node.clientHeight, host.clientHeight, window.innerHeight)
-      node.style.width = `${width}px`
-      node.style.height = `${height}px`
+      node.style.width = `${Math.max(node.clientWidth, host.clientWidth, window.innerWidth)}px`
+      node.style.height = `${Math.max(node.clientHeight, host.clientHeight, window.innerHeight)}px`
       map = new sdk.Map(node, {
         center: new sdk.LatLng(lat, lng),
         zoom: 16,
@@ -109,13 +82,19 @@ export function PlacePickerScreen({
       })
       mapRef.current = map
       mapsRef.current = sdk
-      refreshNaverMap(sdk, map, node)
-      listener = sdk.Event.addListener(map, 'idle', () => {
+      stopWatch = watchMapSettle(map, sdk, host, (center) => {
         if (cancelled) return
-        const center = readCenter(map)
-        if (!center) return
-        lookup(center.lat, center.lng)
+        const requestId = ++lookupIdRef.current
+        setLooking(true)
+        setLabel(ADDRESS_LOADING)
+        void lookupAddressFromApi(center.lat, center.lng).then((nextAddress) => {
+          if (cancelled || requestId !== lookupIdRef.current) return
+          centerRef.current = center
+          setLabel(nextAddress)
+          setLooking(false)
+        })
       })
+      refreshNaverMap(sdk, map, node)
       resizeObserver = new ResizeObserver(() => fit())
       resizeObserver.observe(host)
       window.addEventListener('orientationchange', fit)
@@ -128,17 +107,7 @@ export function PlacePickerScreen({
       resizeObserver?.disconnect()
       window.removeEventListener('orientationchange', fit)
       timers.forEach((id) => window.clearTimeout(id))
-      const sdk = mapsRef.current
-      try {
-        if (listener != null) sdk?.Event.removeListener(listener)
-      } catch {
-        undefined
-      }
-      try {
-        if (map) sdk?.Event.clearInstanceListeners?.(map)
-      } catch {
-        undefined
-      }
+      stopWatch?.()
       try {
         map?.destroy?.()
       } catch {
@@ -148,21 +117,17 @@ export function PlacePickerScreen({
       mapsRef.current = null
       canvas.replaceChildren()
     }
-    // Fresh instance per modal open (parent remounts with a new key).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const goInitial = () => {
     const sdk = mapsRef.current
     const map = mapRef.current
-    if (!sdk || !map) {
-      lookup(lat, lng)
-      return
-    }
+    if (!sdk || !map) return
     try {
       map.panTo(new sdk.LatLng(lat, lng))
     } catch {
-      lookup(lat, lng)
+      undefined
     }
   }
 
@@ -171,7 +136,7 @@ export function PlacePickerScreen({
     onConfirm({
       lat: current.lat,
       lng: current.lng,
-      address: label.trim() || `${current.lat.toFixed(5)}, ${current.lng.toFixed(5)}`,
+      address: looking || !isUsableAddress(label) ? fallbackCoordAddress(current.lat, current.lng) : label.trim(),
     })
   }
 
@@ -193,6 +158,7 @@ export function PlacePickerScreen({
       </div>
       <button
         type="button"
+        data-map-ui="true"
         onClick={onClose}
         className="absolute left-4 top-[max(0.9rem,env(safe-area-inset-top))] z-20 inline-flex min-h-10 items-center gap-0.5 rounded-full bg-white/95 px-3.5 pr-4 text-[13px] font-black text-[#0F172A] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
         aria-label="뒤로가기"
@@ -202,24 +168,21 @@ export function PlacePickerScreen({
       </button>
       <button
         type="button"
+        data-map-ui="true"
         onClick={goInitial}
         className="absolute right-4 top-[max(0.9rem,env(safe-area-inset-top))] z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#4C1FB8] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
         aria-label="처음 위치로"
       >
         <LocateFixed className="h-5 w-5" />
       </button>
-      <div className={`absolute inset-x-3 z-20 ${isDest ? 'bottom-[max(1rem,env(safe-area-inset-bottom))]' : 'top-[max(4.4rem,calc(env(safe-area-inset-top)+3.4rem))]'}`}>
+      <div data-map-ui="true" className={`absolute inset-x-3 z-20 ${isDest ? 'bottom-[max(1rem,env(safe-area-inset-bottom))]' : 'top-[max(4.4rem,calc(env(safe-area-inset-top)+3.4rem))]'}`}>
         <div className="rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3.5 shadow-[0_12px_24px_rgba(15,23,42,0.16)]">
           <p className="text-[11px] font-black text-[#4C1FB8]">{isDest ? '선택한 목적지' : '현재 지도 위치'}</p>
-          <p className="mt-1 text-[15px] font-black leading-snug text-[#0F172A]">{label}</p>
+          <p className="mt-1 text-[15px] font-black leading-snug text-[#0F172A]">{looking ? ADDRESS_LOADING : label}</p>
           <p className="mt-1 text-[11px] font-bold text-[#64748B]">
-            {looking ? '지도 중심에 맞춰 주소를 갱신하는 중' : '지도를 움직이면 주소가 바로 바뀝니다'}
+            {looking ? ADDRESS_LOADING : '지도를 움직이면 주소가 바로 바뀝니다'}
           </p>
-          <button
-            type="button"
-            onClick={confirm}
-            className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white"
-          >
+          <button type="button" onClick={confirm} className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
             {isDest ? '이 주소로 선택' : '이 위치를 출발지로 지정'}
           </button>
         </div>

@@ -1,4 +1,4 @@
-import { naverGatewayHeaders } from '@/lib/server-geocode'
+import { naverGatewayHeaders } from '@/lib/naver-apigw'
 
 export type RoutePoint = { lat: number; lng: number }
 
@@ -114,7 +114,7 @@ function parseNaverDrivingPath(payload: unknown): RoutePoint[] {
 
 async function drivingPathNaver(origin: RoutePoint, dest: RoutePoint): Promise<RoutePoint[]> {
   const { keyId, headers } = naverGatewayHeaders()
-  if (!keyId) return []
+  if (!keyId || !headers) return []
   const start = `${origin.lng},${origin.lat}`
   const goal = `${dest.lng},${dest.lat}`
   const options = ['traoptimal', 'trafast', 'tracomfort']

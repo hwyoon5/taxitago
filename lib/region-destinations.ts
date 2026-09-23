@@ -85,6 +85,7 @@ export const REGION_DESTINATIONS: Record<RegionId, SuggestedPlace[]> = {
   ],
   daegu: [
     { name: '대구시청', address: '대구광역시 중구 공평로 88' },
+    { name: '대구역', address: '대구광역시 북구 칠성동2가 칠성남로30길 24' },
     { name: '동대구역', address: '대구광역시 동구 동대구로 550' },
     { name: '동성로', address: '대구광역시 중구 동성로 2' },
     { name: '수성못', address: '대구광역시 수성구 무학로 43' },
@@ -244,6 +245,13 @@ function regionFromCoords(lat: number, lng: number): RegionId {
   }, { id: DEFAULT_REGION, distance: Number.POSITIVE_INFINITY }).id
 }
 
+export function inferRegion(address: string, lat?: number, lng?: number): RegionId | null {
+  const fromAddress = regionFromAddress(address)
+  if (fromAddress) return fromAddress
+  if (Number.isFinite(lat) && Number.isFinite(lng)) return regionFromCoords(lat as number, lng as number)
+  return null
+}
+
 export function regionFromQuery(text: string): RegionId | null {
   return regionFromAddress(text)
 }
@@ -280,6 +288,7 @@ const PLACE_COORDS: Record<string, { lat: number; lng: number }> = {
   인천시청: { lat: 37.456256, lng: 126.705206 },
   대구시청: { lat: 35.87139, lng: 128.601445 },
   대구광역시청: { lat: 35.87139, lng: 128.601445 },
+  대구역: { lat: 35.876282, lng: 128.597118 },
   동대구역: { lat: 35.879729, lng: 128.628359 },
   동성로: { lat: 35.869558, lng: 128.595926 },
   수성못: { lat: 35.82885, lng: 128.6218 },
@@ -350,14 +359,17 @@ export function lookupSuggestedPlace(query: string) {
       let score = 0
       if (place.name === q || place.address === q) score = 100
       else if (name === compact) score = 90
-      else if (name.includes(compact) || compact.includes(name)) score = 70
+      else if (compact.length >= 2 && (name.startsWith(compact) || compact.startsWith(name) && name.length >= 4)) score = 70
       if (!score) continue
       const coords = PLACE_COORDS[place.name] || centerForRegion(resolveRegion(place.address))
       ranked.push({ ...place, ...coords, score })
     }
   }
   const coords = PLACE_COORDS[q] || PLACE_COORDS[compact]
-  if (coords) ranked.push({ name: q, address: q, ...coords, score: 80 })
+  if (coords) {
+    const known = ranked.find((item) => item.lat === coords.lat && item.lng === coords.lng)
+    ranked.push({ name: q, address: known?.address || q, ...coords, score: 80 })
+  }
   ranked.sort((a, b) => b.score - a.score)
   const hit = ranked[0]
   return hit ? { name: hit.name, address: hit.address, lat: hit.lat, lng: hit.lng } : null

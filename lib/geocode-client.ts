@@ -1,23 +1,83 @@
+export const ADDRESS_LOADING = '새로운 주소를 불러오는 중...'
+
 export function fallbackCoordAddress(lat: number, lng: number) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
 }
 
-export async function lookupAddressFromApi(lat: number, lng: number, signal?: AbortSignal) {
-  const fallback = fallbackCoordAddress(lat, lng)
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return fallback
-  const response = await fetch(
-    `/api/geocode?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
-    {
-      method: 'GET',
-      cache: 'no-store',
-      signal,
-      headers: { Accept: 'application/json' },
+export function createLiveAddressLookup(
+  apply: (lat: number, lng: number, address: string) => void,
+  intervalMs = 220,
+) {
+  let timer = 0
+  let lastFire = 0
+  let requestId = 0
+  let wanted: { lat: number; lng: number } | null = null
+  const fire = () => {
+    if (!wanted) return
+    window.clearTimeout(timer)
+    const lat = wanted.lat
+    const lng = wanted.lng
+    const id = ++requestId
+    const liveLat = Number(lat)
+    const liveLng = Number(lng)
+    lastFire = Date.now()
+    void lookupAddressFromApi(liveLat, liveLng)
+      .then((label) => {
+        if (id !== requestId) return
+        apply(liveLat, liveLng, label.trim() || fallbackCoordAddress(liveLat, liveLng))
+      })
+      .catch(() => {
+        if (id !== requestId) return
+        apply(liveLat, liveLng, fallbackCoordAddress(liveLat, liveLng))
+      })
+  }
+  return {
+    run(lat: number, lng: number) {
+      const nextLat = Number(lat)
+      const nextLng = Number(lng)
+      if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
+      wanted = { lat: nextLat, lng: nextLng }
+      const wait = lastFire ? Math.max(0, intervalMs - (Date.now() - lastFire)) : 0
+      window.clearTimeout(timer)
+      if (wait === 0) fire()
+      else timer = window.setTimeout(fire, wait)
     },
-  )
-  if (!response.ok) return fallback
-  const data = (await response.json()) as { address?: unknown }
-  const label = typeof data.address === 'string' ? data.address.trim() : ''
-  return label || fallback
+    flush() {
+      if (!wanted) return
+      lastFire = 0
+      fire()
+    },
+    stop() {
+      requestId += 1
+      window.clearTimeout(timer)
+      wanted = null
+      lastFire = 0
+    },
+  }
+}
+
+const jsonHeaders = { Accept: 'application/json' } as const
+
+export async function lookupAddressFromApi(lat: number, lng: number, signal?: AbortSignal) {
+  const liveLat = Number(lat)
+  const liveLng = Number(lng)
+  const fallback = fallbackCoordAddress(liveLat, liveLng)
+  if (!Number.isFinite(liveLat) || !Number.isFinite(liveLng) || Math.abs(liveLat) > 90 || Math.abs(liveLng) > 180) {
+    return fallback
+  }
+  try {
+    const response = await fetch(
+      `/api/geocode/?lat=${encodeURIComponent(String(liveLat))}&lng=${encodeURIComponent(String(liveLng))}`,
+      { method: 'GET', cache: 'no-store', credentials: 'same-origin', signal, headers: jsonHeaders },
+    )
+    if (!response.ok) return fallback
+    const data = (await response.json()) as { address?: unknown }
+    const label = typeof data.address === 'string' ? data.address.trim() : ''
+    return label || fallback
+  } catch (error) {
+    if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error
+    return fallback
+  }
 }
 
 export type SearchedPlace = { name: string; address: string; lat: number; lng: number }
@@ -25,24 +85,31 @@ export type SearchedPlace = { name: string; address: string; lat: number; lng: n
 export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
   const q = query.trim()
   if (!q) return [] as SearchedPlace[]
-  const response = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`, {
-    method: 'GET',
-    cache: 'no-store',
-    signal,
-    headers: { Accept: 'application/json' },
-  })
-  if (!response.ok) return []
-  const data = (await response.json()) as { places?: Array<{ name?: unknown; address?: unknown; lat?: unknown; lng?: unknown }> }
-  return (data.places || [])
-    .map((item) => {
-      const name = typeof item.name === 'string' ? item.name.trim() : q
-      const address = typeof item.address === 'string' ? item.address.trim() : ''
-      const lat = Number(item.lat)
-      const lng = Number(item.lng)
-      if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
-      return { name: name || q, address, lat, lng }
+  try {
+    const response = await fetch(`/api/geocode/?q=${encodeURIComponent(q)}`, {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+      headers: jsonHeaders,
     })
-    .filter((item): item is SearchedPlace => Boolean(item))
+    if (!response.ok) return []
+    const data = (await response.json()) as {
+      places?: Array<{ name?: unknown; address?: unknown; lat?: unknown; lng?: unknown }>
+    }
+    return (data.places || [])
+      .map((item) => {
+        const name = typeof item.name === 'string' ? item.name.trim() : q
+        const address = typeof item.address === 'string' ? item.address.trim() : ''
+        const lat = Number(item.lat)
+        const lng = Number(item.lng)
+        if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
+        return { name: name || q, address, lat, lng }
+      })
+      .filter((item): item is SearchedPlace => Boolean(item))
+  } catch {
+    return [] as SearchedPlace[]
+  }
 }
 
 export type DrivingPathPoint = { lat: number; lng: number }
@@ -83,15 +150,15 @@ export async function fetchDrivingPath(
     destLng: String(dest.lng),
   })
   const query = params.toString()
-  const originBase = typeof window === 'undefined' ? '' : window.location.origin
-  const urls = [`${originBase}/api/directions/?${query}`, `${originBase}/api/directions?${query}`]
+  const urls = [`/api/directions/?${query}`, `/api/directions?${query}`]
   for (const url of urls) {
     try {
       const response = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
+        credentials: 'same-origin',
         signal,
-        headers: { Accept: 'application/json' },
+        headers: jsonHeaders,
       })
       if (!response.ok) continue
       const points = parseDrivingPathPayload(await response.json())

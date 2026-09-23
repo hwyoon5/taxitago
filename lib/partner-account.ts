@@ -1,3 +1,5 @@
+import { apiFetch } from '@/lib/app-origin'
+
 export type PiIdentity = {
   uid: string
   username: string
@@ -103,7 +105,7 @@ export function clearPartnerAccount() {
 
 export async function syncPartnerLink(profile: PartnerProfile) {
   try {
-    await fetch('/api/partner/link', {
+    await apiFetch('/api/partner/link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

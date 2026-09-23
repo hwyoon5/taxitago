@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/app-origin'
 import type { ChatMessage, CommsRole, PublicChatRoom, PublicSafeCall } from '@/lib/comms-types'
 
 async function readJson<T>(res: Response): Promise<T> {
@@ -5,7 +6,7 @@ async function readJson<T>(res: Response): Promise<T> {
 }
 
 export async function fetchSafeCall(rideId: string, actorId: string, role: CommsRole) {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/rides/${encodeURIComponent(rideId)}/safe-call?actorId=${encodeURIComponent(actorId)}&role=${role}`,
     { cache: 'no-store' },
   )
@@ -15,7 +16,7 @@ export async function fetchSafeCall(rideId: string, actorId: string, role: Comms
 }
 
 export async function startSafeCallSession(rideId: string, actorId: string, role: CommsRole, realPhone?: string) {
-  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/safe-call`, {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/safe-call`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actorId, role, action: 'start', realPhone }),
@@ -26,7 +27,7 @@ export async function startSafeCallSession(rideId: string, actorId: string, role
 }
 
 export async function updateSafeCall(rideId: string, actorId: string, role: CommsRole, action: 'answer' | 'hangup') {
-  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/safe-call`, {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/safe-call`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actorId, role, action }),
@@ -37,7 +38,7 @@ export async function updateSafeCall(rideId: string, actorId: string, role: Comm
 }
 
 export async function fetchChatRoom(rideId: string, actorId: string, role: CommsRole) {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/rides/${encodeURIComponent(rideId)}/chat?actorId=${encodeURIComponent(actorId)}&role=${role}`,
     { cache: 'no-store' },
   )
@@ -47,7 +48,7 @@ export async function fetchChatRoom(rideId: string, actorId: string, role: Comms
 }
 
 export async function sendChatMessage(rideId: string, actorId: string, role: CommsRole, text: string) {
-  const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/chat`, {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actorId, role, text }),

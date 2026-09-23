@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono'
 const naverMapClientId = resolveNaverMapClientId()
 const naverMapClientQuery = encodeURIComponent(naverMapClientId)
 const naverMapScript = naverMapClientId
-  ? `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${naverMapClientQuery}&ncpClientId=${naverMapClientQuery}&submodules=geocoder`
+  ? `/api/naver-maps/sdk/?ncpKeyId=${naverMapClientQuery}`
   : ''
 
 export const metadata: Metadata = {
@@ -60,10 +60,12 @@ export default function RootLayout({
             __html: `window.__NAVER_MAP_CLIENT_ID__=${JSON.stringify(naverMapClientId)};`,
           }}
         />
-        {naverMapScript ? <Script id="naver-maps-sdk" src={naverMapScript} strategy="beforeInteractive" /> : null}
+        {naverMapScript ? (
+          <Script id="naver-maps-sdk" src={naverMapScript} strategy="beforeInteractive" referrerPolicy="origin" />
+        ) : null}
         <Script id="pi-network-sdk" src="https://sdk.minepi.com/pi-sdk.js" strategy="beforeInteractive" />
       </head>
-        <body className={`${notoSansKr.className} bg-[#F8FAFC] font-medium text-[#0f172a] subpixel-antialiased`}>
+      <body className={`${notoSansKr.className} bg-[#F8FAFC] font-medium text-[#0f172a] subpixel-antialiased`}>
         <PiSdkInit />
         <LocaleProvider>{children}</LocaleProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}

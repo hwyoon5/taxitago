@@ -14,7 +14,7 @@ import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } fr
 import { NearbyServiceMap } from '@/components/nearby-service-map'
 import { PlacePickerScreen } from '@/components/place-picker-map'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
-import { lookupSuggestedPlace, REGION_DESTINATIONS, regionDisplayName, regionFromQuery, suggestedDestinationsFor } from '@/lib/region-destinations'
+import { lookupSuggestedPlace, REGION_DESTINATIONS, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { searchPlacesFromApi } from '@/lib/geocode-client'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
@@ -133,10 +133,7 @@ function rideRouteLabel(pickupAddress: string, destLabel: string, destAddress?: 
 type RouteGap = 'pickup' | 'dest' | 'both'
 
 function isUsablePickupAddress(value?: string | null) {
-  const text = (value ?? '').trim()
-  if (!text) return false
-  if (text === '현재 위치를 확인하는 중' || text === '주소를 확인하는 중') return false
-  return true
+  return Boolean(usableMapAddress(value))
 }
 
 function routeGap(pickup?: string | null, dest?: string | null): RouteGap | null {
@@ -311,8 +308,11 @@ function usableMapAddress(value?: string | null) {
   const label = (value || '').trim()
   if (!label) return ''
   if (/확인하는 중|수신하는 중|불러오는 중|갱신하는 중/.test(label)) return ''
+  if (/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(label)) return ''
   return label
 }
+
+const ADDRESS_LOADING = '새로운 주소를 불러오는 중...'
 
 function LocationMapModal({
   onClose,
@@ -346,55 +346,40 @@ function LocationMapModal({
   setPinRef.current = setPin
   setSourceRef.current = setSource
 
+  const mapCenterRef = useRef(start)
+  mapCenterRef.current = mapCenter
+
   const applyPoint = (nextLat: number, nextLng: number, nextSource: 'fallback' | 'gps' | 'pick', recenter = false) => {
     if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
     setPin({ lat: nextLat, lng: nextLng })
     if (recenter) setMapCenter({ lat: nextLat, lng: nextLng })
     setSource(nextSource)
-  }
-
-  const handleCenterChange = (nextLat: number, nextLng: number, dragging = false) => {
-    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    if (dragging) {
-      userMovedRef.current = true
-      setAddressPendingRef.current(true)
-    }
-    setPinRef.current({ lat: nextLat, lng: nextLng })
-    if (dragging || userMovedRef.current) setSourceRef.current('pick')
-  }
-
-  const handleCenterIdle = (nextLat: number, nextLng: number) => {
-    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
-    userMovedRef.current = true
-    setPinRef.current({ lat: nextLat, lng: nextLng })
-    setSourceRef.current('pick')
+    setAddress(ADDRESS_LOADING)
+    setAddressPending(true)
   }
 
   useEffect(() => {
-    if (initialAddress) {
+    let cancelled = false
+    if (usableMapAddress(initialAddress)) {
       setGpsPending(false)
       setAddressPending(false)
     }
-    if (!navigator.geolocation) {
+    void (async () => {
+      const point = await requestBrowserPosition()
+      if (cancelled) return
+      if (point) {
+        if (!userMovedRef.current) applyPoint(point.lat, point.lng, 'gps', true)
+        setGpsPending(false)
+        return
+      }
       setGpsPending(false)
-      if (!initialAddress) applyPoint(start.lat, start.lng, 'fallback', true)
-      return
+      if (!usableMapAddress(initialAddress) && !userMovedRef.current) {
+        applyPoint(start.lat, start.lng, 'fallback', true)
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-    const timer = window.setTimeout(() => setGpsPending(false), 6000)
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        window.clearTimeout(timer)
-        if (!userMovedRef.current) applyPoint(position.coords.latitude, position.coords.longitude, 'gps', true)
-        setGpsPending(false)
-      },
-      () => {
-        window.clearTimeout(timer)
-        setGpsPending(false)
-        if (!initialAddress && !userMovedRef.current) applyPoint(start.lat, start.lng, 'fallback', true)
-      },
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
-    )
-    return () => window.clearTimeout(timer)
   }, [])
 
   const statusLabel = gpsPending
@@ -404,7 +389,7 @@ function LocationMapModal({
       : source === 'gps'
         ? '스마트폰 GPS 기준 현재 위치입니다.'
         : '위치 권한이 없어 접속 지역 기준으로 표시했어요.'
-  const displayedAddress = usableMapAddress(address) || (addressPending ? '이 위치의 주소를 확인하는 중' : address)
+  const displayedAddress = addressPending || !usableMapAddress(address) ? ADDRESS_LOADING : address
 
   return (
     <div className="fixed inset-0 z-[90] flex items-end bg-[#1e293b]/45 sm:items-center sm:p-4" onClick={onClose}>
@@ -436,26 +421,28 @@ function LocationMapModal({
             className="h-[340px]"
             interactive
             centerPin
-            onCenterChange={handleCenterChange}
-            onCenterIdle={handleCenterIdle}
             onAddressChange={(place) => {
-              const label = usableMapAddress(place.address) || place.address || failedReverseAddress(place.lat, place.lng)
               setPinRef.current({ lat: place.lat, lng: place.lng })
-              setAddressRef.current(label)
+              const next = usableMapAddress(place.address)
+              if (!next) {
+                setAddressRef.current(ADDRESS_LOADING)
+                setAddressPendingRef.current(true)
+                return
+              }
+              const origin = mapCenterRef.current
+              if (Math.abs(place.lat - origin.lat) > 1e-5 || Math.abs(place.lng - origin.lng) > 1e-5) {
+                userMovedRef.current = true
+                setSourceRef.current('pick')
+              }
+              setAddressRef.current(next)
               setAddressPendingRef.current(false)
-              if (userMovedRef.current) setSourceRef.current('pick')
             }}
             onLocate={() => {
               userMovedRef.current = false
-              if (!navigator.geolocation) {
-                applyPoint(start.lat, start.lng, 'fallback', true)
-                return
-              }
-              navigator.geolocation.getCurrentPosition(
-                (position) => applyPoint(position.coords.latitude, position.coords.longitude, 'gps', true),
-                () => applyPoint(start.lat, start.lng, 'fallback', true),
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 5_000 },
-              )
+              void requestBrowserPosition().then((point) => {
+                if (point) applyPoint(point.lat, point.lng, 'gps', true)
+                else applyPoint(start.lat, start.lng, 'fallback', true)
+              })
             }}
           />
           <div className="pointer-events-none absolute inset-x-3 top-3">
@@ -773,7 +760,7 @@ const PLACE_CATALOG = [
   { name: '김포공항 국내선', address: '서울 강서구 하늘길 38', hint: '국내선' },
   { name: '성수역 카페거리', address: '서울 성동구 아차산로 100', hint: '성수동' },
   { name: '이태원역', address: '서울 용산구 이태원로 177', hint: '지하철 6호선' },
-  { name: '서면역 2번 출구', address: '부산 부산진구 중앙대로 672', hint: '부산 추천 · 1·2호선' },
+  { name: '서면역 2번 출구', address: '부산 부산진구 중앙대로 672', hint: '지하철 1·2호선' },
   { name: '부산역 KTX', address: '부산 동구 중앙대로 206', hint: '고속철도' },
   { name: '해운대해수욕장', address: '부산 해운대구 해운대해변로 264', hint: '해운대' },
   { name: '센텀시티역', address: '부산 해운대구 센텀동로 99', hint: '신세계 센텀' },
@@ -795,6 +782,7 @@ const PLACE_CATALOG = [
   { name: '연산역', address: '부산 연제구 중앙대로 1001', hint: '시청 · 연산' },
   { name: '김해국제공항', address: '부산 강서구 공항진입로 108', hint: '국내선' },
   { name: '대구시청', address: '대구광역시 중구 공평로 88', hint: '대구 중구 동인동' },
+  { name: '대구역', address: '대구광역시 북구 칠성동2가 칠성남로30길 24', hint: '대구 북구' },
   { name: '동대구역', address: '대구광역시 동구 동대구로 550', hint: 'KTX' },
   { name: '동성로', address: '대구광역시 중구 동성로 2', hint: '대구 중심가' },
   { name: '서울시청', address: '서울특별시 중구 세종대로 110', hint: '서울 중구' },
@@ -829,18 +817,10 @@ function uniquePlaces(places: PlaceItem[]) {
   })
 }
 
-function placesForRegion(region: ReturnType<typeof regionFromQuery>): PlaceItem[] {
-  if (!region) return []
-  return REGION_DESTINATIONS[region].map((place) => {
-    const known = lookupSuggestedPlace(place.name)
-    return {
-      name: place.name,
-      address: place.address,
-      hint: `${regionDisplayName(region)} 추천 장소`,
-      lat: known?.lat,
-      lng: known?.lng,
-    }
-  })
+function locationHint(address: string) {
+  const parts = address.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return parts.slice(0, 2).join(' ')
+  return address
 }
 
 function allCatalogPlaces(): PlaceItem[] {
@@ -859,83 +839,50 @@ function allCatalogPlaces(): PlaceItem[] {
   return uniquePlaces([...PLACE_CATALOG.map((place) => ({ ...place })), ...fromRegions])
 }
 
-function queryTokens(raw: string) {
-  const spaced = raw
-    .replace(/([가-힣]+)(\d+)/g, '$1 $2')
-    .replace(/(\d+)([가-힣]+)/g, '$1 $2')
-    .trim()
-  const parts = spaced.split(/[\s,/]+/).filter(Boolean)
-  const compact = compactAddress(raw)
-  const extras = [
-    ...(compact.match(/[가-힣]+(?:대로|로|길)/g) ?? []),
-    ...(compact.match(/\d+번길\d*/g) ?? []),
-    ...(compact.match(/[가-힣]+동/g) ?? []),
-  ]
-  return [...new Set([compact, ...parts.map(compactAddress), ...extras].filter((token) => token.length >= 2))]
+function scorePlace(place: PlaceItem, compact: string) {
+  const name = compactAddress(place.name)
+  const address = compactAddress(place.address)
+  if (compact.length < 2) return 0
+  if (name === compact) return 200
+  if (name.startsWith(compact)) return 120
+  if (address.includes(compact)) return compact.length >= 4 ? 80 : 40
+  return 0
 }
 
-function scorePlace(place: PlaceItem, compact: string, tokens: string[], namedRegion: ReturnType<typeof regionFromQuery>) {
-  const hay = compactAddress(`${place.name} ${place.address} ${place.hint}`)
-  let score = 0
-  if (hay.includes(compact)) score += compact.length >= 6 ? 140 : 90
-  if (compact.includes(hay) && hay.length >= 4) score += 40
-  for (const token of tokens) {
-    if (hay.includes(token)) score += token.length >= 4 ? 28 : 14
-  }
-  const placeRegion = regionFromQuery(`${place.name} ${place.address}`)
-  if (namedRegion) {
-    if (placeRegion === namedRegion) score += 80
-    else if (placeRegion && placeRegion !== namedRegion) score -= 120
-  }
+function addressQuality(place: PlaceItem) {
+  let score = Math.min(place.address.length, 48)
+  if (Number.isFinite(place.lat) && Number.isFinite(place.lng)) score += 40
+  if (/[시도군구]/.test(place.address)) score += 24
   return score
 }
 
-function synthesizeFromQuery(raw: string, originAddress = ''): PlaceItem[] {
-  const cleaned = raw.replace(/\s+/g, ' ').trim()
-  const compact = compactAddress(cleaned)
-  if (compact.length < 2) return []
-  const named = regionFromQuery(cleaned)
-  const region = named || regionFromQuery(originAddress)
-  const area = region ? regionDisplayName(region) : ''
-  const known = lookupSuggestedPlace(cleaned)
-  const items: PlaceItem[] = []
-  if (known) {
-    items.push({ name: known.name, address: known.address, hint: '전국 검색', lat: known.lat, lng: known.lng })
+function mergePlaces(places: PlaceItem[]) {
+  const byName = new Map<string, PlaceItem>()
+  const order: string[] = []
+  for (const place of places) {
+    const key = compactAddress(place.name)
+    if (key.length < 2) continue
+    const prev = byName.get(key)
+    if (!prev) {
+      order.push(key)
+      byName.set(key, place)
+      continue
+    }
+    if (addressQuality(place) > addressQuality(prev)) byName.set(key, place)
   }
-  items.push({
-    name: cleaned,
-    address: area ? `${area} ${cleaned}` : cleaned,
-    hint: named ? `${area} 장소` : '입력한 주소',
-    lat: known?.lat,
-    lng: known?.lng,
-  })
-  if (named) items.push(...placesForRegion(named))
-  return uniquePlaces(items)
+  return order.map((key) => byName.get(key) as PlaceItem)
 }
 
-function searchDestinationPlaces(raw: string, originAddress = '') {
+function searchDestinationPlaces(raw: string) {
   const keyword = raw.trim()
   const compact = compactAddress(keyword)
-  if (!compact) return { items: [] as PlaceItem[], recommended: false }
-  const namedRegion = regionFromQuery(keyword)
-  const tokens = queryTokens(keyword)
-  const ranked = allCatalogPlaces()
-    .map((place) => ({ place, score: scorePlace(place, compact, tokens, namedRegion) }))
-    .filter((row) => row.score >= 14)
+  if (compact.length < 2) return [] as PlaceItem[]
+  return allCatalogPlaces()
+    .map((place) => ({ place, score: scorePlace(place, compact) }))
+    .filter((row) => row.score >= 40)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 10)
-    .map((row) => row.place)
-  const looksAddress = /대로|로|길|동|번지|번길|\d/.test(compact)
-  if (ranked.length > 0) {
-    const extras = looksAddress ? synthesizeFromQuery(keyword, originAddress).slice(0, 2) : []
-    return { items: uniquePlaces([...ranked, ...extras]).slice(0, 12), recommended: false }
-  }
-  const nearbyRegion = namedRegion || regionFromQuery(originAddress)
-  const recommended = nearbyRegion ? placesForRegion(nearbyRegion) : placesForRegion('busan')
-  return {
-    items: uniquePlaces([...synthesizeFromQuery(keyword, originAddress), ...recommended]).slice(0, 10),
-    recommended: true,
-  }
+    .slice(0, 8)
+    .map((row) => ({ ...row.place, hint: locationHint(row.place.address) }))
 }
 
 function readRecentPlaces(): RecentPlace[] {
@@ -1028,6 +975,7 @@ function DestinationSearchModal({
     setDestMapOpen(true)
   }
   const inputRef = useRef<HTMLInputElement>(null)
+  const searchSeq = useRef(0)
   useEffect(() => {
     const timer = window.setTimeout(() => inputRef.current?.focus(), 80)
     return () => window.clearTimeout(timer)
@@ -1038,40 +986,32 @@ function DestinationSearchModal({
       setRemotePlaces([])
       return
     }
-    const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      void searchPlacesFromApi(keyword, controller.signal)
+      const seq = ++searchSeq.current
+      void searchPlacesFromApi(keyword)
         .then((places) => {
-          const named = regionFromQuery(keyword)
-          const mapped = places.map((place) => ({
-            name: place.name,
-            address: place.address,
-            hint: '전국 검색',
-            lat: place.lat,
-            lng: place.lng,
-          }))
-          const preferred = named
-            ? mapped.filter((place) => regionFromQuery(`${place.name} ${place.address}`) === named)
-            : mapped
-          setRemotePlaces(preferred.length ? preferred : mapped)
+          if (seq !== searchSeq.current) return
+          setRemotePlaces(
+            places.map((place) => ({
+              name: place.name,
+              address: place.address,
+              hint: locationHint(place.address),
+              lat: place.lat,
+              lng: place.lng,
+            })),
+          )
         })
         .catch(() => {
-          if (!controller.signal.aborted) setRemotePlaces([])
+          if (seq !== searchSeq.current) return
+          setRemotePlaces([])
         })
     }, 180)
     return () => {
       window.clearTimeout(timer)
-      controller.abort()
     }
   }, [keyword])
-  const local = keyword ? searchDestinationPlaces(keyword, originAddress) : { items: [] as PlaceItem[], recommended: false }
-  const known = keyword ? lookupSuggestedPlace(keyword) : null
-  const knownItem: PlaceItem[] = known
-    ? [{ name: known.name, address: known.address, hint: '전국 검색', lat: known.lat, lng: known.lng }]
-    : []
-  const results = keyword ? uniquePlaces([...knownItem, ...local.items, ...remotePlaces]).slice(0, 12) : []
-  const recommended = Boolean(keyword) && remotePlaces.length === 0 && !known && local.recommended
-  const namedRegion = regionFromQuery(keyword)
+  const local = keyword ? searchDestinationPlaces(keyword) : []
+  const results = keyword ? mergePlaces([...remotePlaces, ...local]).slice(0, 8) : []
 
   const pick = (name: string, address?: string, coords?: RideCoords) => {
     onSelect(name, address, coords)
@@ -1120,14 +1060,7 @@ function DestinationSearchModal({
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-8">
           {keyword ? (
             <div>
-              <p className="text-xs font-black text-[#4C1FB8]">{recommended ? '가까운 추천 장소' : `검색 결과 ${results.length}곳`}</p>
-              {recommended ? (
-                <p className="mt-1 text-[11px] font-bold text-[#64748B]">
-                  {namedRegion
-                    ? `${regionDisplayName(namedRegion)} 기준으로 대표 장소를 보여드려요.`
-                    : '입력하신 주소와 비슷한 장소, 또는 현재 지역 추천 장소를 보여드려요.'}
-                </p>
-              ) : null}
+              <p className="text-xs font-black text-[#4C1FB8]">{`검색 결과 ${results.length}곳`}</p>
               <div className="mt-3 space-y-2">
                 {results.map((place) => {
                   const coords =
@@ -6030,23 +5963,30 @@ export default function HomeScreen() {
     source: PickupSource,
   ) => {
     const seq = (locateSeqRef.current += 1)
-    if (pickingMapRef.current || pickupSourceIsMap(pickupRef.current)) return
-    const pendingAddress = point.address || '주소를 확인하는 중'
-    setGps({ status, address: pendingAddress, lat: point.lat, lng: point.lng })
+    if (pickingMapRef.current) return
+    const readyLabel = usableMapAddress(point.address)
+    const keepLabel = usableMapAddress(pickupRef.current?.address)
+    const pendingAddress = readyLabel || keepLabel || '주소를 확인하는 중'
+    setGps({ status: readyLabel ? status : 'pending', address: pendingAddress, lat: point.lat, lng: point.lng })
     applyPickup({ address: pendingAddress, lat: point.lat, lng: point.lng, source })
-    if (point.address) return
+    if (readyLabel) return
     const nextAddress = await reverseGeocode(point.lat, point.lng)
-    if (seq !== locateSeqRef.current || pickingMapRef.current || pickupSourceIsMap(pickupRef.current)) return
-    setGps({ status, address: nextAddress, lat: point.lat, lng: point.lng })
-    applyPickup({ address: nextAddress, lat: point.lat, lng: point.lng, source })
+    if (seq !== locateSeqRef.current || pickingMapRef.current) return
+    const label = usableMapAddress(nextAddress) || nextAddress
+    setGps({ status, address: label, lat: point.lat, lng: point.lng })
+    applyPickup({ address: label, lat: point.lat, lng: point.lng, source })
   }
 
   const requestUserLocation = async (promptOnFail = false) => {
-    setGps((current) => ({ ...current, status: 'pending', address: 'GPS 위치를 수신하는 중이에요' }))
     const point = await requestBrowserPosition()
     if (point) {
       await applyLocatedPoint(point, 'ready', 'gps')
       return true
+    }
+    const kept = pickupRef.current
+    if (kept && usableMapAddress(kept.address)) {
+      setGps({ status: 'denied', address: kept.address, lat: kept.lat, lng: kept.lng })
+      return false
     }
     const fallback = await resolveFlexibleFallback()
     await applyLocatedPoint(fallback, 'approx', 'gps')
@@ -6057,6 +5997,7 @@ export default function HomeScreen() {
   }
 
   useEffect(() => {
+    let cancelled = false
     const stored = readPiWallet()
     setWalletBalance(stored.balance)
     setTransactions(stored.transactions)
@@ -6066,14 +6007,11 @@ export default function HomeScreen() {
     setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
     const storedPickup = readPickupPlace()
-    if (pickupSourceIsMap(storedPickup)) {
+    if (storedPickup && Number.isFinite(storedPickup.lat) && Number.isFinite(storedPickup.lng) && usableMapAddress(storedPickup.address)) {
       pickupRef.current = storedPickup
       setPickup(storedPickup)
+      setGps({ status: 'ready', address: storedPickup.address, lat: storedPickup.lat, lng: storedPickup.lng })
     }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
     void (async () => {
       await requestUserLocation(true)
       if (cancelled) return
@@ -6081,7 +6019,6 @@ export default function HomeScreen() {
     return () => {
       cancelled = true
     }
-    // First launch only: request GPS, then reverse-geocode into pickup/header.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

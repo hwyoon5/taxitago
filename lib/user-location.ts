@@ -1,5 +1,5 @@
-import { callNaverReverseGeocode, ensureNaverGeocoder } from '@/lib/naver-maps'
-import { centerForRegion, lookupSuggestedPlace, regionDisplayName, regionFromAccessText, regionFromQuery, resolveRegion } from '@/lib/region-destinations'
+import { lookupAddressFromApi, searchPlacesFromApi } from '@/lib/geocode-client'
+import { centerForRegion, lookupSuggestedPlace, regionFromAccessText, resolveRegion } from '@/lib/region-destinations'
 
 export const BUSAN_CITY_HALL = { lat: 35.179554, lng: 129.075641 }
 
@@ -96,129 +96,49 @@ export async function resolveFlexibleFallback() {
   }
 }
 
-async function reverseGeocodeNaver(lat: number, lng: number) {
-  try {
-    if (typeof window === 'undefined') return null
-    const sdk = await ensureNaverGeocoder(4000)
-    const maps = window.naver?.maps
-    const serviceReady = typeof maps?.Service?.reverseGeocode === 'function' || typeof sdk?.Service?.reverseGeocode === 'function'
-    if (!serviceReady) return null
-    return await callNaverReverseGeocode(lat, lng, 4000)
-  } catch {
-    return null
-  }
-}
-
-async function reverseGeocodeNominatim(lat: number, lng: number) {
-  try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=ko`,
-      { headers: { Accept: 'application/json' } },
-    )
-    if (!response.ok) return null
-    const data = (await response.json()) as {
-      display_name?: string
-      address?: {
-        city?: string
-        province?: string
-        county?: string
-        borough?: string
-        suburb?: string
-        town?: string
-        village?: string
-        road?: string
-        neighbourhood?: string
-        quarter?: string
-        city_district?: string
-      }
-    }
-    const detail = data.address
-    if (detail) {
-      const region = detail.province || detail.city || detail.county || ''
-      const district = detail.borough || detail.city_district || detail.suburb || detail.town || detail.village || ''
-      const road = detail.road || detail.neighbourhood || detail.quarter || ''
-      const parts = [region, district, road].filter(Boolean)
-      if (parts.length) return parts.join(' ')
-    }
-    return data.display_name?.split(',').slice(0, 3).join(' ').replace(/\s+/g, ' ').trim() || null
-  } catch {
-    return null
-  }
-}
-
 export async function reverseGeocode(lat: number, lng: number) {
-  try {
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return failedReverseAddress(lat, lng)
-    if (typeof window !== 'undefined') {
-      const { lookupAddressFromApi } = await import('@/lib/geocode-client')
-      const address = (await lookupAddressFromApi(lat, lng)).trim()
-      if (address) return address
-    }
-    return failedReverseAddress(lat, lng)
-  } catch {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
     return failedReverseAddress(lat, lng)
   }
+  try {
+    const address = (await lookupAddressFromApi(lat, lng)).trim()
+    if (address) return address
+  } catch {
+    undefined
+  }
+  return failedReverseAddress(lat, lng)
 }
 
 export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
   const q = query.trim()
   if (!q) return null
-  if (typeof window !== 'undefined') {
-    try {
-      const { searchPlacesFromApi } = await import('@/lib/geocode-client')
-      const places = await searchPlacesFromApi(q)
-      const first = places[0]
-      if (first && Number.isFinite(first.lat) && Number.isFinite(first.lng)) {
-        return { lat: first.lat, lng: first.lng }
-      }
-    } catch {
-      undefined
-    }
-  }
   try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&q=${encodeURIComponent(q)}&accept-language=ko`,
-      { headers: { Accept: 'application/json' } },
-    )
-    if (!response.ok) return null
-    const data = (await response.json()) as Array<{ lat?: string; lon?: string }>
-    const lat = Number(data[0]?.lat)
-    const lng = Number(data[0]?.lon)
-    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null
+    const places = await searchPlacesFromApi(q)
+    const first = places[0]
+    if (first && Number.isFinite(first.lat) && Number.isFinite(first.lng)) {
+      return { lat: first.lat, lng: first.lng }
+    }
   } catch {
-    return null
+    undefined
   }
+  return null
 }
 
-export async function resolveRidePlace(query: string, contextAddress = ''): Promise<RidePlace | null> {
+export async function resolveRidePlace(query: string, _contextAddress = ''): Promise<RidePlace | null> {
   const q = query.trim()
   if (!q || NICKNAME_DESTS.has(q)) return null
+  try {
+    const places = await searchPlacesFromApi(q)
+    const preferred = places[0]
+    if (preferred) {
+      return { label: preferred.name || q, address: preferred.address, lat: preferred.lat, lng: preferred.lng }
+    }
+  } catch {
+    undefined
+  }
   const known = lookupSuggestedPlace(q)
-  if (known && Number.isFinite(known.lat) && Number.isFinite(known.lng)) {
-    return { label: known.name, address: known.address || q, lat: known.lat, lng: known.lng }
-  }
-  const namedRegion = regionFromQuery(q)
-  const geo = await geocodeAddress(q)
-  if (geo) {
-    if (typeof window !== 'undefined') {
-      try {
-        const { searchPlacesFromApi } = await import('@/lib/geocode-client')
-        const places = await searchPlacesFromApi(q)
-        const preferred =
-          (namedRegion ? places.find((place) => regionFromQuery(place.address) === namedRegion) : null) || places[0]
-        if (preferred) return { label: q, address: preferred.address, lat: preferred.lat, lng: preferred.lng }
-      } catch {
-        undefined
-      }
-    }
-    return { label: q, address: q, lat: geo.lat, lng: geo.lng }
-  }
-  if (!namedRegion) {
-    const contextRegion = regionFromQuery(contextAddress)
-    if (contextRegion) {
-      const nearby = await geocodeAddress(`${regionDisplayName(contextRegion)} ${q}`)
-      if (nearby) return { label: q, address: q, lat: nearby.lat, lng: nearby.lng }
-    }
+  if (known && known.name.replace(/\s+/g, '') === q.replace(/\s+/g, '') && Number.isFinite(known.lat) && Number.isFinite(known.lng)) {
+    return { label: known.name, address: known.address, lat: known.lat, lng: known.lng }
   }
   return null
 }

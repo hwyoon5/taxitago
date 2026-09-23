@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/app-origin'
 import type { PublicRating, RatingRole, ReviewRecord } from '@/lib/review-types'
 
 async function readJson<T>(res: Response): Promise<T> {
@@ -12,7 +13,7 @@ export async function submitRideReview(input: {
   tags: string[]
   comment: string
 }) {
-  const res = await fetch(`/api/rides/${encodeURIComponent(input.rideId)}/reviews`, {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(input.rideId)}/reviews`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -23,7 +24,7 @@ export async function submitRideReview(input: {
 }
 
 export async function fetchUserRating(userId: string, role: RatingRole) {
-  const res = await fetch(`/api/ratings/${encodeURIComponent(userId)}?role=${role}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/ratings/${encodeURIComponent(userId)}?role=${role}`, { cache: 'no-store' })
   const data = await readJson<{ rating?: PublicRating }>(res)
   return data.rating ?? null
 }

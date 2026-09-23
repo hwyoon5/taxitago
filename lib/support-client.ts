@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/app-origin'
 import type {
   LostItem,
   LostItemType,
@@ -24,7 +25,7 @@ export async function raiseSos(input: {
   accuracyM?: number | null
   note?: string
 }) {
-  const res = await fetch('/api/sos', {
+  const res = await apiFetch('/api/sos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -35,13 +36,13 @@ export async function raiseSos(input: {
 }
 
 export async function fetchSosInbox(actorId: string, role: SupportActor) {
-  const res = await fetch(`/api/sos?actorId=${encodeURIComponent(actorId)}&role=${role}&open=1`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/sos?actorId=${encodeURIComponent(actorId)}&role=${role}&open=1`, { cache: 'no-store' })
   const data = await readJson<{ alerts?: SosAlert[] }>(res)
   return data.alerts ?? []
 }
 
 export async function updateSos(id: string, status: SosStatus) {
-  const res = await fetch(`/api/sos/${encodeURIComponent(id)}`, {
+  const res = await apiFetch(`/api/sos/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
@@ -52,7 +53,7 @@ export async function updateSos(id: string, status: SosStatus) {
 }
 
 export async function fetchLostRides(userId: string, role: Exclude<SupportActor, 'admin'>) {
-  const res = await fetch(`/api/lost-items/rides?userId=${encodeURIComponent(userId)}&role=${role}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/lost-items/rides?userId=${encodeURIComponent(userId)}&role=${role}`, { cache: 'no-store' })
   const data = await readJson<{
     rides?: {
       id: string
@@ -82,7 +83,7 @@ export async function submitLostItem(input: {
   plate?: string
   vehicle?: string
 }) {
-  const res = await fetch('/api/lost-items', {
+  const res = await apiFetch('/api/lost-items', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -93,20 +94,20 @@ export async function submitLostItem(input: {
 }
 
 export async function fetchLostInbox(actorId: string, role: SupportActor) {
-  const res = await fetch(`/api/lost-items?actorId=${encodeURIComponent(actorId)}&role=${role}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/lost-items?actorId=${encodeURIComponent(actorId)}&role=${role}`, { cache: 'no-store' })
   const data = await readJson<{ items?: LostItem[] }>(res)
   return data.items ?? []
 }
 
 export async function fetchLostItem(id: string) {
-  const res = await fetch(`/api/lost-items/${encodeURIComponent(id)}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/lost-items/${encodeURIComponent(id)}`, { cache: 'no-store' })
   const data = await readJson<{ item?: LostItem; error?: string }>(res)
   if (!res.ok || !data.item) throw new Error(data.error || '분실물 접수를 찾지 못했어요.')
   return data.item
 }
 
 export async function sendLostMessage(itemId: string, actorId: string, role: SupportActor, text: string) {
-  const res = await fetch(`/api/lost-items/${encodeURIComponent(itemId)}/messages`, {
+  const res = await apiFetch(`/api/lost-items/${encodeURIComponent(itemId)}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actorId, role, text }),
@@ -117,7 +118,7 @@ export async function sendLostMessage(itemId: string, actorId: string, role: Sup
 }
 
 export async function setLostStatus(itemId: string, status: LostStatus, actorId: string, role: SupportActor) {
-  const res = await fetch(`/api/lost-items/${encodeURIComponent(itemId)}`, {
+  const res = await apiFetch(`/api/lost-items/${encodeURIComponent(itemId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status, actorId, role }),
@@ -135,7 +136,7 @@ export async function createTicket(input: {
   body: string
   rideId?: string
 }) {
-  const res = await fetch('/api/support/tickets', {
+  const res = await apiFetch('/api/support/tickets', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -146,13 +147,13 @@ export async function createTicket(input: {
 }
 
 export async function fetchTickets(actorId: string, role: SupportActor) {
-  const res = await fetch(`/api/support/tickets?actorId=${encodeURIComponent(actorId)}&role=${role}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/support/tickets?actorId=${encodeURIComponent(actorId)}&role=${role}`, { cache: 'no-store' })
   const data = await readJson<{ tickets?: SupportTicket[] }>(res)
   return data.tickets ?? []
 }
 
 export async function sendTicketMessage(ticketId: string, actorId: string, role: SupportActor, text: string) {
-  const res = await fetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
+  const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actorId, role, text }),
@@ -163,7 +164,7 @@ export async function sendTicketMessage(ticketId: string, actorId: string, role:
 }
 
 export async function setTicketStatus(ticketId: string, status: TicketStatus) {
-  const res = await fetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
+  const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status, role: 'admin' }),

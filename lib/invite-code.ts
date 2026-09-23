@@ -32,7 +32,10 @@ export function getOrCreateInviteCode(username = 'taxitago') {
 }
 
 export function inviteShareLink(code: string) {
-  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://taxitago.co.kr'
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null'
+      ? window.location.origin
+      : ''
   return `${origin}/?invite=${encodeURIComponent(code)}`
 }
 
