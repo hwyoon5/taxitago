@@ -14,7 +14,7 @@ import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } fr
 import { NearbyServiceMap } from '@/components/nearby-service-map'
 import { PlacePickerScreen } from '@/components/place-picker-map'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
-import { lookupSuggestedPlace, REGION_DESTINATIONS, suggestedDestinationsFor } from '@/lib/region-destinations'
+import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { searchPlacesFromApi } from '@/lib/geocode-client'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
@@ -745,144 +745,12 @@ const DEFAULT_RECENT_PLACES: RecentPlace[] = [
   { id: 'r3', name: '서울역', address: '서울 중구 한강대로 405' },
 ]
 
-const PLACE_CATALOG = [
-  { name: '강남역 2번 출구', address: '서울 강남구 강남대로 396', hint: '지하철 2호선' },
-  { name: '강남역 카카오T 정류장', address: '서울 강남구 테헤란로 152', hint: '택시 승하차' },
-  { name: '선릉역', address: '서울 강남구 테헤란로 340', hint: '지하철 2호선' },
-  { name: '삼성역 코엑스', address: '서울 강남구 영동대로 513', hint: '코엑스몰' },
-  { name: '홍대입구역 9번 출구', address: '서울 마포구 양화로 188', hint: '지하철 2호선' },
-  { name: '합정역', address: '서울 마포구 양화로 45', hint: '지하철 2·6호선' },
-  { name: '서울역 서부역', address: '서울 중구 한강대로 405', hint: 'KTX · 지하철' },
-  { name: '광화문광장', address: '서울 종로구 세종대로 172', hint: '광화문' },
-  { name: '여의도역', address: '서울 영등포구 여의나루로 40', hint: '지하철 5·9호선' },
-  { name: '잠실역 롯데월드', address: '서울 송파구 올림픽로 240', hint: '롯데월드' },
-  { name: '인천국제공항 T1', address: '인천 중구 공항로 272', hint: '제1여객터미널' },
-  { name: '김포공항 국내선', address: '서울 강서구 하늘길 38', hint: '국내선' },
-  { name: '성수역 카페거리', address: '서울 성동구 아차산로 100', hint: '성수동' },
-  { name: '이태원역', address: '서울 용산구 이태원로 177', hint: '지하철 6호선' },
-  { name: '서면역 2번 출구', address: '부산 부산진구 중앙대로 672', hint: '지하철 1·2호선' },
-  { name: '부산역 KTX', address: '부산 동구 중앙대로 206', hint: '고속철도' },
-  { name: '해운대해수욕장', address: '부산 해운대구 해운대해변로 264', hint: '해운대' },
-  { name: '센텀시티역', address: '부산 해운대구 센텀동로 99', hint: '신세계 센텀' },
-  { name: '광안리해수욕장', address: '부산 수영구 광안해변로 219', hint: '광안대교' },
-  { name: '남포동 자갈치시장', address: '부산 중구 자갈치해안로 52', hint: '자갈치' },
-  { name: '사상역 서부터미널', address: '부산 사상구 사상로 201', hint: '서부시외버스터미널' },
-  { name: '주례역', address: '부산 사상구 백양대로 500', hint: '지하철 2호선' },
-  { name: '백양대로1050번길 26', address: '부산 사상구 백양대로1050번길 26', hint: '도로명 주소 · 사상구' },
-  { name: '백양대로1050번길 20', address: '부산 사상구 백양대로1050번길 20', hint: '인근 도로명' },
-  { name: '백양대로1050번길 32', address: '부산 사상구 백양대로1050번길 32', hint: '인근 도로명' },
-  { name: '백양대로 942', address: '부산 사상구 백양대로 942', hint: '주례동 일대' },
-  { name: '백양대로 1008', address: '부산 사상구 백양대로 1008', hint: '도로명 주소' },
-  { name: '주례동 주례사거리', address: '부산 사상구 주례동 3-15', hint: '지번 주소' },
-  { name: '주례동 119-8', address: '부산 사상구 주례동 119-8', hint: '지번 주소' },
-  { name: '사상구청', address: '부산 사상구 학감대로 242', hint: '행정복지센터' },
-  { name: '학장동 학장사거리', address: '부산 사상구 학장동 573-3', hint: '지번 주소' },
-  { name: '하단역', address: '부산 사하구 낙동대로 550', hint: '지하철 1호선' },
-  { name: '동래역', address: '부산 동래구 충렬대로 237', hint: '지하철 1·4호선' },
-  { name: '연산역', address: '부산 연제구 중앙대로 1001', hint: '시청 · 연산' },
-  { name: '김해국제공항', address: '부산 강서구 공항진입로 108', hint: '국내선' },
-  { name: '대구시청', address: '대구광역시 중구 공평로 88', hint: '대구 중구 동인동' },
-  { name: '대구역', address: '대구광역시 북구 칠성동2가 칠성남로30길 24', hint: '대구 북구' },
-  { name: '동대구역', address: '대구광역시 동구 동대구로 550', hint: 'KTX' },
-  { name: '동성로', address: '대구광역시 중구 동성로 2', hint: '대구 중심가' },
-  { name: '서울시청', address: '서울특별시 중구 세종대로 110', hint: '서울 중구' },
-  { name: '부산시청', address: '부산광역시 연제구 중앙대로 1001', hint: '부산 연제구' },
-] as const
-
 type PlaceItem = { name: string; address: string; hint: string; lat?: number; lng?: number }
-
-function compactAddress(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/서울특별시/g, '서울')
-    .replace(/부산광역시/g, '부산')
-    .replace(/인천광역시/g, '인천')
-    .replace(/대구광역시/g, '대구')
-    .replace(/대전광역시/g, '대전')
-    .replace(/광주광역시/g, '광주')
-    .replace(/울산광역시/g, '울산')
-    .replace(/세종특별자치시/g, '세종')
-    .replace(/\s+/g, '')
-    .replace(/번\s*길/g, '번길')
-    .replace(/[()[\].,·'"“”]/g, '')
-}
-
-function uniquePlaces(places: PlaceItem[]) {
-  const seen = new Set<string>()
-  return places.filter((place) => {
-    const key = compactAddress(`${place.name}|${place.address}`)
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
 
 function locationHint(address: string) {
   const parts = address.split(/\s+/).filter(Boolean)
   if (parts.length >= 2) return parts.slice(0, 2).join(' ')
   return address
-}
-
-function allCatalogPlaces(): PlaceItem[] {
-  const fromRegions = Object.values(REGION_DESTINATIONS).flatMap((list) =>
-    list.map((place) => {
-      const known = lookupSuggestedPlace(place.name)
-      return {
-        name: place.name,
-        address: place.address,
-        hint: '전국 장소',
-        lat: known?.lat,
-        lng: known?.lng,
-      }
-    }),
-  )
-  return uniquePlaces([...PLACE_CATALOG.map((place) => ({ ...place })), ...fromRegions])
-}
-
-function scorePlace(place: PlaceItem, compact: string) {
-  const name = compactAddress(place.name)
-  const address = compactAddress(place.address)
-  if (compact.length < 2) return 0
-  if (name === compact) return 200
-  if (name.startsWith(compact)) return 120
-  if (address.includes(compact)) return compact.length >= 4 ? 80 : 40
-  return 0
-}
-
-function addressQuality(place: PlaceItem) {
-  let score = Math.min(place.address.length, 48)
-  if (Number.isFinite(place.lat) && Number.isFinite(place.lng)) score += 40
-  if (/[시도군구]/.test(place.address)) score += 24
-  return score
-}
-
-function mergePlaces(places: PlaceItem[]) {
-  const byName = new Map<string, PlaceItem>()
-  const order: string[] = []
-  for (const place of places) {
-    const key = compactAddress(place.name)
-    if (key.length < 2) continue
-    const prev = byName.get(key)
-    if (!prev) {
-      order.push(key)
-      byName.set(key, place)
-      continue
-    }
-    if (addressQuality(place) > addressQuality(prev)) byName.set(key, place)
-  }
-  return order.map((key) => byName.get(key) as PlaceItem)
-}
-
-function searchDestinationPlaces(raw: string) {
-  const keyword = raw.trim()
-  const compact = compactAddress(keyword)
-  if (compact.length < 2) return [] as PlaceItem[]
-  return allCatalogPlaces()
-    .map((place) => ({ place, score: scorePlace(place, compact) }))
-    .filter((row) => row.score >= 40)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8)
-    .map((row) => ({ ...row.place, hint: locationHint(row.place.address) }))
 }
 
 function readRecentPlaces(): RecentPlace[] {
@@ -970,6 +838,7 @@ function DestinationSearchModal({
   const [destMapOpen, setDestMapOpen] = useState(false)
   const [destMapSession, setDestMapSession] = useState(0)
   const [remotePlaces, setRemotePlaces] = useState<PlaceItem[]>([])
+  const [searching, setSearching] = useState(false)
   const openDestMap = () => {
     setDestMapSession((value) => value + 1)
     setDestMapOpen(true)
@@ -984,8 +853,11 @@ function DestinationSearchModal({
   useEffect(() => {
     if (!keyword) {
       setRemotePlaces([])
+      setSearching(false)
       return
     }
+    setRemotePlaces([])
+    setSearching(true)
     const timer = window.setTimeout(() => {
       const seq = ++searchSeq.current
       void searchPlacesFromApi(keyword)
@@ -1000,18 +872,19 @@ function DestinationSearchModal({
               lng: place.lng,
             })),
           )
+          setSearching(false)
         })
         .catch(() => {
           if (seq !== searchSeq.current) return
           setRemotePlaces([])
+          setSearching(false)
         })
     }, 180)
     return () => {
       window.clearTimeout(timer)
     }
   }, [keyword])
-  const local = keyword ? searchDestinationPlaces(keyword) : []
-  const results = keyword ? mergePlaces([...remotePlaces, ...local]).slice(0, 8) : []
+  const results = remotePlaces
 
   const pick = (name: string, address?: string, coords?: RideCoords) => {
     onSelect(name, address, coords)
@@ -1060,7 +933,8 @@ function DestinationSearchModal({
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-8">
           {keyword ? (
             <div>
-              <p className="text-xs font-black text-[#4C1FB8]">{`검색 결과 ${results.length}곳`}</p>
+              <p className="text-xs font-black text-[#4C1FB8]">{searching ? '장소를 찾는 중' : `검색 결과 ${results.length}곳`}</p>
+              {!searching && results.length === 0 ? <p className="mt-2 text-xs font-bold text-[#64748B]">검색된 장소가 없어요.</p> : null}
               <div className="mt-3 space-y-2">
                 {results.map((place) => {
                   const coords =

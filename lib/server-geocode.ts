@@ -387,11 +387,11 @@ function uniqueForwardPlaces(places: ForwardPlace[]) {
   })
 }
 
-function rankPlaces(places: ForwardPlace[], query: string) {
+function publishPlaces(places: ForwardPlace[], query: string) {
+  const q = compactQuery(query)
   return uniqueForwardPlaces(places)
     .map((place) => ({ place, score: placeRelevance(place, query) }))
-    .filter((row) => row.score >= 80)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => b.score - a.score || (compactQuery(a.place.name) === q ? -1 : 1))
     .slice(0, 8)
     .map((row) => ({ name: row.place.name, address: row.place.address, lat: row.place.lat, lng: row.place.lng }))
 }
@@ -399,9 +399,11 @@ function rankPlaces(places: ForwardPlace[], query: string) {
 export async function forwardGeocodeOnServer(query: string) {
   const q = query.trim()
   if (!q) return [] as ForwardPlace[]
-  const placeHits = rankPlaces(await forwardNaverPlaceSearch(q), q)
-  if (placeHits.length) return placeHits
-  const geocodeHits = rankPlaces(await forwardGeocodeNaver(q), q)
-  if (geocodeHits.length) return geocodeHits
-  return rankPlaces(await forwardGeocodeNominatim(q), q)
+  const localHits = await forwardNaverLocalSearch(q)
+  if (localHits.length) return publishPlaces(localHits, q)
+  const placeHits = await forwardNaverPlaceSearch(q)
+  if (placeHits.length) return publishPlaces(placeHits, q)
+  const geocodeHits = await forwardGeocodeNaver(q)
+  if (geocodeHits.length) return publishPlaces(geocodeHits, q)
+  return publishPlaces(await forwardGeocodeNominatim(q), q)
 }
