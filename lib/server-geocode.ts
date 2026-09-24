@@ -589,13 +589,13 @@ export async function forwardGeocodeOnServer(query: string) {
   const aliases = queryAliases(q)
   const known = lookupSuggestedPlace(q)
   const catalogSeeds = known ? suggestedDestinationsFor(known.address, known.lat, known.lng) : []
-  const catalog: ForwardPlace[] = catalogSeeds
-    .map((place) => {
+  const catalog = catalogSeeds
+    .map((place): ForwardPlace | null => {
       const hit = lookupSuggestedPlace(place.name)
       if (!hit || !Number.isFinite(hit.lat) || !Number.isFinite(hit.lng)) return null
       return { name: hit.name, address: hit.address, lat: hit.lat, lng: hit.lng, category: inferCategory(hit.name), trustName: true }
     })
-    .filter((place): place is ForwardPlace => Boolean(place))
+    .filter((place): place is ForwardPlace => place !== null)
   if (known && Number.isFinite(known.lat) && Number.isFinite(known.lng) && !catalog.some((place) => compactQuery(place.name) === compactQuery(known.name))) {
     catalog.unshift({ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true })
   }
