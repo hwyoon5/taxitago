@@ -393,16 +393,16 @@ async function forwardGeocodeNominatim(query: string): Promise<ForwardPlace[]> {
       {
         headers: { Accept: 'application/json', 'User-Agent': 'TaxiTago/1.0 (geocode)' },
         cache: 'no-store',
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(6000),
       },
     )
     if (!response.ok) return []
-    const data = (await response.json()) as Array<{ lat?: string; lon?: string; name?: string; address?: OsmAddress }>
+    const data = (await response.json()) as Array<{ lat?: string; lon?: string; name?: string; display_name?: string; address?: OsmAddress }>
     return data
       .map((item): ForwardPlace | null => {
         const lat = Number(item.lat)
         const lng = Number(item.lon)
-        const address = osmKoreanAddress(item.address)
+        const address = osmKoreanAddress(item.address) || cleanAddress(item.display_name)
         if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
         const named = osmPlaceName(item, query)
         return { name: named.name, address, category: osmCategory(item.address, named.name), lat, lng, trustName: named.trustName }
@@ -462,14 +462,20 @@ function compactQuery(value: string) {
   return value.replace(/\s+/g, '').toLowerCase()
 }
 
+function looseText(value: string) {
+  return compactQuery(value).replace(/국제/g, '')
+}
+
 function placeRelevance(place: ForwardPlace, query: string) {
   const q = compactQuery(query)
   const name = compactQuery(place.name)
   const address = compactQuery(place.address)
+  const looseQuery = looseText(query)
+  const looseName = looseText(place.name)
   if (!q) return 0
-  if (name === q) return 300
-  if (q.length >= 2 && name.startsWith(q)) return 220
-  if (q.length >= 2 && name.includes(q)) return 180
+  if (name === q || looseName === looseQuery) return 300
+  if (q.length >= 2 && (name.startsWith(q) || looseName.startsWith(looseQuery))) return 220
+  if (q.length >= 2 && (name.includes(q) || looseName.includes(looseQuery))) return 180
   if (q.length >= 2 && address.includes(q)) return 160
   return 0
 }
@@ -510,7 +516,8 @@ function looksLikeStreetAddress(query: string) {
 function queryAliases(query: string) {
   const aliases = [query]
   if (query.endsWith('시청') && !query.endsWith('광역시청')) aliases.push(query.replace(/시청$/, '광역시청'))
-  return [...new Set(aliases)].slice(0, 2)
+  if (/공항$/.test(query) && !query.includes('국제')) aliases.push(query.replace(/공항$/, '국제공항'))
+  return [...new Set(aliases)].slice(0, 3)
 }
 
 function publishPlaces(places: ForwardPlace[], query: string) {
@@ -544,22 +551,18 @@ export async function forwardGeocodeOnServer(query: string) {
   const q = query.trim()
   if (!q) return [] as ReturnType<typeof publishPlaces>
   const aliases = queryAliases(q)
-  const [localComment, localRandom, ...geocodeGroups] = await Promise.all([
+  const [localComment, localRandom, geocodeGroups, nominatimGroups] = await Promise.all([
     forwardNaverLocalSearch(q, 'comment'),
     forwardNaverLocalSearch(q, 'random'),
-    ...aliases.map((alias) => forwardGeocodeNaver(alias)),
+    Promise.all(aliases.map((alias) => forwardGeocodeNaver(alias))),
+    Promise.all(aliases.map((alias) => forwardGeocodeNominatim(alias))),
   ])
-  let merged = [...localComment, ...localRandom, ...geocodeGroups.flat()]
-  if (merged.length < 6) merged = [...merged, ...(await forwardGeocodeNominatim(q))]
+  const merged = [...localComment, ...localRandom, ...geocodeGroups.flat(), ...nominatimGroups.flat()]
   const anchor = publishPlaces(merged, q)[0]
   if (!anchor || looksLikeStreetAddress(q)) return publishPlaces(merged, q)
   const span = 0.03
   const viewbox = `${anchor.lng - span},${anchor.lat + 0.02},${anchor.lng + span},${anchor.lat - 0.02}`
-  const nearbyGroups = await Promise.all(
-    NEARBY_FACILITIES.map((facility) =>
-      localSearchAuthFailed ? forwardNominatimBounded(facility, viewbox) : forwardNaverLocalSearch(`${q} ${facility}`, 'comment'),
-    ),
-  )
+  const nearbyGroups = await Promise.all(NEARBY_FACILITIES.map((facility) => forwardNominatimBounded(facility, viewbox)))
   const nearby = nearbyGroups
     .flat()
     .filter((place) => distanceMeters(anchor, place) <= 2500)

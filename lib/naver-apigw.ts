@@ -44,8 +44,8 @@ export function resolveNaverRestCredentials() {
   }
 }
 
-const SEARCH_ID_ENVS = ['NAVER_SEARCH_CLIENT_ID', 'NAVER_OPENAPI_CLIENT_ID', ...CLIENT_ID_ENVS] as const
-const SEARCH_SECRET_ENVS = ['NAVER_SEARCH_CLIENT_SECRET', 'NAVER_OPENAPI_CLIENT_SECRET', ...CLIENT_SECRET_ENVS] as const
+const SEARCH_ID_ENVS = ['NAVER_SEARCH_CLIENT_ID', 'NAVER_OPENAPI_CLIENT_ID'] as const
+const SEARCH_SECRET_ENVS = ['NAVER_SEARCH_CLIENT_SECRET', 'NAVER_OPENAPI_CLIENT_SECRET'] as const
 
 export function resolveNaverSearchCredentials() {
   return {
