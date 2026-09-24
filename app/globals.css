@@ -217,6 +217,9 @@
 }
 
 .naver-map-shell-fixed {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
   height: 268px;
   max-height: 268px;
   overflow: hidden;

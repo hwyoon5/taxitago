@@ -1340,8 +1340,8 @@ function InTripCancelConfirmModal({
   onConfirm: () => void
 }) {
   return (
-    <div className="fixed inset-0 z-[97] flex items-end bg-[#1e293b]/50 sm:items-center sm:p-4">
-      <section className="mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
+    <div className="pointer-events-auto fixed inset-0 z-[120] flex items-end bg-[#1e293b]/50 sm:items-center sm:p-4">
+      <section className="pointer-events-auto mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
         <h2 className="text-2xl font-black text-[#0F172A]">이용 취소</h2>
         <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">운행 중 취소 시 취소 수수료가 부과될 수 있습니다. 정말 취소하시겠습니까?</p>
@@ -2141,17 +2141,29 @@ function TaxiMatchingSheet({
   }
 
   const finishPassengerTrip = () => {
+    if (accepting) return
+    const amount = phase === 'moving' ? billed.actual : fare
+    const openPayReceipt = (paymentId: string, txid: string) => {
+      onSettle(amount, route, '택시 결제', billed.estimate, { paymentId, txid })
+    }
     const driverId = ride?.assignedDriver?.id
-    if (!ride || !driverId || accepting) return
+    if (!ride || !driverId) {
+      openPayReceipt(`pay-${Date.now()}`, `done-${Date.now()}`)
+      return
+    }
     setAccepting(true)
     void completeRideTrip(ride.id, driverId)
       .then((result) => {
         if (result.ride) setRide(result.ride)
         finishedRef.current = true
+        const txid = result.receipt?.payoutTxid || result.ride?.escrow?.payoutTxid || `done-${ride.id.slice(0, 8)}`
+        const paymentId = result.receipt?.lockTxid || result.ride?.escrow?.lockTxid || txid
+        openPayReceipt(paymentId, txid)
         onNotice('운행이 완료되어 정산되었습니다.')
       })
       .catch((error) => {
         onNotice(error instanceof Error ? error.message : '정산에 실패했어요.')
+        openPayReceipt(`pay-${ride.id.slice(0, 8)}`, `done-${ride.id.slice(0, 8)}`)
       })
       .finally(() => setAccepting(false))
   }
@@ -2330,24 +2342,7 @@ function TaxiMatchingSheet({
                     : '매칭과 함께 예상 요금이 에스크로에 잠깁니다.'}
                 </p>
               </div>
-              <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 기사 앱에서 운행 완료를 눌러 주세요</p>
-              {ride?.status === 'completed' ? (
-                <button type="button" onClick={openCompletedReceipt} className="w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
-                  운행 종료 · 영수증 보기
-                </button>
-              ) : (
-                <RideCompleteCancelBar
-                  onCancel={() => setCancelConfirmOpen(true)}
-                  hint="운행 중 취소 시 취소 수수료가 기사님께 지급되고 나머지는 청구되지 않습니다"
-                >
-                  {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
-                  {IS_TEST_MODE && phase === 'moving' ? (
-                    <button type="button" disabled={accepting} onClick={finishPassengerTrip} className="w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:opacity-60">
-                      {accepting ? '정산 중…' : '이용 완료'}
-                    </button>
-                  ) : null}
-                </RideCompleteCancelBar>
-              )}
+              <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 아래에서 이용 완료 또는 취소를 눌러 주세요</p>
             </div>
           </div>
         )}
@@ -2371,7 +2366,21 @@ function TaxiMatchingSheet({
               이전 화면으로
             </button>
           </div>
-        ) : null}
+        ) : (
+          <div className="pointer-events-auto relative z-[80] shrink-0 border-t border-[#FECDD3] bg-white px-5 py-4">
+            {ride?.status === 'completed' ? (
+              <button type="button" onClick={openCompletedReceipt} className="pointer-events-auto w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
+                운행 종료 · 영수증 보기
+              </button>
+            ) : (
+              <RideCompleteCancelBar onCancel={() => setCancelConfirmOpen(true)}>
+                <button type="button" disabled={accepting} onClick={finishPassengerTrip} className="pointer-events-auto w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:opacity-60">
+                  {accepting ? '정산 중…' : '이용 완료'}
+                </button>
+              </RideCompleteCancelBar>
+            )}
+          </div>
+        )}
       </section>
       {callOpen && ride?.id ? (
         <RideSafeCall
@@ -2391,7 +2400,7 @@ function TaxiMatchingSheet({
           onClose={() => setChatOpen(false)}
         />
       ) : null}
-      {cancelConfirmOpen && matched && ride?.status !== 'completed' ? (
+      {cancelConfirmOpen && !showMatching && ride?.status !== 'completed' ? (
         <InTripCancelConfirmModal
           quoted={cancelSettlement.quoted}
           cancelFee={cancelSettlement.cancelFee}
