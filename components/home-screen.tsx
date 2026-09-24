@@ -2230,10 +2230,10 @@ function TaxiMatchingSheet({
   const showMatching = phase === 'searching' || !rideDispatched
 
   return (
-    <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-50 flex items-stretch bg-[#241d35]/50">
-      <section className="relative mx-auto flex h-full max-h-full w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-white shadow-[0_-18px_40px_rgba(36,27,56,0.22)]">
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3">
-        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" />
+    <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-50 flex touch-none items-stretch overflow-hidden bg-[#241d35]/50">
+      <section className="relative mx-auto flex h-[calc(100dvh-var(--app-header-offset))] max-h-[calc(100dvh-var(--app-header-offset))] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-white shadow-[0_-18px_40px_rgba(36,27,56,0.22)]">
+        <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-5 pb-4 pt-3">
+        <div className="pointer-events-none mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" aria-hidden />
         {showMatching ? (
           <div className="pb-4 pt-2 text-center">
             <p className="text-xs font-black text-[#4C1FB8]">LIVE MATCHING</p>
@@ -2776,9 +2776,10 @@ function ServiceSheet({
     }
   }
   return (
-    <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-[90] flex items-stretch bg-[#241d35]/45">
-      <div className="mx-auto flex h-full max-h-full w-full max-w-md flex-col overflow-y-auto rounded-t-[32px] bg-white px-5 pb-8 pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)]">
-        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" />
+    <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-[90] flex touch-none items-stretch overflow-hidden bg-[#241d35]/45">
+      <div className="mx-auto flex h-[calc(100dvh-var(--app-header-offset))] max-h-[calc(100dvh-var(--app-header-offset))] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-white shadow-[0_-16px_40px_rgba(36,27,56,0.2)]">
+      <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-5 pb-8 pt-3">
+        <div className="pointer-events-none mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" aria-hidden />
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-black text-[#4C1FB8]">
@@ -3254,6 +3255,7 @@ function ServiceSheet({
           onConfirm={() => void confirmInTripCancel()}
         />
       ) : null}
+      </div>
     </div>
   )
 }
