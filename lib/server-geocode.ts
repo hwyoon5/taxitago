@@ -517,7 +517,7 @@ function placeRelevance(place: ForwardPlace, query: string) {
   if (name === q || looseName === looseQuery) return 300
   if (q.length >= 2 && (name.startsWith(q) || looseName.startsWith(looseQuery))) return 220
   if (q.length >= 2 && (name.includes(q) || looseName.includes(looseQuery))) return 180
-  if (q.length >= 2 && address.includes(q)) return 160
+  if (q.length >= 2 && (address.includes(q) || q.includes(address))) return 240
   return 0
 }
 
@@ -551,7 +551,8 @@ function inferCategory(name: string, category?: string) {
 }
 
 function looksLikeStreetAddress(query: string) {
-  return /(?:로|길)\s*\d/.test(query) || /\d+\s*번길/.test(query)
+  const text = query.replace(/\s+/g, '')
+  return /(?:로|길)\d/.test(text) || /번길/.test(text) || /번지/.test(text) || /동\d/.test(text) || /\d+-\d+/.test(text)
 }
 
 function queryAliases(query: string) {
@@ -616,10 +617,25 @@ export async function forwardGeocodeOnServer(query: string) {
     [[], [], [], [], []] as [ForwardPlace[], ForwardPlace[], ForwardPlace[][], ForwardPlace[][], ForwardPlace[][]],
   )
   const merged = [...catalog, ...localComment, ...localRandom, ...geocodeGroups.flat(), ...nominatimGroups.flat()]
-  const anchor = anchorSeed || publishPlaces(merged, q)[0]
+  const geocoded = [...geocodeGroups.flat(), ...nominatimGroups.flat(), ...localComment, ...localRandom]
+  const anchor = anchorSeed || geocoded.find((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng)) || publishPlaces(merged, q)[0]
+  const fetchedNearby = nearbyGroups.flat()
+  const addressNearby =
+    looksLikeStreetAddress(q) && anchor && fetchedNearby.length === 0
+      ? (
+          await withDeadline(
+            Promise.all(
+              NEARBY_FACILITIES.map((facility) =>
+                forwardNominatimBounded(facility, `${anchor.lng - span},${anchor.lat + 0.02},${anchor.lng + span},${anchor.lat - 0.02}`),
+              ),
+            ),
+            4000,
+            [] as ForwardPlace[][],
+          )
+        ).flat()
+      : fetchedNearby
   const nearby = anchor
-    ? nearbyGroups
-        .flat()
+    ? addressNearby
         .filter((place) => distanceMeters(anchor, place) <= 4000)
         .map((place) => ({ ...place, category: place.category || inferCategory(place.name), trustName: true }))
     : []
