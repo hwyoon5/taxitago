@@ -1985,7 +1985,7 @@ function TaxiMatchingSheet({
       taxiSheetRideId = created.id
       rideIdRef.current = created.id
       setRide(created)
-      if (created.status === 'assigned' || created.status === 'completed') lockMatched(created)
+      if (created.status === 'assigned') lockMatched(created)
       if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요.')
     }
     if (taxiSheetRideId) {
@@ -2080,11 +2080,6 @@ function TaxiMatchingSheet({
         })
         escrowHeldRef.current = true
         setRide(next)
-        const lockTx = next.escrow?.lockTxid || txid || `escrow-${ride.id.slice(0, 8)}`
-        onSettle(ride.estimatedFare, route, '택시 에스크로', ride.estimatedFare, {
-          paymentId: paymentId || lockTx,
-          txid: lockTx,
-        })
         onNotice('예상 요금이 에스크로에 잠겼습니다. 운행 완료 후 기사 지갑으로 정산됩니다.')
       } catch (error) {
         onNotice(describePiUserMessage(error))
@@ -2183,13 +2178,15 @@ function TaxiMatchingSheet({
 
   const escrowStatus = ride?.escrow?.status
   const escrowAmount = ride?.escrow?.amount ?? fare
+  const rideDispatched = ride?.status === 'assigned' || ride?.status === 'completed'
+  const showMatching = phase === 'searching' || !rideDispatched
 
   return (
     <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-50 flex items-stretch bg-[#241d35]/50">
       <section className="relative mx-auto flex h-full max-h-full w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-white shadow-[0_-18px_40px_rgba(36,27,56,0.22)]">
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3">
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" />
-        {!matched && phase === 'searching' ? (
+        {showMatching ? (
           <div className="pb-4 pt-2 text-center">
             <p className="text-xs font-black text-[#4C1FB8]">LIVE MATCHING</p>
             <h2 className="mt-2 text-2xl font-black text-[#0F172A]">기사님 매칭 대기 중</h2>
@@ -2206,6 +2203,7 @@ function TaxiMatchingSheet({
                 <TaxiLiveMap
                   kind="taxi"
                   phase="arriving"
+                  journeyLabel="매칭 대기 중"
                   routeLabel={route}
                   statusLabel="매칭 대기 중"
                   originLat={live.origin?.lat ?? pickupLat}
@@ -2354,7 +2352,7 @@ function TaxiMatchingSheet({
           </div>
         )}
         </div>
-        {!matched && phase === 'searching' ? (
+        {showMatching ? (
           <div className="pointer-events-auto relative z-[80] shrink-0 space-y-3 border-t border-[#E2E8F0] bg-white px-5 py-4">
             {IS_TEST_MODE ? (
               <button
@@ -6103,6 +6101,10 @@ export default function HomeScreen() {
       origin: { lat: origin.lat, lng: origin.lng, address: origin.address },
       dest: { lat: place.lat, lng: place.lng, address: place.address, label: place.label },
     })
+    taxiSheetRideId = ''
+    setPaymentDone(null)
+    setReceiptRide(null)
+    setRideReview(null)
     setDestPlace(place)
     setActiveTrip({
       originLat: origin.lat,
