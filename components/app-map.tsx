@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
+import { Component, useEffect, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 import { Car, LocateFixed, MapPin, Minus, Plus, UserRound } from 'lucide-react'
 import {
   applyMapBottomInset,
@@ -9,6 +9,7 @@ import {
   hasNaverMapClientId,
   getNaverMapClientId,
   loadNaverMaps,
+  resetNaverMapLoad,
   createNaverLatLng,
   getNaverMaps,
   refreshNaverMap,
@@ -1335,6 +1336,8 @@ function NaverLiveRideMap({
   const [zoom, setZoom] = useState(15)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [loadNotice, setLoadNotice] = useState<string | undefined>()
+  const [loadHint, setLoadHint] = useState('지도를 불러오는 중이에요')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [routePath, setRoutePath] = useState<RidePoint[]>([origin, dest])
 
   const keepSolidStroke = () => {
@@ -1422,19 +1425,39 @@ function NaverLiveRideMap({
   }, [origin.lat, origin.lng, dest.lat, dest.lng])
 
   useEffect(() => {
-    if (!isUsableCoord(origin.lat, origin.lng) || !isUsableCoord(dest.lat, dest.lng)) return
+    if (!isUsableCoord(origin.lat, origin.lng) || !isUsableCoord(dest.lat, dest.lng)) {
+      setLoadNotice('출발지와 도착지 좌표가 없어 약식 지도를 표시합니다.')
+      setMode('fallback')
+      return
+    }
     if (!hasNaverMapClientId()) {
       setMode('fallback')
       return
     }
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas) {
+      const timer = window.setTimeout(() => setLoadAttempt((value) => value + 1), 240)
+      return () => window.clearTimeout(timer)
+    }
     let cancelled = false
     const strokeListeners: unknown[] = []
-    let dashObserver: MutationObserver | null = null
+    setLoadHint('지도를 불러오는 중이에요')
+    const slowTimer = window.setTimeout(() => {
+      if (!cancelled) setLoadHint('지도 응답이 늦어요. 약식 지도로 바꿉니다.')
+    }, 1500)
+    const giveUpTimer = window.setTimeout(() => {
+      if (cancelled) return
+      setLoadNotice('네이버 지도를 열지 못해 약식 지도를 표시합니다.')
+      setMode('fallback')
+    }, 3000)
     void (async () => {
       await waitForMapSize(canvas)
-      const [sdk, roadPath] = await Promise.all([waitForNaverSdk(), fetchDrivingPath(origin, dest).catch(() => [] as RidePoint[])])
+      const sdk = await waitForNaverSdk(2500)
+      if (cancelled || !canvasRef.current) return
+      const roadPath = await Promise.race([
+        fetchDrivingPath(origin, dest).catch(() => [] as RidePoint[]),
+        new Promise<RidePoint[]>((resolve) => window.setTimeout(() => resolve([]), 2500)),
+      ])
       if (cancelled || !canvasRef.current) return
       const maps = liveNaverMaps(sdk)
       if (!maps || !isUsableCoord(origin.lat, origin.lng)) {
@@ -1463,30 +1486,30 @@ function NaverLiveRideMap({
       }
       mapRef.current = map
       map.setCenter(center)
+      refreshNaverMap(maps, map, canvasRef.current)
+      if (!cancelled) setMode('naver')
       forceRideCamera(maps, map, origin, dest, phase === 'moving' ? 'dest' : 'route', routePathRef.current)
       lineRef.current = solidRidePath(maps, map, routePathRef.current, canvasRef.current)
       applySolidPolylineStyle(lineRef.current, canvasRef.current, map)
+      let strokeLock = false
       const keepStrokeOnRender = () => {
-        if (cancelled) return
-        applySolidPolylineStyle(lineRef.current, canvasRef.current, map)
+        if (cancelled || strokeLock) return
+        strokeLock = true
+        try {
+          applySolidPolylineStyle(lineRef.current, canvasRef.current, map)
+        } finally {
+          window.setTimeout(() => {
+            strokeLock = false
+          }, 500)
+        }
       }
-      for (const eventName of ['idle', 'tilesloaded', 'zoom_changed', 'bounds_changed', 'center_changed', 'dragend']) {
+      for (const eventName of ['idle', 'tilesloaded']) {
         const handle = addNaverMapListener(maps, map, eventName, keepStrokeOnRender)
         if (handle) strokeListeners.push(handle)
       }
       if (cancelled) {
         strokeListeners.forEach((listener) => removeNaverMapListener(maps, listener))
         return
-      }
-      const observeRoot = canvasRef.current || hostRef.current
-      if (observeRoot && typeof MutationObserver === 'function') {
-        dashObserver = new MutationObserver(() => keepStrokeOnRender())
-        dashObserver.observe(observeRoot, {
-          subtree: true,
-          childList: true,
-          attributes: true,
-          attributeFilter: ['style', 'stroke-dasharray', 'stroke-dashoffset', 'd'],
-        })
       }
       if (routePathRef.current.length < 3) {
         void fetchDrivingPath(origin, dest)
@@ -1533,11 +1556,19 @@ function NaverLiveRideMap({
       window.setTimeout(pinCamera, 80)
       window.setTimeout(pinCamera, 400)
       window.setTimeout(pinCamera, 1000)
-      setMode('naver')
-    })()
+      refreshNaverMap(maps, map, canvasRef.current)
+      window.clearTimeout(slowTimer)
+      window.clearTimeout(giveUpTimer)
+      if (!cancelled) setMode('naver')
+    })().catch(() => {
+      if (cancelled) return
+      setLoadNotice('네이버 지도를 불러오지 못해 대체 지도를 표시합니다.')
+      setMode('fallback')
+    })
     return () => {
       cancelled = true
-      dashObserver?.disconnect()
+      window.clearTimeout(slowTimer)
+      window.clearTimeout(giveUpTimer)
       const sdk = liveNaverMaps(mapsRef.current)
       strokeListeners.forEach((listener) => removeNaverMapListener(sdk, listener))
       startPinRef.current?.setMap(null)
@@ -1551,7 +1582,7 @@ function NaverLiveRideMap({
       mapRef.current?.destroy?.()
       mapRef.current = null
     }
-  }, [kind, walker, phase, origin.lat, origin.lng, dest.lat, dest.lng])
+  }, [kind, origin.lat, origin.lng, dest.lat, dest.lng, loadAttempt])
 
   useEffect(() => {
     const marker = moverRef.current
@@ -1564,10 +1595,18 @@ function NaverLiveRideMap({
     if (position) marker.setPosition(position)
   }, [taxi, walker, mode])
 
+  const retryMap = () => {
+    resetNaverMapLoad()
+    setLoadNotice(undefined)
+    setLoadHint('지도를 불러오는 중이에요')
+    setMode(hasNaverMapClientId() ? 'loading' : 'fallback')
+    setLoadAttempt((value) => value + 1)
+  }
+
   return (
-    <MapFrame className={className}>
-      <div ref={hostRef} className="naver-map-host absolute inset-0">
-        {mode !== 'fallback' ? <div ref={canvasRef} className="naver-map-canvas h-full w-full touch-manipulation" style={{ width: '100%', height: '100%' }} /> : null}
+    <MapFrame className={`naver-map-shell-fixed min-h-0 w-full ${className ?? 'h-[268px]'}`}>
+      <div ref={hostRef} className="naver-map-host absolute inset-0" style={{ width: '100%', height: '100%', minHeight: 220 }}>
+        {mode !== 'fallback' ? <div ref={canvasRef} className="naver-map-canvas h-full w-full touch-manipulation" style={{ width: '100%', height: '100%', minHeight: 220 }} /> : null}
       </div>
       {mode === 'fallback' ? (
         <FallbackSlippyMap
@@ -1585,9 +1624,17 @@ function NaverLiveRideMap({
         </FallbackSlippyMap>
       ) : null}
       {mode === 'loading' ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#dbe7ee]/80">
-          <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">지도를 불러오는 중이에요</p>
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#dbe7ee]/80 px-4">
+          <p className="rounded-full bg-white px-3 py-2 text-center text-xs font-bold text-[#334155] shadow-sm">{loadHint}</p>
+          <button type="button" onClick={retryMap} className="pointer-events-auto rounded-full bg-[#4C1FB8] px-3 py-2 text-xs font-black text-white">
+            지도 다시 불러오기
+          </button>
         </div>
+      ) : null}
+      {mode === 'fallback' && loadNotice ? (
+        <button type="button" onClick={retryMap} className="absolute bottom-2 right-2 z-20 rounded-full bg-[#4C1FB8] px-3 py-1.5 text-[10px] font-black text-white shadow-sm">
+          네이버 지도 다시 시도
+        </button>
       ) : null}
       {mode === 'naver' ? (
         <MapControls
@@ -1699,7 +1746,6 @@ export function TaxiLiveMap({
   return (
     <div className="relative mt-4 overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
       <NaverLiveRideMap
-        key={`ride-${phase}-${origin.lat.toFixed(5)}-${dest.lat.toFixed(5)}-${dest.lng.toFixed(5)}`}
         phase={phase}
         kind={kind}
         taxi={isUsableCoord(taxi.lat, taxi.lng) ? taxi : { ...origin, angle: 0 }}

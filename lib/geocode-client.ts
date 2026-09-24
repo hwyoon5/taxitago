@@ -183,24 +183,26 @@ export function requestAddressLookup(lat: number, lng: number, onAddress: (addre
   })
 }
 
-export type SearchedPlace = { name: string; address: string; lat: number; lng: number }
+export type SearchedPlace = { name: string; address: string; jibun: string; category: string; lat: number; lng: number }
 
 export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
   const q = query.trim()
   if (!q) return [] as SearchedPlace[]
   try {
     const data = (await fetchGeocodeJson(`q=${encodeURIComponent(q)}`, signal)) as {
-      places?: Array<{ name?: unknown; address?: unknown; lat?: unknown; lng?: unknown }>
+      places?: Array<{ name?: unknown; address?: unknown; jibun?: unknown; category?: unknown; lat?: unknown; lng?: unknown }>
     } | null
     if (!data) return []
     return (data.places || [])
       .map((item) => {
         const name = typeof item.name === 'string' ? item.name.trim() : q
         const address = typeof item.address === 'string' ? item.address.trim() : ''
+        const jibun = typeof item.jibun === 'string' ? item.jibun.trim() : ''
+        const category = typeof item.category === 'string' ? item.category.trim() : ''
         const lat = Number(item.lat)
         const lng = Number(item.lng)
         if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
-        return { name: name || q, address, lat, lng }
+        return { name: name || q, address, jibun: jibun || '', category: category || '', lat, lng }
       })
       .filter((item): item is SearchedPlace => Boolean(item))
   } catch {

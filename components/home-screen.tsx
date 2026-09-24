@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { translateService } from '@/lib/i18n'
@@ -745,7 +745,7 @@ const DEFAULT_RECENT_PLACES: RecentPlace[] = [
   { id: 'r3', name: '서울역', address: '서울 중구 한강대로 405' },
 ]
 
-type PlaceItem = { name: string; address: string; hint: string; lat?: number; lng?: number }
+type PlaceItem = { name: string; address: string; jibun?: string; category?: string; hint: string; lat?: number; lng?: number }
 
 function locationHint(address: string) {
   const parts = address.split(/\s+/).filter(Boolean)
@@ -864,13 +864,17 @@ function DestinationSearchModal({
         .then((places) => {
           if (seq !== searchSeq.current) return
           setRemotePlaces(
-            places.map((place) => ({
-              name: place.name,
-              address: place.address,
-              hint: locationHint(place.address),
-              lat: place.lat,
-              lng: place.lng,
-            })),
+            places
+              .filter((place): place is NonNullable<typeof place> => place != null)
+              .map((place) => ({
+                name: place.name,
+                address: place.address,
+                jibun: place.jibun,
+                category: place.category,
+                hint: locationHint(place.address),
+                lat: place.lat,
+                lng: place.lng,
+              })),
           )
           setSearching(false)
         })
@@ -934,7 +938,7 @@ function DestinationSearchModal({
           {keyword ? (
             <div>
               <p className="text-xs font-black text-[#4C1FB8]">{searching ? '장소를 찾는 중' : `검색 결과 ${results.length}곳`}</p>
-              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{`‘${keyword}’ 검색 결과입니다. 장소의 시·도, 시·군·구, 도로명 주소를 그대로 보여드려요.`}</p>
+              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{`‘${keyword}’ 검색 결과입니다. 같은 주소는 한 번만 보여주고, 주변 시설도 함께 띄워요.`}</p>
               {!searching && results.length === 0 ? <p className="mt-2 text-xs font-bold text-[#64748B]">검색된 장소가 없어요.</p> : null}
               <div className="mt-3 space-y-2">
                 {results.map((place) => {
@@ -943,13 +947,17 @@ function DestinationSearchModal({
                       ? { lat: place.lat as number, lng: place.lng as number, address: place.address }
                       : undefined
                   return (
-                    <button key={`${place.name}-${place.address}`} type="button" onClick={() => pick(place.name, place.address, coords)} className="flex w-full items-start gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.06)] active:scale-[0.99]">
+                    <button key={`${place.name}-${place.address}-${place.lat}-${place.lng}`} type="button" onClick={() => pick(place.name, place.address, coords)} className="flex w-full items-start gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.06)] active:scale-[0.99]">
                       <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
                         <MapPin className="h-5 w-5" />
                       </span>
                       <span className="min-w-0">
-                        <strong className="block text-sm font-black text-[#0F172A]">{place.name}</strong>
-                        <span className="mt-1 block text-xs font-bold text-[#64748B]">{place.address}</span>
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <strong className="text-sm font-black text-[#0F172A]">{place.name}</strong>
+                          {place.category ? <span className="rounded-full bg-[#EDE5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{place.category}</span> : null}
+                        </span>
+                        <span className="mt-1 block text-xs font-bold text-[#334155]">{place.address}</span>
+                        {place.jibun && place.jibun !== place.address ? <span className="mt-0.5 block text-[11px] font-bold text-[#64748B]">지번 {place.jibun}</span> : null}
                         <span className="mt-1 block text-[11px] font-black text-[#4C1FB8]">{place.hint}</span>
                       </span>
                     </button>
@@ -1840,6 +1848,23 @@ function DriverChatModal({ driverName, onClose }: { driverName: string; onClose:
 }
 
 
+class MatchingMapBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="flex h-[268px] items-center justify-center rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0] px-4 text-center">
+          <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155]">지도를 열지 못했어요. 아래 버튼은 그대로 사용할 수 있어요.</p>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 function TaxiMatchingSheet({
   destination,
   pickupLat,
@@ -2071,10 +2096,13 @@ function TaxiMatchingSheet({
   }, [ride?.id, ride?.status, ride?.escrow?.status])
 
   const cancelRide = () => {
-    if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
-    taxiSheetRideId = ''
-    onNotice(matched ? '배차를 취소했어요.' : '택시 호출을 취소했어요.')
-    onClose()
+    try {
+      if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
+      taxiSheetRideId = ''
+      onNotice(matched ? '배차를 취소했어요.' : '택시 호출을 취소했어요.')
+    } finally {
+      onClose()
+    }
   }
 
   const confirmInTripCancel = async () => {
@@ -2157,7 +2185,8 @@ function TaxiMatchingSheet({
 
   return (
     <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-50 flex items-stretch bg-[#241d35]/50">
-      <section className="mx-auto flex h-full max-h-full w-full max-w-md flex-col overflow-y-auto rounded-t-[32px] bg-white px-5 pb-7 pt-3 shadow-[0_-18px_40px_rgba(36,27,56,0.22)]">
+      <section className="relative mx-auto flex h-full max-h-full w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-white shadow-[0_-18px_40px_rgba(36,27,56,0.22)]">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3">
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" />
         {!matched && phase === 'searching' ? (
           <div className="pb-4 pt-2 text-center">
@@ -2171,34 +2200,24 @@ function TaxiMatchingSheet({
               <p className="mt-2 text-sm font-bold text-[#64748B]">주변 기사님에게 호출을 보내고 있어요.</p>
             )}
             {matchError ? <p className="mt-2 text-xs font-bold text-[#B91C1C]">{matchError}</p> : null}
-            <TaxiLiveMap
-              kind="taxi"
-              phase="arriving"
-              routeLabel={route}
-              statusLabel="매칭 대기 중"
-              originLat={live.origin?.lat ?? pickupLat}
-              originLng={live.origin?.lng ?? pickupLng}
-              destLat={destLat}
-              destLng={destLng}
-              originLabel={live.origin?.address || pickupAddress}
-              destLabel={resolvedDest?.address || live.dest?.address || dest}
-              {...liveVehicleFromRide(ride)}
-            />
+            <div className="pointer-events-auto relative z-0 isolate overflow-hidden">
+              <MatchingMapBoundary>
+                <TaxiLiveMap
+                  kind="taxi"
+                  phase="arriving"
+                  routeLabel={route}
+                  statusLabel="매칭 대기 중"
+                  originLat={live.origin?.lat ?? pickupLat}
+                  originLng={live.origin?.lng ?? pickupLng}
+                  destLat={destLat}
+                  destLng={destLng}
+                  originLabel={live.origin?.address || pickupAddress}
+                  destLabel={resolvedDest?.address || live.dest?.address || dest}
+                  {...liveVehicleFromRide(ride)}
+                />
+              </MatchingMapBoundary>
+            </div>
             <p className="mt-6 text-xs font-bold text-[#8b8495]">기사님이 콜을 수락하면 실시간 위치가 지도에 표시됩니다. 테스트는 아래 버튼으로 바로 수락할 수 있습니다.</p>
-            {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
-            {IS_TEST_MODE ? (
-              <button
-                type="button"
-                disabled={accepting || !ride}
-                onClick={acceptPendingOffer}
-                className="relative z-20 mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
-              >
-                {accepting ? '수락 중…' : '이 기기에서 기사 콜 수락'}
-              </button>
-            ) : null}
-            <button type="button" onClick={cancelRide} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
-              호출 취소
-            </button>
           </div>
         ) : (
           <div>
@@ -2333,6 +2352,27 @@ function TaxiMatchingSheet({
             </div>
           </div>
         )}
+        </div>
+        {!matched && phase === 'searching' ? (
+          <div className="pointer-events-auto relative z-[80] shrink-0 space-y-3 border-t border-[#E2E8F0] bg-white px-5 py-4">
+            {IS_TEST_MODE ? (
+              <button
+                type="button"
+                disabled={accepting || !ride}
+                onClick={acceptPendingOffer}
+                className="pointer-events-auto w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
+              >
+                {accepting ? '수락 중…' : '이 기기에서 기사 콜 수락'}
+              </button>
+            ) : null}
+            <button type="button" onClick={cancelRide} className="pointer-events-auto w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
+              호출 취소
+            </button>
+            <button type="button" onClick={onClose} className="pointer-events-auto w-full rounded-2xl py-2 text-sm font-black text-[#64748B]">
+              이전 화면으로
+            </button>
+          </div>
+        ) : null}
       </section>
       {callOpen && ride?.id ? (
         <RideSafeCall
@@ -2732,6 +2772,7 @@ function ServiceSheet({
               <p className="mt-3 text-sm font-bold text-[#4C1FB8]">{dispatchRide.pendingOffer.driverName} 기사님에게 콜을 요청했어요.</p>
             ) : null}
             {daeriMatchError ? <p className="mt-2 text-xs font-bold text-[#B91C1C]">{daeriMatchError}</p> : null}
+            <div className="relative z-30 mt-3 space-y-3 pointer-events-auto">
             {IS_TEST_MODE ? (
               <button
                 type="button"
@@ -2752,7 +2793,7 @@ function ServiceSheet({
                     .catch((error) => setDaeriMatchError(error instanceof Error ? error.message : '콜 수락에 실패했어요.'))
                     .finally(() => setDaeriAccepting(false))
                 }}
-                className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
+                className="w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
               >
                 {ride ? (daeriAccepting ? '수락 중…' : '이 기기에서 기사 콜 수락') : selfServe ? '이용 시작' : '배정 확인'}
               </button>
@@ -2766,10 +2807,11 @@ function ServiceSheet({
                 }
                 onClose()
               }}
-              className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]"
+              className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]"
             >
               {selfServe ? '이용 취소' : '호출 취소'}
             </button>
+            </div>
           </div>
         )}
         {!more && phase === 'assigned' && selfServe && (

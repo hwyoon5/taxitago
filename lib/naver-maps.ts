@@ -167,8 +167,19 @@ function injectScript(src: string) {
     script.id = 'naver-maps-sdk-loader'
     script.async = true
     script.src = src
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error(`failed:${src}`))
+    const timer = window.setTimeout(() => {
+      script.onload = null
+      script.onerror = null
+      reject(new Error(`timeout:${src}`))
+    }, 8000)
+    script.onload = () => {
+      window.clearTimeout(timer)
+      resolve()
+    }
+    script.onerror = () => {
+      window.clearTimeout(timer)
+      reject(new Error(`failed:${src}`))
+    }
     document.head.appendChild(script)
   })
 }
@@ -205,6 +216,12 @@ export function loadNaverMaps(): Promise<NaverMapsSdk | null> {
   })()
 
   return loadPromise
+}
+
+export function resetNaverMapLoad() {
+  loadPromise = null
+  if (typeof document === 'undefined') return
+  document.getElementById('naver-maps-sdk-loader')?.remove()
 }
 
 export function refreshNaverMap(maps: NaverMapsSdk | null, map: NaverMapInstance | null, canvas?: HTMLElement | null) {

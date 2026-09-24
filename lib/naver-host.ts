@@ -144,6 +144,10 @@ export function rewriteNaverSdkUrls(body: string) {
   return body
     .replaceAll('(et?"https":"http")+"://oapi.map.naver.com', '"/api/naver-maps/upstream/oapi.map.naver.com')
     .replaceAll('(et?"https":"http")+"://openapi.map.naver.com', '"/api/naver-maps/upstream/openapi.map.naver.com')
+    .replaceAll('/api/naver-maps/upstream/oapi.map.naver.com/v3/auth"', '/api/naver-maps/upstream/oapi.map.naver.com/v3/auth/"')
+    .replaceAll('/api/naver-maps/upstream/oapi.map.naver.com/v1/validatev3"', '/api/naver-maps/upstream/oapi.map.naver.com/v1/validatev3/"')
+    .replaceAll('/api/naver-maps/upstream/openapi.map.naver.com/v3/auth"', '/api/naver-maps/upstream/openapi.map.naver.com/v3/auth/"')
+    .replaceAll('/api/naver-maps/upstream/openapi.map.naver.com/v1/validatev3"', '/api/naver-maps/upstream/openapi.map.naver.com/v1/validatev3/"')
     .replace(
       'k=/(o|open)api\\.map\\.naver\\.com\\/openapi\\/v3\\/maps\\.js\\b/',
       'k=/(?:(?:o|open)api\\.map\\.naver\\.com\\/openapi\\/v3\\/maps\\.js|naver-maps\\/sdk)\\b/',

@@ -1,4 +1,4 @@
-import { naverGatewayHeaderSets, ncpGetJson, resolveNaverRestCredentials } from '@/lib/naver-apigw'
+import { naverGatewayHeaderSets, ncpGetJson, resolveNaverRestCredentials, resolveNaverSearchCredentials } from '@/lib/naver-apigw'
 
 function coordLabel(lat: number, lng: number) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
@@ -140,7 +140,15 @@ export async function reverseGeocodeOnServer(lat: number, lng: number) {
   return coordLabel(lat, lng)
 }
 
-export type ForwardPlace = { name: string; address: string; lat: number; lng: number; trustName?: boolean }
+export type ForwardPlace = {
+  name: string
+  address: string
+  jibun?: string
+  category?: string
+  lat: number
+  lng: number
+  trustName?: boolean
+}
 
 type NaverAddressRow = {
   roadAddress?: string
@@ -169,11 +177,20 @@ function parseNaverGeocodePlaces(payload: unknown, query: string): ForwardPlace[
   const rows = root.v2?.addresses || root.addresses || []
   return rows
     .map((item): ForwardPlace | null => {
-      const address = cleanAddress(item.roadAddress) || cleanAddress(item.jibunAddress)
+      const road = cleanAddress(item.roadAddress)
+      const jibun = cleanAddress(item.jibunAddress)
+      const address = road || jibun
       const point = wgs84Point(item.y, item.x)
       if (!address || !point) return null
       const buildingName = buildingNameOf(item)
-      return { name: buildingName || query, address, lat: point.lat, lng: point.lng, trustName: Boolean(buildingName) }
+      return {
+        name: buildingName || query,
+        address,
+        jibun: road && jibun && jibun !== road ? jibun : '',
+        lat: point.lat,
+        lng: point.lng,
+        trustName: Boolean(buildingName),
+      }
     })
     .filter((item): item is ForwardPlace => Boolean(item))
 }
@@ -192,19 +209,24 @@ function parseNaverPlaceSearch(payload: unknown, query: string): ForwardPlace[] 
   if (!rows) return []
   return rows
     .map((item): ForwardPlace | null => {
-      const name = cleanAddress(item.name) || cleanAddress(item.title) || cleanAddress(item.placeName) || query
-      const address =
-        cleanAddress(item.roadAddress) ||
-        cleanAddress(item.road_address) ||
-        cleanAddress(item.jibunAddress) ||
-        cleanAddress(item.jibun_address) ||
-        cleanAddress(item.address)
+      const name = stripMarkup(cleanAddress(item.name) || cleanAddress(item.title) || cleanAddress(item.placeName) || query)
+      const road = cleanAddress(item.roadAddress) || cleanAddress(item.road_address)
+      const jibun = cleanAddress(item.jibunAddress) || cleanAddress(item.jibun_address)
+      const address = road || jibun || cleanAddress(item.address)
       const point =
         wgs84Point(item.y, item.x) ||
         wgs84Point(item.lat, item.lng) ||
         wgs84Point(item.latitude, item.longitude)
-      if (!address || !point) return null
-      return { name: name.replace(/<[^>]+>/g, ''), address, lat: point.lat, lng: point.lng, trustName: true }
+      if (!name || !address || !point) return null
+      return {
+        name,
+        address,
+        jibun: road && jibun && jibun !== road ? jibun : '',
+        category: categoryLabel(item.category || item.categoryName || item.bizCategory || item.ctg),
+        lat: point.lat,
+        lng: point.lng,
+        trustName: true,
+      }
     })
     .filter((item): item is ForwardPlace => Boolean(item))
 }
@@ -222,10 +244,23 @@ function stripMarkup(value: string) {
   return value.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').trim()
 }
 
-async function forwardNaverLocalSearch(query: string): Promise<ForwardPlace[]> {
-  const { keyId, secret } = resolveNaverRestCredentials()
+function categoryLabel(value: unknown) {
+  const text = cleanAddress(value)
+  if (!text) return ''
+  const parts = text
+    .split(/[>,]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+  return parts[parts.length - 1] || ''
+}
+
+let localSearchAuthFailed = false
+
+async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random' = 'comment'): Promise<ForwardPlace[]> {
+  if (localSearchAuthFailed) return []
+  const { keyId, secret } = resolveNaverSearchCredentials()
   if (!keyId || !secret) return []
-  const params = new URLSearchParams({ query, display: '5', start: '1', sort: 'random' })
+  const params = new URLSearchParams({ query, display: '5', start: '1', sort })
   const url = `https://openapi.naver.com/v1/search/local.json?${params.toString()}`
   try {
     const response = await fetch(url, {
@@ -238,17 +273,31 @@ async function forwardNaverLocalSearch(query: string): Promise<ForwardPlace[]> {
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     })
+    if (response.status === 401 || response.status === 403) {
+      localSearchAuthFailed = true
+      return []
+    }
     if (!response.ok) return []
     const payload = (await response.json()) as {
-      items?: Array<{ title?: string; roadAddress?: string; address?: string; mapx?: string; mapy?: string }>
+      items?: Array<{ title?: string; category?: string; roadAddress?: string; address?: string; mapx?: string; mapy?: string }>
     }
     return (payload.items || [])
       .map((item): ForwardPlace | null => {
         const name = stripMarkup(cleanAddress(item.title) || query)
-        const address = cleanAddress(item.roadAddress) || cleanAddress(item.address)
+        const road = cleanAddress(item.roadAddress)
+        const jibun = cleanAddress(item.address)
+        const address = road || jibun
         const point = naverLocalPoint(item.mapy, item.mapx)
         if (!name || !address || !point) return null
-        return { name, address, lat: point.lat, lng: point.lng, trustName: true }
+        return {
+          name,
+          address,
+          jibun: road && jibun && jibun !== road ? jibun : '',
+          category: categoryLabel(item.category),
+          lat: point.lat,
+          lng: point.lng,
+          trustName: true,
+        }
       })
       .filter((item): item is ForwardPlace => Boolean(item))
   } catch {
@@ -275,7 +324,7 @@ async function forwardNaverPlaceSearch(query: string): Promise<ForwardPlace[]> {
 async function forwardGeocodeNaver(query: string): Promise<ForwardPlace[]> {
   const { keyId, secret } = resolveNaverRestCredentials()
   if (!keyId || !secret) return []
-  const params = new URLSearchParams({ query, output: 'json' })
+  const params = new URLSearchParams({ query, output: 'json', count: '20', language: 'kor' })
   const hosts = ['https://maps.apigw.ntruss.com', 'https://naveropenapi.apigw.ntruss.com']
   for (const host of hosts) {
     const payload = await ncpJson(`${host}/map-geocode/v2/geocode?${params.toString()}`)
@@ -356,7 +405,52 @@ async function forwardGeocodeNominatim(query: string): Promise<ForwardPlace[]> {
         const address = osmKoreanAddress(item.address)
         if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
         const named = osmPlaceName(item, query)
-        return { name: named.name, address, lat, lng, trustName: named.trustName }
+        return { name: named.name, address, category: osmCategory(item.address, named.name), lat, lng, trustName: named.trustName }
+      })
+      .filter((item): item is ForwardPlace => Boolean(item))
+  } catch {
+    return []
+  }
+}
+
+function osmCategory(address: OsmAddress | undefined, name: string) {
+  const raw = cleanAddress(address?.amenity) || cleanAddress(address?.railway) || cleanAddress(address?.shop) || cleanAddress(address?.tourism) || cleanAddress(address?.office)
+  const known: Record<string, string> = {
+    parking: '주차장',
+    bus_station: '버스정류장',
+    hospital: '병원',
+    clinic: '병원',
+    supermarket: '마트',
+    mall: '쇼핑',
+    school: '학교',
+    university: '학교',
+    townhall: '관공서',
+    station: '지하철·기차역',
+    subway: '지하철·기차역',
+  }
+  return known[raw] || inferCategory(name)
+}
+
+async function forwardNominatimBounded(query: string, viewbox: string): Promise<ForwardPlace[]> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=kr&accept-language=ko&bounded=1&viewbox=${viewbox}&q=${encodeURIComponent(query)}`,
+      {
+        headers: { Accept: 'application/json', 'User-Agent': 'TaxiTago/1.0 (geocode)' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(4000),
+      },
+    )
+    if (!response.ok) return []
+    const data = (await response.json()) as Array<{ lat?: string; lon?: string; name?: string; address?: OsmAddress }>
+    return data
+      .map((item): ForwardPlace | null => {
+        const lat = Number(item.lat)
+        const lng = Number(item.lon)
+        const address = osmKoreanAddress(item.address)
+        if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
+        const named = osmPlaceName(item, query)
+        return { name: named.name, address, category: osmCategory(item.address, named.name) || query, lat, lng, trustName: true }
       })
       .filter((item): item is ForwardPlace => Boolean(item))
   } catch {
@@ -373,39 +467,102 @@ function placeRelevance(place: ForwardPlace, query: string) {
   const name = compactQuery(place.name)
   const address = compactQuery(place.address)
   if (!q) return 0
-  if (place.trustName && name === q) return 300
-  if (place.trustName && q.length >= 2 && name.startsWith(q)) return 220
+  if (name === q) return 300
+  if (q.length >= 2 && name.startsWith(q)) return 220
+  if (q.length >= 2 && name.includes(q)) return 180
   if (q.length >= 2 && address.includes(q)) return 160
   return 0
 }
 
-function uniqueForwardPlaces(places: ForwardPlace[]) {
-  const seen = new Set<string>()
-  return places.filter((place) => {
-    const key = `${compactQuery(place.name)}|${place.lat.toFixed(3)}|${place.lng.toFixed(3)}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const latMeters = (a.lat - b.lat) * 111_320
+  const lngMeters = (a.lng - b.lng) * 111_320 * Math.cos((a.lat * Math.PI) / 180)
+  return Math.hypot(latMeters, lngMeters)
+}
+
+function samePlace(a: ForwardPlace, b: ForwardPlace) {
+  const sameAddress = compactQuery(a.address) !== '' && compactQuery(a.address) === compactQuery(b.address)
+  const sameName = compactQuery(a.name) === compactQuery(b.name)
+  if (sameAddress) return true
+  if (sameName && distanceMeters(a, b) < 150) return true
+  return false
+}
+
+function inferCategory(name: string, category?: string) {
+  const given = (category || '').trim()
+  if (given) return given
+  if (/역$/.test(name)) return '지하철·기차역'
+  if (/시청|구청|군청|주민센터/.test(name)) return '관공서'
+  if (/공항/.test(name)) return '공항'
+  if (/병원|의원|보건/.test(name)) return '병원'
+  if (/마트|시장|백화점/.test(name)) return '쇼핑'
+  if (/공원/.test(name)) return '공원'
+  if (/터미널|정류장/.test(name)) return '교통'
+  if (/대학교|학교/.test(name)) return '학교'
+  if (/주차장/.test(name)) return '주차장'
+  return ''
+}
+
+function looksLikeStreetAddress(query: string) {
+  return /(?:로|길)\s*\d/.test(query) || /\d+\s*번길/.test(query)
+}
+
+function queryAliases(query: string) {
+  const aliases = [query]
+  if (query.endsWith('시청') && !query.endsWith('광역시청')) aliases.push(query.replace(/시청$/, '광역시청'))
+  return [...new Set(aliases)].slice(0, 2)
 }
 
 function publishPlaces(places: ForwardPlace[], query: string) {
   const q = compactQuery(query)
-  return uniqueForwardPlaces(places)
+  const ranked = places
     .map((place) => ({ place, score: placeRelevance(place, query) }))
     .sort((a, b) => b.score - a.score || (compactQuery(a.place.name) === q ? -1 : 1))
-    .slice(0, 8)
-    .map((row) => ({ name: row.place.name, address: row.place.address, lat: row.place.lat, lng: row.place.lng }))
+  const kept: ForwardPlace[] = []
+  const take = (rows: typeof ranked, limit: number) => {
+    for (const row of rows) {
+      if (kept.length >= limit) break
+      if (kept.some((place) => samePlace(place, row.place))) continue
+      kept.push(row.place)
+    }
+  }
+  take(ranked.filter((row) => row.score >= 160), 8)
+  take(ranked.filter((row) => row.score < 160), 12)
+  return kept.map((place) => ({
+    name: place.name,
+    address: place.address,
+    jibun: place.jibun || '',
+    category: inferCategory(place.name, place.category),
+    lat: place.lat,
+    lng: place.lng,
+  }))
 }
+
+const NEARBY_FACILITIES = ['주차장', '버스정류장', '마트', '병원'] as const
 
 export async function forwardGeocodeOnServer(query: string) {
   const q = query.trim()
-  if (!q) return [] as ForwardPlace[]
-  const localHits = await forwardNaverLocalSearch(q)
-  if (localHits.length) return publishPlaces(localHits, q)
-  const placeHits = await forwardNaverPlaceSearch(q)
-  if (placeHits.length) return publishPlaces(placeHits, q)
-  const geocodeHits = await forwardGeocodeNaver(q)
-  if (geocodeHits.length) return publishPlaces(geocodeHits, q)
-  return publishPlaces(await forwardGeocodeNominatim(q), q)
+  if (!q) return [] as ReturnType<typeof publishPlaces>
+  const aliases = queryAliases(q)
+  const [localComment, localRandom, ...geocodeGroups] = await Promise.all([
+    forwardNaverLocalSearch(q, 'comment'),
+    forwardNaverLocalSearch(q, 'random'),
+    ...aliases.map((alias) => forwardGeocodeNaver(alias)),
+  ])
+  let merged = [...localComment, ...localRandom, ...geocodeGroups.flat()]
+  if (merged.length < 6) merged = [...merged, ...(await forwardGeocodeNominatim(q))]
+  const anchor = publishPlaces(merged, q)[0]
+  if (!anchor || looksLikeStreetAddress(q)) return publishPlaces(merged, q)
+  const span = 0.03
+  const viewbox = `${anchor.lng - span},${anchor.lat + 0.02},${anchor.lng + span},${anchor.lat - 0.02}`
+  const nearbyGroups = await Promise.all(
+    NEARBY_FACILITIES.map((facility) =>
+      localSearchAuthFailed ? forwardNominatimBounded(facility, viewbox) : forwardNaverLocalSearch(`${q} ${facility}`, 'comment'),
+    ),
+  )
+  const nearby = nearbyGroups
+    .flat()
+    .filter((place) => distanceMeters(anchor, place) <= 2500)
+    .map((place) => ({ ...place, category: place.category || inferCategory(place.name), trustName: true }))
+  return publishPlaces([...merged, ...nearby], q)
 }

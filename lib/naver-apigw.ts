@@ -44,6 +44,16 @@ export function resolveNaverRestCredentials() {
   }
 }
 
+const SEARCH_ID_ENVS = ['NAVER_SEARCH_CLIENT_ID', 'NAVER_OPENAPI_CLIENT_ID', ...CLIENT_ID_ENVS] as const
+const SEARCH_SECRET_ENVS = ['NAVER_SEARCH_CLIENT_SECRET', 'NAVER_OPENAPI_CLIENT_SECRET', ...CLIENT_SECRET_ENVS] as const
+
+export function resolveNaverSearchCredentials() {
+  return {
+    keyId: firstRuntimeEnv(SEARCH_ID_ENVS),
+    secret: firstRuntimeEnv(SEARCH_SECRET_ENVS),
+  }
+}
+
 export function naverGatewayHeaderSets() {
   const { keyId, secret } = resolveNaverRestCredentials()
   if (!keyId || !secret) return [] as Record<string, string>[]

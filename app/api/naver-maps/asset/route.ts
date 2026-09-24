@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { fetchNaverWithFlexibleHost, isAllowedNaverAssetHost } from '@/lib/naver-host'
+import { fetchNaverWithFlexibleHost, isAllowedNaverAssetHost, rewriteNaverSdkUrls } from '@/lib/naver-host'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,7 +26,8 @@ export async function GET(request: Request) {
   if (!response) return NextResponse.json({ error: 'asset unavailable' }, { status: 502 })
   const contentType = response.headers.get('content-type') || 'application/octet-stream'
   if (/javascript|json|text\//i.test(contentType)) {
-    const body = await response.text()
+    const raw = await response.text()
+    const body = /javascript/i.test(contentType) ? rewriteNaverSdkUrls(raw) : raw
     return new NextResponse(body, {
       status: response.status,
       headers: { 'Content-Type': contentType, 'Cache-Control': 'no-store' },
