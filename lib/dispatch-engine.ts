@@ -133,18 +133,7 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
   ride.currentOffer = offer
   stamp(ride)
   scheduleOfferWatch(ride)
-  if (driver.virtual) scheduleVirtualAccept(ride.id, driver.id)
   return ride
-}
-
-function scheduleVirtualAccept(rideId: string, driverId: string) {
-  const existing = virtualAcceptTimers.get(rideId)
-  if (existing) clearTimeout(existing)
-  const timer = setTimeout(() => {
-    virtualAcceptTimers.delete(rideId)
-    respondToOffer(rideId, driverId, 'accept')
-  }, 2200)
-  virtualAcceptTimers.set(rideId, timer)
 }
 
 function clearVirtualAccept(rideId: string) {

@@ -2004,7 +2004,6 @@ function TaxiMatchingSheet({
       taxiSheetRideId = created.id
       rideIdRef.current = created.id
       setRide(created)
-      if (created.status === 'assigned') lockMatched(created)
       if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요.')
     }
     if (taxiSheetRideId) {
@@ -2048,11 +2047,10 @@ function TaxiMatchingSheet({
         if (next.status === 'assigned' || next.status === 'completed') setRide(next)
         return
       }
+      if (next.status === 'assigned' || next.status === 'completed') return
       setRide(next)
-      if (next.status === 'assigned') lockMatched(next)
       if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
       if (next.status === 'cancelled') onClose()
-      if (next.status === 'completed') lockMatched(next)
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
     const timer = window.setInterval(() => {
@@ -2570,6 +2568,7 @@ function ServiceSheet({
   const [daeriAccepting, setDaeriAccepting] = useState(false)
   const daeriPassengerIdRef = useRef('')
   const daeriRideIdRef = useRef(daeriSheetRideId)
+  const daeriAcceptedRef = useRef(false)
   const [deliveryVehicle, setDeliveryVehicle] = useState<DeliveryVehicle>('오토바이')
   const [packageSize, setPackageSize] = useState<PackageSizeId>('document')
   const [senderPhone, setSenderPhone] = useState('')
@@ -2687,10 +2686,6 @@ function ServiceSheet({
       daeriSheetRideId = created.id
       daeriRideIdRef.current = created.id
       setDispatchRide(created)
-      if (created.status === 'assigned' || created.status === 'completed') {
-        setPhase('assigned')
-        setRideStage('arriving')
-      }
       if (created.status === 'unmatched') setDaeriMatchError('지금은 배차 가능한 기사가 없어요.')
     }
     if (daeriSheetRideId) {
@@ -2727,11 +2722,8 @@ function ServiceSheet({
     const rideId = dispatchRide?.id || daeriRideIdRef.current
     if (!ride || !rideId) return
     const apply = (next: PublicRide) => {
+      if (!daeriAcceptedRef.current && (next.status === 'assigned' || next.status === 'completed')) return
       setDispatchRide(next)
-      if (next.status === 'assigned' || next.status === 'completed') {
-        setPhase('assigned')
-        setRideStage((current) => current)
-      }
       if (next.status === 'unmatched') setDaeriMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
       if (next.status === 'cancelled') onClose()
     }
@@ -2748,6 +2740,7 @@ function ServiceSheet({
   }, [dispatchRide?.id, ride])
 
   const confirmAssignment = () => {
+    daeriAcceptedRef.current = true
     setPhase('assigned')
     if (ride) setRideStage('arriving')
     onNotice(selfServe ? `${service} 이용이 시작되었습니다.` : `${service} 배정이 완료되었습니다.`)
@@ -2844,6 +2837,7 @@ function ServiceSheet({
                     kind: dispatchRide.kind,
                   })
                     .then((next) => {
+                      daeriAcceptedRef.current = true
                       setDispatchRide(next)
                       setPhase('assigned')
                       setRideStage('arriving')
