@@ -1,5 +1,5 @@
 import { naverGatewayHeaderSets, ncpGetJson, resolveNaverRestCredentials, resolveNaverSearchCredentials } from '@/lib/naver-apigw'
-import { lookupSuggestedPlace } from '@/lib/region-destinations'
+import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 
 function cleanAddress(value: unknown) {
   const text = typeof value === 'string' ? value.trim() : ''
@@ -567,15 +567,10 @@ function publishPlaces(places: ForwardPlace[], query: string) {
     .map((place) => ({ place, score: placeRelevance(place, query) }))
     .sort((a, b) => b.score - a.score || (compactQuery(a.place.name) === q ? -1 : 1))
   const kept: ForwardPlace[] = []
-  const take = (rows: typeof ranked, limit: number) => {
-    for (const row of rows) {
-      if (kept.length >= limit) break
-      if (kept.some((place) => samePlace(place, row.place))) continue
-      kept.push(row.place)
-    }
+  for (const row of ranked) {
+    if (kept.some((place) => samePlace(place, row.place))) continue
+    kept.push(row.place)
   }
-  take(ranked.filter((row) => row.score >= 160), 8)
-  take(ranked.filter((row) => row.score < 160), 12)
   return kept.map((place) => ({
     name: place.name,
     address: place.address,
@@ -593,10 +588,17 @@ export async function forwardGeocodeOnServer(query: string) {
   if (!q) return [] as ReturnType<typeof publishPlaces>
   const aliases = queryAliases(q)
   const known = lookupSuggestedPlace(q)
-  const catalog: ForwardPlace[] =
-    known && Number.isFinite(known.lat) && Number.isFinite(known.lng)
-      ? [{ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true }]
-      : []
+  const catalogSeeds = known ? suggestedDestinationsFor(known.address, known.lat, known.lng) : []
+  const catalog: ForwardPlace[] = catalogSeeds
+    .map((place) => {
+      const hit = lookupSuggestedPlace(place.name)
+      if (!hit || !Number.isFinite(hit.lat) || !Number.isFinite(hit.lng)) return null
+      return { name: hit.name, address: hit.address, lat: hit.lat, lng: hit.lng, category: inferCategory(hit.name), trustName: true }
+    })
+    .filter((place): place is ForwardPlace => Boolean(place))
+  if (known && Number.isFinite(known.lat) && Number.isFinite(known.lng) && !catalog.some((place) => compactQuery(place.name) === compactQuery(known.name))) {
+    catalog.unshift({ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true })
+  }
   const [localComment, localRandom, geocodeGroups, nominatimGroups] = await withDeadline(
     Promise.all([
       forwardNaverLocalSearch(q, 'comment'),
