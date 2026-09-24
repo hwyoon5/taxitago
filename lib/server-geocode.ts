@@ -75,7 +75,7 @@ async function reverseGeocodeNaverRest(lat: number, lng: number) {
   const query = new URLSearchParams({
     coords: `${lng},${lat}`,
     sourcecrs: 'epsg:4326',
-    orders: 'legalcode,admcode,addr,roadaddr',
+    orders: 'roadaddr,addr,admcode,legalcode',
     output: 'json',
   })
   const hosts = ['https://maps.apigw.ntruss.com', 'https://naveropenapi.apigw.ntruss.com']

@@ -88,11 +88,20 @@ function httpsLocation(current: string, location: string) {
   }
 }
 
+function isCoordText(value: string) {
+  return /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(value.trim())
+}
+
 async function readGeocodeResponse(response: Response) {
   if (!response.ok) return null
-  const type = response.headers.get('content-type') || ''
-  if (!type.includes('json')) return null
-  return (await response.json()) as unknown
+  const text = await response.text()
+  const body = text.trim()
+  if (!body.startsWith('{') && !body.startsWith('[')) return null
+  try {
+    return JSON.parse(body) as unknown
+  } catch {
+    return null
+  }
 }
 
 async function fetchGeocodeJson(search: string, signal?: AbortSignal) {
@@ -141,10 +150,11 @@ export async function lookupAddressFromApi(lat: number, lng: number, signal?: Ab
       address?: unknown
     } | null
     const label = typeof data?.address === 'string' ? data.address.trim() : ''
-    return label || fallback
+    if (label && !isCoordText(label)) return label
+    return ''
   } catch (error) {
     if (signal?.aborted) throw error
-    return fallback
+    return ''
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onCallerAbort)
@@ -173,13 +183,14 @@ export function requestAddressLookup(lat: number, lng: number, onAddress: (addre
   const liveLng = Number(lng)
   const deliver = (address: string) => {
     try {
-      onAddress((address || '').trim() || fallbackCoordAddress(liveLat, liveLng))
+      const label = (address || '').trim()
+      onAddress(label && !isCoordText(label) ? label : '')
     } catch (error) {
       console.error('[geocode] address apply failed', error)
     }
   }
   runApartFromCaller(() => {
-    void lookupAddressFromApi(liveLat, liveLng).then(deliver).catch(() => deliver(fallbackCoordAddress(liveLat, liveLng)))
+    void lookupAddressFromApi(liveLat, liveLng).then(deliver).catch(() => deliver(''))
   })
 }
 
@@ -196,7 +207,7 @@ export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
     return (data.places || [])
       .map((item) => {
         const name = typeof item.name === 'string' ? item.name.trim() : q
-        const address = typeof item.address === 'string' ? item.address.trim() : ''
+        const address = typeof item.address === 'string' && item.address.trim() && !isCoordText(item.address) ? item.address.trim() : name
         const jibun = typeof item.jibun === 'string' ? item.jibun.trim() : ''
         const category = typeof item.category === 'string' ? item.category.trim() : ''
         const lat = Number(item.lat)
