@@ -4,6 +4,15 @@ export function fallbackCoordAddress(lat: number, lng: number) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
 }
 
+const REVERSE_FAIL_LABEL = '주소를 찾을 수 없습니다'
+
+function displayReverseLabel(value: string) {
+  const label = value.trim()
+  if (!label || isCoordText(label)) return ''
+  if (/확인하는 중|수신하는 중|불러오는 중|갱신하는 중/.test(label)) return ''
+  return label
+}
+
 export function createLiveAddressLookup(
   apply: (lat: number, lng: number, address: string) => void,
   intervalMs = 220,
@@ -25,11 +34,11 @@ export function createLiveAddressLookup(
       void lookupAddressFromApi(liveLat, liveLng)
         .then((label) => {
           if (id !== requestId) return
-          apply(liveLat, liveLng, label.trim() || fallbackCoordAddress(liveLat, liveLng))
+          apply(liveLat, liveLng, displayReverseLabel(label) || REVERSE_FAIL_LABEL)
         })
         .catch(() => {
           if (id !== requestId) return
-          apply(liveLat, liveLng, fallbackCoordAddress(liveLat, liveLng))
+          apply(liveLat, liveLng, REVERSE_FAIL_LABEL)
         })
     })
   }
@@ -60,7 +69,7 @@ export function createLiveAddressLookup(
 
 const jsonHeaders = { Accept: 'application/json' } as const
 
-const ADDRESS_LOOKUP_TIMEOUT_MS = 8000
+const ADDRESS_LOOKUP_TIMEOUT_MS = 6000
 
 function pageOrigin() {
   if (typeof window === 'undefined') return ''
@@ -134,29 +143,66 @@ async function fetchGeocodeJson(search: string, signal?: AbortSignal) {
   return null
 }
 
+async function fetchReverseJson(search: string, signal?: AbortSignal) {
+  const seen = new Set<string>()
+  const queue = geocodeCandidates(search)
+  while (queue.length) {
+    const url = queue.shift()
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        redirect: 'follow',
+        signal,
+        headers: jsonHeaders,
+      })
+      const data = await readGeocodeResponse(response)
+      if (data) return data
+    } catch (error) {
+      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error
+    }
+  }
+  return null
+}
+
 export async function lookupAddressFromApi(lat: number, lng: number, signal?: AbortSignal) {
   const liveLat = Number(lat)
   const liveLng = Number(lng)
-  const fallback = fallbackCoordAddress(liveLat, liveLng)
   if (!Number.isFinite(liveLat) || !Number.isFinite(liveLng) || Math.abs(liveLat) > 90 || Math.abs(liveLng) > 180) {
-    return fallback
+    return REVERSE_FAIL_LABEL
   }
   const timeout = new AbortController()
   const timer = setTimeout(() => timeout.abort(), ADDRESS_LOOKUP_TIMEOUT_MS)
   const onCallerAbort = () => timeout.abort()
   signal?.addEventListener('abort', onCallerAbort, { once: true })
+  let settled = false
+  const finish = (value: string) => {
+    if (settled) return value
+    settled = true
+    return value
+  }
   try {
-    const data = (await fetchGeocodeJson(`lat=${encodeURIComponent(String(liveLat))}&lng=${encodeURIComponent(String(liveLng))}`, timeout.signal)) as {
-      address?: unknown
-    } | null
-    const label = typeof data?.address === 'string' ? data.address.trim() : ''
-    if (label && !isCoordText(label)) return label
-    return ''
+    const data = await Promise.race([
+      fetchReverseJson(`lat=${encodeURIComponent(String(liveLat))}&lng=${encodeURIComponent(String(liveLng))}`, timeout.signal).catch((error) => {
+        if (signal?.aborted) throw error
+        return null
+      }),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), ADDRESS_LOOKUP_TIMEOUT_MS)
+      }),
+    ])
+    const payload = data as { address?: unknown } | null
+    const label = typeof payload?.address === 'string' ? displayReverseLabel(payload.address) : ''
+    return finish(label || REVERSE_FAIL_LABEL)
   } catch (error) {
     if (signal?.aborted) throw error
-    return ''
+    return finish(REVERSE_FAIL_LABEL)
   } finally {
     clearTimeout(timer)
+    timeout.abort()
     signal?.removeEventListener('abort', onCallerAbort)
   }
 }
@@ -181,16 +227,27 @@ function runApartFromCaller(task: () => void) {
 export function requestAddressLookup(lat: number, lng: number, onAddress: (address: string) => void) {
   const liveLat = Number(lat)
   const liveLng = Number(lng)
+  let sent = false
   const deliver = (address: string) => {
+    if (sent) return
+    sent = true
     try {
-      const label = (address || '').trim()
-      onAddress(label && !isCoordText(label) ? label : '')
+      onAddress(displayReverseLabel(address) || REVERSE_FAIL_LABEL)
     } catch (error) {
       console.error('[geocode] address apply failed', error)
     }
   }
+  const watchdog = setTimeout(() => deliver(REVERSE_FAIL_LABEL), ADDRESS_LOOKUP_TIMEOUT_MS + 400)
   runApartFromCaller(() => {
-    void lookupAddressFromApi(liveLat, liveLng).then(deliver).catch(() => deliver(''))
+    void lookupAddressFromApi(liveLat, liveLng)
+      .then((address) => {
+        clearTimeout(watchdog)
+        deliver(address)
+      })
+      .catch(() => {
+        clearTimeout(watchdog)
+        deliver(REVERSE_FAIL_LABEL)
+      })
   })
 }
 

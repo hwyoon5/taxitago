@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
     return NextResponse.json({ error: 'lat and lng or q required' }, { status: 400 })
   }
-  const address = await reverseGeocodeOnServer(lat, lng)
-  return NextResponse.json({ address, lat, lng })
+  const address = (await reverseGeocodeOnServer(lat, lng)).trim()
+  const safe = address && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(address) ? address : '주소를 찾을 수 없습니다'
+  return NextResponse.json({ address: safe, lat, lng })
 }

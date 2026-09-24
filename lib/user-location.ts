@@ -102,15 +102,21 @@ function looksLikeCoordLabel(value: string) {
 
 export async function reverseGeocode(lat: number, lng: number) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-    return failedReverseAddress(lat, lng)
+    return '주소를 찾을 수 없습니다'
   }
   try {
-    const address = (await lookupAddressFromApi(lat, lng)).trim()
-    if (address && !looksLikeCoordLabel(address) && !/주소를 찾을 수 없습니다/.test(address)) return address
+    const address = await Promise.race([
+      lookupAddressFromApi(lat, lng),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve(''), 6500)
+      }),
+    ])
+    const label = (address || '').trim()
+    if (label && !looksLikeCoordLabel(label) && !/확인하는 중|수신하는 중|불러오는 중|갱신하는 중/.test(label)) return label
   } catch {
     undefined
   }
-  return ''
+  return '주소를 찾을 수 없습니다'
 }
 
 export async function geocodeAddress(query: string): Promise<GeoPoint | null> {

@@ -1,9 +1,5 @@
 import { naverGatewayHeaderSets, ncpGetJson, resolveNaverRestCredentials, resolveNaverSearchCredentials } from '@/lib/naver-apigw'
 
-function coordLabel(lat: number, lng: number) {
-  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-}
-
 function cleanAddress(value: unknown) {
   const text = typeof value === 'string' ? value.trim() : ''
   return text && !/^(undefined|null)$/i.test(text) ? text : ''
@@ -69,6 +65,22 @@ async function ncpJson(url: string) {
   return null
 }
 
+function withDeadline<T>(task: Promise<T>, ms: number, fallback: T) {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms)
+    task.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      () => {
+        clearTimeout(timer)
+        resolve(fallback)
+      },
+    )
+  })
+}
+
 async function reverseGeocodeNaverRest(lat: number, lng: number) {
   const { keyId, secret } = resolveNaverRestCredentials()
   if (!keyId || !secret) return ''
@@ -79,12 +91,22 @@ async function reverseGeocodeNaverRest(lat: number, lng: number) {
     output: 'json',
   })
   const hosts = ['https://maps.apigw.ntruss.com', 'https://naveropenapi.apigw.ntruss.com']
-  for (const host of hosts) {
-    const payload = await ncpJson(`${host}/map-reversegeocode/v2/gc?${query.toString()}`)
-    const address = parseNaverReverseAddress(payload)
-    if (address) return address
-  }
-  return ''
+  const found = await Promise.all(
+    hosts.map(async (host) => {
+      for (const headers of naverGatewayHeaderSets()) {
+        try {
+          const { status, json } = await ncpGetJson(`${host}/map-reversegeocode/v2/gc?${query.toString()}`, headers, 2200)
+          if (status < 200 || status >= 300) continue
+          const address = parseNaverReverseAddress(json)
+          if (address && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(address)) return address
+        } catch {
+          continue
+        }
+      }
+      return ''
+    }),
+  )
+  return found.find(Boolean) || ''
 }
 
 async function reverseGeocodeNominatim(lat: number, lng: number) {
@@ -135,11 +157,11 @@ async function reverseGeocodeNominatim(lat: number, lng: number) {
 
 export async function reverseGeocodeOnServer(lat: number, lng: number) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-    return coordLabel(lat, lng)
+    return ''
   }
-  const naver = await reverseGeocodeNaverRest(lat, lng)
+  const naver = await withDeadline(reverseGeocodeNaverRest(lat, lng), 2800, '')
   if (naver && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(naver)) return naver
-  const osm = await reverseGeocodeNominatim(lat, lng)
+  const osm = await withDeadline(reverseGeocodeNominatim(lat, lng), 2200, '')
   if (osm && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(osm)) return osm
   return ''
 }
