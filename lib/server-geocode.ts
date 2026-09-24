@@ -550,6 +550,15 @@ function inferCategory(name: string, category?: string) {
   return ''
 }
 
+function sanitizeSearchQuery(value: string) {
+  return value
+    .replace(/\u00a0|\u3000/g, ' ')
+    .replace(/[，、]/g, ' ')
+    .replace(/[()[\]{}<>「」『』"'`~!@#$%^&*_=+\\|/;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function looksLikeStreetAddress(query: string) {
   const text = query.replace(/\s+/g, '')
   if (/(?:로|길|동|읍|면|리)\d/.test(text)) return true
@@ -594,10 +603,50 @@ function publishPlaces(places: ForwardPlace[], query: string) {
 
 const NEARBY_FACILITIES = ['주차장', '버스정류장', '마트', '병원'] as const
 
+function collectPlaces(tasks: Array<Promise<ForwardPlace[]>>, ms: number) {
+  return new Promise<ForwardPlace[]>((resolve) => {
+    const found: ForwardPlace[] = []
+    let pending = tasks.length
+    if (!pending) {
+      resolve(found)
+      return
+    }
+    const done = () => {
+      pending -= 1
+      if (pending > 0) return
+      clearTimeout(timer)
+      resolve(found)
+    }
+    const timer = setTimeout(() => resolve(found.slice()), ms)
+    for (const task of tasks) {
+      task.then(
+        (rows) => {
+          if (rows.length) found.push(...rows)
+          done()
+        },
+        () => done(),
+      )
+    }
+  })
+}
+
+function asForwardPlace(place: ForwardPlace): ForwardPlace {
+  return {
+    name: place.name,
+    address: place.address,
+    jibun: place.jibun || '',
+    category: inferCategory(place.name, place.category),
+    lat: place.lat,
+    lng: place.lng,
+    trustName: place.trustName,
+  }
+}
+
 export async function forwardGeocodeOnServer(query: string) {
-  const q = query.trim()
+  const q = sanitizeSearchQuery(query)
   if (!q) return [] as ReturnType<typeof publishPlaces>
   const aliases = queryAliases(q)
+  const addressQuery = looksLikeStreetAddress(q)
   const known = lookupSuggestedPlace(q)
   const catalogSeeds = known ? suggestedDestinationsFor(known.address, known.lat, known.lng) : []
   const catalog = catalogSeeds
@@ -610,63 +659,38 @@ export async function forwardGeocodeOnServer(query: string) {
   if (known && Number.isFinite(known.lat) && Number.isFinite(known.lng) && !catalog.some((place) => compactQuery(place.name) === compactQuery(known.name))) {
     catalog.unshift({ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true })
   }
-  const addressQuery = looksLikeStreetAddress(q)
-  const addressHits = addressQuery
-    ? (
-        await withDeadline(
-          Promise.all(addressQueryVariants(q).map((alias) => forwardGeocodeNaver(alias))),
-          6000,
-          [] as ForwardPlace[][],
-        )
-      ).flat()
+  const addressTasks = addressQuery
+    ? addressQueryVariants(q).flatMap((alias) => [forwardGeocodeNaver(alias), forwardNaverLocalSearch(alias, 'comment'), forwardGeocodeNominatim(alias)])
     : []
-  const addressFallback =
-    addressQuery && addressHits.length === 0 ? await withDeadline(forwardGeocodeNominatim(q), 5000, [] as ForwardPlace[]) : []
-  const anchorSeed =
+  const keywordTasks = [
+    forwardNaverLocalSearch(q, 'comment'),
+    forwardNaverLocalSearch(q, 'random'),
+    ...aliases.map((alias) => forwardGeocodeNaver(alias)),
+    ...aliases.map((alias) => forwardGeocodeNominatim(alias)),
+  ]
+  const [addressHits, keywordHits] = await Promise.all([
+    collectPlaces(addressTasks, 6000),
+    collectPlaces(keywordTasks, 6000),
+  ])
+  const addressAnchor = addressHits.find((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng))
+  const anchor =
+    (addressQuery ? addressAnchor : null) ||
     (known && Number.isFinite(known.lat) && Number.isFinite(known.lng) ? known : null) ||
-    addressHits[0] ||
-    addressFallback[0] ||
+    keywordHits.find((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng)) ||
     catalog[0]
   const span = 0.03
-  const viewbox = anchorSeed
-    ? `${anchorSeed.lng - span},${anchorSeed.lat + 0.02},${anchorSeed.lng + span},${anchorSeed.lat - 0.02}`
-    : ''
-  const [localComment, localRandom, geocodeGroups, nominatimGroups, nearbyGroups] = await withDeadline(
-    Promise.all([
-      forwardNaverLocalSearch(q, 'comment'),
-      forwardNaverLocalSearch(q, 'random'),
-      Promise.all(aliases.map((alias) => forwardGeocodeNaver(alias))),
-      Promise.all(aliases.map((alias) => forwardGeocodeNominatim(alias))),
-      viewbox ? Promise.all(NEARBY_FACILITIES.map((facility) => forwardNominatimBounded(facility, viewbox))) : Promise.resolve([] as ForwardPlace[][]),
-    ]),
-    8000,
-    [[], [], [], [], []] as [ForwardPlace[], ForwardPlace[], ForwardPlace[][], ForwardPlace[][], ForwardPlace[][]],
-  )
-  const merged = [...addressHits, ...addressFallback, ...catalog, ...localComment, ...localRandom, ...geocodeGroups.flat(), ...nominatimGroups.flat()]
-  const geocoded = [...geocodeGroups.flat(), ...nominatimGroups.flat(), ...localComment, ...localRandom]
-  const anchor = anchorSeed || geocoded.find((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng)) || publishPlaces(merged, q)[0]
-  const fetchedNearby = nearbyGroups.flat()
-  const addressNearby =
-    looksLikeStreetAddress(q) && anchor && fetchedNearby.length === 0
-      ? (
-          await withDeadline(
-            Promise.all(
-              NEARBY_FACILITIES.map((facility) =>
-                forwardNominatimBounded(facility, `${anchor.lng - span},${anchor.lat + 0.02},${anchor.lng + span},${anchor.lat - 0.02}`),
-              ),
-            ),
-            4000,
-            [] as ForwardPlace[][],
-          )
-        ).flat()
-      : fetchedNearby
   const nearby = anchor
-    ? addressNearby
+    ? (
+        await collectPlaces(
+          NEARBY_FACILITIES.map((facility) =>
+            forwardNominatimBounded(facility, `${anchor.lng - span},${anchor.lat + 0.02},${anchor.lng + span},${anchor.lat - 0.02}`),
+          ),
+          4000,
+        )
+      )
         .filter((place) => distanceMeters(anchor, place) <= 4000)
-        .map((place) => ({ ...place, category: place.category || inferCategory(place.name), trustName: true }))
+        .map((place) => asForwardPlace({ ...place, category: place.category || inferCategory(place.name), trustName: true }))
     : []
-  const around = anchor
-    ? catalog.filter((place) => distanceMeters(anchor, place) <= 20000)
-    : catalog
-  return publishPlaces([...merged, ...around, ...nearby], q)
+  const around = anchor ? catalog.filter((place) => distanceMeters(anchor, place) <= 20000) : catalog
+  return publishPlaces([...addressHits.map(asForwardPlace), ...keywordHits.map(asForwardPlace), ...around, ...nearby], q)
 }

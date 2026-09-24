@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
-  const query = (searchParams.get('q') || searchParams.get('query') || '').trim()
+  const query = (searchParams.get('q') || searchParams.get('query') || '').replace(/\u00a0|\u3000/g, ' ').replace(/\s+/g, ' ').trim()
   if (query) {
     const places = await forwardGeocodeOnServer(query)
     return NextResponse.json({ places, query })

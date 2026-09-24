@@ -273,24 +273,64 @@ async function fetchSearchJson(search: string, signal?: AbortSignal) {
   return null
 }
 
+function sanitizeSearchQuery(value: string) {
+  return value
+    .replace(/\u00a0|\u3000/g, ' ')
+    .replace(/[，、]/g, ' ')
+    .replace(/[()[\]{}<>「」『』"'`~!@#$%^&*_=+\\|/;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function textField(item: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = item[key]
+    if (typeof value === 'string' && value.trim() && !isCoordText(value)) return value.trim()
+  }
+  return ''
+}
+
+function coordField(item: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = Number(item[key])
+    if (Number.isFinite(value)) return value
+  }
+  return Number.NaN
+}
+
+function searchRows(data: unknown) {
+  if (!data || typeof data !== 'object') return [] as Array<Record<string, unknown>>
+  const root = data as Record<string, unknown>
+  const nested = root.v2 && typeof root.v2 === 'object' ? (root.v2 as Record<string, unknown>) : null
+  const lists = [root.places, root.results, root.items, root.addresses, nested?.places, nested?.addresses]
+  const rows = lists.find((value) => Array.isArray(value)) 
+  return Array.isArray(rows) ? (rows.filter((item) => item && typeof item === 'object') as Array<Record<string, unknown>>) : []
+}
+
 export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
-  const q = query.trim()
+  const q = sanitizeSearchQuery(query)
   if (!q) return [] as SearchedPlace[]
   try {
-    const data = (await fetchSearchJson(`q=${encodeURIComponent(q)}`, signal)) as {
-      places?: Array<{ name?: unknown; address?: unknown; jibun?: unknown; category?: unknown; lat?: unknown; lng?: unknown }>
-    } | null
-    if (!data) return []
-    return (data.places || [])
+    const data = await fetchSearchJson(`q=${encodeURIComponent(q)}`, signal)
+    return searchRows(data)
       .map((item) => {
-        const name = typeof item.name === 'string' ? item.name.trim() : q
-        const address = typeof item.address === 'string' && item.address.trim() && !isCoordText(item.address) ? item.address.trim() : name
-        const jibun = typeof item.jibun === 'string' ? item.jibun.trim() : ''
-        const category = typeof item.category === 'string' ? item.category.trim() : ''
-        const lat = Number(item.lat)
-        const lng = Number(item.lng)
+        const name = textField(item, ['name', 'title', 'placeName']) || q
+        const road = textField(item, ['address', 'roadAddress', 'road_address'])
+        const jibun = textField(item, ['jibun', 'jibunAddress', 'jibun_address'])
+        const address = road || jibun || name
+        const category = textField(item, ['category', 'categoryName'])
+        let lat = coordField(item, ['lat', 'y', 'latitude'])
+        let lng = coordField(item, ['lng', 'x', 'longitude'])
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          const mapy = Number(item.mapy)
+          const mapx = Number(item.mapx)
+          if (Number.isFinite(mapy) && Number.isFinite(mapx)) {
+            lat = Math.abs(mapy) > 90 ? mapy / 1e7 : mapy
+            lng = Math.abs(mapx) > 180 ? mapx / 1e7 : mapx
+          }
+        }
         if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
-        return { name: name || q, address, jibun: jibun || '', category: category || '', lat, lng }
+        return { name, address, jibun: jibun && jibun !== address ? jibun : '', category, lat, lng }
       })
       .filter((item): item is SearchedPlace => Boolean(item))
   } catch {
