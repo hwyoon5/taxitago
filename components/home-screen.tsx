@@ -481,6 +481,23 @@ const PI_ACCOUNT_KEY = 'taxitago-pi-account-linked'
 const READ_NOTICES_KEY = 'taxitago-read-notices'
 const RECENT_DEST_KEY = 'taxitago-recent-destinations'
 const PICKUP_KEY = 'taxitago-pickup-place'
+const ACTIVITY_KEY = 'taxitago-activity-log'
+
+type ActivityEntry = { id: string; at: string; label: string; detail: string }
+
+function loadActivities(): ActivityEntry[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(ACTIVITY_KEY) || '[]') as ActivityEntry[]
+    return Array.isArray(parsed) ? parsed.filter((item) => item && item.label && item.at) : []
+  } catch {
+    return []
+  }
+}
+
+function saveActivities(items: ActivityEntry[]) {
+  window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(items.slice(0, 40)))
+}
 
 type FavoritePlace = { id: string; name: string; address: string }
 type RecentPlace = { id: string; name: string; address: string }
@@ -1881,6 +1898,7 @@ function TaxiMatchingSheet({
   onNeedCharge,
   onAskReview,
   onReceipt,
+  onActivity,
 }: {
   destination: string
   pickupLat: number
@@ -1897,6 +1915,7 @@ function TaxiMatchingSheet({
   onNeedCharge: () => void
   onAskReview: (target: RideReviewTarget) => void
   onReceipt: (ride: RideReceipt) => void
+  onActivity?: (label: string, detail: string) => void
 }) {
   const IS_TEST_MODE = true
   const [phase, setPhase] = useState<TaxiMatchPhase>('searching')
@@ -2094,6 +2113,7 @@ function TaxiMatchingSheet({
     try {
       if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
       taxiSheetRideId = ''
+      onActivity?.(matched ? '배차 취소' : '택시 호출 취소', route)
       onNotice(matched ? '배차를 취소했어요.' : '택시 호출을 취소했어요.')
     } finally {
       onClose()
@@ -2112,6 +2132,7 @@ function TaxiMatchingSheet({
       await cancelRideRequest(rideId, passengerIdRef.current, { settleFee: true })
       taxiSheetRideId = ''
       setCancelConfirmOpen(false)
+      onActivity?.('이용 취소', `취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi · 미청구 ${cancelSettlement.waived.toFixed(2)} Pi`)
       onNotice(
         `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
       )
@@ -2145,6 +2166,7 @@ function TaxiMatchingSheet({
           throw new Error('배차가 완료되지 않았어요. 다시 수락해 주세요.')
         }
         lockMatched(next)
+        onActivity?.('배차 완료', `${next.assignedDriver?.name || '기사'} · ${route}`)
         onNotice('기사님이 콜을 수락했습니다. 탑승 후 이동을 시작해 주세요.')
       })
       .catch((error) => {
@@ -2517,6 +2539,7 @@ function ServiceSheet({
   onSelectService,
   onRequireRoute,
   onDeliveryCreated,
+  onActivity,
 }: {
   service: string
   pickupLat: number
@@ -2537,6 +2560,7 @@ function ServiceSheet({
   onSelectService?: (label: string) => void
   onRequireRoute?: (kind: RouteGap) => void
   onDeliveryCreated?: (job: DeliveryJob) => void
+  onActivity?: (label: string, detail: string) => void
 }) {
   const { t } = useLocale()
   const IS_TEST_MODE = true
@@ -2650,6 +2674,7 @@ function ServiceSheet({
       return
     }
     setPhase('matching')
+    onActivity?.(selfServe ? `${service} 이용 시작` : `${service} 호출`, place)
     onNotice(selfServe ? `${service} 이용을 시작했어요.` : `${service} 호출을 시작했어요.`)
   }
 
@@ -2739,6 +2764,7 @@ function ServiceSheet({
       await cancelRideRequest(rideId, daeriPassengerIdRef.current || localPassengerId(), { settleFee: true })
       daeriSheetRideId = ''
       setCancelConfirmOpen(false)
+      onActivity?.('이용 취소', `${service} · 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi`)
       onNotice(
         `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
       )
@@ -2820,6 +2846,7 @@ function ServiceSheet({
                       setDispatchRide(next)
                       setPhase('assigned')
                       setRideStage('arriving')
+                      onActivity?.('배차 완료', `${next.assignedDriver?.name || '기사'} · ${place}`)
                     })
                     .catch((error) => setDaeriMatchError(error instanceof Error ? error.message : '콜 수락에 실패했어요.'))
                     .finally(() => setDaeriAccepting(false))
@@ -2836,6 +2863,7 @@ function ServiceSheet({
                   daeriSheetRideId = ''
                   void cancelRideRequest(dispatchRide?.id || daeriRideIdRef.current, daeriPassengerIdRef.current || localPassengerId())
                 }
+                onActivity?.(selfServe ? '이용 취소' : '호출 취소', place)
                 onClose()
               }}
               className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]"
@@ -4485,6 +4513,7 @@ function HeaderModal({
   onClose,
   onLinkPi,
   onUnlinkPi,
+  activities = [],
 }: {
   kind: 'activity' | 'account'
   username: string
@@ -4492,6 +4521,7 @@ function HeaderModal({
   onClose: () => void
   onLinkPi: () => void | Promise<void>
   onUnlinkPi: () => void
+  activities?: ActivityEntry[]
 }) {
   const isActivity = kind === 'activity'
   const [linking, setLinking] = useState(false)
@@ -4519,16 +4549,20 @@ function HeaderModal({
           </button>
         </div>
         {isActivity ? (
-          <div className="mt-5 space-y-3">
-            {[['14:00', '택시 결제 완료', '2.1 Pi'], ['12:00', 'Pi 충전 완료', '+10 Pi'], ['09:20', '기사님 호출 요청', '서울시청 → 강남역']].map(([time, label, detail]) => (
-              <div key={time} className="flex gap-3 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
-                <span className="font-mono text-xs font-bold text-[#4A82B8]">{time}</span>
-                <div>
-                  <p className="text-sm font-bold text-[#0F172A]">{label}</p>
-                  <p className="mt-1 text-xs font-medium text-[#64748B]">{detail}</p>
+          <div className="mt-5 max-h-[50vh] space-y-3 overflow-y-auto">
+            {activities.length === 0 ? (
+              <p className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-4 text-sm font-bold text-[#64748B]">아직 활동이 없어요. 호출, 결제, 취소가 여기에 쌓입니다.</p>
+            ) : (
+              activities.map((item) => (
+                <div key={item.id} className="flex gap-3 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+                  <span className="shrink-0 font-mono text-xs font-bold text-[#4A82B8]">{item.at}</span>
+                  <div>
+                    <p className="text-sm font-bold text-[#0F172A]">{item.label}</p>
+                    <p className="mt-1 text-xs font-medium text-[#64748B]">{item.detail}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         ) : showLinked ? (
           <div className="mt-5 space-y-4">
@@ -5891,10 +5925,19 @@ export default function HomeScreen() {
   const [rideReview, setRideReview] = useState<RideReviewTarget | null>(null)
   const [supportDesk, setSupportDesk] = useState<LostPrefill | null | true>(null)
   const [transactions, setTransactions] = useState<PiTransaction[]>(DEFAULT_PI_TX)
+  const [activities, setActivities] = useState<ActivityEntry[]>([])
 
   const showNotice = (message: string) => {
     setNotice(message)
     window.setTimeout(() => setNotice(''), 2200)
+  }
+  const recordActivity = (label: string, detail: string) => {
+    const entry: ActivityEntry = { id: crypto.randomUUID(), at: formatPiTime(), label, detail }
+    setActivities((items) => {
+      const next = [entry, ...items].slice(0, 40)
+      saveActivities(next)
+      return next
+    })
   }
 
   const applyPickup = (place: PickupPlace) => {
@@ -5966,6 +6009,7 @@ export default function HomeScreen() {
     setIsPartnerRegistered(loadIsPartnerRegistered())
     setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
+    setActivities(loadActivities())
     const storedPickup = readPickupPlace()
     if (storedPickup && Number.isFinite(storedPickup.lat) && Number.isFinite(storedPickup.lng) && usableMapAddress(storedPickup.address)) {
       pickupRef.current = storedPickup
@@ -6040,6 +6084,7 @@ export default function HomeScreen() {
     const at = formatPiTime()
     setWalletBalance(Math.max(0, remaining))
     setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
+    recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(2)} Pi · ${place}`)
     setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated, paymentId: proof.paymentId, txid: proof.txid })
   }
   const payWithPi = async (amount: number, place: string, label: string, estimated?: number) => {
@@ -6060,11 +6105,13 @@ export default function HomeScreen() {
     const at = formatPiTime()
     setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
     setTransactions((items) => [{ label: 'Pi 충전', amount, detail: `Pi 월렛 · ${at}`, place: 'Pi 월렛', at }, ...items])
+    recordActivity('Pi 충전 완료', `+${amount.toFixed(2)} Pi`)
   }
   const withdrawWallet = (amount: number, dest: string) => {
     const at = formatPiTime()
     setWalletBalance((balance) => Math.max(0, Math.round((balance - amount) * 100) / 100))
     setTransactions((items) => [{ label: 'Pi 환불', amount: -amount, detail: `${dest.slice(0, 10)}… · ${at}`, place: dest || 'Pi 월렛', at }, ...items])
+    recordActivity('Pi 환불', `-${amount.toFixed(2)} Pi`)
   }
   const rewardReview = () => {
     const amount = 0.1
@@ -6145,6 +6192,7 @@ export default function HomeScreen() {
       destLabel: place.label,
     })
     setSelectedService('택시')
+    recordActivity('택시 호출', `${origin.address} → ${place.label}`)
   }
   const selectDestination = (value: string, coords?: RideCoords) => {
     applyDestinationPlace(value, coords)
@@ -6334,6 +6382,7 @@ export default function HomeScreen() {
                 showNotice(describePiUserMessage(error))
               }
             }}
+            activities={activities}
             onUnlinkPi={() => {
               setIsPiLinked(false)
               saveIsPiLinked(false)
@@ -6425,6 +6474,7 @@ export default function HomeScreen() {
             onNeedCharge={showChargePrompt}
             onAskReview={setRideReview}
             onReceipt={setReceiptRide}
+            onActivity={recordActivity}
           />
           </div>
         ) : null}
@@ -6452,6 +6502,7 @@ export default function HomeScreen() {
             daeriTrip={selectedService === '대리운전' ? daeriTrip : null}
             onRequireRoute={setRouteAlert}
             onDeliveryCreated={setDeliveryJob}
+            onActivity={recordActivity}
           />
         )}
         {supportDesk ? (
