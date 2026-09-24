@@ -552,7 +552,17 @@ function inferCategory(name: string, category?: string) {
 
 function looksLikeStreetAddress(query: string) {
   const text = query.replace(/\s+/g, '')
-  return /(?:로|길)\d/.test(text) || /번길/.test(text) || /번지/.test(text) || /동\d/.test(text) || /\d+-\d+/.test(text)
+  if (/(?:로|길|동|읍|면|리)\d/.test(text)) return true
+  if (/번길|번지/.test(text)) return true
+  if (/(?:동|읍|면|리)/.test(text) && /\d/.test(text)) return true
+  if (/(?:로|길|대로)/.test(text) && /\d/.test(text)) return true
+  return /\d+-\d+/.test(text)
+}
+
+function addressQueryVariants(query: string) {
+  const spaced = query.replace(/\s+/g, ' ').trim()
+  const tight = spaced.replace(/\s+/g, '')
+  return [...new Set([spaced, tight])].slice(0, 2)
 }
 
 function queryAliases(query: string) {
@@ -600,7 +610,23 @@ export async function forwardGeocodeOnServer(query: string) {
   if (known && Number.isFinite(known.lat) && Number.isFinite(known.lng) && !catalog.some((place) => compactQuery(place.name) === compactQuery(known.name))) {
     catalog.unshift({ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true })
   }
-  const anchorSeed = known && Number.isFinite(known.lat) && Number.isFinite(known.lng) ? known : catalog[0]
+  const addressQuery = looksLikeStreetAddress(q)
+  const addressHits = addressQuery
+    ? (
+        await withDeadline(
+          Promise.all(addressQueryVariants(q).map((alias) => forwardGeocodeNaver(alias))),
+          6000,
+          [] as ForwardPlace[][],
+        )
+      ).flat()
+    : []
+  const addressFallback =
+    addressQuery && addressHits.length === 0 ? await withDeadline(forwardGeocodeNominatim(q), 5000, [] as ForwardPlace[]) : []
+  const anchorSeed =
+    (known && Number.isFinite(known.lat) && Number.isFinite(known.lng) ? known : null) ||
+    addressHits[0] ||
+    addressFallback[0] ||
+    catalog[0]
   const span = 0.03
   const viewbox = anchorSeed
     ? `${anchorSeed.lng - span},${anchorSeed.lat + 0.02},${anchorSeed.lng + span},${anchorSeed.lat - 0.02}`
@@ -616,7 +642,7 @@ export async function forwardGeocodeOnServer(query: string) {
     8000,
     [[], [], [], [], []] as [ForwardPlace[], ForwardPlace[], ForwardPlace[][], ForwardPlace[][], ForwardPlace[][]],
   )
-  const merged = [...catalog, ...localComment, ...localRandom, ...geocodeGroups.flat(), ...nominatimGroups.flat()]
+  const merged = [...addressHits, ...addressFallback, ...catalog, ...localComment, ...localRandom, ...geocodeGroups.flat(), ...nominatimGroups.flat()]
   const geocoded = [...geocodeGroups.flat(), ...nominatimGroups.flat(), ...localComment, ...localRandom]
   const anchor = anchorSeed || geocoded.find((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng)) || publishPlaces(merged, q)[0]
   const fetchedNearby = nearbyGroups.flat()
