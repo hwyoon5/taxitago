@@ -2128,13 +2128,27 @@ function TaxiMatchingSheet({
     if (!rideId || accepting || matchedRef.current) return
     setAccepting(true)
     setMatchError('')
-    lockMatched(ride)
-    void acceptRideOnDevice(rideId)
+    void acceptRideOnDevice(
+      rideId,
+      ride
+        ? {
+            passengerId: ride.passengerId,
+            pickup: ride.pickup,
+            dest: ride.dest,
+            estimatedFare: ride.estimatedFare,
+            kind: ride.kind,
+          }
+        : undefined,
+    )
       .then((next) => {
+        if (next.status !== 'assigned' && next.status !== 'completed') {
+          throw new Error('배차가 완료되지 않았어요. 다시 수락해 주세요.')
+        }
         lockMatched(next)
         onNotice('기사님이 콜을 수락했습니다. 탑승 후 이동을 시작해 주세요.')
       })
       .catch((error) => {
+        matchedRef.current = false
         onNotice(error instanceof Error ? error.message : '콜 수락에 실패했어요. 배차 화면에서 계속 진행할 수 있습니다.')
       })
       .finally(() => setAccepting(false))
@@ -2795,7 +2809,13 @@ function ServiceSheet({
                   }
                   if (!dispatchRide) return
                   setDaeriAccepting(true)
-                  void acceptRideOnDevice(dispatchRide.id)
+                  void acceptRideOnDevice(dispatchRide.id, {
+                    passengerId: dispatchRide.passengerId,
+                    pickup: dispatchRide.pickup,
+                    dest: dispatchRide.dest,
+                    estimatedFare: dispatchRide.estimatedFare,
+                    kind: dispatchRide.kind,
+                  })
                     .then((next) => {
                       setDispatchRide(next)
                       setPhase('assigned')

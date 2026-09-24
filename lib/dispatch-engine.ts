@@ -314,9 +314,36 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   return { ok: true as const, ride }
 }
 
-export function confirmMatchOnDevice(rideId: string) {
+export function confirmMatchOnDevice(
+  rideId: string,
+  snapshot?: {
+    passengerId?: string
+    pickup?: RideRequestRecord['pickup']
+    dest?: RideRequestRecord['dest']
+    estimatedFare?: number
+    kind?: RideRequestRecord['kind']
+  },
+) {
   ensureSeedDrivers()
-  const ride = getRide(rideId)
+  let ride = getRide(rideId)
+  if (!ride && snapshot?.passengerId && snapshot.pickup && snapshot.dest) {
+    const createdAt = nowIso()
+    ride = saveRide({
+      id: rideId,
+      kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
+      passengerId: snapshot.passengerId,
+      pickup: snapshot.pickup,
+      dest: snapshot.dest,
+      estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
+      status: 'searching',
+      assignedDriverId: null,
+      currentOffer: null,
+      declinedDriverIds: [],
+      timedOutDriverIds: [],
+      createdAt,
+      updatedAt: createdAt,
+    })
+  }
   if (!ride) return { ok: false as const, error: 'not_found', ride: null }
   if (ride.status === 'assigned') return { ok: true as const, ride }
   if (ride.status === 'cancelled' || ride.status === 'completed') {

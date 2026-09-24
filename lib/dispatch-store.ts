@@ -141,7 +141,7 @@ export function getRide(id: string) {
 
 export function saveRide(ride: RideRequestRecord) {
   db().rides.set(ride.id, ride)
-  persist()
+  writePersistNow()
   publishRideLive(ride.id)
   return ride
 }

@@ -100,11 +100,14 @@ export async function respondToRideOffer(rideId: string, driverId: string, actio
   return data.ride
 }
 
-export async function acceptRideOnDevice(rideId: string) {
-  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
+export async function acceptRideOnDevice(
+  rideId: string,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind'>,
+) {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'device-accept' }),
+    body: JSON.stringify({ action: 'device-accept', ride }),
   })
   const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
   if (!res.ok || !data.ride) throw new Error(data.error || '콜 수락에 실패했어요.')
