@@ -101,6 +101,7 @@ async function reverseGeocodeNominatim(lat: number, lng: number) {
     const data = (await response.json()) as {
       display_name?: string
       address?: {
+        state?: string
         city?: string
         province?: string
         county?: string
@@ -109,6 +110,7 @@ async function reverseGeocodeNominatim(lat: number, lng: number) {
         town?: string
         village?: string
         road?: string
+        house_number?: string
         neighbourhood?: string
         quarter?: string
         city_district?: string
@@ -116,10 +118,12 @@ async function reverseGeocodeNominatim(lat: number, lng: number) {
     }
     const detail = data.address
     if (detail) {
+      const road = [detail.road, detail.house_number].filter(Boolean).join(' ')
       const parts = [
-        detail.province || detail.city || detail.county,
-        detail.borough || detail.city_district || detail.suburb || detail.town || detail.village,
-        detail.road || detail.neighbourhood || detail.quarter,
+        detail.state || detail.province || detail.city,
+        detail.borough || detail.city_district || detail.county || detail.town,
+        detail.suburb || detail.neighbourhood || detail.quarter || detail.village,
+        road,
       ].filter(Boolean)
       if (parts.length) return parts.join(' ')
     }
@@ -134,10 +138,10 @@ export async function reverseGeocodeOnServer(lat: number, lng: number) {
     return coordLabel(lat, lng)
   }
   const naver = await reverseGeocodeNaverRest(lat, lng)
-  if (naver) return naver
+  if (naver && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(naver)) return naver
   const osm = await reverseGeocodeNominatim(lat, lng)
-  if (osm) return osm
-  return coordLabel(lat, lng)
+  if (osm && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(osm)) return osm
+  return ''
 }
 
 export type ForwardPlace = {

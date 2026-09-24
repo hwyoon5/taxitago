@@ -96,17 +96,21 @@ export async function resolveFlexibleFallback() {
   }
 }
 
+function looksLikeCoordLabel(value: string) {
+  return /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(value.trim())
+}
+
 export async function reverseGeocode(lat: number, lng: number) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
     return failedReverseAddress(lat, lng)
   }
   try {
     const address = (await lookupAddressFromApi(lat, lng)).trim()
-    if (address) return address
+    if (address && !looksLikeCoordLabel(address) && !/주소를 찾을 수 없습니다/.test(address)) return address
   } catch {
     undefined
   }
-  return failedReverseAddress(lat, lng)
+  return ''
 }
 
 export async function geocodeAddress(query: string): Promise<GeoPoint | null> {

@@ -5971,7 +5971,8 @@ export default function HomeScreen() {
     if (readyLabel) return
     const nextAddress = await reverseGeocode(point.lat, point.lng)
     if (seq !== locateSeqRef.current || pickingMapRef.current) return
-    const label = usableMapAddress(nextAddress) || nextAddress
+    const label = usableMapAddress(nextAddress)
+    if (!label) return
     setGps({ status, address: label, lat: point.lat, lng: point.lng })
     applyPickup({ address: label, lat: point.lat, lng: point.lng, source })
   }
