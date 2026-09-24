@@ -253,11 +253,31 @@ export function requestAddressLookup(lat: number, lng: number, onAddress: (addre
 
 export type SearchedPlace = { name: string; address: string; jibun: string; category: string; lat: number; lng: number }
 
+async function fetchSearchJson(search: string, signal?: AbortSignal) {
+  for (const url of geocodeCandidates(search)) {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        redirect: 'follow',
+        signal,
+        headers: jsonHeaders,
+      })
+      const data = await readGeocodeResponse(response)
+      if (data) return data
+    } catch (error) {
+      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error
+    }
+  }
+  return null
+}
+
 export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
   const q = query.trim()
   if (!q) return [] as SearchedPlace[]
   try {
-    const data = (await fetchGeocodeJson(`q=${encodeURIComponent(q)}`, signal)) as {
+    const data = (await fetchSearchJson(`q=${encodeURIComponent(q)}`, signal)) as {
       places?: Array<{ name?: unknown; address?: unknown; jibun?: unknown; category?: unknown; lat?: unknown; lng?: unknown }>
     } | null
     if (!data) return []

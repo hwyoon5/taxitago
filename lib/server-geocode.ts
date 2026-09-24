@@ -1,4 +1,5 @@
 import { naverGatewayHeaderSets, ncpGetJson, resolveNaverRestCredentials, resolveNaverSearchCredentials } from '@/lib/naver-apigw'
+import { lookupSuggestedPlace } from '@/lib/region-destinations'
 
 function cleanAddress(value: unknown) {
   const text = typeof value === 'string' ? value.trim() : ''
@@ -583,7 +584,12 @@ export async function forwardGeocodeOnServer(query: string) {
     Promise.all(aliases.map((alias) => forwardGeocodeNaver(alias))),
     Promise.all(aliases.map((alias) => forwardGeocodeNominatim(alias))),
   ])
-  const merged = [...localComment, ...localRandom, ...geocodeGroups.flat(), ...nominatimGroups.flat()]
+  const known = lookupSuggestedPlace(q)
+  const catalog: ForwardPlace[] =
+    known && Number.isFinite(known.lat) && Number.isFinite(known.lng)
+      ? [{ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true }]
+      : []
+  const merged = [...catalog, ...localComment, ...localRandom, ...geocodeGroups.flat(), ...nominatimGroups.flat()]
   const anchor = publishPlaces(merged, q)[0]
   if (!anchor || looksLikeStreetAddress(q)) return publishPlaces(merged, q)
   const span = 0.03
