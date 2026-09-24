@@ -1676,7 +1676,6 @@ export function TaxiLiveMap({
   routeLabel: string
   statusLabel: string
   kind?: 'taxi' | 'daeri'
-  journeyLabel?: string
   originLat: number
   originLng: number
   destLat?: number
