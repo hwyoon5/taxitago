@@ -4,8 +4,23 @@ import { fetchNaverWithFlexibleHost, isAllowedNaverAssetHost, rewriteNaverSdkUrl
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function upstreamTarget(request: Request) {
+  const headerUrl = request.headers.get('x-naver-asset-url') || ''
+  if (headerUrl) return headerUrl
+  const current = new URL(request.url)
+  const queryUrl = current.searchParams.get('u') || ''
+  if (queryUrl) return queryUrl
+  const marker = '/api/naver-maps/upstream/'
+  const index = current.pathname.indexOf(marker)
+  if (index < 0) return ''
+  const rest = current.pathname.slice(index + marker.length).replace(/\/+$/, '')
+  if (!rest || rest.includes('..')) return ''
+  const slash = /\/(?:v3\/auth|v1\/validatev3)$/.test(`/${rest}`) ? `${rest}/` : rest
+  return `https://${slash}${current.search}`
+}
+
 export async function GET(request: Request) {
-  const target = new URL(request.url).searchParams.get('u') || ''
+  const target = upstreamTarget(request)
   let parsed: URL
   try {
     parsed = new URL(target)

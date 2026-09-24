@@ -97,6 +97,7 @@ export function isAllowedNaverAssetHost(hostname: string) {
   const host = (hostname || '').toLowerCase()
   if (!host) return false
   if (host === 'oapi.map.naver.com' || host === 'openapi.map.naver.com') return true
+  if (host === 'nrb.map.naver.net' || host === 'nrbe.map.naver.net') return true
   if (host.endsWith('.pstatic.net')) return true
   return false
 }

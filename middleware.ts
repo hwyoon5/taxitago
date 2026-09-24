@@ -10,12 +10,17 @@ export function middleware(request: NextRequest) {
   }
   const prefix = '/api/naver-maps/upstream/'
   if (pathname.startsWith(prefix)) {
-    const rest = pathname.slice(prefix.length).replace(/\/+$/, '')
-    if (rest && !rest.includes('..')) {
+    const rest = pathname.slice(prefix.length)
+    const path = rest.replace(/\/+$/, '')
+    if (path && !path.includes('..')) {
+      const slash = /\/(?:v3\/auth|v1\/validatev3)\/?$/.test(`/${path}`) ? `${path}/` : path
+      const target = `https://${slash}${request.nextUrl.search}`
       const url = request.nextUrl.clone()
       url.pathname = '/api/naver-maps/asset/'
-      url.search = `?u=${encodeURIComponent(`https://${rest}${request.nextUrl.search}`)}`
-      return NextResponse.rewrite(url)
+      url.search = `?u=${encodeURIComponent(target)}`
+      const headers = new Headers(request.headers)
+      headers.set('x-naver-asset-url', target)
+      return NextResponse.rewrite(url, { request: { headers } })
     }
   }
   return NextResponse.next()

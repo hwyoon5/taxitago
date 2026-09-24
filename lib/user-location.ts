@@ -51,11 +51,23 @@ export function requestBrowserPosition(): Promise<GeoPoint | null> {
       )
     })
 
-  return (async () => {
-    const accurate = await read({ enableHighAccuracy: true, timeout: 12000, maximumAge: 0 })
-    if (accurate) return accurate
-    return read({ enableHighAccuracy: false, timeout: 8000, maximumAge: 120_000 })
-  })()
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (point: GeoPoint | null) => {
+      if (settled) return
+      settled = true
+      resolve(point)
+    }
+    const coarse = read({ enableHighAccuracy: false, timeout: 4000, maximumAge: 300_000 })
+    const accurate = read({ enableHighAccuracy: true, timeout: 10000, maximumAge: 60_000 })
+    void coarse.then((point) => {
+      if (point) finish(point)
+    })
+    void accurate.then((point) => {
+      if (point) finish(point)
+    })
+    void Promise.all([coarse, accurate]).then(([cached, precise]) => finish(precise || cached))
+  })
 }
 
 export async function lookupAccessRegion(): Promise<{ lat: number; lng: number; city?: string; region?: string; country?: string } | null> {
@@ -100,10 +112,23 @@ function looksLikeCoordLabel(value: string) {
   return /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(value.trim())
 }
 
+function koreanAreaFallback(lat: number, lng: number) {
+  const region = resolveRegion('', lat, lng)
+  return REGION_FALLBACK_LABEL[region] || '부산광역시'
+}
+
+function usableReverseLabel(value: string) {
+  const label = value.trim()
+  if (!label || looksLikeCoordLabel(label)) return ''
+  if (/확인하는 중|수신하는 중|불러오는 중|갱신하는 중|주소를 찾을 수 없습니다/.test(label)) return ''
+  return label
+}
+
 export async function reverseGeocode(lat: number, lng: number) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-    return '주소를 찾을 수 없습니다'
+    return '부산광역시'
   }
+  const fallback = koreanAreaFallback(lat, lng)
   try {
     const address = await Promise.race([
       lookupAddressFromApi(lat, lng),
@@ -111,12 +136,12 @@ export async function reverseGeocode(lat: number, lng: number) {
         setTimeout(() => resolve(''), 6500)
       }),
     ])
-    const label = (address || '').trim()
-    if (label && !looksLikeCoordLabel(label) && !/확인하는 중|수신하는 중|불러오는 중|갱신하는 중/.test(label)) return label
+    const label = usableReverseLabel(address || '')
+    if (label) return label
   } catch {
     undefined
   }
-  return '주소를 찾을 수 없습니다'
+  return fallback
 }
 
 export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
