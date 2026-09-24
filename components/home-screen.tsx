@@ -2107,21 +2107,22 @@ function TaxiMatchingSheet({
 
   const confirmInTripCancel = async () => {
     if (cancelSettling) return
-    if (balance < cancelSettlement.cancelFee) {
-      setCancelConfirmOpen(false)
-      onNeedCharge()
+    const rideId = ride?.id || rideIdRef.current
+    if (!rideId) {
+      onClose()
       return
     }
     setCancelSettling(true)
     try {
-      const paid = await onPay(cancelSettlement.cancelFee, route, '택시 취소 수수료', cancelSettlement.cancelFee)
-      if (!paid) return
-      if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
+      await cancelRideRequest(rideId, passengerIdRef.current, { settleFee: true })
       taxiSheetRideId = ''
+      setCancelConfirmOpen(false)
       onNotice(
         `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
       )
       onClose()
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : '취소 정산을 마치지 못했어요. 다시 시도해 주세요.')
     } finally {
       setCancelSettling(false)
     }
@@ -2707,19 +2708,22 @@ function ServiceSheet({
   }
   const confirmInTripCancel = async () => {
     if (cancelSettling) return
-    if (balance < cancelSettlement.cancelFee) {
-      setCancelConfirmOpen(false)
-      onNeedCharge()
+    const rideId = dispatchRide?.id || daeriRideIdRef.current
+    if (!rideId) {
+      onClose()
       return
     }
     setCancelSettling(true)
     try {
-      const paid = await onPay(cancelSettlement.cancelFee, place, `${service} 취소 수수료`, cancelSettlement.cancelFee)
-      if (!paid) return
+      await cancelRideRequest(rideId, daeriPassengerIdRef.current || localPassengerId(), { settleFee: true })
+      daeriSheetRideId = ''
+      setCancelConfirmOpen(false)
       onNotice(
         `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
       )
       onClose()
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : '취소 정산을 마치지 못했어요. 다시 시도해 주세요.')
     } finally {
       setCancelSettling(false)
     }

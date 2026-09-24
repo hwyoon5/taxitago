@@ -1,4 +1,5 @@
 import { getDriver, getRide, listRides, nowIso, saveDriver } from '@/lib/dispatch-store'
+import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { getPartnerLink } from '@/lib/partner-ledger-server'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { createA2UPayment } from '@/lib/pi-platform'
@@ -159,6 +160,74 @@ export async function releaseEscrow(rideId: string, driverId: string) {
   })
   if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
   return { ok: true as const, escrow, receipt }
+}
+
+/** Passenger in-trip cancel: pay the cancellation fee to the assigned driver and waive the rest. No driver action. */
+export async function settlePassengerCancelFee(rideId: string) {
+  const ride = getRide(rideId)
+  if (!ride) return { ok: false as const, error: 'not_found' }
+  const driverId = ride.assignedDriverId
+  if (!driverId || ride.status !== 'assigned') return { ok: false as const, error: 'not_assigned' }
+  const settlement = settleMidTripCancelFee(ride.estimatedFare)
+  const target = driverPayoutTarget(driverId)
+  let payoutTxid = `cancel-fee-${rideId.slice(0, 10)}`
+  if (settlement.cancelFee > 0 && !isPiSandboxEnv() && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
+    try {
+      const payment = await createA2UPayment({
+        amount: settlement.cancelFee,
+        memo: '취소 수수료',
+        uid: target.uid,
+        metadata: { kind: 'cancel-fee', rideId },
+      })
+      payoutTxid = payment.transaction?.txid || payment.identifier || payoutTxid
+    } catch (error) {
+      if (!isPiSandboxEnv()) throw error
+    }
+  }
+  const escrow = getEscrowByRide(rideId)
+  const settledAt = nowIso()
+  if (escrow && escrow.status !== 'released') {
+    escrow.payoutWallet = target.wallet
+    escrow.payoutUid = target.uid
+    escrow.payoutTxid = payoutTxid
+    if (settlement.cancelFee > 0) {
+      escrow.status = 'released'
+      escrow.releasedAt = settledAt
+    } else {
+      escrow.status = 'refunded'
+      escrow.refundedAt = settledAt
+    }
+    stamp(escrow)
+  }
+  const driver = getDriver(driverId)
+  saveReceipt({
+    rideId,
+    passengerId: ride.passengerId,
+    driverId,
+    driverName: target.name,
+    route: routeLabel(ride),
+    origin: ride.pickup.address || ride.pickup.label || '출발지',
+    dest: ride.dest.label || ride.dest.address || '목적지',
+    amount: settlement.cancelFee,
+    estimatedFare: ride.estimatedFare,
+    lockTxid: escrow?.lockTxid || '',
+    payoutTxid,
+    payoutWallet: target.wallet,
+    vehicle: driver?.vehicle || '택시',
+    plate: driver?.plate || '',
+    settledAt,
+  })
+  addEarning({
+    id: crypto.randomUUID(),
+    driverId,
+    rideId,
+    amount: settlement.cancelFee,
+    route: routeLabel(ride),
+    status: 'cancelled',
+    at: settledAt,
+  })
+  if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: settledAt })
+  return { ok: true as const, settlement, payoutTxid }
 }
 
 export function refundEscrow(rideId: string) {
