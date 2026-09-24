@@ -6,6 +6,10 @@ function cleanAddress(value: unknown) {
   return text && !/^(undefined|null)$/i.test(text) ? text : ''
 }
 
+function isSidoOnly(value: string) {
+  return /^(서울특별시|부산광역시|대구광역시|인천광역시|광주광역시|대전광역시|울산광역시|세종특별자치시|경기도|강원특별자치도|강원도|충청북도|충청남도|전북특별자치도|전라북도|전라남도|경상북도|경상남도|제주특별자치도)$/.test(value.trim())
+}
+
 function parseNaverReverseAddress(payload: unknown) {
   if (!payload || typeof payload !== 'object') return ''
   const root = payload as {
@@ -16,13 +20,13 @@ function parseNaverReverseAddress(payload: unknown) {
       results?: Array<{
         name?: string
         region?: { area1?: { name?: string }; area2?: { name?: string }; area3?: { name?: string }; area4?: { name?: string } }
-        land?: { name?: string; number1?: string; addition0?: { value?: string } }
+        land?: { name?: string; number1?: string; number2?: string; addition0?: { value?: string } }
       }>
     }
     results?: Array<{
       name?: string
       region?: { area1?: { name?: string }; area2?: { name?: string }; area3?: { name?: string }; area4?: { name?: string } }
-      land?: { name?: string; number1?: string; addition0?: { value?: string } }
+      land?: { name?: string; number1?: string; number2?: string; addition0?: { value?: string } }
     }>
   }
   const v2 = root.v2 || root
@@ -37,21 +41,26 @@ function parseNaverReverseAddress(payload: unknown) {
   const itemAddress = cleanAddress(item?.roadAddress) || cleanAddress(item?.jibunAddress) || cleanAddress(item?.address)
   if (itemAddress) return itemAddress
   const rows = Array.isArray(v2.results) ? v2.results : Array.isArray(root.results) ? root.results : []
-  const result = rows.find((row) => row?.name === 'roadaddr') || rows.find((row) => row?.name === 'addr') || rows[0]
-  if (!result) return ''
-  return [
-    result.region?.area1?.name,
-    result.region?.area2?.name,
-    result.region?.area3?.name,
-    result.region?.area4?.name,
-    result.land?.name,
-    result.land?.number1,
-    result.land?.addition0?.value,
-  ]
+  const formatted = rows
+    .map((result) =>
+      [
+        result.region?.area1?.name,
+        result.region?.area2?.name,
+        result.region?.area3?.name,
+        result.region?.area4?.name,
+        result.land?.name,
+        result.land?.number1,
+        result.land?.number2,
+        result.land?.addition0?.value,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
     .filter(Boolean)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const detailed = formatted.find((label) => !isSidoOnly(label))
+  return detailed || formatted.sort((a, b) => b.length - a.length)[0] || ''
 }
 
 async function ncpJson(url: string) {
@@ -148,9 +157,13 @@ async function reverseGeocodeNominatim(lat: number, lng: number) {
         detail.suburb || detail.neighbourhood || detail.quarter || detail.village,
         road,
       ].filter(Boolean)
-      if (parts.length) return parts.join(' ')
+      if (parts.length > 1 || (parts[0] && !isSidoOnly(parts[0]))) return parts.join(' ')
     }
-    return data.display_name?.split(',').slice(0, 3).join(' ').replace(/\s+/g, ' ').trim() || ''
+    const display = (data.display_name || '')
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part && part !== '대한민국' && part !== '한국')
+    return display.join(' ').replace(/\s+/g, ' ').trim()
   } catch {
     return ''
   }
@@ -161,10 +174,11 @@ export async function reverseGeocodeOnServer(lat: number, lng: number) {
     return ''
   }
   const naver = await withDeadline(reverseGeocodeNaverRest(lat, lng), 2800, '')
+  if (naver && !isSidoOnly(naver) && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(naver)) return naver
+  const osm = await withDeadline(reverseGeocodeNominatim(lat, lng), 3500, '')
+  if (osm && !isSidoOnly(osm) && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(osm)) return osm
   if (naver && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(naver)) return naver
-  const osm = await withDeadline(reverseGeocodeNominatim(lat, lng), 2200, '')
-  if (osm && !/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(osm)) return osm
-  return ''
+  return osm || ''
 }
 
 export type ForwardPlace = {
@@ -578,23 +592,31 @@ export async function forwardGeocodeOnServer(query: string) {
   const q = query.trim()
   if (!q) return [] as ReturnType<typeof publishPlaces>
   const aliases = queryAliases(q)
-  const [localComment, localRandom, geocodeGroups, nominatimGroups] = await Promise.all([
-    forwardNaverLocalSearch(q, 'comment'),
-    forwardNaverLocalSearch(q, 'random'),
-    Promise.all(aliases.map((alias) => forwardGeocodeNaver(alias))),
-    Promise.all(aliases.map((alias) => forwardGeocodeNominatim(alias))),
-  ])
   const known = lookupSuggestedPlace(q)
   const catalog: ForwardPlace[] =
     known && Number.isFinite(known.lat) && Number.isFinite(known.lng)
       ? [{ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true }]
       : []
+  const [localComment, localRandom, geocodeGroups, nominatimGroups] = await withDeadline(
+    Promise.all([
+      forwardNaverLocalSearch(q, 'comment'),
+      forwardNaverLocalSearch(q, 'random'),
+      Promise.all(aliases.map((alias) => forwardGeocodeNaver(alias))),
+      Promise.all(aliases.map((alias) => forwardGeocodeNominatim(alias))),
+    ]),
+    7000,
+    [[], [], [], []] as [ForwardPlace[], ForwardPlace[], ForwardPlace[][], ForwardPlace[][]],
+  )
   const merged = [...catalog, ...localComment, ...localRandom, ...geocodeGroups.flat(), ...nominatimGroups.flat()]
   const anchor = publishPlaces(merged, q)[0]
   if (!anchor || looksLikeStreetAddress(q)) return publishPlaces(merged, q)
   const span = 0.03
   const viewbox = `${anchor.lng - span},${anchor.lat + 0.02},${anchor.lng + span},${anchor.lat - 0.02}`
-  const nearbyGroups = await Promise.all(NEARBY_FACILITIES.map((facility) => forwardNominatimBounded(facility, viewbox)))
+  const nearbyGroups = await withDeadline(
+    Promise.all(NEARBY_FACILITIES.map((facility) => forwardNominatimBounded(facility, viewbox))),
+    2500,
+    [] as ForwardPlace[][],
+  )
   const nearby = nearbyGroups
     .flat()
     .filter((place) => distanceMeters(anchor, place) <= 2500)

@@ -112,28 +112,27 @@ function looksLikeCoordLabel(value: string) {
   return /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(value.trim())
 }
 
-function koreanAreaFallback(lat: number, lng: number) {
-  const region = resolveRegion('', lat, lng)
-  return REGION_FALLBACK_LABEL[region] || '부산광역시'
+function isRegionNameOnly(value: string) {
+  const label = value.trim()
+  return Object.values(REGION_FALLBACK_LABEL).includes(label)
 }
 
 function usableReverseLabel(value: string) {
   const label = value.trim()
-  if (!label || looksLikeCoordLabel(label)) return ''
+  if (!label || looksLikeCoordLabel(label) || isRegionNameOnly(label)) return ''
   if (/확인하는 중|수신하는 중|불러오는 중|갱신하는 중|주소를 찾을 수 없습니다/.test(label)) return ''
   return label
 }
 
 export async function reverseGeocode(lat: number, lng: number) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-    return '부산광역시'
+    return ''
   }
-  const fallback = koreanAreaFallback(lat, lng)
   try {
     const address = await Promise.race([
       lookupAddressFromApi(lat, lng),
       new Promise<string>((resolve) => {
-        setTimeout(() => resolve(''), 6500)
+        setTimeout(() => resolve(''), 12000)
       }),
     ])
     const label = usableReverseLabel(address || '')
@@ -141,7 +140,7 @@ export async function reverseGeocode(lat: number, lng: number) {
   } catch {
     undefined
   }
-  return fallback
+  return ''
 }
 
 export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
