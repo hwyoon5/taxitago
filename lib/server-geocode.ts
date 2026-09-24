@@ -475,7 +475,7 @@ function osmCategory(address: OsmAddress | undefined, name: string) {
 async function forwardNominatimBounded(query: string, viewbox: string): Promise<ForwardPlace[]> {
   try {
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=kr&accept-language=ko&bounded=1&viewbox=${viewbox}&q=${encodeURIComponent(query)}`,
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=kr&accept-language=ko&bounded=1&viewbox=${viewbox}&q=${encodeURIComponent(query)}`,
       {
         headers: { Accept: 'application/json', 'User-Agent': 'TaxiTago/1.0 (geocode)' },
         cache: 'no-store',
@@ -483,12 +483,12 @@ async function forwardNominatimBounded(query: string, viewbox: string): Promise<
       },
     )
     if (!response.ok) return []
-    const data = (await response.json()) as Array<{ lat?: string; lon?: string; name?: string; address?: OsmAddress }>
+    const data = (await response.json()) as Array<{ lat?: string; lon?: string; name?: string; display_name?: string; address?: OsmAddress }>
     return data
       .map((item): ForwardPlace | null => {
         const lat = Number(item.lat)
         const lng = Number(item.lon)
-        const address = osmKoreanAddress(item.address)
+        const address = osmKoreanAddress(item.address) || cleanAddress(item.display_name)
         if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
         const named = osmPlaceName(item, query)
         return { name: named.name, address, category: osmCategory(item.address, named.name) || query, lat, lng, trustName: true }
@@ -599,29 +599,32 @@ export async function forwardGeocodeOnServer(query: string) {
   if (known && Number.isFinite(known.lat) && Number.isFinite(known.lng) && !catalog.some((place) => compactQuery(place.name) === compactQuery(known.name))) {
     catalog.unshift({ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true })
   }
-  const [localComment, localRandom, geocodeGroups, nominatimGroups] = await withDeadline(
+  const anchorSeed = known && Number.isFinite(known.lat) && Number.isFinite(known.lng) ? known : catalog[0]
+  const span = 0.03
+  const viewbox = anchorSeed
+    ? `${anchorSeed.lng - span},${anchorSeed.lat + 0.02},${anchorSeed.lng + span},${anchorSeed.lat - 0.02}`
+    : ''
+  const [localComment, localRandom, geocodeGroups, nominatimGroups, nearbyGroups] = await withDeadline(
     Promise.all([
       forwardNaverLocalSearch(q, 'comment'),
       forwardNaverLocalSearch(q, 'random'),
       Promise.all(aliases.map((alias) => forwardGeocodeNaver(alias))),
       Promise.all(aliases.map((alias) => forwardGeocodeNominatim(alias))),
+      viewbox ? Promise.all(NEARBY_FACILITIES.map((facility) => forwardNominatimBounded(facility, viewbox))) : Promise.resolve([] as ForwardPlace[][]),
     ]),
-    7000,
-    [[], [], [], []] as [ForwardPlace[], ForwardPlace[], ForwardPlace[][], ForwardPlace[][]],
+    8000,
+    [[], [], [], [], []] as [ForwardPlace[], ForwardPlace[], ForwardPlace[][], ForwardPlace[][], ForwardPlace[][]],
   )
   const merged = [...catalog, ...localComment, ...localRandom, ...geocodeGroups.flat(), ...nominatimGroups.flat()]
-  const anchor = publishPlaces(merged, q)[0]
-  if (!anchor || looksLikeStreetAddress(q)) return publishPlaces(merged, q)
-  const span = 0.03
-  const viewbox = `${anchor.lng - span},${anchor.lat + 0.02},${anchor.lng + span},${anchor.lat - 0.02}`
-  const nearbyGroups = await withDeadline(
-    Promise.all(NEARBY_FACILITIES.map((facility) => forwardNominatimBounded(facility, viewbox))),
-    2500,
-    [] as ForwardPlace[][],
-  )
-  const nearby = nearbyGroups
-    .flat()
-    .filter((place) => distanceMeters(anchor, place) <= 2500)
-    .map((place) => ({ ...place, category: place.category || inferCategory(place.name), trustName: true }))
-  return publishPlaces([...merged, ...nearby], q)
+  const anchor = anchorSeed || publishPlaces(merged, q)[0]
+  const nearby = anchor
+    ? nearbyGroups
+        .flat()
+        .filter((place) => distanceMeters(anchor, place) <= 4000)
+        .map((place) => ({ ...place, category: place.category || inferCategory(place.name), trustName: true }))
+    : []
+  const around = anchor
+    ? catalog.filter((place) => distanceMeters(anchor, place) <= 20000)
+    : catalog
+  return publishPlaces([...merged, ...around, ...nearby], q)
 }
