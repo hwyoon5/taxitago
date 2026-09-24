@@ -9,7 +9,11 @@ export function createSettleDebounce(onSettle: () => void, waitMs = SETTLE_MS) {
     window.clearTimeout(timer)
     timer = window.setTimeout(() => {
       timer = 0
-      onSettle()
+      try {
+        onSettle()
+      } catch (error) {
+        console.error('[map] settle handler failed', error)
+      }
     }, waitMs)
   }
   const stop = () => {
@@ -27,8 +31,12 @@ export function watchMapSettle(
   waitMs = SETTLE_MS,
 ): () => void {
   const debounce = createSettleDebounce(() => {
-    const center = readMapGetCenter(map)
-    if (center) onSettle(center)
+    try {
+      const center = readMapGetCenter(map)
+      if (center) onSettle(center)
+    } catch (error) {
+      console.error('[map] settle handler failed', error)
+    }
   }, waitMs)
 
   let armed = false
@@ -38,16 +46,28 @@ export function watchMapSettle(
     return target instanceof Node && root.contains(target)
   }
   const arm = (event: Event) => {
-    if (isInsideMap(event)) armed = true
+    try {
+      if (isInsideMap(event)) armed = true
+    } catch (error) {
+      console.error('[map] pointer arm failed', error)
+    }
   }
   const onPointerEnd = () => {
-    if (!armed) return
-    armed = false
-    debounce.kick()
+    try {
+      if (!armed) return
+      armed = false
+      debounce.kick()
+    } catch (error) {
+      console.error('[map] pointer end failed', error)
+    }
   }
 
   const idleListener = sdk.Event?.addListener?.(map, 'idle', () => {
-    debounce.kick()
+    try {
+      debounce.kick()
+    } catch (error) {
+      console.error('[map] idle handler failed', error)
+    }
   })
 
   const startEvents = ['mousedown', 'touchstart', 'pointerdown'] as const

@@ -21,15 +21,17 @@ export function createLiveAddressLookup(
     const liveLat = Number(lat)
     const liveLng = Number(lng)
     lastFire = Date.now()
-    void lookupAddressFromApi(liveLat, liveLng)
-      .then((label) => {
-        if (id !== requestId) return
-        apply(liveLat, liveLng, label.trim() || fallbackCoordAddress(liveLat, liveLng))
-      })
-      .catch(() => {
-        if (id !== requestId) return
-        apply(liveLat, liveLng, fallbackCoordAddress(liveLat, liveLng))
-      })
+    runApartFromCaller(() => {
+      void lookupAddressFromApi(liveLat, liveLng)
+        .then((label) => {
+          if (id !== requestId) return
+          apply(liveLat, liveLng, label.trim() || fallbackCoordAddress(liveLat, liveLng))
+        })
+        .catch(() => {
+          if (id !== requestId) return
+          apply(liveLat, liveLng, fallbackCoordAddress(liveLat, liveLng))
+        })
+    })
   }
   return {
     run(lat: number, lng: number) {
@@ -58,6 +60,71 @@ export function createLiveAddressLookup(
 
 const jsonHeaders = { Accept: 'application/json' } as const
 
+const ADDRESS_LOOKUP_TIMEOUT_MS = 8000
+
+function pageOrigin() {
+  if (typeof window === 'undefined') return ''
+  const origin = window.location.origin
+  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return origin
+  return origin.replace(/^http:/i, 'https:')
+}
+
+function geocodeCandidates(search: string) {
+  const query = search.startsWith('?') ? search : `?${search}`
+  const paths = [`/api/geocode/${query}`, `/api/geocode${query}`]
+  const origin = pageOrigin()
+  if (!origin) return paths
+  return paths.map((path) => new URL(path, origin).href)
+}
+
+function httpsLocation(current: string, location: string) {
+  try {
+    const next = new URL(location, current)
+    if (next.protocol === 'http:' && !/^(localhost|127\.0\.0\.1)$/i.test(next.hostname)) next.protocol = 'https:'
+    if (next.protocol !== 'https:' && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(next.origin)) return ''
+    return next.href
+  } catch {
+    return ''
+  }
+}
+
+async function readGeocodeResponse(response: Response) {
+  if (!response.ok) return null
+  const type = response.headers.get('content-type') || ''
+  if (!type.includes('json')) return null
+  return (await response.json()) as unknown
+}
+
+async function fetchGeocodeJson(search: string, signal?: AbortSignal) {
+  const seen = new Set<string>()
+  const queue = geocodeCandidates(search)
+  while (queue.length) {
+    const url = queue.shift()
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        redirect: 'manual',
+        signal,
+        headers: jsonHeaders,
+      })
+      if (response.status >= 300 && response.status < 400) {
+        const next = httpsLocation(url, response.headers.get('location') || '')
+        if (next) queue.push(next)
+        continue
+      }
+      const data = await readGeocodeResponse(response)
+      if (data) return data
+    } catch (error) {
+      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error
+    }
+  }
+  return null
+}
+
 export async function lookupAddressFromApi(lat: number, lng: number, signal?: AbortSignal) {
   const liveLat = Number(lat)
   const liveLng = Number(lng)
@@ -65,19 +132,55 @@ export async function lookupAddressFromApi(lat: number, lng: number, signal?: Ab
   if (!Number.isFinite(liveLat) || !Number.isFinite(liveLng) || Math.abs(liveLat) > 90 || Math.abs(liveLng) > 180) {
     return fallback
   }
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(), ADDRESS_LOOKUP_TIMEOUT_MS)
+  const onCallerAbort = () => timeout.abort()
+  signal?.addEventListener('abort', onCallerAbort, { once: true })
   try {
-    const response = await fetch(
-      `/api/geocode/?lat=${encodeURIComponent(String(liveLat))}&lng=${encodeURIComponent(String(liveLng))}`,
-      { method: 'GET', cache: 'no-store', credentials: 'same-origin', signal, headers: jsonHeaders },
-    )
-    if (!response.ok) return fallback
-    const data = (await response.json()) as { address?: unknown }
-    const label = typeof data.address === 'string' ? data.address.trim() : ''
+    const data = (await fetchGeocodeJson(`lat=${encodeURIComponent(String(liveLat))}&lng=${encodeURIComponent(String(liveLng))}`, timeout.signal)) as {
+      address?: unknown
+    } | null
+    const label = typeof data?.address === 'string' ? data.address.trim() : ''
     return label || fallback
   } catch (error) {
-    if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error
+    if (signal?.aborted) throw error
     return fallback
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onCallerAbort)
   }
+}
+
+function runApartFromCaller(task: () => void) {
+  const safe = () => {
+    try {
+      task()
+    } catch (error) {
+      console.error('[geocode] lookup start failed', error)
+    }
+  }
+  try {
+    if (typeof queueMicrotask === 'function') queueMicrotask(safe)
+    else setTimeout(safe, 0)
+  } catch (error) {
+    console.error('[geocode] lookup schedule failed', error)
+    safe()
+  }
+}
+
+export function requestAddressLookup(lat: number, lng: number, onAddress: (address: string) => void) {
+  const liveLat = Number(lat)
+  const liveLng = Number(lng)
+  const deliver = (address: string) => {
+    try {
+      onAddress((address || '').trim() || fallbackCoordAddress(liveLat, liveLng))
+    } catch (error) {
+      console.error('[geocode] address apply failed', error)
+    }
+  }
+  runApartFromCaller(() => {
+    void lookupAddressFromApi(liveLat, liveLng).then(deliver).catch(() => deliver(fallbackCoordAddress(liveLat, liveLng)))
+  })
 }
 
 export type SearchedPlace = { name: string; address: string; lat: number; lng: number }
@@ -86,17 +189,10 @@ export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
   const q = query.trim()
   if (!q) return [] as SearchedPlace[]
   try {
-    const response = await fetch(`/api/geocode/?q=${encodeURIComponent(q)}`, {
-      method: 'GET',
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal,
-      headers: jsonHeaders,
-    })
-    if (!response.ok) return []
-    const data = (await response.json()) as {
+    const data = (await fetchGeocodeJson(`q=${encodeURIComponent(q)}`, signal)) as {
       places?: Array<{ name?: unknown; address?: unknown; lat?: unknown; lng?: unknown }>
-    }
+    } | null
+    if (!data) return []
     return (data.places || [])
       .map((item) => {
         const name = typeof item.name === 'string' ? item.name.trim() : q

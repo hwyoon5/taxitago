@@ -22,7 +22,7 @@ import {
 } from '@/lib/naver-maps'
 
 import { resolveLiveRidePoints, isUsableCoord } from '@/lib/ride-session'
-import { ADDRESS_LOADING, createLiveAddressLookup, fetchDrivingPath, lookupAddressFromApi } from '@/lib/geocode-client'
+import { ADDRESS_LOADING, createLiveAddressLookup, fetchDrivingPath, requestAddressLookup } from '@/lib/geocode-client'
 import { watchMapSettle, createSettleDebounce } from '@/lib/watch-map-settle'
 
 const TILE_SIZE = 256
@@ -445,7 +445,7 @@ function polylineDom(line: NaverPolyline | null): Element | null {
 }
 
 function mapOverlayRoots(map: NaverMapInstance | null, canvas?: HTMLElement | null): Array<ParentNode | null> {
-  const roots: Array<ParentNode | null> = [canvas, canvas?.parentElement ?? null]
+  const roots: Array<ParentNode | null> = [canvas ?? null, canvas?.parentElement ?? null]
   try {
     const panes = (map as { getPanes?: () => Record<string, HTMLElement | undefined> }).getPanes?.()
     if (panes) {
@@ -777,9 +777,17 @@ function FallbackSlippyMap({
   const settleRef = useRef(
     createSettleDebounce(() => {
       const next = viewRef.current
-      centerChangeRef.current?.(next.lat, next.lng, false)
-      centerIdleRef.current?.(next.lat, next.lng)
-      liveAddressRef.current.run(next.lat, next.lng)
+      try {
+        centerChangeRef.current?.(next.lat, next.lng, false)
+        centerIdleRef.current?.(next.lat, next.lng)
+      } catch (error) {
+        console.error('[map] settle handler failed', error)
+      }
+      try {
+        liveAddressRef.current.run(next.lat, next.lng)
+      } catch (error) {
+        console.error('[geocode] lookup start failed', error)
+      }
     }),
   )
   centerChangeRef.current = onCenterChange
@@ -1075,13 +1083,21 @@ function NaverLocationMap(props: MapViewProps) {
         }
         if (addressChangeRef.current) {
           stopWatch = watchMapSettle(map, maps, hostRef.current || canvasNode, (point) => {
-            if (!isLive()) return
-            const requestId = ++lookupIdRef.current
-            addressChangeRef.current?.({ lat: point.lat, lng: point.lng, address: ADDRESS_LOADING })
-            void lookupAddressFromApi(point.lat, point.lng).then((nextAddress) => {
-              if (!isLive() || requestId !== lookupIdRef.current) return
-              addressChangeRef.current?.({ lat: point.lat, lng: point.lng, address: nextAddress })
-            })
+            try {
+              if (!isLive()) return
+              const requestId = ++lookupIdRef.current
+              addressChangeRef.current?.({ lat: point.lat, lng: point.lng, address: ADDRESS_LOADING })
+              requestAddressLookup(point.lat, point.lng, (nextAddress) => {
+                if (!isLive() || requestId !== lookupIdRef.current) return
+                addressChangeRef.current?.({ lat: point.lat, lng: point.lng, address: nextAddress })
+              })
+            } catch (error) {
+              console.error('[map] reverse geocode failed to start', error)
+              requestAddressLookup(point.lat, point.lng, (nextAddress) => {
+                if (!isLive()) return
+                addressChangeRef.current?.({ lat: point.lat, lng: point.lng, address: nextAddress })
+              })
+            }
           })
         }
         if (interactive && !followCenterRef.current && (pickRef.current || activateRef.current)) {

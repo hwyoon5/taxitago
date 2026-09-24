@@ -1,7 +1,7 @@
 {
   "framework": "nextjs",
   "buildCommand": "next build",
-  "trailingSlash": false,
+  "trailingSlash": true,
   "headers": [
     {
       "source": "/validation-key.txt",
@@ -28,6 +28,10 @@
     {
       "source": "/validation-key.txt/",
       "destination": "/validation-key.txt"
+    },
+    {
+      "source": "/api/geocode",
+      "destination": "/api/geocode/"
     }
   ]
 }

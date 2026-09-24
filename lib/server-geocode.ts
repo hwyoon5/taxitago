@@ -13,9 +13,9 @@ function parseNaverReverseAddress(payload: unknown) {
   if (!payload || typeof payload !== 'object') return ''
   const root = payload as {
     address?: { roadAddress?: string; jibunAddress?: string; address?: string; roadaddr?: string; jibunaddr?: string }
-    result?: { items?: Array<{ address?: string; roadAddress?: string; jibunAddress?: string }>; address?: { roadAddress?: string; jibunAddress?: string } }
+    result?: { items?: Array<{ address?: string; roadAddress?: string; jibunAddress?: string }>; address?: { roadAddress?: string; jibunAddress?: string; address?: string; roadaddr?: string; jibunaddr?: string } }
     v2?: {
-      address?: { roadAddress?: string; jibunAddress?: string; jibunaddr?: string; roadaddr?: string }
+      address?: { roadAddress?: string; jibunAddress?: string; address?: string; jibunaddr?: string; roadaddr?: string }
       results?: Array<{
         name?: string
         region?: { area1?: { name?: string }; area2?: { name?: string }; area3?: { name?: string }; area4?: { name?: string } }
@@ -29,7 +29,9 @@ function parseNaverReverseAddress(payload: unknown) {
     }>
   }
   const v2 = root.v2 || root
-  const address = v2.address || root.address || root.result?.address
+  const address = (v2.address || root.address || root.result?.address) as
+    | { roadAddress?: string; jibunAddress?: string; address?: string; roadaddr?: string; jibunaddr?: string }
+    | undefined
   const road = cleanAddress(address?.roadAddress) || cleanAddress(address?.roadaddr)
   const jibun = cleanAddress(address?.jibunAddress) || cleanAddress(address?.jibunaddr) || cleanAddress(address?.address)
   if (road) return road
@@ -166,7 +168,7 @@ function parseNaverGeocodePlaces(payload: unknown, query: string): ForwardPlace[
   const root = payload as { addresses?: NaverAddressRow[]; v2?: { addresses?: NaverAddressRow[] } }
   const rows = root.v2?.addresses || root.addresses || []
   return rows
-    .map((item) => {
+    .map((item): ForwardPlace | null => {
       const address = cleanAddress(item.roadAddress) || cleanAddress(item.jibunAddress)
       const point = wgs84Point(item.y, item.x)
       if (!address || !point) return null
@@ -189,7 +191,7 @@ function parseNaverPlaceSearch(payload: unknown, query: string): ForwardPlace[] 
     | undefined
   if (!rows) return []
   return rows
-    .map((item) => {
+    .map((item): ForwardPlace | null => {
       const name = cleanAddress(item.name) || cleanAddress(item.title) || cleanAddress(item.placeName) || query
       const address =
         cleanAddress(item.roadAddress) ||
@@ -241,7 +243,7 @@ async function forwardNaverLocalSearch(query: string): Promise<ForwardPlace[]> {
       items?: Array<{ title?: string; roadAddress?: string; address?: string; mapx?: string; mapy?: string }>
     }
     return (payload.items || [])
-      .map((item) => {
+      .map((item): ForwardPlace | null => {
         const name = stripMarkup(cleanAddress(item.title) || query)
         const address = cleanAddress(item.roadAddress) || cleanAddress(item.address)
         const point = naverLocalPoint(item.mapy, item.mapx)
@@ -348,7 +350,7 @@ async function forwardGeocodeNominatim(query: string): Promise<ForwardPlace[]> {
     if (!response.ok) return []
     const data = (await response.json()) as Array<{ lat?: string; lon?: string; name?: string; address?: OsmAddress }>
     return data
-      .map((item) => {
+      .map((item): ForwardPlace | null => {
         const lat = Number(item.lat)
         const lng = Number(item.lon)
         const address = osmKoreanAddress(item.address)

@@ -48,12 +48,25 @@ export function requestLiveOrigin(request?: Request) {
   if (!request) return ''
   const url = new URL(request.url)
   const forwardedHost = (request.headers.get('x-forwarded-host') || request.headers.get('host') || url.host).split(',')[0].trim()
-  const forwardedProto = (request.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')).split(',')[0].trim() || 'http'
+  const forwardedProto = (request.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')).split(',')[0].trim()
+  const hostname = forwardedHost.split(':')[0]
+  const proto = !hostname || isLoopbackOrPrivateHost(hostname) ? (forwardedProto === 'https' ? 'https' : 'http') : 'https'
+  const fromRequest = (value: string) => {
+    const origin = originFromUrl(value)
+    if (!origin) return ''
+    try {
+      const parsed = new URL(origin)
+      if (!isLoopbackOrPrivateHost(parsed.hostname) && parsed.protocol === 'http:') parsed.protocol = 'https:'
+      return stripSlash(parsed.origin)
+    } catch {
+      return origin
+    }
+  }
   return (
-    originFromUrl(request.headers.get('origin') || '') ||
-    originFromUrl(request.headers.get('referer') || '') ||
-    (forwardedHost ? originFromUrl(`${forwardedProto}://${forwardedHost}`) : '') ||
-    originFromUrl(url.origin)
+    fromRequest(request.headers.get('origin') || '') ||
+    fromRequest(request.headers.get('referer') || '') ||
+    (forwardedHost ? fromRequest(`${proto}://${forwardedHost}`) : '') ||
+    fromRequest(url.origin)
   )
 }
 

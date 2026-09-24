@@ -3,7 +3,6 @@ import Script from 'next/script'
 import { Geist_Mono, Noto_Sans_KR } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { resolveNaverMapClientId } from '@/lib/naver-maps'
-import { PiSdkInit } from '@/components/pi-sdk-init'
 import { LocaleProvider } from '@/components/locale-provider'
 import './globals.css'
 
@@ -51,6 +50,11 @@ export default function RootLayout({
   return (
     <html lang="ko" className={`light bg-[#F8FAFC] ${notoSansKr.variable} ${geistMono.variable}`}>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){function piNoise(text){return /Messaging promise|timed out after 120000|origin mismatch/i.test(String(text||''))}window.addEventListener('error',function(event){if(piNoise(event&&event.message))event.preventDefault()},true);window.addEventListener('unhandledrejection',function(event){var reason=event&&event.reason;var text=reason&&(reason.message||reason.toString())||'';if(piNoise(text))event.preventDefault()})})();`,
+          }}
+        />
         <meta name="color-scheme" content="light only" />
         <meta name="supported-color-schemes" content="light" />
         <meta name="theme-color" content="#F8FAFC" />
@@ -63,10 +67,8 @@ export default function RootLayout({
         {naverMapScript ? (
           <Script id="naver-maps-sdk" src={naverMapScript} strategy="beforeInteractive" referrerPolicy="origin" />
         ) : null}
-        <Script id="pi-network-sdk" src="https://sdk.minepi.com/pi-sdk.js" strategy="beforeInteractive" />
       </head>
       <body className={`${notoSansKr.className} bg-[#F8FAFC] font-medium text-[#0f172a] subpixel-antialiased`}>
-        <PiSdkInit />
         <LocaleProvider>{children}</LocaleProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

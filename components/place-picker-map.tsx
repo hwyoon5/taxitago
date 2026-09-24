@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, LocateFixed, MapPin } from 'lucide-react'
-import { ADDRESS_LOADING, fallbackCoordAddress, lookupAddressFromApi } from '@/lib/geocode-client'
+import { ADDRESS_LOADING, fallbackCoordAddress, requestAddressLookup } from '@/lib/geocode-client'
 import { loadNaverMaps, refreshNaverMap, waitForMapSize, type NaverMapInstance, type NaverMapsSdk } from '@/lib/naver-maps'
 import { watchMapSettle } from '@/lib/watch-map-settle'
 
@@ -83,16 +83,26 @@ export function PlacePickerScreen({
       mapRef.current = map
       mapsRef.current = sdk
       stopWatch = watchMapSettle(map, sdk, host, (center) => {
-        if (cancelled) return
-        const requestId = ++lookupIdRef.current
-        setLooking(true)
-        setLabel(ADDRESS_LOADING)
-        void lookupAddressFromApi(center.lat, center.lng).then((nextAddress) => {
-          if (cancelled || requestId !== lookupIdRef.current) return
-          centerRef.current = center
-          setLabel(nextAddress)
-          setLooking(false)
-        })
+        try {
+          if (cancelled) return
+          const requestId = ++lookupIdRef.current
+          setLooking(true)
+          setLabel(ADDRESS_LOADING)
+          requestAddressLookup(center.lat, center.lng, (nextAddress) => {
+            if (cancelled || requestId !== lookupIdRef.current) return
+            centerRef.current = center
+            setLabel(nextAddress)
+            setLooking(false)
+          })
+        } catch (error) {
+          console.error('[map] reverse geocode failed to start', error)
+          requestAddressLookup(center.lat, center.lng, (nextAddress) => {
+            if (cancelled) return
+            centerRef.current = center
+            setLabel(nextAddress)
+            setLooking(false)
+          })
+        }
       })
       refreshNaverMap(sdk, map, node)
       resizeObserver = new ResizeObserver(() => fit())

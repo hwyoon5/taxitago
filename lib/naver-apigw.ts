@@ -5,25 +5,43 @@ function cleanEnv(value?: string | null) {
     .replace(/^['"]|['"]$/g, '')
 }
 
+/** Bracket access so Next does not inline an empty build-time value. */
+function runtimeEnv(name: string) {
+  return cleanEnv(process.env[name])
+}
+
+const CLIENT_ID_ENVS = [
+  'NAVER_MAP_CLIENT_ID',
+  'NAVER_CLIENT_ID',
+  'NCP_APIGW_API_KEY_ID',
+  'NCP_KEY_ID',
+  'NAVER_MAP_NCP_KEY_ID',
+  'NEXT_PUBLIC_NAVER_MAP_CLIENT_ID',
+  'NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID',
+] as const
+
+const CLIENT_SECRET_ENVS = [
+  'NAVER_MAP_CLIENT_SECRET',
+  'NAVER_CLIENT_SECRET',
+  'NCP_APIGW_API_KEY',
+  'NCP_API_KEY',
+  'NAVER_MAP_API_KEY',
+  'NAVER_API_KEY',
+] as const
+
+function firstRuntimeEnv(names: readonly string[]) {
+  for (const name of names) {
+    const value = runtimeEnv(name)
+    if (value) return value
+  }
+  return ''
+}
+
 export function resolveNaverRestCredentials() {
-  const keyId = cleanEnv(
-    process.env.NAVER_MAP_CLIENT_ID ||
-      process.env.NAVER_CLIENT_ID ||
-      process.env.NCP_APIGW_API_KEY_ID ||
-      process.env.NCP_KEY_ID ||
-      process.env.NAVER_MAP_NCP_KEY_ID ||
-      process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID ||
-      process.env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID,
-  )
-  const secret = cleanEnv(
-    process.env.NAVER_MAP_CLIENT_SECRET ||
-      process.env.NAVER_CLIENT_SECRET ||
-      process.env.NCP_APIGW_API_KEY ||
-      process.env.NCP_API_KEY ||
-      process.env.NAVER_MAP_API_KEY ||
-      process.env.NAVER_API_KEY,
-  )
-  return { keyId, secret }
+  return {
+    keyId: firstRuntimeEnv(CLIENT_ID_ENVS),
+    secret: firstRuntimeEnv(CLIENT_SECRET_ENVS),
+  }
 }
 
 export function naverGatewayHeaderSets() {
@@ -50,11 +68,15 @@ export function naverGatewayHeaders() {
 }
 
 export async function ncpGetJson(urlString: string, headers: Record<string, string>, timeoutMs: number) {
+  const endpoint = new URL(urlString)
+  if (endpoint.protocol !== 'https:') {
+    throw new Error('naver api requires https')
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await Promise.race([
-      fetch(urlString, {
+      fetch(endpoint.href, {
         method: 'GET',
         headers,
         cache: 'no-store',

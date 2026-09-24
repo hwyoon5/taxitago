@@ -934,15 +934,16 @@ function DestinationSearchModal({
           {keyword ? (
             <div>
               <p className="text-xs font-black text-[#4C1FB8]">{searching ? '장소를 찾는 중' : `검색 결과 ${results.length}곳`}</p>
+              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{`‘${keyword}’ 검색 결과입니다. 장소의 시·도, 시·군·구, 도로명 주소를 그대로 보여드려요.`}</p>
               {!searching && results.length === 0 ? <p className="mt-2 text-xs font-bold text-[#64748B]">검색된 장소가 없어요.</p> : null}
               <div className="mt-3 space-y-2">
                 {results.map((place) => {
                   const coords =
                     Number.isFinite(place.lat) && Number.isFinite(place.lng)
                       ? { lat: place.lat as number, lng: place.lng as number, address: place.address }
-                      : coordsFromPlaceQuery(place.name) ?? coordsFromPlaceQuery(place.address)
+                      : undefined
                   return (
-                    <button key={`${place.name}-${place.address}`} type="button" onClick={() => pick(place.name, place.address, coords ?? undefined)} className="flex w-full items-start gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.06)] active:scale-[0.99]">
+                    <button key={`${place.name}-${place.address}`} type="button" onClick={() => pick(place.name, place.address, coords)} className="flex w-full items-start gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.06)] active:scale-[0.99]">
                       <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
                         <MapPin className="h-5 w-5" />
                       </span>
@@ -3559,8 +3560,9 @@ function Home({
     writeRecentPlaces(next)
   }
   const select = (name: string, address?: string, coords?: RideCoords) => {
-    rememberRecent(name, address)
-    onDestination(address || name, coords ?? coordsFromPlaceQuery(name) ?? coordsFromPlaceQuery(address || '') ?? undefined)
+    const chosen = (address || name).trim()
+    rememberRecent(name, chosen)
+    onDestination(chosen, coords)
     setSearchOpen(false)
   }
   const addFavorite = (place: { name: string; address: string }) => {
@@ -3602,31 +3604,18 @@ function Home({
         <div className="rounded-[16px] border border-[#E2E8F0] bg-[#F8FAFC] p-1.5">
           <button
             type="button"
-<<<<<<< HEAD
             onClick={() => onOpenMap()}
             className="flex w-full items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]"
             aria-label={`${t('home.pickup')} ${pickup}`}
           >
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
               <LocateFixed className="h-3.5 w-3.5" />
-=======
-            onClick={onOpenMap}
-            className="flex w-full items-center gap-2 rounded-lg bg-white px-2.5 py-2 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]"
-            aria-label={`${t('home.pickup')} ${pickup}`}
-          >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4C1FB8]">
-              <LocateFixed className="h-4 w-4" />
->>>>>>> d3dd37b77582a5ef744437d140a70e89a977a2f2
             </span>
             <span className="min-w-0 flex-1 py-0.5">
               <span className="block text-[10px] font-bold leading-3 text-[#64748B]">{t('home.pickup')}</span>
               <span className="mt-0.5 block truncate text-[13px] font-black leading-4 text-[#0F172A]">{pickup}</span>
               {pickupHint ? <span className="mt-0.5 block truncate text-[10px] font-bold leading-3 text-[#64748B]">{pickupHint}</span> : null}
             </span>
-<<<<<<< HEAD
-=======
-            <span className="shrink-0 text-[11px] font-black text-[#4C1FB8]">{t('home.viewMap')}</span>
->>>>>>> d3dd37b77582a5ef744437d140a70e89a977a2f2
             <ChevronRight className="h-4 w-4 shrink-0 text-[#94A3B8]" />
           </button>
           <button
@@ -6037,18 +6026,11 @@ export default function HomeScreen() {
       writeRideSession({ dest })
       return
     }
-    const known = coordsFromPlaceQuery(value)
-    if (known) {
-      const dest = { label: value, address: known.address || value, lat: known.lat, lng: known.lng }
-      setDestPlace(dest)
-      writeRideSession({ dest })
-      return
-    }
     if (!value.trim() || value === '집' || value === '회사') {
       setDestPlace(null)
       return
     }
-    void resolveRidePlace(value, origin.address).then((place) => {
+    void resolveRidePlace(value).then((place) => {
       if (!place) return
       setDestPlace(place)
       writeRideSession({ dest: place })
@@ -6230,24 +6212,10 @@ export default function HomeScreen() {
             )
           })}
         </nav>
-<<<<<<< HEAD
         {pickupMapOpen ? (
           <PlacePickerScreen
             key={`pickup-map-${pickupMapKey}`}
             variant="pickup"
-=======
-        {mapOpen ? (
-          <LocationMapModal
-            onClose={() => setMapOpen(false)}
-            initialLat={origin.lat}
-            initialLng={origin.lng}
-            initialAddress={origin.address}
-          />
-        ) : null}
-        {fullscreenMapOpen ? (
-          <FullscreenMapView
-            key={pickupMapSession}
->>>>>>> d3dd37b77582a5ef744437d140a70e89a977a2f2
             lat={origin.lat}
             lng={origin.lng}
             address={origin.address}
@@ -6258,11 +6226,7 @@ export default function HomeScreen() {
             onConfirm={(place) => {
               commitPickup(place, 'map')
               pickingMapRef.current = false
-<<<<<<< HEAD
               setPickupMapOpen(false)
-=======
-              setFullscreenMapOpen(false)
->>>>>>> d3dd37b77582a5ef744437d140a70e89a977a2f2
               showNotice('출발지를 지정했어요')
             }}
           />

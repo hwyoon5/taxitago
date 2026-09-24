@@ -175,45 +175,84 @@ async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Rec
   return payload
 }
 
-function initPi(pi: PiSdk) {
-  const config = { version: '2.0', sandbox: PI_SANDBOX }
-  pi.init(config)
-  initialized = true
-  logPi('log', 'Pi.init', config)
+const PI_CALL_TIMEOUT_MS = 8000
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        window.clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
 }
 
+function initPi(pi: PiSdk) {
+  if (initialized) return
+  const config = { version: '2.0', sandbox: PI_SANDBOX }
+  try {
+    pi.init(config)
+    initialized = true
+    logPi('log', 'Pi.init', config)
+  } catch (error) {
+    logPi('error', 'Pi.init failed', error)
+  }
+}
+
+const PI_SDK_SRC = 'https://sdk.minepi.com/pi-sdk.js'
+
+function loadPiSdkScript() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('Pi SDK는 브라우저에서만 불러옵니다.'))
+  if (typeof window.Pi?.init === 'function' && typeof window.Pi.createPayment === 'function') return Promise.resolve()
+  const found = document.querySelector<HTMLScriptElement>('script[data-pi-sdk="1"]')
+  if (found) {
+    if (found.dataset.loaded === '1') return Promise.resolve()
+    return new Promise<void>((resolve, reject) => {
+      if (typeof window.Pi?.init === 'function') {
+        resolve()
+        return
+      }
+      found.addEventListener('load', () => resolve(), { once: true })
+      found.addEventListener('error', () => reject(new Error('Pi SDK 스크립트를 불러오지 못했습니다.')), { once: true })
+    })
+  }
+  return new Promise<void>((resolve, reject) => {
+    try {
+      const script = document.createElement('script')
+      script.src = PI_SDK_SRC
+      script.async = true
+      script.dataset.piSdk = '1'
+      script.onload = () => {
+        script.dataset.loaded = '1'
+        resolve()
+      }
+      script.onerror = () => reject(new Error('Pi SDK 스크립트를 불러오지 못했습니다.'))
+      document.body.appendChild(script)
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error('Pi SDK 스크립트를 추가하지 못했습니다.'))
+    }
+  })
+}
+
+/** Load and init the SDK only when a Pi action starts. Never call this from map or geocode paths. */
 export async function preparePiSdk() {
-  const pi = await waitForPi()
-  if (!isPiBrowser()) {
-    logPi('warn', 'not Pi Browser; skip authenticate')
+  try {
+    await withTimeout(loadPiSdkScript(), PI_CALL_TIMEOUT_MS, 'Pi SDK script')
+    const pi = await waitForPi(PI_CALL_TIMEOUT_MS)
     initPi(pi)
     return pi
-  }
-  if (!initialized) initPi(pi)
-  if (!authPromise) {
-    authPromise = pi
-      .authenticate(['payments', 'username'], async (payment) => {
-        logPi('log', 'onIncompletePaymentFound', payment)
-        const paymentId = typeof payment.identifier === 'string' ? payment.identifier : ''
-        const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
-        if (paymentId && txid) await postPiApi('/api/pi/complete', { paymentId, txid })
-      })
-      .then((auth) => {
-        logPi('log', 'authenticate ok', auth)
-        return auth
-      })
-      .catch((error) => {
-        resetPiSession()
-        logPi('error', 'authenticate failed', error)
-        throw error
-      })
-  }
-  try {
-    await authPromise
   } catch (error) {
-    logPi('warn', 'session not ready', error)
+    logPi('warn', 'Pi SDK init skipped', error)
+    return null
   }
-  return pi
 }
 
 export type PiSession = {
@@ -265,8 +304,8 @@ export async function signInWithPi(): Promise<PiSession> {
     return session
   }
   try {
-    const pi = await waitForPi(8000)
-    if (!initialized) initPi(pi)
+    const pi = await preparePiSdk()
+    if (!pi) throw new Error('Pi SDK(window.Pi)가 로드되지 않았습니다. Pi Browser에서 열어 주세요.')
     resetPiSession()
     initPi(pi)
     authPromise = pi
@@ -285,12 +324,13 @@ export async function signInWithPi(): Promise<PiSession> {
         logPi('error', 'authenticate failed', error)
         throw error
       })
-    const auth = await authPromise
+    const auth = await withTimeout(authPromise, PI_CALL_TIMEOUT_MS, 'Pi.authenticate')
     const session = parsePiAuthResult(auth)
     if (!session) throw new Error('파이 계정 UID를 받지 못했습니다.')
     logPi('log', 'sign-in session', session)
     return session
   } catch (error) {
+    resetPiSession()
     if (PI_SANDBOX && !isPiBrowser()) {
       const session: PiSession = {
         uid: 'sandbox-uid-taxitago',
@@ -380,7 +420,7 @@ export async function chargePiWallet(amount: number) {
   })
 }
 
-export function startPiCheckout(options: {
+export async function startPiCheckout(options: {
   amount: number
   memo: string
   metadata?: Record<string, unknown>
@@ -388,8 +428,8 @@ export function startPiCheckout(options: {
   const amount = Math.round(options.amount * 1_000_000) / 1_000_000
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
-  const pi = requirePiSdk()
-  if (typeof pi.init === 'function') initPi(pi)
+  const pi = (await preparePiSdk()) ?? requirePiSdk()
+  initPi(pi)
 
   const payment = {
     amount,

@@ -64,6 +64,10 @@ const nextConfig = {
           source: '/validation-key.txt/',
           destination: '/validation-key.txt',
         },
+        {
+          source: '/api/geocode',
+          destination: '/api/geocode/',
+        },
       ],
     }
   },
