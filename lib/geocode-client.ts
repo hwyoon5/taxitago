@@ -282,7 +282,7 @@ function sanitizeSearchQuery(value: string) {
     .trim()
 }
 
-function textField(item: Record<string, unknown>, keys: string[]) {
+function textField(item: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
     const value = item[key]
     if (typeof value === 'string' && value.trim() && !isCoordText(value)) return value.trim()
