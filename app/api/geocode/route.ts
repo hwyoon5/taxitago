@@ -9,9 +9,18 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const query = (searchParams.get('q') || searchParams.get('query') || '').replace(/\u00a0|\u3000/g, ' ').replace(/\s+/g, ' ').trim()
   if (query) {
-    const kakaoPlaces = looksLikeStreetAddress(query) ? [] : await searchKakaoPlaces(query)
-    const places = looksLikeStreetAddress(query) || kakaoPlaces.length === 0 ? await forwardGeocodeOnServer(query) : kakaoPlaces
-    return NextResponse.json({ places, query })
+    const [kakaoPlaces, naverPlaces] = await Promise.all([
+      searchKakaoPlaces(query).catch(() => []),
+      forwardGeocodeOnServer(query).catch(() => []),
+    ])
+    const seen = new Set<string>()
+    const places = [...kakaoPlaces, ...naverPlaces].filter((place) => {
+      const key = `${place.name}|${place.address}|${place.lat}|${place.lng}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return Number.isFinite(place.lat) && Number.isFinite(place.lng) && Boolean(place.address || place.name)
+    })
+    return NextResponse.json({ places, query, addressSearch: looksLikeStreetAddress(query) })
   }
   const lat = Number(searchParams.get('lat'))
   const lng = Number(searchParams.get('lng'))

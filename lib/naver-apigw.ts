@@ -1,3 +1,5 @@
+import { env as nodeEnv } from 'node:process'
+
 function cleanEnv(value?: string | null) {
   return String(value || '')
     .replace(/^\uFEFF/, '')
@@ -5,9 +7,9 @@ function cleanEnv(value?: string | null) {
     .replace(/^['"]|['"]$/g, '')
 }
 
-/** Bracket access so Next does not inline an empty build-time value. */
+/** Read the live server environment. Dot access can be frozen to an empty build-time value. */
 function runtimeEnv(name: string) {
-  return cleanEnv(process.env[name])
+  return cleanEnv(nodeEnv[name] || process.env[name])
 }
 
 const CLIENT_ID_ENVS = [

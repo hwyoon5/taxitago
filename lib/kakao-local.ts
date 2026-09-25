@@ -1,3 +1,5 @@
+import { env as nodeEnv } from 'node:process'
+
 export type KakaoSearchPlace = {
   name: string
   address: string
@@ -15,7 +17,7 @@ function cleanEnv(value?: string | null) {
 }
 
 function runtimeEnv(name: string) {
-  return cleanEnv(process.env[name])
+  return cleanEnv(nodeEnv[name] || process.env[name])
 }
 
 function kakaoRestKey() {
