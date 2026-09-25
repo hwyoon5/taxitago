@@ -767,9 +767,7 @@ const DEFAULT_RECENT_PLACES: RecentPlace[] = [
 type PlaceItem = { name: string; address: string; jibun?: string; category?: string; hint: string; lat?: number; lng?: number }
 
 function locationHint(address: string) {
-  const parts = address.split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) return parts.slice(0, 2).join(' ')
-  return address
+  return address.replace(/\s+/g, ' ').trim()
 }
 
 function readRecentPlaces(): RecentPlace[] {
@@ -970,14 +968,13 @@ function DestinationSearchModal({
                       <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
                         <MapPin className="h-5 w-5" />
                       </span>
-                      <span className="min-w-0">
+                      <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-1.5">
-                          <strong className="text-sm font-black text-[#0F172A]">{place.name}</strong>
+                          <strong className="break-words text-sm font-black text-[#0F172A]">{place.name}</strong>
                           {place.category ? <span className="rounded-full bg-[#EDE5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{place.category}</span> : null}
                         </span>
-                        <span className="mt-1 block text-xs font-bold text-[#334155]">{place.address}</span>
-                        {place.jibun && place.jibun !== place.address ? <span className="mt-0.5 block text-[11px] font-bold text-[#64748B]">지번 {place.jibun}</span> : null}
-                        <span className="mt-1 block text-[11px] font-black text-[#4C1FB8]">{place.hint}</span>
+                        <span className="mt-1 block break-words text-xs font-bold text-[#334155]">{place.address}</span>
+                        {place.jibun && place.jibun !== place.address ? <span className="mt-0.5 block break-words text-[11px] font-bold text-[#64748B]">지번 {place.jibun}</span> : null}
                       </span>
                     </button>
                   )

@@ -57,6 +57,27 @@ function categoryLabel(value: string) {
   return parts[parts.length - 1] || ''
 }
 
+type KakaoLot = {
+  address_name?: string
+  region_1depth_name?: string
+  region_2depth_name?: string
+  region_3depth_name?: string
+  mountain_yn?: string
+  main_address_no?: string
+  sub_address_no?: string
+}
+
+type KakaoRoad = {
+  address_name?: string
+  region_1depth_name?: string
+  region_2depth_name?: string
+  region_3depth_name?: string
+  road_name?: string
+  main_building_no?: string
+  sub_building_no?: string
+  building_name?: string
+}
+
 type KakaoKeywordDoc = {
   place_name?: string
   address_name?: string
@@ -65,14 +86,50 @@ type KakaoKeywordDoc = {
   category_group_name?: string
   x?: string
   y?: string
+  address?: KakaoLot
+  road_address?: KakaoRoad
 }
 
 type KakaoAddressDoc = {
   address_name?: string
   x?: string
   y?: string
-  address?: { address_name?: string }
-  road_address?: { address_name?: string; building_name?: string }
+  address?: KakaoLot
+  road_address?: KakaoRoad
+}
+
+function lotNumber(main?: string, sub?: string) {
+  const head = text(main)
+  const tail = text(sub)
+  if (!head || head === '0') return ''
+  if (!tail || tail === '0') return head
+  return `${head}-${tail}`
+}
+
+function joinAddress(parts: Array<string | undefined>) {
+  return parts.map((part) => text(part)).filter(Boolean).join(' ')
+}
+
+function withLot(base: string, lot: string) {
+  const address = text(base)
+  if (!lot) return address
+  if (address.includes(lot)) return address
+  return address ? `${address} ${lot}` : lot
+}
+
+function fullJibun(addressName: string, lot?: KakaoLot) {
+  const number = lotNumber(lot?.main_address_no, lot?.sub_address_no)
+  const mountain = lot?.mountain_yn === 'Y' ? '산' : ''
+  const composed = joinAddress([lot?.region_1depth_name, lot?.region_2depth_name, lot?.region_3depth_name, `${mountain}${number}`.trim()])
+  const named = withLot(addressName, number ? `${mountain}${number}`.trim() : '')
+  return named.length >= composed.length ? named : composed
+}
+
+function fullRoad(addressName: string, road?: KakaoRoad) {
+  const number = lotNumber(road?.main_building_no, road?.sub_building_no)
+  const composed = joinAddress([road?.region_1depth_name, road?.region_2depth_name, road?.road_name, number])
+  const named = withLot(addressName, number)
+  return named.length >= composed.length ? named : composed
 }
 
 async function kakaoGet(path: string, query: string) {
@@ -96,15 +153,15 @@ async function kakaoGet(path: string, query: string) {
 
 function fromKeyword(item: KakaoKeywordDoc): KakaoSearchPlace | null {
   const point = wgsPoint(item.x, item.y)
-  const road = text(item.road_address_name)
-  const jibun = text(item.address_name)
+  const road = fullRoad(text(item.road_address_name) || text(item.road_address?.address_name), item.road_address)
+  const jibun = fullJibun(text(item.address_name) || text(item.address?.address_name), item.address)
   const address = road || jibun
   const name = text(item.place_name) || address
   if (!point || !name || !address) return null
   return {
     name,
     address,
-    jibun: road && jibun && jibun !== road ? jibun : '',
+    jibun: jibun && jibun !== address ? jibun : '',
     category: categoryLabel(text(item.category_group_name) || text(item.category_name)),
     lat: point.lat,
     lng: point.lng,
@@ -113,15 +170,15 @@ function fromKeyword(item: KakaoKeywordDoc): KakaoSearchPlace | null {
 
 function fromAddress(item: KakaoAddressDoc): KakaoSearchPlace | null {
   const point = wgsPoint(item.x, item.y)
-  const road = text(item.road_address?.address_name)
-  const jibun = text(item.address?.address_name) || text(item.address_name)
+  const road = fullRoad(text(item.road_address?.address_name), item.road_address)
+  const jibun = fullJibun(text(item.address?.address_name) || text(item.address_name), item.address)
   const address = road || jibun
   const name = text(item.road_address?.building_name) || address
   if (!point || !name || !address) return null
   return {
     name,
     address,
-    jibun: road && jibun && jibun !== road ? jibun : '',
+    jibun: jibun && jibun !== address ? jibun : '',
     category: '',
     lat: point.lat,
     lng: point.lng,

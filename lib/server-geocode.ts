@@ -207,9 +207,28 @@ function wgs84Point(latRaw: unknown, lngRaw: unknown): { lat: number; lng: numbe
   return { lat, lng }
 }
 
+function elementName(item: NaverAddressRow, type: string) {
+  const row = item.addressElements?.find((entry) => entry.types?.includes(type))
+  return cleanAddress(row?.longName) || cleanAddress(row?.shortName)
+}
+
 function buildingNameOf(item: NaverAddressRow) {
-  const building = item.addressElements?.find((row) => row.types?.includes('BUILDING_NAME'))
-  return cleanAddress(building?.longName) || cleanAddress(building?.shortName)
+  return elementName(item, 'BUILDING_NAME')
+}
+
+function composedNaverAddress(item: NaverAddressRow) {
+  const roadGiven = cleanAddress(item.roadAddress)
+  const jibunGiven = cleanAddress(item.jibunAddress)
+  const lot = elementName(item, 'LAND_NUMBER')
+  const buildingNo = elementName(item, 'BUILDING_NUMBER')
+  const road = [elementName(item, 'SIDO'), elementName(item, 'SIGUGUN'), elementName(item, 'ROAD_NAME'), buildingNo].filter(Boolean).join(' ')
+  const jibun = [elementName(item, 'SIDO'), elementName(item, 'SIGUGUN'), elementName(item, 'DONGMYUN'), elementName(item, 'RI'), lot].filter(Boolean).join(' ')
+  const fullRoad = roadGiven && buildingNo && !roadGiven.includes(buildingNo) ? `${roadGiven} ${buildingNo}` : roadGiven
+  const fullJibun = jibunGiven && lot && !jibunGiven.includes(lot) ? `${jibunGiven} ${lot}` : jibunGiven
+  return {
+    road: (fullRoad || '').length >= road.length ? fullRoad : road,
+    jibun: (fullJibun || '').length >= jibun.length ? fullJibun : jibun,
+  }
 }
 
 function parseNaverGeocodePlaces(payload: unknown, query: string): ForwardPlace[] {
@@ -218,8 +237,9 @@ function parseNaverGeocodePlaces(payload: unknown, query: string): ForwardPlace[
   const rows = root.v2?.addresses || root.addresses || []
   return rows
     .map((item): ForwardPlace | null => {
-      const road = cleanAddress(item.roadAddress)
-      const jibun = cleanAddress(item.jibunAddress)
+      const composed = composedNaverAddress(item)
+      const road = composed.road
+      const jibun = composed.jibun
       const address = road || jibun
       const point = wgs84Point(item.y, item.x)
       if (!address || !point) return null

@@ -286,8 +286,25 @@ function textField(item: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const value = item[key]
     if (typeof value === 'string' && value.trim() && !isCoordText(value)) return value.trim()
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const nested = textField(value as Record<string, unknown>, ['address_name', 'address', 'roadAddress', 'jibunAddress'])
+      if (nested) return nested
+    }
   }
   return ''
+}
+
+function lotSuffix(main: unknown, sub: unknown) {
+  const head = typeof main === 'string' ? main.trim() : ''
+  const tail = typeof sub === 'string' ? sub.trim() : ''
+  if (!head || head === '0') return ''
+  if (!tail || tail === '0') return head
+  return `${head}-${tail}`
+}
+
+function withLotNumber(address: string, lot: string) {
+  if (!lot || address.includes(lot)) return address
+  return address ? `${address} ${lot}` : lot
 }
 
 function coordField(item: Record<string, unknown>, keys: string[]) {
@@ -314,10 +331,19 @@ export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
     const data = await fetchSearchJson(`q=${encodeURIComponent(q)}`, signal)
     return searchRows(data)
       .map((item) => {
-        const name = textField(item, ['name', 'title', 'placeName']) || q
-        const road = textField(item, ['address', 'roadAddress', 'road_address'])
-        const jibun = textField(item, ['jibun', 'jibunAddress', 'jibun_address'])
-        const address = road || jibun || name
+        const name = textField(item, ['name', 'title', 'placeName', 'place_name']) || q
+        const roadLot = lotSuffix(
+          (item.road_address as { main_building_no?: string } | undefined)?.main_building_no,
+          (item.road_address as { sub_building_no?: string } | undefined)?.sub_building_no,
+        )
+        const jibunLot = lotSuffix(
+          (item.address as { main_address_no?: string } | undefined)?.main_address_no,
+          (item.address as { sub_address_no?: string } | undefined)?.sub_address_no,
+        )
+        const road = withLotNumber(textField(item, ['roadAddress', 'road_address', 'road_address_name']), roadLot)
+        const jibun = withLotNumber(textField(item, ['jibun', 'jibunAddress', 'jibun_address', 'address_name']), jibunLot)
+        const given = withLotNumber(textField(item, ['address']), jibunLot || roadLot)
+        const address = [road, jibun, given].sort((a, b) => b.length - a.length).find(Boolean) || name
         const category = textField(item, ['category', 'categoryName'])
         let lat = coordField(item, ['lat', 'y', 'latitude'])
         let lng = coordField(item, ['lng', 'x', 'longitude'])
