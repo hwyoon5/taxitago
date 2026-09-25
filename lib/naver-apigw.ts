@@ -5,10 +5,51 @@ function cleanEnv(value?: string | null) {
     .replace(/^['"]|['"]$/g, '')
 }
 
-/** Request-time env. Dot access and `node:process` copies can stay empty after the production build. */
+function staticEnv(name: string) {
+  switch (name) {
+    case 'NAVER_MAP_CLIENT_ID':
+      return process.env.NAVER_MAP_CLIENT_ID
+    case 'NAVER_CLIENT_ID':
+      return process.env.NAVER_CLIENT_ID
+    case 'NCP_APIGW_API_KEY_ID':
+      return process.env.NCP_APIGW_API_KEY_ID
+    case 'NCP_KEY_ID':
+      return process.env.NCP_KEY_ID
+    case 'NAVER_MAP_NCP_KEY_ID':
+      return process.env.NAVER_MAP_NCP_KEY_ID
+    case 'NEXT_PUBLIC_NAVER_MAP_CLIENT_ID':
+      return process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID
+    case 'NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID':
+      return process.env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID
+    case 'NAVER_MAP_CLIENT_SECRET':
+      return process.env.NAVER_MAP_CLIENT_SECRET
+    case 'NAVER_CLIENT_SECRET':
+      return process.env.NAVER_CLIENT_SECRET
+    case 'NCP_APIGW_API_KEY':
+      return process.env.NCP_APIGW_API_KEY
+    case 'NCP_API_KEY':
+      return process.env.NCP_API_KEY
+    case 'NAVER_MAP_API_KEY':
+      return process.env.NAVER_MAP_API_KEY
+    case 'NAVER_API_KEY':
+      return process.env.NAVER_API_KEY
+    case 'NAVER_SEARCH_CLIENT_ID':
+      return process.env.NAVER_SEARCH_CLIENT_ID
+    case 'NAVER_OPENAPI_CLIENT_ID':
+      return process.env.NAVER_OPENAPI_CLIENT_ID
+    case 'NAVER_SEARCH_CLIENT_SECRET':
+      return process.env.NAVER_SEARCH_CLIENT_SECRET
+    case 'NAVER_OPENAPI_CLIENT_SECRET':
+      return process.env.NAVER_OPENAPI_CLIENT_SECRET
+    default:
+      return ''
+  }
+}
+
+/** Live server env first, then the static binding so a production build does not drop the key. */
 function runtimeEnv(name: string) {
   const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } })['process']
-  return cleanEnv(proc?.['env']?.[name])
+  return cleanEnv(proc?.['env']?.[name] || staticEnv(name))
 }
 
 const CLIENT_ID_ENVS = [

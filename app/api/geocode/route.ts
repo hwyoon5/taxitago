@@ -9,18 +9,25 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const query = (searchParams.get('q') || searchParams.get('query') || '').replace(/\u00a0|\u3000/g, ' ').replace(/\s+/g, ' ').trim()
   if (query) {
-    const [kakaoPlaces, naverPlaces] = await Promise.all([
-      searchKakaoPlaces(query).catch(() => []),
-      forwardGeocodeOnServer(query).catch(() => []),
+    const [kakaoResult, naverResult] = await Promise.all([
+      searchKakaoPlaces(query).catch((error: unknown) => ({
+        places: [],
+        notices: [`kakao failed: ${error instanceof Error ? error.message : 'request error'}`],
+      })),
+      forwardGeocodeOnServer(query).catch((error: unknown) => ({
+        places: [],
+        notices: [`geocode failed: ${error instanceof Error ? error.message : 'request error'}`],
+      })),
     ])
     const seen = new Set<string>()
-    const places = [...kakaoPlaces, ...naverPlaces].filter((place) => {
+    const places = [...kakaoResult.places, ...naverResult.places].filter((place) => {
       const key = `${place.name}|${place.address}|${place.lat}|${place.lng}`
       if (seen.has(key)) return false
       seen.add(key)
       return Number.isFinite(place.lat) && Number.isFinite(place.lng) && Boolean(place.address || place.name)
     })
-    return NextResponse.json({ places, query, addressSearch: looksLikeStreetAddress(query) })
+    const notices = [...new Set([...kakaoResult.notices, ...naverResult.notices])]
+    return NextResponse.json({ places, query, addressSearch: looksLikeStreetAddress(query), notices })
   }
   const lat = Number(searchParams.get('lat'))
   const lng = Number(searchParams.get('lng'))

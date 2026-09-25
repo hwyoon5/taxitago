@@ -14,9 +14,22 @@ function cleanEnv(value?: string | null) {
     .replace(/^['"]|['"]$/g, '')
 }
 
+function staticEnv(name: string) {
+  switch (name) {
+    case 'KAKAO_REST_API_KEY':
+      return process.env.KAKAO_REST_API_KEY
+    case 'KAKAO_LOCAL_REST_API_KEY':
+      return process.env.KAKAO_LOCAL_REST_API_KEY
+    case 'KAKAO_API_KEY':
+      return process.env.KAKAO_API_KEY
+    default:
+      return ''
+  }
+}
+
 function runtimeEnv(name: string) {
   const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } })['process']
-  return cleanEnv(proc?.['env']?.[name])
+  return cleanEnv(proc?.['env']?.[name] || staticEnv(name))
 }
 
 function addressQueryVariants(query: string) {
@@ -143,9 +156,13 @@ function fullRoad(addressName: string, road?: KakaoRoad) {
   return named.length >= composed.length ? named : composed
 }
 
-async function kakaoGet(path: string, query: string) {
+async function kakaoGet(path: string, query: string, notices: string[]) {
   const key = kakaoRestKey()
-  if (!key || !query) return [] as unknown[]
+  if (!query) return [] as unknown[]
+  if (!key) {
+    notices.push('kakao skipped: KAKAO_REST_API_KEY is missing')
+    return [] as unknown[]
+  }
   const params = new URLSearchParams({ query, size: '15' })
   try {
     const response = await fetch(`https://dapi.kakao.com${path}?${params.toString()}`, {
@@ -154,11 +171,15 @@ async function kakaoGet(path: string, query: string) {
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     })
-    if (!response.ok) return []
+    if (!response.ok) {
+      notices.push(`kakao ${path} HTTP ${response.status}`)
+      return [] as unknown[]
+    }
     const payload = (await response.json()) as { documents?: unknown[] }
     return Array.isArray(payload.documents) ? payload.documents : []
-  } catch {
-    return []
+  } catch (error) {
+    notices.push(`kakao ${path} failed: ${error instanceof Error ? error.message : 'request error'}`)
+    return [] as unknown[]
   }
 }
 
@@ -203,13 +224,14 @@ function samePlace(a: KakaoSearchPlace, b: KakaoSearchPlace) {
 }
 
 export async function searchKakaoPlaces(query: string) {
+  const notices: string[] = []
   const q = sanitizeDestinationQuery(query)
-  if (!q) return [] as KakaoSearchPlace[]
+  if (!q) return { places: [] as KakaoSearchPlace[], notices }
   const variants = addressQueryVariants(q)
   const batches = await Promise.all(
     variants.flatMap((variant) => [
-      kakaoGet('/v2/local/search/keyword.json', variant),
-      kakaoGet('/v2/local/search/address.json', variant),
+      kakaoGet('/v2/local/search/keyword.json', variant, notices),
+      kakaoGet('/v2/local/search/address.json', variant, notices),
     ]),
   )
   const keywords = batches.filter((_, index) => index % 2 === 0).flat()
@@ -223,5 +245,5 @@ export async function searchKakaoPlaces(query: string) {
     if (kept.some((item) => samePlace(item, place))) continue
     kept.push(place)
   }
-  return kept
+  return { places: kept, notices: [...new Set(notices)] }
 }

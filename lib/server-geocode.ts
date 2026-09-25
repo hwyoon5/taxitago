@@ -317,10 +317,16 @@ function categoryLabel(value: unknown) {
 
 let localSearchAuthFailed = false
 
-async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random' = 'comment'): Promise<ForwardPlace[]> {
-  if (localSearchAuthFailed) return []
+async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random' = 'comment', notices: string[] = []): Promise<ForwardPlace[]> {
+  if (localSearchAuthFailed) {
+    notices.push('naver local search skipped: previous 401 or 403')
+    return []
+  }
   const { keyId, secret } = resolveNaverSearchCredentials()
-  if (!keyId || !secret) return []
+  if (!keyId || !secret) {
+    notices.push('naver local search skipped: NAVER_SEARCH_CLIENT_ID or NAVER_SEARCH_CLIENT_SECRET is missing')
+    return []
+  }
   const params = new URLSearchParams({ query, display: '5', start: '1', sort })
   const url = `https://openapi.naver.com/v1/search/local.json?${params.toString()}`
   try {
@@ -336,9 +342,13 @@ async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random'
     })
     if (response.status === 401 || response.status === 403) {
       localSearchAuthFailed = true
+      notices.push(`naver local search HTTP ${response.status}`)
       return []
     }
-    if (!response.ok) return []
+    if (!response.ok) {
+      notices.push(`naver local search HTTP ${response.status}`)
+      return []
+    }
     const payload = (await response.json()) as {
       items?: Array<{ title?: string; category?: string; roadAddress?: string; address?: string; mapx?: string; mapy?: string }>
     }
@@ -361,7 +371,8 @@ async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random'
         }
       })
       .filter((item): item is ForwardPlace => Boolean(item))
-  } catch {
+  } catch (error) {
+    notices.push(`naver local search failed: ${error instanceof Error ? error.message : 'request error'}`)
     return []
   }
 }
@@ -382,16 +393,29 @@ async function forwardNaverPlaceSearch(query: string): Promise<ForwardPlace[]> {
   return []
 }
 
-async function forwardGeocodeNaver(query: string): Promise<ForwardPlace[]> {
+async function forwardGeocodeNaver(query: string, notices: string[] = []): Promise<ForwardPlace[]> {
   const { keyId, secret } = resolveNaverRestCredentials()
-  if (!keyId || !secret) return []
+  if (!keyId || !secret) {
+    notices.push('naver geocode skipped: NAVER_MAP_CLIENT_ID or NAVER_MAP_CLIENT_SECRET is missing')
+    return []
+  }
   const params = new URLSearchParams({ query, output: 'json', count: '20', language: 'kor' })
   const hosts = ['https://maps.apigw.ntruss.com', 'https://naveropenapi.apigw.ntruss.com']
+  let lastStatus = 0
   for (const host of hosts) {
-    const payload = await ncpJson(`${host}/map-geocode/v2/geocode?${params.toString()}`)
-    const places = parseNaverGeocodePlaces(payload, query)
-    if (places.length) return places
+    for (const headers of naverGatewayHeaderSets()) {
+      try {
+        const { status, json } = await ncpGetJson(`${host}/map-geocode/v2/geocode?${params.toString()}`, headers, 5000)
+        lastStatus = status
+        if (status < 200 || status >= 300) continue
+        const places = parseNaverGeocodePlaces(json, query)
+        if (places.length) return places
+      } catch (error) {
+        notices.push(`naver geocode failed: ${error instanceof Error ? error.message : 'request error'}`)
+      }
+    }
   }
+  if (lastStatus) notices.push(`naver geocode HTTP ${lastStatus}`)
   return []
 }
 
@@ -447,7 +471,7 @@ function osmKoreanAddress(address: OsmAddress | undefined) {
   return [sido, sigungu, locality, road].filter(Boolean).join(' ')
 }
 
-async function forwardGeocodeNominatim(query: string): Promise<ForwardPlace[]> {
+async function forwardGeocodeNominatim(query: string, notices: string[] = []): Promise<ForwardPlace[]> {
   try {
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=kr&accept-language=ko&q=${encodeURIComponent(query)}`,
@@ -457,7 +481,10 @@ async function forwardGeocodeNominatim(query: string): Promise<ForwardPlace[]> {
         signal: AbortSignal.timeout(6000),
       },
     )
-    if (!response.ok) return []
+    if (!response.ok) {
+      notices.push(`nominatim HTTP ${response.status}`)
+      return []
+    }
     const data = (await response.json()) as Array<{ lat?: string; lon?: string; name?: string; display_name?: string; address?: OsmAddress }>
     return data
       .map((item): ForwardPlace | null => {
@@ -469,7 +496,8 @@ async function forwardGeocodeNominatim(query: string): Promise<ForwardPlace[]> {
         return { name: named.name, address, category: osmCategory(item.address, named.name), lat, lng, trustName: named.trustName }
       })
       .filter((item): item is ForwardPlace => Boolean(item))
-  } catch {
+  } catch (error) {
+    notices.push(`nominatim failed: ${error instanceof Error ? error.message : 'request error'}`)
     return []
   }
 }
@@ -673,8 +701,9 @@ function asForwardPlace(place: ForwardPlace): ForwardPlace {
 }
 
 export async function forwardGeocodeOnServer(query: string) {
+  const notices: string[] = []
   const q = sanitizeSearchQuery(query)
-  if (!q) return [] as ReturnType<typeof publishPlaces>
+  if (!q) return { places: [] as ReturnType<typeof publishPlaces>, notices }
   const aliases = queryAliases(q)
   const addressQuery = looksLikeStreetAddress(q)
   const known = lookupSuggestedPlace(q)
@@ -690,15 +719,15 @@ export async function forwardGeocodeOnServer(query: string) {
     catalog.unshift({ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true })
   }
   const addressTasks = addressQuery
-    ? addressQueryVariants(q).flatMap((alias) => [forwardGeocodeNaver(alias), forwardGeocodeNominatim(alias)])
+    ? addressQueryVariants(q).flatMap((alias) => [forwardGeocodeNaver(alias, notices), forwardGeocodeNominatim(alias, notices)])
     : []
   const keywordTasks = addressQuery
-    ? []
+    ? [forwardGeocodeNominatim(q, notices)]
     : [
-        forwardNaverLocalSearch(q, 'comment'),
-        forwardNaverLocalSearch(q, 'random'),
-        ...aliases.map((alias) => forwardGeocodeNaver(alias)),
-        ...aliases.map((alias) => forwardGeocodeNominatim(alias)),
+        forwardNaverLocalSearch(q, 'comment', notices),
+        forwardNaverLocalSearch(q, 'random', notices),
+        ...aliases.map((alias) => forwardGeocodeNaver(alias, notices)),
+        ...aliases.map((alias) => forwardGeocodeNominatim(alias, notices)),
       ]
   const [addressHits, keywordHits] = await Promise.all([
     collectPlaces(addressTasks, 6000),
@@ -724,5 +753,6 @@ export async function forwardGeocodeOnServer(query: string) {
         .map((place) => asForwardPlace({ ...place, category: place.category || inferCategory(place.name), trustName: true }))
     : []
   const around = anchor ? catalog.filter((place) => distanceMeters(anchor, place) <= 20000) : catalog
-  return publishPlaces([...addressHits.map(asForwardPlace), ...keywordHits.map(asForwardPlace), ...around, ...nearby], q)
+  const places = publishPlaces([...addressHits.map(asForwardPlace), ...keywordHits.map(asForwardPlace), ...around, ...nearby], q)
+  return { places, notices: [...new Set(notices)] }
 }
