@@ -6,44 +6,47 @@ function cleanEnv(value?: string | null) {
 }
 
 function staticEnv(name: string) {
-  switch (name) {
-    case 'NAVER_MAP_CLIENT_ID':
-      return process.env.NAVER_MAP_CLIENT_ID
-    case 'NAVER_CLIENT_ID':
-      return process.env.NAVER_CLIENT_ID
-    case 'NCP_APIGW_API_KEY_ID':
-      return process.env.NCP_APIGW_API_KEY_ID
-    case 'NCP_KEY_ID':
-      return process.env.NCP_KEY_ID
-    case 'NAVER_MAP_NCP_KEY_ID':
-      return process.env.NAVER_MAP_NCP_KEY_ID
-    case 'NEXT_PUBLIC_NAVER_MAP_CLIENT_ID':
-      return process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID
-    case 'NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID':
-      return process.env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID
-    case 'NAVER_MAP_CLIENT_SECRET':
-      return process.env.NAVER_MAP_CLIENT_SECRET
-    case 'NAVER_CLIENT_SECRET':
-      return process.env.NAVER_CLIENT_SECRET
-    case 'NCP_APIGW_API_KEY':
-      return process.env.NCP_APIGW_API_KEY
-    case 'NCP_API_KEY':
-      return process.env.NCP_API_KEY
-    case 'NAVER_MAP_API_KEY':
-      return process.env.NAVER_MAP_API_KEY
-    case 'NAVER_API_KEY':
-      return process.env.NAVER_API_KEY
-    case 'NAVER_SEARCH_CLIENT_ID':
-      return process.env.NAVER_SEARCH_CLIENT_ID
-    case 'NAVER_OPENAPI_CLIENT_ID':
-      return process.env.NAVER_OPENAPI_CLIENT_ID
-    case 'NAVER_SEARCH_CLIENT_SECRET':
-      return process.env.NAVER_SEARCH_CLIENT_SECRET
-    case 'NAVER_OPENAPI_CLIENT_SECRET':
-      return process.env.NAVER_OPENAPI_CLIENT_SECRET
-    default:
-      return ''
-  }
+  const value = (() => {
+    switch (name) {
+      case 'NAVER_MAP_CLIENT_ID':
+        return process.env.NAVER_MAP_CLIENT_ID
+      case 'NAVER_CLIENT_ID':
+        return process.env.NAVER_CLIENT_ID
+      case 'NCP_APIGW_API_KEY_ID':
+        return process.env.NCP_APIGW_API_KEY_ID
+      case 'NCP_KEY_ID':
+        return process.env.NCP_KEY_ID
+      case 'NAVER_MAP_NCP_KEY_ID':
+        return process.env.NAVER_MAP_NCP_KEY_ID
+      case 'NEXT_PUBLIC_NAVER_MAP_CLIENT_ID':
+        return process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID
+      case 'NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID':
+        return process.env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID
+      case 'NAVER_MAP_CLIENT_SECRET':
+        return process.env.NAVER_MAP_CLIENT_SECRET
+      case 'NAVER_CLIENT_SECRET':
+        return process.env.NAVER_CLIENT_SECRET
+      case 'NCP_APIGW_API_KEY':
+        return process.env.NCP_APIGW_API_KEY
+      case 'NCP_API_KEY':
+        return process.env.NCP_API_KEY
+      case 'NAVER_MAP_API_KEY':
+        return process.env.NAVER_MAP_API_KEY
+      case 'NAVER_API_KEY':
+        return process.env.NAVER_API_KEY
+      case 'NAVER_SEARCH_CLIENT_ID':
+        return process.env.NAVER_SEARCH_CLIENT_ID
+      case 'NAVER_OPENAPI_CLIENT_ID':
+        return process.env.NAVER_OPENAPI_CLIENT_ID
+      case 'NAVER_SEARCH_CLIENT_SECRET':
+        return process.env.NAVER_SEARCH_CLIENT_SECRET
+      case 'NAVER_OPENAPI_CLIENT_SECRET':
+        return process.env.NAVER_OPENAPI_CLIENT_SECRET
+      default:
+        return ''
+    }
+  })()
+  return value || ''
 }
 
 /** Live server env first, then the static binding so a production build does not drop the key. */
@@ -96,33 +99,51 @@ export function resolveNaverSearchCredentials() {
   }
 }
 
+function definedEnv(names: readonly string[]) {
+  const values: string[] = []
+  for (const name of names) {
+    const value = runtimeEnv(name)
+    if (value) values.push(value)
+  }
+  return [...new Set(values)]
+}
+
 export function naverRestCredentialPairs() {
-  const ids = [...new Set(CLIENT_ID_ENVS.map((name) => runtimeEnv(name)).filter(Boolean))]
-  const secrets = [...new Set(CLIENT_SECRET_ENVS.map((name) => runtimeEnv(name)).filter(Boolean))]
+  const ids = definedEnv(CLIENT_ID_ENVS)
+  const secrets = definedEnv(CLIENT_SECRET_ENVS)
   const pairs: Array<{ keyId: string; secret: string }> = []
   for (const keyId of ids) {
     for (const secret of secrets) {
-      pairs.push({ keyId, secret })
+      const id = keyId || ''
+      const key = secret || ''
+      if (!id || !key) continue
+      pairs.push({ keyId: id, secret: key })
       if (pairs.length >= 4) return pairs
     }
   }
   return pairs
 }
 
-export function naverGatewayHeaderSets() {
-  const pairs = naverRestCredentialPairs()
-  return pairs.flatMap(({ keyId, secret }) => [
+function naverHeaderSet(keyId: string, secret: string): Record<string, string>[] {
+  const id = keyId || ''
+  const key = secret || ''
+  if (!id || !key) return []
+  return [
     {
       Accept: 'application/json',
-      'X-NCP-APIGW-API-KEY-ID': keyId,
-      'X-NCP-APIGW-API-KEY': secret,
+      'X-NCP-APIGW-API-KEY-ID': id,
+      'X-NCP-APIGW-API-KEY': key,
     },
     {
       Accept: 'application/json',
-      'x-ncp-apigw-api-key-id': keyId,
-      'x-ncp-apigw-api-key': secret,
+      'x-ncp-apigw-api-key-id': id,
+      'x-ncp-apigw-api-key': key,
     },
-  ])
+  ]
+}
+
+export function naverGatewayHeaderSets(): Record<string, string>[] {
+  return naverRestCredentialPairs().flatMap(({ keyId, secret }) => naverHeaderSet(keyId, secret))
 }
 
 export function naverGatewayHeaders() {

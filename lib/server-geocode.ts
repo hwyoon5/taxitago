@@ -334,8 +334,8 @@ async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random'
       method: 'GET',
       headers: {
         Accept: 'application/json',
-        'X-Naver-Client-Id': keyId,
-        'X-Naver-Client-Secret': secret,
+        'X-Naver-Client-Id': keyId || '',
+        'X-Naver-Client-Secret': secret || '',
       },
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
