@@ -56,9 +56,9 @@ function runtimeEnv(name: string) {
 }
 
 const CLIENT_ID_ENVS = [
+  'NCP_APIGW_API_KEY_ID',
   'NAVER_MAP_CLIENT_ID',
   'NAVER_CLIENT_ID',
-  'NCP_APIGW_API_KEY_ID',
   'NCP_KEY_ID',
   'NAVER_MAP_NCP_KEY_ID',
   'NEXT_PUBLIC_NAVER_MAP_CLIENT_ID',
@@ -66,9 +66,9 @@ const CLIENT_ID_ENVS = [
 ] as const
 
 const CLIENT_SECRET_ENVS = [
+  'NCP_APIGW_API_KEY',
   'NAVER_MAP_CLIENT_SECRET',
   'NAVER_CLIENT_SECRET',
-  'NCP_APIGW_API_KEY',
   'NCP_API_KEY',
   'NAVER_MAP_API_KEY',
   'NAVER_API_KEY',
@@ -99,32 +99,8 @@ export function resolveNaverSearchCredentials() {
   }
 }
 
-function definedEnv(names: readonly string[]) {
-  const values: string[] = []
-  for (const name of names) {
-    const value = runtimeEnv(name)
-    if (value) values.push(value)
-  }
-  return [...new Set(values)]
-}
-
-export function naverRestCredentialPairs() {
-  const ids = definedEnv(CLIENT_ID_ENVS)
-  const secrets = definedEnv(CLIENT_SECRET_ENVS)
-  const pairs: Array<{ keyId: string; secret: string }> = []
-  for (const keyId of ids) {
-    for (const secret of secrets) {
-      const id = keyId || ''
-      const key = secret || ''
-      if (!id || !key) continue
-      pairs.push({ keyId: id, secret: key })
-      if (pairs.length >= 4) return pairs
-    }
-  }
-  return pairs
-}
-
-function naverHeaderSet(keyId: string, secret: string): Record<string, string>[] {
+export function naverGatewayHeaderSets(): Record<string, string>[] {
+  const { keyId, secret } = resolveNaverRestCredentials()
   const id = keyId || ''
   const key = secret || ''
   if (!id || !key) return []
@@ -134,16 +110,7 @@ function naverHeaderSet(keyId: string, secret: string): Record<string, string>[]
       'X-NCP-APIGW-API-KEY-ID': id,
       'X-NCP-APIGW-API-KEY': key,
     },
-    {
-      Accept: 'application/json',
-      'x-ncp-apigw-api-key-id': id,
-      'x-ncp-apigw-api-key': key,
-    },
   ]
-}
-
-export function naverGatewayHeaderSets(): Record<string, string>[] {
-  return naverRestCredentialPairs().flatMap(({ keyId, secret }) => naverHeaderSet(keyId, secret))
 }
 
 export function naverGatewayHeaders() {

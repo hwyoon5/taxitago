@@ -1,4 +1,4 @@
-import { naverGatewayHeaderSets, ncpGetJson, resolveNaverRestCredentials, resolveNaverSearchCredentials } from '@/lib/naver-apigw'
+import { naverGatewayHeaderSets, ncpGetJson, resolveNaverRestCredentials } from '@/lib/naver-apigw'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 
 function cleanAddress(value: unknown) {
@@ -322,9 +322,9 @@ async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random'
     notices.push('naver local search skipped: previous 401 or 403')
     return []
   }
-  const { keyId, secret } = resolveNaverSearchCredentials()
+  const { keyId, secret } = resolveNaverRestCredentials()
   if (!keyId || !secret) {
-    notices.push('naver local search skipped: NAVER_SEARCH_CLIENT_ID or NAVER_SEARCH_CLIENT_SECRET is missing')
+    notices.push('naver local search skipped: NAVER_MAP_CLIENT_ID or NAVER_MAP_CLIENT_SECRET is missing')
     return []
   }
   const params = new URLSearchParams({ query, display: '5', start: '1', sort })
@@ -334,8 +334,8 @@ async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random'
       method: 'GET',
       headers: {
         Accept: 'application/json',
-        'X-Naver-Client-Id': keyId || '',
-        'X-Naver-Client-Secret': secret || '',
+        'X-NCP-APIGW-API-KEY-ID': keyId || '',
+        'X-NCP-APIGW-API-KEY': secret || '',
       },
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
