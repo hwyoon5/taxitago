@@ -559,19 +559,29 @@ function sanitizeSearchQuery(value: string) {
     .trim()
 }
 
-function looksLikeStreetAddress(query: string) {
+export function looksLikeStreetAddress(query: string) {
   const text = query.replace(/\s+/g, '')
-  if (/(?:로|길|동|읍|면|리)\d/.test(text)) return true
+  if (/(?:로|길|동|읍|면|리|가)\d/.test(text)) return true
   if (/번길|번지/.test(text)) return true
-  if (/(?:동|읍|면|리)/.test(text) && /\d/.test(text)) return true
+  if (/(?:동|읍|면|리|가)/.test(text) && /\d/.test(text)) return true
   if (/(?:로|길|대로)/.test(text) && /\d/.test(text)) return true
   return /\d+-\d+/.test(text)
 }
 
+function spaceAddressQuery(query: string) {
+  return query
+    .replace(/([가-힣]+)(\d+번길)/g, '$1 $2')
+    .replace(/(\d+번길)(\d)/g, '$1 $2')
+    .replace(/([가-힣]+(?:로|길|대로))(\d)/g, '$1 $2')
+    .replace(/([가-힣]+(?:동|읍|면|리|가))(\d)/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function addressQueryVariants(query: string) {
-  const spaced = query.replace(/\s+/g, ' ').trim()
-  const tight = spaced.replace(/\s+/g, '')
-  return [...new Set([spaced, tight])].slice(0, 2)
+  const spaced = spaceAddressQuery(query)
+  const tight = query.replace(/\s+/g, '')
+  return [...new Set([spaced, query.trim(), tight])].filter(Boolean).slice(0, 3)
 }
 
 function queryAliases(query: string) {
@@ -660,14 +670,16 @@ export async function forwardGeocodeOnServer(query: string) {
     catalog.unshift({ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true })
   }
   const addressTasks = addressQuery
-    ? addressQueryVariants(q).flatMap((alias) => [forwardGeocodeNaver(alias), forwardNaverLocalSearch(alias, 'comment'), forwardGeocodeNominatim(alias)])
+    ? addressQueryVariants(q).flatMap((alias) => [forwardGeocodeNaver(alias), forwardGeocodeNominatim(alias)])
     : []
-  const keywordTasks = [
-    forwardNaverLocalSearch(q, 'comment'),
-    forwardNaverLocalSearch(q, 'random'),
-    ...aliases.map((alias) => forwardGeocodeNaver(alias)),
-    ...aliases.map((alias) => forwardGeocodeNominatim(alias)),
-  ]
+  const keywordTasks = addressQuery
+    ? []
+    : [
+        forwardNaverLocalSearch(q, 'comment'),
+        forwardNaverLocalSearch(q, 'random'),
+        ...aliases.map((alias) => forwardGeocodeNaver(alias)),
+        ...aliases.map((alias) => forwardGeocodeNominatim(alias)),
+      ]
   const [addressHits, keywordHits] = await Promise.all([
     collectPlaces(addressTasks, 6000),
     collectPlaces(keywordTasks, 6000),
