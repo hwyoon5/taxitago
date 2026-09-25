@@ -394,19 +394,20 @@ async function forwardNaverPlaceSearch(query: string): Promise<ForwardPlace[]> {
 }
 
 async function forwardGeocodeNaver(query: string, notices: string[] = []): Promise<ForwardPlace[]> {
-  const { keyId, secret } = resolveNaverRestCredentials()
-  if (!keyId || !secret) {
+  const headersList = naverGatewayHeaderSets()
+  if (!headersList.length) {
     notices.push('naver geocode skipped: NAVER_MAP_CLIENT_ID or NAVER_MAP_CLIENT_SECRET is missing')
     return []
   }
   const params = new URLSearchParams({ query, output: 'json', count: '20', language: 'kor' })
   const hosts = ['https://maps.apigw.ntruss.com', 'https://naveropenapi.apigw.ntruss.com']
   let lastStatus = 0
-  for (const host of hosts) {
-    for (const headers of naverGatewayHeaderSets()) {
+  for (const headers of headersList) {
+    for (const host of hosts) {
       try {
         const { status, json } = await ncpGetJson(`${host}/map-geocode/v2/geocode?${params.toString()}`, headers, 5000)
         lastStatus = status
+        if (status === 401 || status === 403) continue
         if (status < 200 || status >= 300) continue
         const places = parseNaverGeocodePlaces(json, query)
         if (places.length) return places
@@ -498,6 +499,47 @@ async function forwardGeocodeNominatim(query: string, notices: string[] = []): P
       .filter((item): item is ForwardPlace => Boolean(item))
   } catch (error) {
     notices.push(`nominatim failed: ${error instanceof Error ? error.message : 'request error'}`)
+    return []
+  }
+}
+
+async function forwardGeocodePhoton(query: string, notices: string[] = []): Promise<ForwardPlace[]> {
+  try {
+    const response = await fetch(`https://photon.komoot.io/api/?limit=8&lang=ko&q=${encodeURIComponent(query)}`, {
+      headers: { Accept: 'application/json', 'User-Agent': 'TaxiTago/1.0 (geocode)' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) {
+      notices.push(`photon HTTP ${response.status}`)
+      return []
+    }
+    const data = (await response.json()) as {
+      features?: Array<{
+        geometry?: { coordinates?: number[] }
+        properties?: { name?: string; street?: string; housenumber?: string; city?: string; state?: string; district?: string; locality?: string; country?: string }
+      }>
+    }
+    return (data.features || [])
+      .map((feature): ForwardPlace | null => {
+        const [lng, lat] = feature.geometry?.coordinates || []
+        const props = feature.properties || {}
+        if (props.country && !/한국|대한민국|south korea|korea/i.test(props.country)) return null
+        const road = [props.street, props.housenumber].filter(Boolean).join(' ')
+        const address = [props.state, props.city || props.district, props.locality, road].filter(Boolean).join(' ')
+        const point = wgs84Point(lat, lng)
+        if (!address || !point) return null
+        return {
+          name: cleanAddress(props.name) || address,
+          address,
+          lat: point.lat,
+          lng: point.lng,
+          trustName: Boolean(props.name),
+        }
+      })
+      .filter((item): item is ForwardPlace => Boolean(item))
+  } catch (error) {
+    notices.push(`photon failed: ${error instanceof Error ? error.message : 'request error'}`)
     return []
   }
 }
@@ -719,15 +761,16 @@ export async function forwardGeocodeOnServer(query: string) {
     catalog.unshift({ name: known.name, address: known.address, lat: known.lat, lng: known.lng, category: inferCategory(known.name), trustName: true })
   }
   const addressTasks = addressQuery
-    ? addressQueryVariants(q).flatMap((alias) => [forwardGeocodeNaver(alias, notices), forwardGeocodeNominatim(alias, notices)])
+    ? addressQueryVariants(q).flatMap((alias) => [forwardGeocodeNaver(alias, notices), forwardGeocodeNominatim(alias, notices), forwardGeocodePhoton(alias, notices)])
     : []
   const keywordTasks = addressQuery
-    ? [forwardGeocodeNominatim(q, notices)]
+    ? [forwardGeocodeNominatim(q, notices), forwardGeocodePhoton(q, notices)]
     : [
         forwardNaverLocalSearch(q, 'comment', notices),
         forwardNaverLocalSearch(q, 'random', notices),
         ...aliases.map((alias) => forwardGeocodeNaver(alias, notices)),
         ...aliases.map((alias) => forwardGeocodeNominatim(alias, notices)),
+        forwardGeocodePhoton(q, notices),
       ]
   const [addressHits, keywordHits] = await Promise.all([
     collectPlaces(addressTasks, 6000),

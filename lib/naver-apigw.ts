@@ -96,10 +96,22 @@ export function resolveNaverSearchCredentials() {
   }
 }
 
+export function naverRestCredentialPairs() {
+  const ids = [...new Set(CLIENT_ID_ENVS.map((name) => runtimeEnv(name)).filter(Boolean))]
+  const secrets = [...new Set(CLIENT_SECRET_ENVS.map((name) => runtimeEnv(name)).filter(Boolean))]
+  const pairs: Array<{ keyId: string; secret: string }> = []
+  for (const keyId of ids) {
+    for (const secret of secrets) {
+      pairs.push({ keyId, secret })
+      if (pairs.length >= 4) return pairs
+    }
+  }
+  return pairs
+}
+
 export function naverGatewayHeaderSets() {
-  const { keyId, secret } = resolveNaverRestCredentials()
-  if (!keyId || !secret) return [] as Record<string, string>[]
-  return [
+  const pairs = naverRestCredentialPairs()
+  return pairs.flatMap(({ keyId, secret }) => [
     {
       Accept: 'application/json',
       'X-NCP-APIGW-API-KEY-ID': keyId,
@@ -110,7 +122,7 @@ export function naverGatewayHeaderSets() {
       'x-ncp-apigw-api-key-id': keyId,
       'x-ncp-apigw-api-key': secret,
     },
-  ]
+  ])
 }
 
 export function naverGatewayHeaders() {
