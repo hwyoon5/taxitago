@@ -1,5 +1,3 @@
-import { env as nodeEnv } from 'node:process'
-
 export type KakaoSearchPlace = {
   name: string
   address: string
@@ -17,7 +15,20 @@ function cleanEnv(value?: string | null) {
 }
 
 function runtimeEnv(name: string) {
-  return cleanEnv(nodeEnv[name] || process.env[name])
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } })['process']
+  return cleanEnv(proc?.['env']?.[name])
+}
+
+function addressQueryVariants(query: string) {
+  const spaced = query
+    .replace(/([가-힣]+)(\d+번길)/g, '$1 $2')
+    .replace(/(\d+번길)(\d)/g, '$1 $2')
+    .replace(/([가-힣]+(?:로|길|대로))(\d)/g, '$1 $2')
+    .replace(/([가-힣]+(?:동|읍|면|리|가))(\d)/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const tight = query.replace(/\s+/g, '')
+  return [...new Set([spaced, query.trim(), tight])].filter(Boolean).slice(0, 3)
 }
 
 function kakaoRestKey() {
@@ -194,10 +205,15 @@ function samePlace(a: KakaoSearchPlace, b: KakaoSearchPlace) {
 export async function searchKakaoPlaces(query: string) {
   const q = sanitizeDestinationQuery(query)
   if (!q) return [] as KakaoSearchPlace[]
-  const [keywords, addresses] = await Promise.all([
-    kakaoGet('/v2/local/search/keyword.json', q),
-    kakaoGet('/v2/local/search/address.json', q),
-  ])
+  const variants = addressQueryVariants(q)
+  const batches = await Promise.all(
+    variants.flatMap((variant) => [
+      kakaoGet('/v2/local/search/keyword.json', variant),
+      kakaoGet('/v2/local/search/address.json', variant),
+    ]),
+  )
+  const keywords = batches.filter((_, index) => index % 2 === 0).flat()
+  const addresses = batches.filter((_, index) => index % 2 === 1).flat()
   const places = [
     ...keywords.map((item) => fromKeyword(item as KakaoKeywordDoc)),
     ...addresses.map((item) => fromAddress(item as KakaoAddressDoc)),

@@ -1,5 +1,3 @@
-import { env as nodeEnv } from 'node:process'
-
 function cleanEnv(value?: string | null) {
   return String(value || '')
     .replace(/^\uFEFF/, '')
@@ -7,9 +5,10 @@ function cleanEnv(value?: string | null) {
     .replace(/^['"]|['"]$/g, '')
 }
 
-/** Read the live server environment. Dot access can be frozen to an empty build-time value. */
+/** Request-time env. Dot access and `node:process` copies can stay empty after the production build. */
 function runtimeEnv(name: string) {
-  return cleanEnv(nodeEnv[name] || process.env[name])
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } })['process']
+  return cleanEnv(proc?.['env']?.[name])
 }
 
 const CLIENT_ID_ENVS = [
