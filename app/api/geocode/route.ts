@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { searchKakaoPlaces } from '@/lib/kakao-local'
 import { forwardGeocodeOnServer, reverseGeocodeOnServer } from '@/lib/server-geocode'
 
 export const runtime = 'nodejs'
@@ -8,7 +9,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const query = (searchParams.get('q') || searchParams.get('query') || '').replace(/\u00a0|\u3000/g, ' ').replace(/\s+/g, ' ').trim()
   if (query) {
-    const places = await forwardGeocodeOnServer(query)
+    const kakaoPlaces = await searchKakaoPlaces(query)
+    const places = kakaoPlaces.length ? kakaoPlaces : await forwardGeocodeOnServer(query)
     return NextResponse.json({ places, query })
   }
   const lat = Number(searchParams.get('lat'))
