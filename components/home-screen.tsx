@@ -439,10 +439,12 @@ function LocationMapModal({
             }}
             onLocate={() => {
               userMovedRef.current = false
-              void requestBrowserPosition().then((point) => {
-                if (point) applyPoint(point.lat, point.lng, 'gps', true)
-                else applyPoint(start.lat, start.lng, 'fallback', true)
-              })
+              if (typeof navigator === 'undefined' || !navigator.geolocation) return
+              navigator.geolocation.getCurrentPosition(
+                (position) => applyPoint(position.coords.latitude, position.coords.longitude, 'gps', true),
+                () => undefined,
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+              )
             }}
           />
           <div className="pointer-events-none absolute inset-x-3 top-3">

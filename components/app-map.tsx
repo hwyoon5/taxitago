@@ -584,6 +584,17 @@ function worldToLatLng(x: number, y: number, zoom: number) {
   return { lat: (latRad * 180) / Math.PI, lng }
 }
 
+function readLiveDevicePosition() {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null)
+  return new Promise<{ lat: number; lng: number } | null>((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    )
+  })
+}
+
 function MapControls({
   onZoomIn,
   onZoomOut,
@@ -989,9 +1000,15 @@ function FallbackSlippyMap({
           onZoomOut={onZoomOut}
           locatePlacement={locatePlacement}
           onLocate={() => {
-            setView({ lat, lng })
-            onLocate?.()
-            liveAddressRef.current.run(lat, lng)
+            void readLiveDevicePosition().then((point) => {
+              if (!point) return
+              setView(point)
+              onAddressChange?.({ lat: point.lat, lng: point.lng, address: ADDRESS_LOADING })
+              requestAddressLookup(point.lat, point.lng, (address) => {
+                onAddressChange?.({ lat: point.lat, lng: point.lng, address })
+              })
+              onLocate?.()
+            })
           }}
         />
       ) : null}
@@ -1223,13 +1240,19 @@ function NaverLocationMap(props: MapViewProps) {
           onZoomOut={() => changeNaverZoom(-1)}
           locatePlacement={locatePlacement}
           onLocate={() => {
-            const map = mapRef.current
-            const sdk = mapsRef.current
-            if (!map || !sdk) return
-            const next = naverLatLng(liveNaverMaps(sdk), centerRef.current.lat, centerRef.current.lng)
-            if (next) map.panTo(next)
-            pinRef.current?.draw?.()
-            onLocate?.()
+            void readLiveDevicePosition().then((point) => {
+              if (!point) return
+              const map = mapRef.current
+              const sdk = mapsRef.current
+              const next = map && sdk ? naverLatLng(liveNaverMaps(sdk), point.lat, point.lng) : null
+              if (map && next) map.panTo(next)
+              pinRef.current?.draw?.()
+              onAddressChange?.({ lat: point.lat, lng: point.lng, address: ADDRESS_LOADING })
+              requestAddressLookup(point.lat, point.lng, (address) => {
+                onAddressChange?.({ lat: point.lat, lng: point.lng, address })
+              })
+              onLocate?.()
+            })
           }}
         />
       ) : null}
@@ -1989,12 +2012,15 @@ function NaverNearbyServiceMap({
           map.setZoom(Math.max(12, map.getZoom() - 1))
         }}
         onLocate={() => {
-          const map = mapRef.current
-          const maps = liveNaverMaps(mapsRef.current)
-          if (!map || !maps) return
-          const next = naverLatLng(maps, origin.lat, origin.lng)
-          if (next) map.panTo(next)
-          map.setZoom(16)
+          void readLiveDevicePosition().then((point) => {
+            if (!point) return
+            const map = mapRef.current
+            const maps = liveNaverMaps(mapsRef.current)
+            if (!map || !maps) return
+            const next = naverLatLng(maps, point.lat, point.lng)
+            if (next) map.panTo(next)
+            map.setZoom(16)
+          })
         }}
       />
       <p className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold text-[#334155] shadow-sm">내 위치 기준 가까운 지점</p>

@@ -133,12 +133,29 @@ export function PlacePickerScreen({
   const goInitial = () => {
     const sdk = mapsRef.current
     const map = mapRef.current
-    if (!sdk || !map) return
-    try {
-      map.panTo(new sdk.LatLng(lat, lng))
-    } catch {
-      undefined
-    }
+    if (!sdk || !map || typeof navigator === 'undefined' || !navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const nextLat = position.coords.latitude
+        const nextLng = position.coords.longitude
+        try {
+          map.panTo(new sdk.LatLng(nextLat, nextLng))
+        } catch {
+          undefined
+        }
+        const requestId = ++lookupIdRef.current
+        setLooking(true)
+        setLabel(ADDRESS_LOADING)
+        requestAddressLookup(nextLat, nextLng, (nextAddress) => {
+          if (requestId !== lookupIdRef.current) return
+          centerRef.current = { lat: nextLat, lng: nextLng }
+          setLabel(nextAddress)
+          setLooking(false)
+        })
+      },
+      () => undefined,
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    )
   }
 
   const confirm = () => {

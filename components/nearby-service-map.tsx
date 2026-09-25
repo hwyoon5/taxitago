@@ -280,9 +280,15 @@ export function NearbyServiceMap({
           onClick={() => {
             const map = mapRef.current
             const maps = naverMapsApi()
-            if (!map || !maps?.LatLng) return
-            map.panTo(new maps.LatLng(originRef.current.lat, originRef.current.lng))
-            forceMapResize(map, containerRef.current)
+            if (!map || !maps?.LatLng || typeof navigator === 'undefined' || !navigator.geolocation) return
+            navigator.geolocation.getCurrentPosition(
+              (position) => {
+                map.panTo(new maps.LatLng(position.coords.latitude, position.coords.longitude))
+                forceMapResize(map, containerRef.current)
+              },
+              () => undefined,
+              { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+            )
           }}
         >
           <LocateFixed className="h-4 w-4" />
