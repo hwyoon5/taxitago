@@ -484,6 +484,56 @@ const READ_NOTICES_KEY = 'taxitago-read-notices'
 const RECENT_DEST_KEY = 'taxitago-recent-destinations'
 const PICKUP_KEY = 'taxitago-pickup-place'
 const ACTIVITY_KEY = 'taxitago-activity-log'
+const RECENT_USE_KEY = 'taxitago-recent-use'
+
+type RecentUse = {
+  route: string
+  fare: number
+  service: string
+  at: string
+  paymentId: string
+  txid: string
+}
+
+function loadRecentUse(): RecentUse | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RECENT_USE_KEY) || 'null') as RecentUse | null
+    if (!parsed || typeof parsed.route !== 'string' || !(parsed.fare > 0)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function saveRecentUse(item: RecentUse) {
+  window.localStorage.setItem(RECENT_USE_KEY, JSON.stringify(item))
+}
+
+function formatRecentFare(amount: number) {
+  return `${Number(amount.toFixed(2))} Pi`
+}
+
+function receiptFromRecent(item: RecentUse): RideReceipt {
+  const parts = item.route.split('→').map((part) => part.trim())
+  const origin = parts[0] || item.route
+  const dest = parts.length > 1 ? parts.slice(1).join(' → ') : item.route
+  return {
+    route: item.route,
+    origin,
+    dest,
+    fare: formatRecentFare(item.fare),
+    vehicle: item.service,
+    date: item.at,
+    distance: '-',
+    duration: '-',
+    driver: '-',
+    car: item.service,
+    plate: '-',
+    transactionId: item.txid,
+    method: 'Pi 월렛',
+  }
+}
 
 type ActivityEntry = { id: string; at: string; label: string; detail: string }
 
@@ -3619,6 +3669,56 @@ function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => v
   )
 }
 
+const HOME_PARTNER_BANNERS: {
+  id: string
+  name: string
+  subtitle: string
+  cta: string
+  href: string | null
+  logoSrc: string
+}[] = [
+  {
+    id: 'baroonda',
+    name: 'BaroOnda',
+    subtitle: '파트너 서비스 안내는 준비 중이에요',
+    cta: '자세히 보기',
+    href: null,
+    logoSrc: '/ads/baroonda-logo.svg',
+  },
+]
+
+function HomePartnerBanners() {
+  return (
+    <section className="mt-3" aria-label="광고 및 파트너">
+      <div className="flex items-end justify-between px-0.5">
+        <h2 className="text-sm font-black tracking-tight text-[#0F172A]">광고 · 파트너</h2>
+        <span className="text-[10px] font-bold text-[#64748B]">좌우로 넘겨 보세요</span>
+      </div>
+      <div className="mt-2 flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {HOME_PARTNER_BANNERS.map((banner) => (
+          <a
+            key={banner.id}
+            href={banner.href ?? undefined}
+            onClick={(event) => {
+              if (!banner.href) event.preventDefault()
+            }}
+            className="relative flex min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start flex-col overflow-hidden rounded-[22px] border border-[#E2E8F0] bg-white p-4 text-left text-[#0F172A] shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
+            aria-label={`${banner.name} ${banner.subtitle}`}
+          >
+            <img src={banner.logoSrc} alt="BaroOnda" className="h-9 w-auto max-w-[11rem] object-contain object-left" />
+            <p className="mt-2.5 text-[17px] font-black leading-snug tracking-tight">{banner.name}</p>
+            <p className="mt-1 text-[12px] font-bold leading-5 text-[#64748B]">{banner.subtitle}</p>
+            <span className="mt-3 inline-flex items-center gap-0.5 text-[12px] font-black text-[#4C1FB8]">
+              {banner.cta}
+              <ChevronRight className="h-3.5 w-3.5" />
+            </span>
+          </a>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function Home({
   destination,
   pickup,
@@ -3631,6 +3731,7 @@ function Home({
   onReceipt,
   onOpenMap,
   destSearchTick = 0,
+  recentUse = null,
 }: {
   destination: string
   pickup: string
@@ -3643,6 +3744,7 @@ function Home({
   onReceipt: (ride: RideReceipt) => void
   onOpenMap: () => void
   destSearchTick?: number
+  recentUse?: RecentUse | null
 }) {
   const { t } = useLocale()
   const [searchOpen, setSearchOpen] = useState(false)
@@ -3781,11 +3883,14 @@ function Home({
             </div>
           </div>
         </section>
-        <button type="button" onClick={() => onReceipt(SAMPLE_RIDES[0])} className="mt-3 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
+        <button type="button" onClick={() => onReceipt(recentUse ? receiptFromRecent(recentUse) : SAMPLE_RIDES[0])} className="mt-3 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
           <p className="text-[10px] font-bold text-[#64748B]">{t('home.recent')}</p>
-          <p className="text-[13px] font-black leading-tight">서울시청 → 강남역 · 3.2 Pi</p>
+          <p className="line-clamp-2 text-[13px] font-black leading-tight">
+            {recentUse ? `${recentUse.route} · ${formatRecentFare(recentUse.fare)}` : '서울시청 → 강남역 · 3.2 Pi'}
+          </p>
         </button>
         <HomeEventBanners onAction={onService} />
+        <HomePartnerBanners />
       {searchOpen ? (
         <DestinationSearchModal
           destination={destination}
@@ -5930,6 +6035,7 @@ export default function HomeScreen() {
   const [supportDesk, setSupportDesk] = useState<LostPrefill | null | true>(null)
   const [transactions, setTransactions] = useState<PiTransaction[]>(DEFAULT_PI_TX)
   const [activities, setActivities] = useState<ActivityEntry[]>([])
+  const [recentUse, setRecentUse] = useState<RecentUse | null>(null)
 
   const showNotice = (message: string) => {
     setNotice(message)
@@ -6015,6 +6121,7 @@ export default function HomeScreen() {
     setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
     setActivities(loadActivities())
+    setRecentUse(loadRecentUse())
     const storedPickup = readPickupPlace()
     if (storedPickup && Number.isFinite(storedPickup.lat) && Number.isFinite(storedPickup.lng) && usableMapAddress(storedPickup.address)) {
       pickupRef.current = storedPickup
@@ -6091,6 +6198,23 @@ export default function HomeScreen() {
     setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
     recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(2)} Pi · ${place}`)
     setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated, paymentId: proof.paymentId, txid: proof.txid })
+    if (!label.includes('취소')) {
+      const from = origin.address.trim() || '현재 위치'
+      const tripDest = (destPlace?.address || destPlace?.label || destination).trim()
+      let route = place.trim()
+      if (label.includes('택배') && tripDest) route = `${from} → ${tripDest}`
+      else if (!route.includes('→')) route = `${from} → ${route || tripDest || label}`
+      const next: RecentUse = {
+        route,
+        fare: amount,
+        service: label.replace(/\s*(이용|결제)$/, '').trim() || label,
+        at,
+        paymentId: proof.paymentId,
+        txid: proof.txid,
+      }
+      saveRecentUse(next)
+      setRecentUse(next)
+    }
   }
   const payWithPi = async (amount: number, place: string, label: string, estimated?: number) => {
     try {
@@ -6298,6 +6422,7 @@ export default function HomeScreen() {
             onReceipt={setReceiptRide}
             onOpenMap={openPickupMap}
             destSearchTick={destSearchTick}
+            recentUse={recentUse}
           />
         )}
         {tab !== '홈' && tab !== '기사/파트너' && (
