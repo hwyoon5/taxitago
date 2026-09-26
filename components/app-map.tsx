@@ -1781,10 +1781,12 @@ export function TaxiLiveMap({
       <div className="pointer-events-none absolute right-3 top-3 z-[15]">
         <span className="rounded-full bg-[#4A82B8] px-2.5 py-1 text-[10px] font-bold text-white shadow-[0_6px_14px_rgba(15,23,42,0.16)]">{statusLabel}</span>
       </div>
-      <div className="absolute bottom-3 left-3 z-[15] flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold text-[#334155] shadow-sm">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-[#4A82B8]" />
-        {journeyLabel ?? (phase === 'arriving' ? (kind === 'daeri' ? '기사 → 호출자 이동 중' : '기사 → 승객 이동 중') : phase === 'boarding' ? (kind === 'daeri' ? '호출자 위치 도착' : '픽업 지점 도착') : '출발지 → 목적지 주행 중')}
-      </div>
+      {journeyLabel !== statusLabel ? (
+        <div className="absolute bottom-3 left-3 z-[15] flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold text-[#334155] shadow-sm">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-[#4A82B8]" />
+          {journeyLabel ?? (phase === 'arriving' ? (kind === 'daeri' ? '기사 → 호출자 이동 중' : '기사 → 승객 이동 중') : phase === 'boarding' ? (kind === 'daeri' ? '호출자 위치 도착' : '픽업 지점 도착') : '출발지 → 목적지 주행 중')}
+        </div>
+      ) : null}
     </div>
   )
 }
