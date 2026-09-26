@@ -2998,6 +2998,7 @@ function ServiceSheet({
             ) : (
               <>
                 <PiCheckoutButton
+                  ensurePaymentsScope={service === '택배'}
                   amount={fare}
                   memo={`${service} ${fare} Pi`}
                   metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
