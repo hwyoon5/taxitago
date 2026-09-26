@@ -769,7 +769,13 @@ function FallbackSlippyMap({
   onZoomOut,
   notice,
   children,
-}: MapViewProps & { zoom: number; onZoomIn: () => void; onZoomOut: () => void; notice?: string; children?: ReactNode }) {
+}: MapViewProps & {
+  zoom: number
+  onZoomIn: () => void
+  onZoomOut: () => void
+  notice?: string
+  children?: ReactNode | ((frame: { lat: number; lng: number; width: number; height: number }) => ReactNode)
+}) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [view, setView] = useState({ lat, lng })
@@ -992,7 +998,7 @@ function FallbackSlippyMap({
           )}
         </span>
       ) : null}
-      {children}
+      {typeof children === 'function' ? children({ lat: view.lat, lng: view.lng, width: size.width, height: size.height }) : children}
       <FallbackNotice message={notice} />
       {interactive || showZoom ? (
         <MapControls
@@ -1274,6 +1280,7 @@ function LiveFallbackOverlay({
   path,
   zoom,
   size,
+  center,
 }: {
   phase: TaxiLivePhase
   kind: 'taxi' | 'daeri'
@@ -1283,11 +1290,11 @@ function LiveFallbackOverlay({
   path: RidePoint[]
   zoom: number
   size: { width: number; height: number }
+  center: RidePoint
 }) {
-  const mid = lerpPoint(origin, dest, 0.5)
-  const center = latLngToWorld(mid.lat, mid.lng, zoom)
-  const originX = center.x - size.width / 2
-  const originY = center.y - size.height / 2
+  const frame = latLngToWorld(center.lat, center.lng, zoom)
+  const originX = frame.x - size.width / 2
+  const originY = frame.y - size.height / 2
   const toPx = (point: RidePoint) => {
     const world = latLngToWorld(point.lat, point.lng, zoom)
     return { left: world.x - originX, top: world.y - originY }
@@ -1357,7 +1364,6 @@ function NaverLiveRideMap({
   const mid = lerpPoint(origin, dest, 0.5)
   const [mode, setMode] = useState<'loading' | 'naver' | 'fallback'>(hasNaverMapClientId() ? 'loading' : 'fallback')
   const [zoom, setZoom] = useState(15)
-  const [size, setSize] = useState({ width: 0, height: 0 })
   const [loadNotice, setLoadNotice] = useState<string | undefined>()
   const [loadHint, setLoadHint] = useState('지도를 불러오는 중이에요')
   const [loadAttempt, setLoadAttempt] = useState(0)
@@ -1418,16 +1424,6 @@ function NaverLiveRideMap({
       window.clearTimeout(third)
     }
   }, [hostRef])
-
-  useEffect(() => {
-    const node = hostRef.current
-    if (!node) return
-    const measure = () => setSize({ width: node.clientWidth, height: node.clientHeight })
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [mode])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1643,7 +1639,19 @@ function NaverLiveRideMap({
           onZoomOut={() => setZoom((value) => Math.max(12, value - 1))}
           notice={loadNotice}
         >
-          <LiveFallbackOverlay phase={phase} kind={kind} taxi={taxi} origin={origin} dest={dest} path={routePath} zoom={zoom} size={size} />
+          {(frame) => (
+            <LiveFallbackOverlay
+              phase={phase}
+              kind={kind}
+              taxi={taxi}
+              origin={origin}
+              dest={dest}
+              path={routePath}
+              zoom={zoom}
+              size={{ width: frame.width, height: frame.height }}
+              center={{ lat: frame.lat, lng: frame.lng }}
+            />
+          )}
         </FallbackSlippyMap>
       ) : null}
       {mode === 'loading' ? (
