@@ -9,7 +9,7 @@ type IncompletePiPayment = {
 }
 
 type PiSdk = {
-  init: (config: { version: string; sandbox?: boolean }) => void
+  init: (config: { version: string; sandbox?: boolean }) => void | Promise<unknown>
   authenticate: (
     scopes: string[],
     onIncompletePaymentFound: (payment: IncompletePiPayment) => void | Promise<void>,
@@ -242,6 +242,26 @@ function initPi(pi: PiSdk) {
   }
 }
 
+/** 대리운전·택배 이용 완료 전용. 모듈 플래그와 상관없이 Pi.init을 끝낸 뒤에만 결제로 간다. */
+async function ensureServicePiInit(pi: PiSdk) {
+  const config = { version: '2.0', sandbox: PI_SANDBOX }
+  try {
+    const pending = pi.init(config)
+    if (pending && typeof (pending as Promise<unknown>).then === 'function') await pending
+    initialized = true
+    logPi('log', 'Pi.init', config)
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error)
+    if (/already initialized/i.test(text)) {
+      initialized = true
+      logPi('log', 'Pi.init already done', config)
+      return
+    }
+    logPi('error', 'Pi.init failed', error)
+    throw error instanceof Error ? error : new Error('Pi.init()에 실패했습니다.')
+  }
+}
+
 const PI_SDK_SRC = 'https://sdk.minepi.com/pi-sdk.js'
 
 function loadPiSdkScript() {
@@ -449,8 +469,12 @@ export async function startPiCheckout(options: {
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
   const pi = (await preparePiSdk()) ?? requirePiSdk()
+  if (options.requirePaymentsScope) await ensureServicePiInit(pi)
   await authenticatePi(pi)
-  if (options.requirePaymentsScope) grantPaymentsScope(pi)
+  if (options.requirePaymentsScope) {
+    grantPaymentsScope(pi)
+    await ensureServicePiInit(pi)
+  }
 
   const payment = {
     amount,
