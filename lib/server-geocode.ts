@@ -1,4 +1,17 @@
-import { naverGatewayHeaderSets, ncpGetJson, resolveNaverRestCredentials } from '@/lib/naver-apigw'
+import { ncpGetJson } from '@/lib/naver-apigw'
+
+const NAVER_NCP_CLIENT_ID = 'svhbb5mbpy'
+const NAVER_NCP_CLIENT_SECRET = 'C3Dvy2Rh0MzRViYxQsnphvO6b9PrhEPe45xTarOD'
+
+function naverNcpHeaders(): Record<string, string>[] {
+  return [
+    {
+      Accept: 'application/json',
+      'X-NCP-APIGW-API-KEY-ID': NAVER_NCP_CLIENT_ID,
+      'X-NCP-APIGW-API-KEY': NAVER_NCP_CLIENT_SECRET,
+    },
+  ]
+}
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 
 function cleanAddress(value: unknown) {
@@ -64,7 +77,7 @@ function parseNaverReverseAddress(payload: unknown) {
 }
 
 async function ncpJson(url: string) {
-  for (const headers of naverGatewayHeaderSets()) {
+  for (const headers of naverNcpHeaders()) {
     try {
       const { status, json } = await ncpGetJson(url, headers, 5000)
       if (status >= 200 && status < 300 && json) return json
@@ -92,8 +105,6 @@ function withDeadline<T>(task: Promise<T>, ms: number, fallback: T) {
 }
 
 async function reverseGeocodeNaverRest(lat: number, lng: number) {
-  const { keyId, secret } = resolveNaverRestCredentials()
-  if (!keyId || !secret) return ''
   const query = new URLSearchParams({
     coords: `${lng},${lat}`,
     sourcecrs: 'epsg:4326',
@@ -103,7 +114,7 @@ async function reverseGeocodeNaverRest(lat: number, lng: number) {
   const hosts = ['https://maps.apigw.ntruss.com', 'https://naveropenapi.apigw.ntruss.com']
   const found = await Promise.all(
     hosts.map(async (host) => {
-      for (const headers of naverGatewayHeaderSets()) {
+      for (const headers of naverNcpHeaders()) {
         try {
           const { status, json } = await ncpGetJson(`${host}/map-reversegeocode/v2/gc?${query.toString()}`, headers, 2200)
           if (status < 200 || status >= 300) continue
@@ -322,21 +333,12 @@ async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random'
     notices.push('naver local search skipped: previous 401 or 403')
     return []
   }
-  const { keyId, secret } = resolveNaverRestCredentials()
-  if (!keyId || !secret) {
-    notices.push('naver local search skipped: NAVER_MAP_CLIENT_ID or NAVER_MAP_CLIENT_SECRET is missing')
-    return []
-  }
   const params = new URLSearchParams({ query, display: '5', start: '1', sort })
   const url = `https://openapi.naver.com/v1/search/local.json?${params.toString()}`
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        'X-NCP-APIGW-API-KEY-ID': keyId || '',
-        'X-NCP-APIGW-API-KEY': secret || '',
-      },
+      headers: naverNcpHeaders()[0],
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     })
@@ -378,8 +380,6 @@ async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random'
 }
 
 async function forwardNaverPlaceSearch(query: string): Promise<ForwardPlace[]> {
-  const { keyId, secret } = resolveNaverRestCredentials()
-  if (!keyId || !secret) return []
   const params = new URLSearchParams({ query, language: 'ko' })
   const hosts = ['https://maps.apigw.ntruss.com', 'https://naveropenapi.apigw.ntruss.com']
   const paths = [`/map-place/v1/search?${params}`, `/map-places/v1/search?${params}`]
@@ -394,11 +394,7 @@ async function forwardNaverPlaceSearch(query: string): Promise<ForwardPlace[]> {
 }
 
 async function forwardGeocodeNaver(query: string, notices: string[] = []): Promise<ForwardPlace[]> {
-  const headersList = naverGatewayHeaderSets()
-  if (!headersList.length) {
-    notices.push('naver geocode skipped: NAVER_MAP_CLIENT_ID or NAVER_MAP_CLIENT_SECRET is missing')
-    return []
-  }
+  const headersList = naverNcpHeaders()
   const params = new URLSearchParams({ query, output: 'json', count: '20', language: 'kor' })
   const hosts = ['https://maps.apigw.ntruss.com', 'https://naveropenapi.apigw.ntruss.com']
   let lastStatus = 0
