@@ -37,7 +37,7 @@ const MESSAGE_TABLE = {
     'home.dest': '목적지',
     'home.destPlaceholder': '어디로 갈까요?',
     'home.destSearch': '목적지 검색 열기',
-    'home.callTaxi': '택시 호출하기',
+    'home.callTaxi': '택시 호출',
     'home.callDaeri': '대리운전 부르기',
     'home.whatToUse': '무엇을 이용할까요?',
     'home.serviceCount': '{count}개 서비스',

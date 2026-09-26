@@ -3866,18 +3866,18 @@ function Home({
             )
           })}
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="mt-3 flex w-full flex-row flex-nowrap gap-2">
           <button
             type="button"
             onClick={callTaxi}
-            className="flex min-h-12 items-center justify-center rounded-2xl bg-[#4C1FB8] px-2 text-[14px] font-black tracking-tight text-white shadow-[0_8px_18px_rgba(76,31,184,0.28)] transition hover:bg-[#3B16A8] active:scale-[0.99]"
+            className="flex min-h-12 min-w-0 flex-1 items-center justify-center rounded-2xl bg-[#4C1FB8] px-2 text-[14px] font-black tracking-tight text-white shadow-[0_8px_18px_rgba(76,31,184,0.28)] transition hover:bg-[#3B16A8] active:scale-[0.99]"
           >
             {t('home.callTaxi')}
           </button>
           <button
             type="button"
             onClick={callDaeri}
-            className="flex min-h-12 items-center justify-center rounded-2xl border-2 border-[#4C1FB8] bg-white px-2 text-[14px] font-black tracking-tight text-[#4C1FB8] transition hover:bg-[#F8F5FF] active:scale-[0.99]"
+            className="flex min-h-12 min-w-0 flex-1 items-center justify-center rounded-2xl border-2 border-[#4C1FB8] bg-white px-2 text-[14px] font-black tracking-tight text-[#4C1FB8] transition hover:bg-[#F8F5FF] active:scale-[0.99]"
           >
             {t('home.callDaeri')}
           </button>
