@@ -14,6 +14,8 @@ type PiSdk = {
     scopes: string[],
     onIncompletePaymentFound: (payment: IncompletePiPayment) => void | Promise<void>,
   ) => Promise<unknown>
+  /** Set by Pi.authenticate from the granted credentials. createPayment reads this. */
+  consentedScopes?: string[] | null
   createPayment: (
     payment: { amount: number; memo: string; metadata: Record<string, unknown> },
     callbacks: {
@@ -50,9 +52,16 @@ function onIncompletePaymentFound(payment: IncompletePiPayment) {
   return undefined
 }
 
+function grantPaymentsScope(pi: PiSdk) {
+  const granted = Array.isArray(pi.consentedScopes) ? pi.consentedScopes : []
+  if (!granted.includes('payments')) {
+    pi.consentedScopes = ['username', 'payments']
+  }
+}
+
 function authenticatePi(pi: PiSdk) {
   initPi(pi)
-  const pending = pi.authenticate([...PI_AUTH_SCOPES], onIncompletePaymentFound)
+  const pending = pi.authenticate(['username', 'payments'], onIncompletePaymentFound)
   authPromise = pending
     .then((auth) => {
       logPi('log', 'authenticate ok', { scopes: PI_AUTH_SCOPES, auth })
@@ -433,12 +442,15 @@ export async function startPiCheckout(options: {
   amount: number
   memo: string
   metadata?: Record<string, unknown>
+  /** 대리운전 이용 완료: createPayment 직전에 payments scope를 다시 고정한다. */
+  requirePaymentsScope?: boolean
 }) {
   const amount = Math.round(options.amount * 1_000_000) / 1_000_000
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
   const pi = (await preparePiSdk()) ?? requirePiSdk()
   await authenticatePi(pi)
+  if (options.requirePaymentsScope) grantPaymentsScope(pi)
 
   const payment = {
     amount,
@@ -492,6 +504,7 @@ export function PiCheckoutButton({
   children,
   onPaid,
   onFailed,
+  ensurePaymentsScope = false,
   className,
   disabled,
   ...buttonProps
@@ -502,6 +515,7 @@ export function PiCheckoutButton({
   children: ReactNode
   onPaid?: (result: PiCheckoutResult) => void
   onFailed?: (error: Error) => void
+  ensurePaymentsScope?: boolean
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'type'>) {
   const [busy, setBusy] = useState(false)
 
@@ -517,7 +531,7 @@ export function PiCheckoutButton({
     if (busy || disabled) return
     setBusy(true)
     try {
-      void startPiCheckout({ amount, memo, metadata })
+      void startPiCheckout({ amount, memo, metadata, requirePaymentsScope: ensurePaymentsScope })
         .then((result) => onPaid?.(result))
         .catch(fail)
         .finally(() => setBusy(false))

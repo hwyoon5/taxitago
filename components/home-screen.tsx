@@ -2978,6 +2978,7 @@ function ServiceSheet({
                 }
               >
                 <PiCheckoutButton
+                  ensurePaymentsScope
                   amount={rideStage === 'moving' ? billed.actual : fare}
                   memo={`${service} ${(rideStage === 'moving' ? billed.actual : fare)} Pi`}
                   metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
