@@ -62,28 +62,31 @@ declare global {
   }
 }
 
-const PLACEHOLDER_IDS = new Set(['', 'YOUR_CLIENT_ID', 'your_client_id', 'undefined', 'null'])
+const PLACEHOLDER_IDS = new Set([
+  '',
+  'your_client_id',
+  'undefined',
+  'null',
+  'client id',
+  'client%20id',
+  'ncpclientid',
+])
 
 function normalizeClientId(value?: string | null) {
-  const id = (value || '').trim()
-  if (!id || PLACEHOLDER_IDS.has(id)) return ''
+  let id = (value || '').trim()
+  try {
+    id = decodeURIComponent(id).trim()
+  } catch {
+    undefined
+  }
+  if (!id || PLACEHOLDER_IDS.has(id.toLowerCase())) return ''
   return id
 }
 
-const DEFAULT_NAVER_MAP_CLIENT_ID = 'svhbb5mbpy'
+const NAVER_MAP_CLIENT_ID = 'svhbb5mbpy'
 
 export function resolveNaverMapClientId() {
-  return (
-    normalizeClientId(
-      process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID ||
-        process.env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID ||
-        process.env.NAVER_MAP_CLIENT_ID ||
-        process.env.NAVER_CLIENT_ID ||
-        process.env.NCP_KEY_ID ||
-        process.env.NAVER_MAP_NCP_KEY_ID ||
-        '',
-    ) || DEFAULT_NAVER_MAP_CLIENT_ID
-  )
+  return NAVER_MAP_CLIENT_ID
 }
 
 export function getNaverMapClientId() {
