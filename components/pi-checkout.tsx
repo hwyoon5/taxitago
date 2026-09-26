@@ -37,8 +37,34 @@ const PI_SANDBOX_RAW = (process.env.NEXT_PUBLIC_PI_SANDBOX ?? 'true').trim().toL
 /** Developer portal testnet → true. Mainnet app → NEXT_PUBLIC_PI_SANDBOX=false */
 export const PI_SANDBOX = PI_SANDBOX_RAW !== 'false' && PI_SANDBOX_RAW !== '0' && PI_SANDBOX_RAW !== 'mainnet'
 
+const PI_AUTH_SCOPES = ['username', 'payments'] as const
+
 let initialized = false
 let authPromise: Promise<unknown> | null = null
+
+function onIncompletePaymentFound(payment: IncompletePiPayment) {
+  logPi('log', 'onIncompletePaymentFound', payment)
+  const paymentId = typeof payment.identifier === 'string' ? payment.identifier : ''
+  const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
+  if (paymentId && txid) return postPiApi('/api/pi/complete', { paymentId, txid })
+  return undefined
+}
+
+function authenticatePi(pi: PiSdk) {
+  initPi(pi)
+  const pending = pi.authenticate([...PI_AUTH_SCOPES], onIncompletePaymentFound)
+  authPromise = pending
+    .then((auth) => {
+      logPi('log', 'authenticate ok', { scopes: PI_AUTH_SCOPES, auth })
+      return auth
+    })
+    .catch((error) => {
+      resetPiSession()
+      logPi('error', 'authenticate failed', error)
+      throw error
+    })
+  return authPromise
+}
 
 function resetPiSession() {
   authPromise = null
@@ -307,24 +333,7 @@ export async function signInWithPi(): Promise<PiSession> {
     const pi = await preparePiSdk()
     if (!pi) throw new Error('Pi SDK(window.Pi)가 로드되지 않았습니다. Pi Browser에서 열어 주세요.')
     resetPiSession()
-    initPi(pi)
-    authPromise = pi
-      .authenticate(['username', 'payments'], async (payment) => {
-        logPi('log', 'onIncompletePaymentFound', payment)
-        const paymentId = typeof payment.identifier === 'string' ? payment.identifier : ''
-        const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
-        if (paymentId && txid) await postPiApi('/api/pi/complete', { paymentId, txid })
-      })
-      .then((auth) => {
-        logPi('log', 'authenticate ok', auth)
-        return auth
-      })
-      .catch((error) => {
-        resetPiSession()
-        logPi('error', 'authenticate failed', error)
-        throw error
-      })
-    const auth = await withTimeout(authPromise, PI_CALL_TIMEOUT_MS, 'Pi.authenticate')
+    const auth = await withTimeout(authenticatePi(pi), PI_CALL_TIMEOUT_MS, 'Pi.authenticate')
     const session = parsePiAuthResult(auth)
     if (!session) throw new Error('파이 계정 UID를 받지 못했습니다.')
     logPi('log', 'sign-in session', session)
@@ -429,7 +438,7 @@ export async function startPiCheckout(options: {
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
   const pi = (await preparePiSdk()) ?? requirePiSdk()
-  initPi(pi)
+  await authenticatePi(pi)
 
   const payment = {
     amount,
