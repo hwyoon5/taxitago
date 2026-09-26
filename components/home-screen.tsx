@@ -32,7 +32,7 @@ import { loadDeliveryJob, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJ
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
-import { listNearbyServiceSpots, nearbyKindFromService } from '@/lib/nearby-services'
+import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
 import {
   cancelRideRequest,
   completeRideTrip,
@@ -2589,8 +2589,13 @@ function ServiceSheet({
   const more = service === '더보기'
   const selfServe = service === '주차' || service === '자전거' || service === '킥보드' || service === 'EV 충전'
   const nearbyKind = nearbyKindFromService(service)
+  const [livePartners, setLivePartners] = useState<RegisteredNearbyPartner[]>([])
+  useEffect(() => {
+    const spot = partnerListingFromProfile(loadPartnerProfile(), service, pickupLat, pickupLng)
+    setLivePartners(spot ? [spot] : [])
+  }, [service, pickupLat, pickupLng])
   const nearbySpots = nearbyKind
-    ? listNearbyServiceSpots(nearbyKind, pickupLat, pickupLng, nearbyKind === 'bike' || nearbyKind === 'scooter' ? 7 : 6)
+    ? listNearbyServiceSpots(nearbyKind, pickupLat, pickupLng, nearbyKind === 'bike' || nearbyKind === 'scooter' ? 7 : 6, livePartners)
     : []
   const catalog = nearbySpots.map((item) => ({
     id: item.id,
@@ -2598,6 +2603,7 @@ function ServiceSheet({
     distance: item.distanceLabel,
     extra: item.extra,
     rate: item.rate,
+    available: item.listing === 'partner',
   }))
   const selectedUsage = catalog.find((item) => item.id === selectedItem) ?? catalog[0]
   const packageOption = getPackageSize(packageSize)
@@ -3077,7 +3083,10 @@ function ServiceSheet({
                       {index + 1}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <strong className="block text-sm font-black">{item.name}</strong>
+                      <strong className="block break-words text-sm font-black">
+                        {item.name}
+                        {item.available ? <span className="font-black text-[#0F766E]"> (이용가능)</span> : null}
+                      </strong>
                       <span className="mt-1 block text-xs font-bold text-[#8b8495]">
                         {item.distance} · <b className="text-[#36a76b]">{item.extra}</b>
                       </span>

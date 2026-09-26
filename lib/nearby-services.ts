@@ -4,6 +4,8 @@ import { BUSAN_CITY_HALL } from '@/lib/user-location'
 
 export type NearbyServiceKind = 'parking' | 'ev' | 'bike' | 'scooter'
 
+export type NearbyListing = 'partner' | 'demo'
+
 export type NearbyServiceSpot = {
   id: string
   name: string
@@ -13,6 +15,17 @@ export type NearbyServiceSpot = {
   lng: number
   distanceKm: number
   distanceLabel: string
+  /** 실등록 파트너는 데모 목록보다 위에 둔다. */
+  listing: NearbyListing
+}
+
+export type RegisteredNearbyPartner = {
+  id: string
+  name: string
+  lat: number
+  lng: number
+  extra?: string
+  rate?: string
 }
 
 type SpotSeed = {
@@ -90,29 +103,88 @@ export function nearbyKindFromService(service: string): NearbyServiceKind | null
   return null
 }
 
+function byDistance(a: NearbyServiceSpot, b: NearbyServiceSpot) {
+  return a.distanceKm - b.distanceKm || a.id.localeCompare(b.id)
+}
+
+function toSpot(
+  origin: { lat: number; lng: number },
+  spot: { id: string; name: string; extra: string; rate: string; lat: number; lng: number },
+  listing: NearbyListing,
+): NearbyServiceSpot {
+  const distanceKm = haversineKm(origin, spot)
+  return {
+    ...spot,
+    distanceKm,
+    distanceLabel: formatNearbyDistance(distanceKm),
+    listing,
+  }
+}
+
+/** 가맹점 파트너 프로필이 이 서비스에 해당하면 목록 최상단 후보로 만든다. */
+export function partnerListingFromProfile(
+  profile: { uid: string; role: string; name: string; detail: string; region?: string; serviceType?: string } | null,
+  service: string,
+  lat: number,
+  lng: number,
+): RegisteredNearbyPartner | null {
+  if (!profile || profile.role !== '파트너' || profile.serviceType !== service) return null
+  if (!isUsableCoord(lat, lng)) return null
+  const name = profile.detail.trim() || profile.name.trim()
+  if (!name) return null
+  return {
+    id: `partner-${profile.uid}`,
+    name,
+    extra: profile.region?.trim() ? `${profile.region.trim()} · 등록 파트너` : '등록 파트너',
+    lat,
+    lng,
+  }
+}
+
 export function listNearbyServiceSpots(
   kind: NearbyServiceKind,
   lat: number,
   lng: number,
   limit = 6,
+  partners: RegisteredNearbyPartner[] = [],
 ): NearbyServiceSpot[] {
   const origin = isUsableCoord(lat, lng) ? { lat, lng } : BUSAN_CITY_HALL
   const count = Math.min(7, Math.max(5, limit))
-  return SEEDS[kind]
+  const fallback = SEEDS[kind][0]
+  const live = partners
+    .filter((partner) => partner.name.trim() && isUsableCoord(partner.lat, partner.lng))
+    .map((partner) =>
+      toSpot(
+        origin,
+        {
+          id: partner.id,
+          name: partner.name.trim(),
+          extra: partner.extra?.trim() || '등록 파트너',
+          rate: partner.rate?.trim() || fallback.rate,
+          lat: partner.lat,
+          lng: partner.lng,
+        },
+        'partner',
+      ),
+    )
+    .sort(byDistance)
+  const demos = SEEDS[kind]
     .map((seed) => {
       const point = offsetFromMeters(origin, seed.eastM, seed.northM)
-      const distanceKm = haversineKm(origin, point)
-      return {
-        id: seed.id,
-        name: seed.name,
-        extra: seed.extra,
-        rate: seed.rate,
-        lat: point.lat,
-        lng: point.lng,
-        distanceKm,
-        distanceLabel: formatNearbyDistance(distanceKm),
-      }
+      return toSpot(
+        origin,
+        {
+          id: seed.id,
+          name: seed.name,
+          extra: seed.extra,
+          rate: seed.rate,
+          lat: point.lat,
+          lng: point.lng,
+        },
+        'demo',
+      )
     })
-    .sort((a, b) => a.distanceKm - b.distanceKm || a.id.localeCompare(b.id))
+    .sort(byDistance)
     .slice(0, count)
+  return [...live, ...demos]
 }
