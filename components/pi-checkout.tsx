@@ -9,13 +9,11 @@ type IncompletePiPayment = {
 }
 
 type PiSdk = {
-  init: (config: { version: string; sandbox?: boolean }) => void | Promise<unknown>
+  init: (config: { version: string; sandbox?: boolean }) => void
   authenticate: (
     scopes: string[],
     onIncompletePaymentFound: (payment: IncompletePiPayment) => void | Promise<void>,
   ) => Promise<unknown>
-  /** Set by Pi.authenticate from the granted credentials. createPayment reads this. */
-  consentedScopes?: string[] | null
   createPayment: (
     payment: { amount: number; memo: string; metadata: Record<string, unknown> },
     callbacks: {
@@ -50,13 +48,6 @@ function onIncompletePaymentFound(payment: IncompletePiPayment) {
   const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
   if (paymentId && txid) return postPiApi('/api/pi/complete', { paymentId, txid })
   return undefined
-}
-
-function grantPaymentsScope(pi: PiSdk) {
-  const granted = Array.isArray(pi.consentedScopes) ? pi.consentedScopes : []
-  if (!granted.includes('payments')) {
-    pi.consentedScopes = ['username', 'payments']
-  }
 }
 
 function authenticatePi(pi: PiSdk) {
@@ -239,26 +230,6 @@ function initPi(pi: PiSdk) {
     logPi('log', 'Pi.init', config)
   } catch (error) {
     logPi('error', 'Pi.init failed', error)
-  }
-}
-
-/** 대리운전·택배 이용 완료 전용. 모듈 플래그와 상관없이 Pi.init을 끝낸 뒤에만 결제로 간다. */
-async function ensureServicePiInit(pi: PiSdk) {
-  const config = { version: '2.0', sandbox: PI_SANDBOX }
-  try {
-    const pending = pi.init(config)
-    if (pending && typeof (pending as Promise<unknown>).then === 'function') await pending
-    initialized = true
-    logPi('log', 'Pi.init', config)
-  } catch (error) {
-    const text = error instanceof Error ? error.message : String(error)
-    if (/already initialized/i.test(text)) {
-      initialized = true
-      logPi('log', 'Pi.init already done', config)
-      return
-    }
-    logPi('error', 'Pi.init failed', error)
-    throw error instanceof Error ? error : new Error('Pi.init()에 실패했습니다.')
   }
 }
 
@@ -462,19 +433,12 @@ export async function startPiCheckout(options: {
   amount: number
   memo: string
   metadata?: Record<string, unknown>
-  /** 대리운전 이용 완료: createPayment 직전에 payments scope를 다시 고정한다. */
-  requirePaymentsScope?: boolean
 }) {
   const amount = Math.round(options.amount * 1_000_000) / 1_000_000
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
   const pi = (await preparePiSdk()) ?? requirePiSdk()
-  if (options.requirePaymentsScope) await ensureServicePiInit(pi)
   await authenticatePi(pi)
-  if (options.requirePaymentsScope) {
-    grantPaymentsScope(pi)
-    await ensureServicePiInit(pi)
-  }
 
   const payment = {
     amount,
@@ -528,7 +492,6 @@ export function PiCheckoutButton({
   children,
   onPaid,
   onFailed,
-  ensurePaymentsScope = false,
   className,
   disabled,
   ...buttonProps
@@ -539,7 +502,6 @@ export function PiCheckoutButton({
   children: ReactNode
   onPaid?: (result: PiCheckoutResult) => void
   onFailed?: (error: Error) => void
-  ensurePaymentsScope?: boolean
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'type'>) {
   const [busy, setBusy] = useState(false)
 
@@ -555,7 +517,7 @@ export function PiCheckoutButton({
     if (busy || disabled) return
     setBusy(true)
     try {
-      void startPiCheckout({ amount, memo, metadata, requirePaymentsScope: ensurePaymentsScope })
+      void startPiCheckout({ amount, memo, metadata })
         .then((result) => onPaid?.(result))
         .catch(fail)
         .finally(() => setBusy(false))
