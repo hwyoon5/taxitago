@@ -2009,7 +2009,7 @@ function TaxiMatchingSheet({
       rideIdRef.current = taxiSheetRideId
       void fetchRideRequest(taxiSheetRideId).then((existing) => {
         if (existing) attach(existing)
-      })
+      }).catch(() => undefined)
       return () => {
         cancelled = true
       }
@@ -2055,7 +2055,7 @@ function TaxiMatchingSheet({
     const timer = window.setInterval(() => {
       void fetchRideRequest(rideId).then((next) => {
         if (next) apply(next)
-      })
+      }).catch(() => undefined)
     }, 1500)
     return () => {
       unsubscribe()
@@ -2691,7 +2691,7 @@ function ServiceSheet({
       daeriRideIdRef.current = daeriSheetRideId
       void fetchRideRequest(daeriSheetRideId).then((existing) => {
         if (existing) attach(existing)
-      })
+      }).catch(() => undefined)
       return () => {
         cancelled = true
       }
@@ -2730,7 +2730,7 @@ function ServiceSheet({
     const timer = window.setInterval(() => {
       void fetchRideRequest(rideId).then((next) => {
         if (next) apply(next)
-      })
+      }).catch(() => undefined)
     }, 1500)
     return () => {
       unsubscribe()

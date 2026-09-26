@@ -30,11 +30,21 @@ export async function createRideRequest(input: {
 }
 
 export async function fetchRideRequest(rideId: string): Promise<PublicRide | null> {
-  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}`, { cache: 'no-store' })
-  if (res.status === 404) return null
-  const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
-  if (!res.ok || !data.ride) throw new Error(data.error || '호출 상태를 확인하지 못했어요.')
-  return data.ride
+  const id = rideId.trim()
+  if (!id) return null
+  try {
+    const res = await fetch(`/api/rides/${encodeURIComponent(id)}`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    })
+    if (res.status === 404 || res.status === 401 || res.status === 403) return null
+    if (!res.ok) return null
+    const data = (await res.json()) as { ride?: PublicRide }
+    return data.ride ?? null
+  } catch {
+    return null
+  }
 }
 
 export function subscribeRideLive(rideId: string, onRide: (ride: PublicRide) => void) {
