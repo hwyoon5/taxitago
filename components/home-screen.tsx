@@ -3683,15 +3683,15 @@ const HOME_PARTNER_BANNERS: {
     subtitle: '파트너 서비스 안내는 준비 중이에요',
     cta: '자세히 보기',
     href: null,
-    logoSrc: '/ads/baroonda-logo.svg',
+    logoSrc: '/ads/baroonda-logo.svg?v=cart-pi',
   },
 ]
 
 function HomePartnerBanners() {
   return (
-    <section className="mt-3" aria-label="광고 및 파트너">
+    <section className="mt-3" aria-label="광고 / 파트너 배너">
       <div className="flex items-end justify-between px-0.5">
-        <h2 className="text-sm font-black tracking-tight text-[#0F172A]">광고 · 파트너</h2>
+        <h2 className="text-sm font-black tracking-tight text-[#0F172A]">광고 / 파트너 배너</h2>
         <span className="text-[10px] font-bold text-[#64748B]">좌우로 넘겨 보세요</span>
       </div>
       <div className="mt-2 flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -3702,13 +3702,13 @@ function HomePartnerBanners() {
             onClick={(event) => {
               if (!banner.href) event.preventDefault()
             }}
-            className="relative flex min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start flex-col overflow-hidden rounded-[22px] border border-[#E2E8F0] bg-white p-4 text-left text-[#0F172A] shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
+            className="relative flex min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start flex-col overflow-hidden rounded-[22px] border-2 border-[#DDD6FE] bg-gradient-to-br from-[#F8F5FF] via-white to-[#EDE5FF] p-4 text-left text-[#0F172A] shadow-[0_12px_24px_rgba(76,31,184,0.12)]"
             aria-label={`${banner.name} ${banner.subtitle}`}
           >
-            <img src={banner.logoSrc} alt="BaroOnda" className="h-9 w-auto max-w-[11rem] object-contain object-left" />
-            <p className="mt-2.5 text-[17px] font-black leading-snug tracking-tight">{banner.name}</p>
+            <img src={banner.logoSrc} alt="BaroOnda 쇼핑 카트와 파이 로고" className="h-12 w-auto max-w-full object-contain object-left" />
+            <p className="mt-2 text-[15px] font-black leading-snug tracking-tight">{banner.name}</p>
             <p className="mt-1 text-[12px] font-bold leading-5 text-[#64748B]">{banner.subtitle}</p>
-            <span className="mt-3 inline-flex items-center gap-0.5 text-[12px] font-black text-[#4C1FB8]">
+            <span className="mt-2 inline-flex items-center gap-0.5 text-[12px] font-black text-[#4C1FB8]">
               {banner.cta}
               <ChevronRight className="h-3.5 w-3.5" />
             </span>
