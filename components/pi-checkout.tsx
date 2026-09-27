@@ -42,12 +42,11 @@ const PI_AUTH_SCOPES = ['username', 'payments'] as const
 let initialized = false
 let authPromise: Promise<unknown> | null = null
 
-function onIncompletePaymentFound(payment: IncompletePiPayment) {
+async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<void> {
   logPi('log', 'onIncompletePaymentFound', payment)
   const paymentId = typeof payment.identifier === 'string' ? payment.identifier : ''
   const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
-  if (paymentId && txid) return postPiApi('/api/pi/complete', { paymentId, txid })
-  return undefined
+  if (paymentId && txid) await postPiApi('/api/pi/complete', { paymentId, txid })
 }
 
 function authenticatePi(pi: PiSdk) {
