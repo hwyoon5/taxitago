@@ -4237,7 +4237,9 @@ function TabContent({
         <h2 className="pt-2 text-2xl font-black">{t('nav.all')}</h2>
         <p className="mt-1 text-sm font-bold text-[#64748B]">{t('nav.allCaption')}</p>
         <section className="mt-4 pb-2">
-          <p className="mb-2 text-xs font-black text-[#475569]">{t('more.mobility')}</p>
+          <p className="mb-2 text-xs font-black text-[#475569]">{t('more.guide')}</p>
+          <MoreMenu />
+          <p className="mb-2 mt-5 text-xs font-black text-[#475569]">{t('more.mobility')}</p>
           <div className="rounded-[22px] bg-[#E2E8F0] p-3 pb-5">
             <div className="grid grid-cols-4 gap-x-2 gap-y-4">
               {services.map((item) => (
@@ -4245,8 +4247,6 @@ function TabContent({
               ))}
             </div>
           </div>
-          <p className="mb-2 mt-5 text-xs font-black text-[#475569]">{t('more.guide')}</p>
-          <MoreMenu />
         </section>
       </main>
     )
