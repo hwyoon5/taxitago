@@ -12,6 +12,7 @@ import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { NearbyServiceMap } from '@/components/nearby-service-map'
+import { MobilityDeviceFormModal } from '@/components/mobility-device-form'
 import { PlacePickerScreen } from '@/components/place-picker-map'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
@@ -33,6 +34,7 @@ import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
+import { MOBILITY_DEVICES_EVENT, mobilityPartnersForService } from '@/lib/mobility-devices'
 import {
   cancelRideRequest,
   completeRideTrip,
@@ -2683,6 +2685,7 @@ function ServiceSheet({
   const [preparingOpen, setPreparingOpen] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [deviceFormOpen, setDeviceFormOpen] = useState(false)
   const finishedRef = useRef(false)
   const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
@@ -2692,9 +2695,15 @@ function ServiceSheet({
   const nearbyKind = nearbyKindFromService(service)
   const [livePartners, setLivePartners] = useState<RegisteredNearbyPartner[]>([])
   useEffect(() => {
-    const spot = partnerListingFromProfile(loadPartnerProfile(), service, pickupLat, pickupLng)
-    setLivePartners(spot ? [spot] : [])
-  }, [service, pickupLat, pickupLng])
+    const load = () => {
+      const spot = partnerListingFromProfile(loadPartnerProfile(), service, pickupLat, pickupLng)
+      const devices = vehicle ? mobilityPartnersForService(service) : []
+      setLivePartners([...(spot ? [spot] : []), ...devices])
+    }
+    load()
+    window.addEventListener(MOBILITY_DEVICES_EVENT, load)
+    return () => window.removeEventListener(MOBILITY_DEVICES_EVENT, load)
+  }, [service, pickupLat, pickupLng, vehicle])
   const nearbySpots = nearbyKind
     ? listNearbyServiceSpots(nearbyKind, pickupLat, pickupLng, nearbyKind === 'bike' || nearbyKind === 'scooter' ? 7 : 6, livePartners)
     : []
@@ -3163,6 +3172,15 @@ function ServiceSheet({
         )}
         {phase === 'idle' && selfServe && (
           <div className="mt-5 space-y-3">
+            {vehicle ? (
+              <button
+                type="button"
+                onClick={() => setDeviceFormOpen(true)}
+                className="w-full rounded-2xl border-2 border-[#4A82B8] bg-[#E8F1FA] py-3 text-sm font-black text-[#4A82B8]"
+              >
+                파트너 기기 등록
+              </button>
+            ) : null}
             <div className="relative w-full shrink-0 overflow-hidden rounded-3xl" style={{ height: 160, minHeight: 160 }}>
               <NearbyServiceMap
                 key={`service-map-${service}`}
@@ -3398,6 +3416,12 @@ function ServiceSheet({
         ) : (
           <DriverChatModal driverName={partner.name} onClose={() => setChatOpen(false)} />
         )
+      ) : null}
+      {deviceFormOpen && vehicle ? (
+        <MobilityDeviceFormModal
+          initialKind={service === '킥보드' ? '퀵보드' : '자전거'}
+          onClose={() => setDeviceFormOpen(false)}
+        />
       ) : null}
       </div>
     </div>
@@ -5353,7 +5377,9 @@ function PartnerStatSheet({ kind, onClose }: { kind: 'revenue' | 'trips'; onClos
 }
 
 function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartTrial: () => void }) {
+  const [deviceFormOpen, setDeviceFormOpen] = useState(false)
   return (
+    <>
     <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-4" aria-label="기사 파트너">
       <section className="rounded-[28px] bg-[#243044] p-5 text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)]">
         <p className="text-xs font-semibold text-[#93C5FD]">Pi Network · 파트너</p>
@@ -5372,6 +5398,18 @@ function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartT
           파이 계정으로 파트너 등록
         </button>
       </section>
+      <section className="mt-4 rounded-[26px] border-2 border-[#BBF7D0] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
+        <p className="text-xs font-black text-[#047857]">시뮬레이션 1단계</p>
+        <h3 className="mt-1 text-lg font-black text-[#0F172A]">자전거 · 퀵보드 기기 등록</h3>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">시리얼, 기기 종류, 위치를 등록하면 현위치에서 가까운 순으로 목록 상단에 (이용가능)으로 표시됩니다.</p>
+        <button
+          type="button"
+          onClick={() => setDeviceFormOpen(true)}
+          className="mt-5 w-full rounded-2xl bg-[#047857] py-3.5 text-base font-black text-white"
+        >
+          기기 등록하기
+        </button>
+      </section>
       <section className="mt-4 rounded-[26px] border-2 border-[#F59E0B] bg-[#FFFBEB] p-5 shadow-[0_10px_24px_rgba(245,158,11,0.22)]">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-black text-[#B45309]">미리 체험</p>
@@ -5388,6 +5426,8 @@ function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartT
         </button>
       </section>
     </main>
+    {deviceFormOpen ? <MobilityDeviceFormModal onClose={() => setDeviceFormOpen(false)} /> : null}
+    </>
   )
 }
 
