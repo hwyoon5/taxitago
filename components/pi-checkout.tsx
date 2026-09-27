@@ -431,10 +431,26 @@ export async function chargePiWallet(amount: number) {
   })
 }
 
+function txidFromPiPayload(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return ''
+  const record = payload as Record<string, unknown>
+  if (typeof record.txid === 'string' && record.txid.trim()) return record.txid.trim()
+  const payment = record.payment
+  if (!payment || typeof payment !== 'object') return ''
+  const paymentRecord = payment as Record<string, unknown>
+  if (typeof paymentRecord.txid === 'string' && paymentRecord.txid.trim()) return paymentRecord.txid.trim()
+  const transaction = paymentRecord.transaction
+  if (!transaction || typeof transaction !== 'object') return ''
+  const txid = (transaction as Record<string, unknown>).txid
+  return typeof txid === 'string' ? txid.trim() : ''
+}
+
 export async function startPiCheckout(options: {
   amount: number
   memo: string
   metadata?: Record<string, unknown>
+  /** Service checkout (대리운전·택배): leave the pending button once approve or complete responds. */
+  advanceOnApproval?: boolean
 }) {
   const amount = Math.round(options.amount * 1_000_000) / 1_000_000
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
@@ -450,7 +466,16 @@ export async function startPiCheckout(options: {
   logPi('log', 'window.Pi.createPayment', payment)
 
   return new Promise<PiCheckoutResult>((resolve, reject) => {
+    let settled = false
+    const succeed = (result: PiCheckoutResult) => {
+      if (settled || !result.paymentId || !result.txid) return
+      settled = true
+      logPi('log', 'checkout settled', result)
+      resolve(result)
+    }
     const finishError = (label: string, error: unknown, extra?: unknown) => {
+      if (settled) return
+      settled = true
       logPi('error', label, { error, extra })
       if (isSessionError(error)) resetPiSession()
       reject(error instanceof Error ? error : new Error(describePiUserMessage(error)))
@@ -461,6 +486,17 @@ export async function startPiCheckout(options: {
         onReadyForServerApproval: (paymentId) => {
           logPi('log', 'onReadyForServerApproval', { paymentId })
           return postPiApi('/api/pi/approve', { paymentId })
+            .then((payload) => {
+              if (options.advanceOnApproval && paymentId) {
+                succeed({ paymentId, txid: txidFromPiPayload(payload) || `approved-${paymentId}` })
+              }
+              return payload
+            })
+            .catch((error) => {
+              if (settled) return undefined
+              finishError('approve failed', error)
+              throw error
+            })
         },
         onReadyForServerCompletion: (paymentId, txid) => {
           logPi('log', 'onReadyForServerCompletion', { paymentId, txid })
@@ -468,12 +504,20 @@ export async function startPiCheckout(options: {
             finishError('completion missing ids', { paymentId, txid })
             return Promise.resolve()
           }
-          return postPiApi('/api/pi/complete', { paymentId, txid }).then(() => {
-            resolve({ paymentId, txid })
-          })
+          return postPiApi('/api/pi/complete', { paymentId, txid })
+            .then(() => {
+              succeed({ paymentId, txid })
+            })
+            .catch((error) => {
+              if (settled) return undefined
+              finishError('complete failed', error)
+              throw error
+            })
         },
         onCancel: (paymentId) => {
           logPi('warn', 'onCancel', { paymentId })
+          if (settled) return
+          settled = true
           reject(new Error('결제가 취소되었습니다.'))
         },
         onError: (error, paymentInfo) => {
@@ -519,7 +563,7 @@ export function PiCheckoutButton({
     if (busy || disabled) return
     setBusy(true)
     try {
-      void startPiCheckout({ amount, memo, metadata })
+      void startPiCheckout({ amount, memo, metadata, advanceOnApproval: true })
         .then((result) => onPaid?.(result))
         .catch(fail)
         .finally(() => setBusy(false))
