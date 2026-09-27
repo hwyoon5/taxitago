@@ -6269,6 +6269,12 @@ export default function HomeScreen() {
     }
     setMoreOpen(false)
     if (value === '대리운전') {
+      const gap = routeGap(origin.address, destination)
+      if (gap) {
+        setRouteAlert(gap)
+        setTab('홈')
+        return
+      }
       setDaeriSetupOpen(true)
       setTab('홈')
       return

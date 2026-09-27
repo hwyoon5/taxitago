@@ -46,12 +46,15 @@ async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<v
   logPi('log', 'onIncompletePaymentFound', payment)
   const paymentId = typeof payment.identifier === 'string' ? payment.identifier : ''
   const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
-  if (paymentId && txid) await postPiApi('/api/pi/complete', { paymentId, txid })
+  if (!paymentId || !txid) return
+  await postPiApi('/api/pi/complete', { paymentId, txid })
 }
 
 function authenticatePi(pi: PiSdk) {
   initPi(pi)
-  const pending = pi.authenticate(['username', 'payments'], onIncompletePaymentFound)
+  const pending = pi.authenticate(['username', 'payments'], (payment): void => {
+    void onIncompletePaymentFound(payment)
+  })
   authPromise = pending
     .then((auth) => {
       logPi('log', 'authenticate ok', { scopes: PI_AUTH_SCOPES, auth })
