@@ -108,6 +108,46 @@ export function ParcelIllustration() {
   )
 }
 
+export function AutonomousTaxiIllustration() {
+  return (
+    <IconFrame>
+      <ellipse cx="32" cy="56" rx="17" ry="3.2" fill="#E2E8F0" />
+      <path d="M24 16.5h16" stroke="#7C3AED" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="32" cy="16.5" r="3.2" fill="#C4B5FD" stroke="#6D28D9" strokeWidth="2" />
+      <path d="M32 19.7v4.2" stroke="#6D28D9" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M13 38C14.4 28 20.8 24 32 24s17.6 4 19 14H13Z" fill="#F5C518" />
+      <path d="M20.5 30h9.2l-1 7.2h-8.8c.1-2.6.3-5 .6-7.2Z" fill="#7DD3FC" />
+      <path d="M34.3 30h9.2c.3 2.2.5 4.6.6 7.2h-8.8l-1-7.2Z" fill="#7DD3FC" />
+      <rect x="11" y="37.5" width="42" height="11" rx="4" fill="#FACC15" />
+      <rect x="28.5" y="40.5" width="7" height="3.6" rx="1.2" fill="#1E293B" />
+      <circle cx="20" cy="49" r="5.2" fill="#1E293B" />
+      <circle cx="44" cy="49" r="5.2" fill="#1E293B" />
+      <circle cx="20" cy="49" r="2" fill="#E2E8F0" />
+      <circle cx="44" cy="49" r="2" fill="#E2E8F0" />
+    </IconFrame>
+  )
+}
+
+export function RobotDeliveryIllustration() {
+  return (
+    <IconFrame>
+      <ellipse cx="32" cy="56" rx="16" ry="3" fill="#E2E8F0" />
+      <rect x="16" y="22" width="32" height="24" rx="8" fill="#334155" />
+      <rect x="21" y="27" width="22" height="10" rx="3" fill="#67E8F9" />
+      <circle cx="27" cy="32" r="1.6" fill="#0F172A" />
+      <circle cx="37" cy="32" r="1.6" fill="#0F172A" />
+      <path d="M32 14v8" stroke="#64748B" strokeWidth="2.6" strokeLinecap="round" />
+      <circle cx="32" cy="12.5" r="2.4" fill="#F59E0B" />
+      <rect x="22" y="40" width="20" height="8" rx="2" fill="#F59E0B" />
+      <path d="M22 43.5h20" stroke="#B45309" strokeWidth="1.8" />
+      <circle cx="22" cy="50" r="4.2" fill="#1E293B" />
+      <circle cx="42" cy="50" r="4.2" fill="#1E293B" />
+      <circle cx="22" cy="50" r="1.6" fill="#E2E8F0" />
+      <circle cx="42" cy="50" r="1.6" fill="#E2E8F0" />
+    </IconFrame>
+  )
+}
+
 export function MoreIllustration() {
   return (
     <IconFrame>
@@ -133,4 +173,6 @@ export const serviceIllustrations = {
   'EV 충전': ChargeIllustration,
   택배: ParcelIllustration,
   더보기: MoreIllustration,
+  '무인 자율 택시': AutonomousTaxiIllustration,
+  '무인 로봇 배송': RobotDeliveryIllustration,
 } as const

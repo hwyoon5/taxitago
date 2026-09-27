@@ -187,14 +187,51 @@ const services: Service[] = [
   { label: '더보기' },
 ]
 
+const comingSoonServices: Service[] = [
+  { label: '무인 자율 택시' },
+  { label: '무인 로봇 배송' },
+]
+
+function isComingSoonService(label: string) {
+  return comingSoonServices.some((item) => item.label === label)
+}
+
+function menuMobilityServices(includeMore: boolean) {
+  const current = includeMore ? services : services.filter((item) => item.label !== '더보기')
+  return [...current, ...comingSoonServices]
+}
+
+function ServicePreparingModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#1e1033]/50 p-5" onClick={onClose}>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="service-preparing-title"
+        className="w-full max-w-sm rounded-[28px] bg-white px-5 py-6 text-center shadow-[0_20px_48px_rgba(30,16,51,0.28)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="service-preparing-title" className="text-lg font-black leading-7 text-[#0F172A]">
+          서비스 준비중 입니다
+        </h2>
+        <button type="button" onClick={onClose} className="mt-6 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white">
+          확인
+        </button>
+      </section>
+    </div>
+  )
+}
+
 function ServiceIconButton({
   service,
   onClick,
   compact = false,
+  wrapLabel = false,
 }: {
   service: Service
   onClick: () => void
   compact?: boolean
+  wrapLabel?: boolean
 }) {
   const { locale, t } = useLocale()
   const Illustration = serviceIllustrations[service.label]
@@ -213,7 +250,7 @@ function ServiceIconButton({
       <span className={`flex items-center justify-center bg-white shadow-[0_8px_22px_rgba(15,23,42,0.10)] ring-1 ring-black/[0.04] transition group-hover:-translate-y-0.5 group-active:scale-95 ${compact ? 'h-12 w-12 rounded-[16px]' : 'h-16 w-16 rounded-[22px]'}`}>
         <Illustration />
       </span>
-      <span className={`whitespace-nowrap font-black tracking-tight text-[#0F172A] ${compact ? 'mt-1 text-[11px]' : 'mt-2 text-[13px]'}`}>
+      <span className={`font-black tracking-tight text-[#0F172A] ${wrapLabel ? 'mt-2 w-full whitespace-normal text-center text-[11px] leading-tight' : `whitespace-nowrap ${compact ? 'mt-1 text-[11px]' : 'mt-2 text-[13px]'}`}`}>
         {name}
       </span>
     </button>
@@ -2509,6 +2546,7 @@ function MoreHubSheet({
 }) {
   const { t } = useLocale()
   const [view, setView] = useState<MoreItemId | 'menu' | `notice:${string}` | `terms:${string}`>('menu')
+  const [preparingOpen, setPreparingOpen] = useState(false)
   return (
     <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={onClose}>
       <section
@@ -2533,11 +2571,20 @@ function MoreHubSheet({
               <p className="mb-2 mt-4 text-xs font-black text-[#475569]">{t('more.mobility')}</p>
               <div className="rounded-[22px] bg-[#E2E8F0] p-3">
                 <div className="grid grid-cols-4 gap-x-2 gap-y-4">
-                  {services
-                    .filter((item) => item.label !== '더보기')
-                    .map((item) => (
-                      <ServiceIconButton key={item.label} service={item} onClick={() => onSelectService(item.label)} />
-                    ))}
+                  {menuMobilityServices(false).map((item) => (
+                    <ServiceIconButton
+                      key={item.label}
+                      service={item}
+                      wrapLabel={isComingSoonService(item.label)}
+                      onClick={() => {
+                        if (isComingSoonService(item.label)) {
+                          setPreparingOpen(true)
+                          return
+                        }
+                        onSelectService(item.label)
+                      }}
+                    />
+                  ))}
                 </div>
               </div>
               <p className="mb-2 mt-5 text-xs font-black text-[#8b8495]">{t('more.guide')}</p>
@@ -2562,6 +2609,7 @@ function MoreHubSheet({
           <SettingsView onBack={() => setView('menu')} onNotice={onNotice} />
         )}
       </section>
+      {preparingOpen ? <ServicePreparingModal onClose={() => setPreparingOpen(false)} /> : null}
     </div>
   )
 }
@@ -2632,6 +2680,7 @@ function ServiceSheet({
   const [rideStage, setRideStage] = useState<'arriving' | 'moving'>('arriving')
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
+  const [preparingOpen, setPreparingOpen] = useState(false)
   const finishedRef = useRef(false)
   const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
@@ -3264,19 +3313,22 @@ function ServiceSheet({
           <div className="mt-5">
             <p className="mb-2 text-xs font-black text-[#475569]">{t('more.mobility')}</p>
             <div className="rounded-[22px] bg-[#E2E8F0] p-3">
-              <div className="grid grid-cols-3 gap-x-2 gap-y-4">
-                {services
-                  .filter((item) => item.label !== '더보기')
-                  .map((item) => (
-                    <ServiceIconButton
-                      key={item.label}
-                      service={item}
-                      onClick={() => {
-                        if (onSelectService) onSelectService(item.label)
-                        else action(`${item.label} 서비스를 선택했어요.`)
-                      }}
-                    />
-                  ))}
+              <div className="grid grid-cols-4 gap-x-2 gap-y-4">
+                {menuMobilityServices(false).map((item) => (
+                  <ServiceIconButton
+                    key={item.label}
+                    service={item}
+                    wrapLabel={isComingSoonService(item.label)}
+                    onClick={() => {
+                      if (isComingSoonService(item.label)) {
+                        setPreparingOpen(true)
+                        return
+                      }
+                      if (onSelectService) onSelectService(item.label)
+                      else action(`${item.label} 서비스를 선택했어요.`)
+                    }}
+                  />
+                ))}
               </div>
             </div>
             <p className="mb-2 mt-5 text-xs font-black text-[#8b8495]">{t('more.guide')}</p>
@@ -3284,6 +3336,7 @@ function ServiceSheet({
           </div>
         )}
       </div>
+      {preparingOpen ? <ServicePreparingModal onClose={() => setPreparingOpen(false)} /> : null}
       {qrOpen ? (
         <QrScanModal
           service={service}
@@ -4231,8 +4284,10 @@ function TabContent({
   onOpenPartnerSignup: () => void
 }) {
   const { t } = useLocale()
+  const [preparingOpen, setPreparingOpen] = useState(false)
   if (tab === '전체보기') {
     return (
+      <>
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth px-4 pb-8 pt-1 [-webkit-overflow-scrolling:touch]" aria-label={t('nav.all')}>
         <h2 className="pt-2 text-2xl font-black">{t('nav.all')}</h2>
         <p className="mt-1 text-sm font-bold text-[#64748B]">{t('nav.allCaption')}</p>
@@ -4242,13 +4297,26 @@ function TabContent({
           <p className="mb-2 mt-5 text-xs font-black text-[#475569]">{t('more.mobility')}</p>
           <div className="rounded-[22px] bg-[#E2E8F0] p-3 pb-5">
             <div className="grid grid-cols-4 gap-x-2 gap-y-4">
-              {services.map((item) => (
-                <ServiceIconButton key={item.label} service={item} onClick={() => onService(item.label)} />
+              {menuMobilityServices(true).map((item) => (
+                <ServiceIconButton
+                  key={item.label}
+                  service={item}
+                  wrapLabel={isComingSoonService(item.label)}
+                  onClick={() => {
+                    if (isComingSoonService(item.label)) {
+                      setPreparingOpen(true)
+                      return
+                    }
+                    onService(item.label)
+                  }}
+                />
               ))}
             </div>
           </div>
         </section>
       </main>
+      {preparingOpen ? <ServicePreparingModal onClose={() => setPreparingOpen(false)} /> : null}
+      </>
     )
   }
   if (tab === '이용/알림') {
