@@ -2766,7 +2766,8 @@ function ServiceSheet({
     onClose()
   }
   const releaseRental = () => {
-    const serial = rentalSerialRef.current
+    const selected = selectedItem.startsWith('device-') ? findDeviceBySpotId(selectedItem) : null
+    const serial = rentalSerialRef.current || (selected?.status === 'rented' ? selected.serial : '')
     if (!serial) return
     rentalSerialRef.current = ''
     setMobilityDeviceStatus(serial, 'available')
