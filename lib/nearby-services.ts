@@ -17,6 +17,9 @@ export type NearbyServiceSpot = {
   distanceLabel: string
   /** 실등록 파트너는 데모 목록보다 위에 둔다. */
   listing: NearbyListing
+  rentable?: boolean
+  statusLabel?: string
+  battery?: number
 }
 
 export type RegisteredNearbyPartner = {
@@ -26,6 +29,9 @@ export type RegisteredNearbyPartner = {
   lng: number
   extra?: string
   rate?: string
+  rentable?: boolean
+  statusLabel?: string
+  battery?: number
 }
 
 type SpotSeed = {
@@ -109,7 +115,7 @@ function byDistance(a: NearbyServiceSpot, b: NearbyServiceSpot) {
 
 function toSpot(
   origin: { lat: number; lng: number },
-  spot: { id: string; name: string; extra: string; rate: string; lat: number; lng: number },
+  spot: { id: string; name: string; extra: string; rate: string; lat: number; lng: number; rentable?: boolean; statusLabel?: string; battery?: number },
   listing: NearbyListing,
 ): NearbyServiceSpot {
   const distanceKm = haversineKm(origin, spot)
@@ -163,11 +169,14 @@ export function listNearbyServiceSpots(
           rate: partner.rate?.trim() || fallback.rate,
           lat: partner.lat,
           lng: partner.lng,
+          rentable: partner.rentable,
+          statusLabel: partner.statusLabel,
+          battery: partner.battery,
         },
         'partner',
       ),
     )
-    .sort(byDistance)
+    .sort((a, b) => Number(a.rentable === false) - Number(b.rentable === false) || byDistance(a, b))
   const demos = SEEDS[kind]
     .map((seed) => {
       const point = offsetFromMeters(origin, seed.eastM, seed.northM)

@@ -34,7 +34,7 @@ import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
-import { MOBILITY_DEVICES_EVENT, mobilityPartnersForService } from '@/lib/mobility-devices'
+import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, setMobilityDeviceStatus } from '@/lib/mobility-devices'
 import {
   cancelRideRequest,
   completeRideTrip,
@@ -2687,6 +2687,7 @@ function ServiceSheet({
   const [chatOpen, setChatOpen] = useState(false)
   const [deviceFormOpen, setDeviceFormOpen] = useState(false)
   const finishedRef = useRef(false)
+  const rentalSerialRef = useRef('')
   const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
   const vehicle = service === '자전거' || service === '킥보드'
@@ -2707,18 +2708,25 @@ function ServiceSheet({
   const nearbySpots = nearbyKind
     ? listNearbyServiceSpots(nearbyKind, pickupLat, pickupLng, nearbyKind === 'bike' || nearbyKind === 'scooter' ? 7 : 6, livePartners)
     : []
-  const catalog = nearbySpots.map((item) => ({
-    id: item.id,
-    name: item.name,
-    distance: item.distanceLabel,
-    extra: item.extra,
-    rate: item.rate,
-    available: item.listing === 'partner',
-  }))
+  const catalog = nearbySpots.map((item) => {
+    const registered = item.id.startsWith('device-')
+    const rentable = !registered || item.rentable === true
+    return {
+      id: item.id,
+      name: item.name,
+      distance: item.distanceLabel,
+      extra: item.extra,
+      rate: item.rate,
+      available: item.listing === 'partner' && rentable && (!item.statusLabel || item.statusLabel === '이용 가능'),
+      statusLabel: registered ? item.statusLabel : undefined,
+      rentable,
+    }
+  })
   const selectedUsage = catalog.find((item) => item.id === selectedItem) ?? catalog[0]
   const packageOption = getPackageSize(packageSize)
   const deliveryFare = estimateDeliveryFare(deliveryVehicle, packageSize)
-  const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 4 : vehicle ? 0.3 : deliveryFare
+  const listedPi = Number(selectedUsage?.rate.match(/(\d+(?:\.\d+)?)/)?.[1])
+  const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 4 : vehicle ? (Number.isFinite(listedPi) && listedPi > 0 ? listedPi : 0.3) : deliveryFare
   const settleTiming = service === '주차' ? parkingOption : paymentPolicy?.timing
   const rideOriginLat = daeriTrip?.pickupLat ?? pickupLat
   const rideOriginLng = daeriTrip?.pickupLng ?? pickupLng
@@ -2743,14 +2751,25 @@ function ServiceSheet({
         : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate || '', kind: 'service' as const }
   const contactRideId = ride ? dispatchRide?.id || daeriRideIdRef.current : ''
   const canStart = more || ride || service === '택배' || Boolean(selectedItem)
+  const selectedDevice = vehicle && selectedItem.startsWith('device-') ? findDeviceBySpotId(selectedItem) : null
+  const selectedRentable = !selectedDevice || isDeviceRentable(selectedDevice)
   useEffect(() => {
     if (!selfServe || !nearbySpots.length) return
     if (nearbySpots.some((item) => item.id === selectedItem)) return
-    setSelectedItem(nearbySpots[0].id)
-  }, [selfServe, service, nearbySpots, selectedItem])
+    const next = phase === 'idle'
+      ? nearbySpots.find((item) => !(vehicle && item.id.startsWith('device-') && item.rentable === false)) ?? nearbySpots[0]
+      : nearbySpots[0]
+    if (next.id !== selectedItem) setSelectedItem(next.id)
+  }, [selfServe, vehicle, phase, nearbySpots, selectedItem])
   const action = (message: string) => {
     onNotice(message)
     onClose()
+  }
+  const releaseRental = () => {
+    const serial = rentalSerialRef.current
+    if (!serial) return
+    rentalSerialRef.current = ''
+    setMobilityDeviceStatus(serial, 'available')
   }
   const startService = (scanned?: boolean) => {
     if (service === '택배' || ride) {
@@ -2787,6 +2806,15 @@ function ServiceSheet({
     if (paymentPolicy?.requiresQr && !didScan) {
       setQrOpen(true)
       return
+    }
+    if (vehicle && selectedItem.startsWith('device-')) {
+      const device = findDeviceBySpotId(selectedItem)
+      if (!device || !isDeviceRentable(device)) {
+        onNotice(device ? `${device.serial}은(는) ${MOBILITY_STATUS_LABEL[device.status]} 상태라 대여할 수 없어요.` : '이 기기는 지금 대여할 수 없어요.')
+        return
+      }
+      setMobilityDeviceStatus(device.serial, 'rented')
+      rentalSerialRef.current = device.serial
     }
     setPhase('matching')
     onActivity?.(selfServe ? `${service} 이용 시작` : `${service} 호출`, place)
@@ -2898,7 +2926,7 @@ function ServiceSheet({
               {ride && phase === 'assigned' ? (rideStage === 'moving' ? '목적지 이동 중' : '기사 이동 중') : `${service} ${phase === 'matching' ? (selfServe ? '준비 중' : '호출 중') : phase === 'assigned' ? '이용 중' : '이용하기'}`}
             </h2>
           </div>
-          <button onClick={onClose} className="rounded-full bg-[#f4f1f8] p-2 text-[#5f566d]" aria-label="닫기">
+          <button onClick={() => { releaseRental(); onClose() }} className="rounded-full bg-[#f4f1f8] p-2 text-[#5f566d]" aria-label="닫기">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -2974,6 +3002,7 @@ function ServiceSheet({
                   daeriSheetRideId = ''
                   void cancelRideRequest(dispatchRide?.id || daeriRideIdRef.current, daeriPassengerIdRef.current || localPassengerId())
                 }
+                releaseRental()
                 onActivity?.(selfServe ? '이용 취소' : '호출 취소', place)
                 onClose()
               }}
@@ -3031,13 +3060,14 @@ function ServiceSheet({
               className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
               onPaid={(result) => {
                 if (!result.paymentId || !result.txid) return
+                releaseRental()
                 onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined, result)
                 onAskReview(partner)
                 onClose()
               }}
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
-              {settleTiming === 'qr_auto' ? '이용 완료 · 자동결제' : settleTiming === 'postpaid' ? '이용 완료 · 후결제' : '이용 완료'}
+              {vehicle ? '이용 완료 · 반납 결제' : settleTiming === 'qr_auto' ? '이용 완료 · 자동결제' : settleTiming === 'postpaid' ? '이용 완료 · 후결제' : '이용 완료'}
             </PiCheckoutButton>
             <p className="text-center text-[11px] font-bold text-[#64748B]">이용이 끝나면 눌러 주세요</p>
           </div>
@@ -3216,6 +3246,9 @@ function ServiceSheet({
                       <strong className="block break-words text-sm font-black">
                         {item.name}
                         {item.available ? <span className="font-black text-[#0F766E]"> (이용가능)</span> : null}
+                        {item.statusLabel && item.statusLabel !== '이용 가능' ? (
+                          <span className={`font-black ${item.statusLabel === '배터리 부족' ? 'text-[#B45309]' : item.statusLabel === '대여 중' ? 'text-[#1D4ED8]' : 'text-[#9F1239]'}`}> ({item.statusLabel})</span>
+                        ) : null}
                       </strong>
                       <span className="mt-1 block text-xs font-bold text-[#8b8495]">
                         {item.distance} · <b className="text-[#36a76b]">{item.extra}</b>
@@ -3226,6 +3259,9 @@ function ServiceSheet({
                 )
               })}
             </div>
+            {vehicle && selectedItem.startsWith('device-') && !selectedRentable ? (
+              <p className="text-center text-sm font-black text-[#9F1239]">이 기기는 지금 대여할 수 없어요.</p>
+            ) : null}
             <PaymentHandler
               service={service}
               amount={fare}
@@ -3234,8 +3270,8 @@ function ServiceSheet({
               qrScanned={qrScanned}
               parkingOption={parkingOption}
               prepaidSettled={prepaidSettled}
-              continueLabel={selectedItem ? '이용 시작' : vehicle ? '차량을 선택해 주세요' : '장소를 선택해 주세요'}
-              canProceed={Boolean(selectedItem)}
+              continueLabel={!selectedItem ? (vehicle ? '차량을 선택해 주세요' : '장소를 선택해 주세요') : selectedRentable ? '이용 시작' : '대여할 수 없는 기기'}
+              canProceed={Boolean(selectedItem) && selectedRentable}
               onParkingOption={setParkingOption}
               onRequestQr={() => {
                 if (!selectedItem) {
@@ -5401,7 +5437,7 @@ function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartT
       <section className="mt-4 rounded-[26px] border-2 border-[#BBF7D0] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
         <p className="text-xs font-black text-[#047857]">시뮬레이션 1단계</p>
         <h3 className="mt-1 text-lg font-black text-[#0F172A]">자전거 · 퀵보드 기기 등록</h3>
-        <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">시리얼, 기기 종류, 위치를 등록하면 현위치에서 가까운 순으로 목록 상단에 (이용가능)으로 표시됩니다.</p>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">시리얼, 종류, 위치, 배터리와 상태를 등록하고, 목록에서 수정·삭제·상태 변경을 할 수 있습니다. 이용 가능한 기기만 대여되고, 이용 완료 시 Pi 결제 후 반납됩니다.</p>
         <button
           type="button"
           onClick={() => setDeviceFormOpen(true)}
