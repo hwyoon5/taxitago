@@ -2681,6 +2681,8 @@ function ServiceSheet({
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
   const [preparingOpen, setPreparingOpen] = useState(false)
+  const [callOpen, setCallOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const finishedRef = useRef(false)
   const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
@@ -2730,6 +2732,7 @@ function ServiceSheet({
       : service === '택배'
         ? { name: '최배송', vehicle: `${deliveryVehicle} 택배`, plate: '서울 88바 2201', kind: 'driver' as const }
         : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate || '', kind: 'service' as const }
+  const contactRideId = ride ? dispatchRide?.id || daeriRideIdRef.current : ''
   const canStart = more || ride || service === '택배' || Boolean(selectedItem)
   useEffect(() => {
     if (!selfServe || !nearbySpots.length) return
@@ -3066,6 +3069,16 @@ function ServiceSheet({
                   <p className="mt-1 text-sm font-black text-[#0F172A]">{ride ? (rideStage === 'moving' ? '목적지 이동 중' : '호출자에게 이동 중') : '이동/이용 중'}</p>
                 </div>
               </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setCallOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
+                  <Phone className="h-4 w-4" />
+                  전화하기
+                </button>
+                <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 text-sm font-black text-[#4C1FB8]">
+                  <MessageCircle className="h-4 w-4" />
+                  채팅하기
+                </button>
+              </div>
             </div>
             {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
             {IS_TEST_MODE && ride && rideStage === 'arriving' ? (
@@ -3359,6 +3372,32 @@ function ServiceSheet({
           onKeep={() => setCancelConfirmOpen(false)}
           onConfirm={() => void confirmInTripCancel()}
         />
+      ) : null}
+      {callOpen ? (
+        contactRideId ? (
+          <RideSafeCall
+            rideId={contactRideId}
+            actorId={daeriPassengerIdRef.current || localPassengerId()}
+            role="passenger"
+            peerName={`${partner.name} 기사님`}
+            onHangup={() => setCallOpen(false)}
+          />
+        ) : (
+          <SafeCallModal driverName={partner.name} onHangup={() => setCallOpen(false)} />
+        )
+      ) : null}
+      {chatOpen ? (
+        contactRideId ? (
+          <RideChat
+            rideId={contactRideId}
+            actorId={daeriPassengerIdRef.current || localPassengerId()}
+            role="passenger"
+            peerName={`${partner.name} 기사님`}
+            onClose={() => setChatOpen(false)}
+          />
+        ) : (
+          <DriverChatModal driverName={partner.name} onClose={() => setChatOpen(false)} />
+        )
       ) : null}
       </div>
     </div>
