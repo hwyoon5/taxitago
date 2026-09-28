@@ -3061,10 +3061,11 @@ function ServiceSheet({
               className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
               onPaid={(result) => {
                 if (!result.paymentId || !result.txid) return
-                releaseRental()
+                if (vehicle) releaseRental()
                 onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined, result)
-                onAskReview(partner)
+                if (!vehicle) onAskReview(partner)
                 onClose()
+                if (vehicle) onAskReview(partner)
               }}
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >

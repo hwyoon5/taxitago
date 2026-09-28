@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/app-origin'
 type IncompletePiPayment = {
   identifier?: string
   transaction?: { txid?: string | null } | null
+  metadata?: Record<string, unknown> | null
 }
 
 type PiSdk = {
@@ -42,19 +43,37 @@ const PI_AUTH_SCOPES = ['username', 'payments'] as const
 let initialized = false
 let authPromise: Promise<unknown> | null = null
 
+type PendingIncompletePayment = { paymentId: string; txid: string; label: string }
+
+let pendingIncomplete: PendingIncompletePayment | null = null
+
+function checkoutLabel(metadata?: Record<string, unknown>) {
+  return typeof metadata?.label === 'string' ? metadata.label.trim() : ''
+}
+
+function isMobilityReturnLabel(label: string) {
+  return label === '자전거 이용' || label === '퀵보드 이용'
+}
+
 async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<void> {
   logPi('log', 'onIncompletePaymentFound', payment)
-  const paymentId = typeof payment.identifier === 'string' ? payment.identifier : ''
-  const txid = typeof payment.transaction?.txid === 'string' ? payment.transaction.txid : ''
+  const paymentId = readPaymentId(payment)
+  const txid = txidFromPiPayload(payment)
+  const label = checkoutLabel(payment.metadata ?? undefined)
+  if (paymentId && isMobilityReturnLabel(label)) {
+    pendingIncomplete = { paymentId, txid, label }
+  }
   if (!paymentId || !txid) return
-  await postPiApi('/api/pi/complete', { paymentId, txid })
+  try {
+    await withTimeout(postPiApi('/api/pi/complete', { paymentId, txid }), PI_SERVER_TIMEOUT_MS, 'Pi 미완료 결제')
+  } catch (error) {
+    logPi('warn', 'incomplete payment complete failed', error)
+  }
 }
 
 function authenticatePi(pi: PiSdk) {
   initPi(pi)
-  const pending = pi.authenticate(['username', 'payments'], (payment): void => {
-    void onIncompletePaymentFound(payment)
-  })
+  const pending = pi.authenticate(['username', 'payments'], (payment) => onIncompletePaymentFound(payment))
   authPromise = pending
     .then((auth) => {
       logPi('log', 'authenticate ok', { scopes: PI_AUTH_SCOPES, auth })
@@ -436,14 +455,14 @@ function txidFromPiPayload(payload: unknown) {
   if (!payload || typeof payload !== 'object') return ''
   const record = payload as Record<string, unknown>
   if (typeof record.txid === 'string' && record.txid.trim()) return record.txid.trim()
+  const transaction = record.transaction
+  if (transaction && typeof transaction === 'object') {
+    const txid = (transaction as Record<string, unknown>).txid
+    if (typeof txid === 'string' && txid.trim()) return txid.trim()
+  }
   const payment = record.payment
   if (!payment || typeof payment !== 'object') return ''
-  const paymentRecord = payment as Record<string, unknown>
-  if (typeof paymentRecord.txid === 'string' && paymentRecord.txid.trim()) return paymentRecord.txid.trim()
-  const transaction = paymentRecord.transaction
-  if (!transaction || typeof transaction !== 'object') return ''
-  const txid = (transaction as Record<string, unknown>).txid
-  return typeof txid === 'string' ? txid.trim() : ''
+  return txidFromPiPayload(payment)
 }
 
 function readPaymentId(value: unknown) {
@@ -470,6 +489,16 @@ export async function startPiCheckout(options: {
 
   const pi = (await preparePiSdk()) ?? requirePiSdk()
   await authenticatePi(pi)
+
+  const label = checkoutLabel(options.metadata)
+  if (options.advanceOnApproval && pendingIncomplete?.txid && isMobilityReturnLabel(label) && pendingIncomplete.label === label && pendingIncomplete.paymentId) {
+    const recovered = pendingIncomplete
+    pendingIncomplete = null
+    const result = { paymentId: recovered.paymentId, txid: recovered.txid || `approved-${recovered.paymentId}` }
+    logPi('log', 'mobility return recovered from approval', result)
+    options.onSettled?.(result)
+    return result
+  }
 
   const payment = {
     amount,
@@ -506,15 +535,17 @@ export async function startPiCheckout(options: {
       pi.createPayment(payment, {
         onReadyForServerApproval: (paymentIdArg) => {
           const paymentId = readPaymentId(paymentIdArg)
-          logPi('log', 'onReadyForServerApproval', { paymentId })
+          const approvedTxid = txidFromPiPayload(paymentIdArg)
+          logPi('log', 'onReadyForServerApproval', { paymentId, approvedTxid })
           if (!paymentId) {
             finishError('approve missing paymentId', paymentIdArg)
             return Promise.resolve()
           }
+          if (options.advanceOnApproval && approvedTxid) succeed({ paymentId, txid: approvedTxid })
           return withTimeout(postPiApi('/api/pi/approve', { paymentId }), PI_SERVER_TIMEOUT_MS, 'Pi 결제 승인')
             .then((payload) => {
               if (options.advanceOnApproval) {
-                succeed({ paymentId, txid: txidFromPiPayload(payload) || `approved-${paymentId}` })
+                succeed({ paymentId, txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}` })
               }
               return payload
             })
@@ -525,13 +556,20 @@ export async function startPiCheckout(options: {
             })
         },
         onReadyForServerCompletion: (paymentIdArg, txidArg) => {
-          const paymentId = readPaymentId(paymentIdArg)
-          const txid = txidFromPiPayload(txidArg)
+          const paymentId = readPaymentId(paymentIdArg) || readPaymentId(txidArg)
+          const txid = txidFromPiPayload(txidArg) || txidFromPiPayload(paymentIdArg)
           logPi('log', 'onReadyForServerCompletion', { paymentId, txid })
-          if (!paymentId || !txid) {
+          if (!paymentId) {
             if (!options.advanceOnApproval) finishError('completion missing ids', { paymentId, txid })
             return Promise.resolve()
           }
+          const settledTxid = txid || `approved-${paymentId}`
+          if (options.advanceOnApproval) succeed({ paymentId, txid: settledTxid })
+          else if (!txid) {
+            finishError('completion missing ids', { paymentId, txid })
+            return Promise.resolve()
+          }
+          if (!txid) return Promise.resolve()
           return withTimeout(postPiApi('/api/pi/complete', { paymentId, txid }), PI_SERVER_TIMEOUT_MS, 'Pi 결제 완료')
             .then(() => {
               succeed({ paymentId, txid })
@@ -553,7 +591,13 @@ export async function startPiCheckout(options: {
           reject(new Error('결제가 취소되었습니다.'))
         },
         onError: (error, paymentInfo) => {
-          logPi('error', 'onError', { error, paymentInfo })
+          const paymentId = readPaymentId(paymentInfo)
+          const txid = txidFromPiPayload(paymentInfo)
+          logPi('error', 'onError', { error, paymentInfo, paymentId, txid })
+          if (options.advanceOnApproval && paymentId && txid) {
+            succeed({ paymentId, txid })
+            return
+          }
           finishError('createPayment onError', error, paymentInfo)
         },
       })
