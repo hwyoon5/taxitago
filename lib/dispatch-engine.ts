@@ -503,6 +503,46 @@ export function resumeAssignedTracking() {
   }
 }
 
+export function ensureRideForCompletion(
+  rideId: string,
+  driverId: string,
+  snapshot?: {
+    passengerId?: string
+    pickup?: RideRequestRecord['pickup']
+    dest?: RideRequestRecord['dest']
+    estimatedFare?: number
+    kind?: RideRequestRecord['kind']
+    boardedAt?: string | null
+    readyToSettleAt?: string | null
+  },
+) {
+  syncDispatchFromDisk()
+  const existing = getRide(rideId)
+  if (existing) return existing
+  if (!snapshot?.passengerId || !snapshot.pickup || !snapshot.dest || !snapshot.readyToSettleAt) return null
+  const createdAt = nowIso()
+  const ride = saveRide({
+    id: rideId,
+    kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
+    passengerId: snapshot.passengerId,
+    pickup: snapshot.pickup,
+    dest: snapshot.dest,
+    estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
+    status: 'assigned',
+    assignedDriverId: driverId,
+    currentOffer: null,
+    declinedDriverIds: [],
+    timedOutDriverIds: [],
+    boardedAt: snapshot.boardedAt || createdAt,
+    readyToSettleAt: snapshot.readyToSettleAt,
+    createdAt,
+    updatedAt: createdAt,
+  })
+  openEscrowForRide(ride.id)
+  lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })
+  return getRide(ride.id) ?? ride
+}
+
 export function completeAssignedRide(rideId: string, driverId: string) {
   const ride = getRide(rideId)
   if (!ride) return null

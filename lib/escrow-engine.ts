@@ -1,4 +1,4 @@
-import { getDriver, getRide, listRides, nowIso, saveDriver } from '@/lib/dispatch-store'
+import { getDriver, getRide, listRides, nowIso, saveDriver, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { getPartnerLink } from '@/lib/partner-ledger-server'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
@@ -102,6 +102,7 @@ export function lockEscrow(input: {
 const releasingRides = new Set<string>()
 
 export async function releaseEscrow(rideId: string, driverId: string) {
+  syncDispatchFromDisk()
   const ride = getRide(rideId)
   if (!ride) return { ok: false as const, error: 'not_found', escrow: null, receipt: null }
   if (ride.assignedDriverId !== driverId) return { ok: false as const, error: 'forbidden', escrow: getEscrowByRide(rideId), receipt: null }

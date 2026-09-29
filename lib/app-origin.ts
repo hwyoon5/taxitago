@@ -31,6 +31,13 @@ export function localEventSourceUrl(path: string, query?: string | URLSearchPara
   return urls.find((url) => /\/(\?|$)/.test(url)) ?? urls[0]
 }
 
+async function missedRoute(response: Response) {
+  if (response.status !== 404 && response.status !== 405) return false
+  const text = await response.clone().text().catch(() => '')
+  if (text.includes('"error"') || text.includes('"ride"') || text.includes('"ok"')) return false
+  return true
+}
+
 export async function apiFetch(path: string, init?: RequestInit) {
   const urls = localApiUrls(toRelativeApiPath(path))
   let lastResponse: Response | undefined
@@ -41,10 +48,9 @@ export async function apiFetch(path: string, init?: RequestInit) {
       lastResponse = response
       const type = (response.headers.get('content-type') || '').toLowerCase()
       const jsonLike = type.includes('json') || type.includes('event-stream')
+      if (await missedRoute(response)) continue
       if (jsonLike) return response
-      if (response.status === 404 || response.status === 301 || response.status === 302 || response.status === 307 || response.status === 308 || response.ok) {
-        continue
-      }
+      if (response.ok || response.status === 301 || response.status === 302 || response.status === 307 || response.status === 308) continue
       return response
     } catch (error) {
       lastError = error

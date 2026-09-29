@@ -2317,14 +2317,13 @@ function TaxiMatchingSheet({
       openPayReceipt(`pay-${Date.now()}`, `done-${Date.now()}`)
       return
     }
-    void completeRideTrip(ride.id, driverId)
+    void completeRideTrip(ride.id, driverId, ride)
       .then((result) => {
         if (result.ride) setRide(result.ride)
         finishedRef.current = true
         const txid = result.receipt?.payoutTxid || result.ride?.escrow?.payoutTxid || `done-${ride.id.slice(0, 8)}`
         const paymentId = result.receipt?.lockTxid || result.ride?.escrow?.lockTxid || txid
         openPayReceipt(paymentId, txid)
-        onNotice('운행이 완료되어 정산되었습니다.')
       })
       .catch((error) => {
         onNotice(error instanceof Error ? error.message : '정산에 실패했어요. 다시 한 번만 눌러 주세요.')
@@ -3115,9 +3114,6 @@ function ServiceSheet({
                 if (!result.paymentId || !result.txid) return
                 if (vehicle) releaseRental()
                 onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined, result)
-                if (!vehicle) onAskReview(partner)
-                onClose()
-                if (vehicle) onAskReview(partner)
               }}
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
@@ -3236,8 +3232,6 @@ function ServiceSheet({
                     if (!result.paymentId || !result.txid) return
                     const paid = rideStage === 'moving' ? billed.actual : fare
                     onSettle(paid, place, `${service} 이용`, billed.estimate, result)
-                    onAskReview(partner)
-                    onClose()
                   }}
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
                 >
@@ -3254,8 +3248,6 @@ function ServiceSheet({
                   onPaid={(result) => {
                     if (!result.paymentId || !result.txid) return
                     onSettle(fare, place, `${service} 이용`, undefined, result)
-                    onAskReview(partner)
-                    onClose()
                   }}
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
                 >
@@ -6159,7 +6151,7 @@ function DriverDashboard({
       return
     }
     setBusy(true)
-    void completeRideTrip(activeRide.id, driverId)
+    void completeRideTrip(activeRide.id, driverId, activeRide)
       .then((result) => {
         if (result.receipt) {
           appendSettlementEntry(result.receipt.amount, `에스크로 정산 · ${result.receipt.route}`)

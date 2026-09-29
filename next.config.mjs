@@ -91,6 +91,14 @@ const nextConfig = {
           source: '/api/rides/:id/complete',
           destination: '/api/rides/:id/complete/',
         },
+        {
+          source: '/api/pi/approve',
+          destination: '/api/pi/approve/',
+        },
+        {
+          source: '/api/pi/complete',
+          destination: '/api/pi/complete/',
+        },
       ],
     }
   },

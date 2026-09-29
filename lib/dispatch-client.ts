@@ -282,14 +282,18 @@ export async function abandonDriverRide(rideId: string, driverId: string) {
   return data.ride
 }
 
-export async function completeRideTrip(rideId: string, driverId: string) {
-  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/complete`, {
+export async function completeRideTrip(
+  rideId: string,
+  driverId: string,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind' | 'boardedAt' | 'readyToSettleAt'>,
+) {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/complete/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ driverId }),
+    body: JSON.stringify({ driverId, ride }),
   })
-  const data = await readJson<{ ride?: PublicRide; receipt?: SettlementReceipt; error?: string }>(res)
-  if (!res.ok || !data.ride) throw new Error(data.error || '정산에 실패했어요.')
+  const data = await readJson<{ ride?: PublicRide; receipt?: SettlementReceipt; error?: string }>(res).catch(() => null)
+  if (!res.ok || !data?.ride) throw new Error(data?.error || '이용 완료 처리에 실패했어요.')
   return data
 }
 
