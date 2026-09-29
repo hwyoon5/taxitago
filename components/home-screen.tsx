@@ -6225,11 +6225,14 @@ function DriverDashboard({
         </button>
       </section>
       {partner ? (
-        <section className="mt-4 rounded-[26px] border-2 border-[#BFDBFE] bg-[#E8F1FA] p-4">
-          <p className="text-[11px] font-black text-[#4A82B8]">Pi 정산 계정</p>
-          <p className="mt-1 text-sm font-black text-[#0F172A]">@{partner.username} · {partner.role}</p>
-          <p className="mt-2 break-all text-[11px] font-bold leading-5 text-[#334155]">UID {partner.uid}</p>
-          <p className="mt-1 break-all text-[11px] font-bold leading-5 text-[#334155]">Wallet {partner.wallet}</p>
+        <section className="mt-2 flex items-center gap-2 rounded-xl border border-[#BFDBFE] bg-[#E8F1FA] px-2.5 py-1">
+          <p className="shrink-0 text-[9px] font-bold leading-none text-[#4A82B8]">Pi 정산</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[11px] font-bold leading-tight text-[#0F172A]">@{partner.username} · {partner.role}</p>
+            <p className="truncate text-[9px] font-medium leading-tight text-[#64748B]" title={`UID ${partner.uid} · Wallet ${partner.wallet}`}>
+              {partner.uid} · {partner.wallet}
+            </p>
+          </div>
         </section>
       ) : null}
       <section className="mt-4 grid grid-cols-3 gap-2.5">
