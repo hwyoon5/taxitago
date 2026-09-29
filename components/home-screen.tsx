@@ -93,6 +93,33 @@ function localPassengerId() {
   return readOrCreateLocalId(PASSENGER_ID_KEY, 'passenger')
 }
 
+const DRIVER_EARNINGS_CACHE = 'taxitago-driver-earnings'
+
+function readEarningsCache(driverId: string): DriverEarningsStats | null {
+  try {
+    const raw = window.localStorage.getItem(`${DRIVER_EARNINGS_CACHE}:${driverId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as DriverEarningsStats
+    return parsed && Array.isArray(parsed.recent) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function writeEarningsCache(driverId: string, stats: DriverEarningsStats) {
+  try {
+    window.localStorage.setItem(`${DRIVER_EARNINGS_CACHE}:${driverId}`, JSON.stringify(stats))
+  } catch {
+    undefined
+  }
+}
+
+function hasRecordedEarnings(stats: DriverEarningsStats | null | undefined) {
+  if (!stats) return false
+  const total = stats.total?.[0]
+  return stats.todayAmount > 0 || stats.todayTrips > 0 || (total?.amount ?? 0) > 0 || (total?.trips ?? 0) > 0 || stats.recent.length > 0
+}
+
 function localDriverId(partnerUid?: string) {
   if (partnerUid) return partnerUid
   return readOrCreateLocalId(DRIVER_ID_KEY, 'driver')
@@ -5997,6 +6024,16 @@ function DriverDashboard({
   const [incoming, setIncoming] = useState<PublicRide | null>(null)
   const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
   const [earnings, setEarnings] = useState<DriverEarningsStats | null>(null)
+  const [earningsReady, setEarningsReady] = useState(false)
+  const applyEarnings = useCallback((id: string, next: DriverEarningsStats | null | undefined) => {
+    if (!id || !next) return
+    setEarnings((current) => {
+      if (!hasRecordedEarnings(next) && hasRecordedEarnings(current)) return current
+      if (hasRecordedEarnings(next)) writeEarningsCache(id, next)
+      return next
+    })
+    setEarningsReady(true)
+  }, [])
   const [driverRating, setDriverRating] = useState('5.00')
   const [offerKm, setOfferKm] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
@@ -6032,8 +6069,15 @@ function DriverDashboard({
   useEffect(() => {
     const profile = loadPartnerProfile()
     setPartner(profile)
-    setDriverId(localDriverId(profile?.uid))
-  }, [])
+    const id = localDriverId(profile?.uid)
+    setDriverId(id)
+    const cached = readEarningsCache(id)
+    if (cached) {
+      setEarnings(cached)
+      setEarningsReady(true)
+    }
+    void fetchDriverEarnings(id).then((stats) => applyEarnings(id, stats))
+  }, [applyEarnings])
 
   useEffect(() => {
     setLocalDelivery(deliveryJob ?? loadDeliveryJob())
@@ -6120,7 +6164,7 @@ function DriverDashboard({
     }
     const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; earnings?: DriverEarningsStats | null } | null, active?: PublicRide | null) => {
       const ride = pending?.ride ?? null
-      if (pending?.earnings) setEarnings(pending.earnings)
+      if (pending?.earnings) applyEarnings(driverId, pending.earnings)
       if (!activityPrimed.current) {
         activityPrimed.current = true
         if (ride?.id) activityKeys.current.add(`offer:${ride.id}`)
@@ -6212,7 +6256,7 @@ function DriverDashboard({
         fetchLostInbox(driverId, 'driver'),
       ]).then(([active, stats, rating, alerts, lost]) => {
         if (active !== undefined) setActiveRide(active)
-        if (stats) setEarnings(stats)
+        applyEarnings(driverId, stats)
         if (rating) setDriverRating(rating.average.toFixed(2))
         setSosAlerts(alerts)
         setLostItems(lost)
@@ -6299,7 +6343,7 @@ function DriverDashboard({
           noteActivity(`reject:${incoming.id}`, '거절', rideRoute(incoming))
           onNotice('요청을 거절했어요. 다음 기사에게 콜이 넘어갑니다.')
         }
-        void fetchDriverEarnings(driverId).then((stats) => { if (stats) setEarnings(stats) })
+        void fetchDriverEarnings(driverId).then((stats) => applyEarnings(driverId, stats))
         setIncoming(null)
       })
       .catch((error) => {
@@ -6341,7 +6385,7 @@ function DriverDashboard({
         return fetchDriverEarnings(driverId)
       })
       .then((stats) => {
-        if (stats) setEarnings(stats)
+        applyEarnings(driverId, stats)
       })
       .catch((error) => {
         onNotice(error instanceof Error ? error.message : '정산에 실패했어요. 에스크로 잠금을 확인해 주세요.')
@@ -6364,7 +6408,7 @@ function DriverDashboard({
         return fetchDriverEarnings(driverId)
       })
       .then((stats) => {
-        if (stats) setEarnings(stats)
+        applyEarnings(driverId, stats)
       })
       .catch((error) => {
         onNotice(error instanceof Error ? error.message : '배차 취소에 실패했어요.')
@@ -6414,12 +6458,12 @@ function DriverDashboard({
       <section className="mt-2 grid grid-cols-3 gap-2">
         <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-xl border border-[#CBD5E1] bg-white px-2.5 py-2 text-left shadow-sm transition active:scale-[0.98]">
           <p className="text-[10px] font-semibold text-[#64748B]">오늘의 수익</p>
-          <p className="mt-1 text-base font-bold leading-tight text-[#0F766E]">{(earnings?.todayAmount ?? 0).toFixed(1)} Pi</p>
+          <p className="mt-1 text-base font-bold leading-tight text-[#0F766E]">{earningsReady && earnings ? `${earnings.todayAmount.toFixed(1)} Pi` : '…'}</p>
           <p className="mt-0.5 text-[10px] font-bold text-[#0D9488]">상세 보기 ›</p>
         </button>
         <button type="button" onClick={() => setStatSheet('trips')} className="rounded-xl border border-[#CBD5E1] bg-white px-2.5 py-2 text-left shadow-sm transition active:scale-[0.98]">
-          <p className="text-[10px] font-semibold text-[#64748B]">{earnings?.todayTrips ?? 0}건 운행</p>
-          <p className="mt-1 text-base font-bold leading-tight text-[#0F172A]">{earnings?.todayTrips ?? 0}건</p>
+          <p className="text-[10px] font-semibold text-[#64748B]">{earningsReady && earnings ? `${earnings.todayTrips}건 운행` : '운행'}</p>
+          <p className="mt-1 text-base font-bold leading-tight text-[#0F172A]">{earningsReady && earnings ? `${earnings.todayTrips}건` : '…'}</p>
           <p className="mt-0.5 text-[10px] font-bold text-[#0369A1]">상세 보기 ›</p>
         </button>
         <div className="rounded-xl border border-[#CBD5E1] bg-white px-2.5 py-2 shadow-sm">

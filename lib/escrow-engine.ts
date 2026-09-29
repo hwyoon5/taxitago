@@ -12,7 +12,7 @@ import {
   saveReceipt,
   syncEscrowFromDisk,
 } from '@/lib/escrow-store'
-import type { DriverEarningsStats, EarningsPeriodRow, EscrowRecord, PublicEscrow, SettlementReceipt } from '@/lib/escrow-types'
+import type { DriverEarning, DriverEarningsStats, EarningsPeriodRow, EscrowRecord, PublicEscrow, SettlementReceipt } from '@/lib/escrow-types'
 
 function stamp(record: EscrowRecord) {
   record.updatedAt = nowIso()
@@ -340,9 +340,34 @@ function rollup(entries: ReturnType<typeof listEarnings>, pick: (keys: ReturnTyp
   return [...map.values()].sort((a, b) => (a.period < b.period ? 1 : -1))
 }
 
-export function driverEarningsStats(driverId: string): DriverEarningsStats {
+function recordedEarnings(driverId: string): DriverEarning[] {
   syncEscrowFromDisk()
-  const entries = listEarnings(driverId)
+  syncDispatchFromDisk()
+  const byRide = new Map<string, DriverEarning>()
+  for (const entry of listEarnings(driverId)) byRide.set(`${entry.rideId}:${entry.status}`, entry)
+  for (const ride of listRides()) {
+    if (ride.assignedDriverId !== driverId) continue
+    if (ride.status !== 'completed' && ride.status !== 'cancelled') continue
+    const status = ride.status === 'completed' ? 'completed' : 'cancelled'
+    const key = `${ride.id}:${status}`
+    if (byRide.has(key)) continue
+    const receipt = getReceipt(ride.id)
+    const amount = status === 'completed' ? (receipt?.amount ?? ride.estimatedFare) : (receipt?.amount ?? 0)
+    byRide.set(key, {
+      id: `ride-${ride.id}-${status}`,
+      driverId,
+      rideId: ride.id,
+      amount,
+      route: `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`,
+      status,
+      at: receipt?.settledAt || ride.updatedAt,
+    })
+  }
+  return [...byRide.values()].sort((a, b) => (a.at < b.at ? 1 : -1))
+}
+
+export function driverEarningsStats(driverId: string): DriverEarningsStats {
+  const entries = recordedEarnings(driverId)
   const daily = rollup(entries, (keys) => keys.day)
   const monthly = rollup(entries, (keys) => keys.month)
   const yearly = rollup(entries, (keys) => keys.year)
