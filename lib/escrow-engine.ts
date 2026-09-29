@@ -325,7 +325,7 @@ function rollup(entries: ReturnType<typeof listEarnings>, pick: (keys: ReturnTyp
   for (const entry of entries) {
     const keys = periodKeys(entry.at)
     const period = pick(keys)
-    const current = map.get(period) || { period, count: 0, amount: 0, trips: 0, done: 0, cancel: 0, note: '진행 중' }
+    const current = map.get(period) || { period, count: 0, amount: 0, trips: 0, done: 0, cancel: 0, note: '정산됨' }
     current.trips += 1
     if (entry.status === 'completed') {
       current.count += 1
@@ -334,12 +334,14 @@ function rollup(entries: ReturnType<typeof listEarnings>, pick: (keys: ReturnTyp
     } else {
       current.cancel += 1
     }
+    current.note = current.cancel > 0 && current.done > 0 ? '정산·취소' : current.cancel > 0 ? '취소' : '정산됨'
     map.set(period, current)
   }
   return [...map.values()].sort((a, b) => (a.period < b.period ? 1 : -1))
 }
 
 export function driverEarningsStats(driverId: string): DriverEarningsStats {
+  syncEscrowFromDisk()
   const entries = listEarnings(driverId)
   const daily = rollup(entries, (keys) => keys.day)
   const monthly = rollup(entries, (keys) => keys.month)
@@ -351,7 +353,7 @@ export function driverEarningsStats(driverId: string): DriverEarningsStats {
   const totalCancel = entries.filter((item) => item.status === 'cancelled').length
   return {
     todayAmount: today?.amount ?? 0,
-    todayTrips: today?.done ?? 0,
+    todayTrips: today?.trips ?? 0,
     rating: getDriver(driverId)?.rating || '5.00',
     daily,
     monthly,

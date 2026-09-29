@@ -1,6 +1,6 @@
 'use client'
 
-import { Component, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { translateService } from '@/lib/i18n'
@@ -5910,6 +5910,7 @@ function DriverDashboard({
   onWithdraw,
   onNotice,
   onAskPassengerReview,
+  onActivity,
   deliveryJob,
 }: {
   online: boolean
@@ -5920,6 +5921,7 @@ function DriverDashboard({
   onWithdraw: () => void | Promise<void>
   onNotice: (message: string) => void
   onAskPassengerReview: (target: RideReviewTarget) => void
+  onActivity?: (label: string, detail: string) => void
   deliveryJob?: DeliveryJob | null
 }) {
   const [incoming, setIncoming] = useState<PublicRide | null>(null)
@@ -5942,6 +5944,19 @@ function DriverDashboard({
   const [driverId, setDriverId] = useState('')
   const localOfferRef = useRef<{ ride: PublicRide; expiresAt: number; km: number | null } | null>(null)
   const offerLogRef = useRef('')
+  const activityKeys = useRef(new Set<string>())
+  const onActivityRef = useRef(onActivity)
+  onActivityRef.current = onActivity
+  const lastActiveRef = useRef<PublicRide | null>(null)
+  const activityPrimed = useRef(false)
+  const deliverySeen = useRef<string | null>(null)
+  const noteActivity = useCallback((key: string, label: string, detail: string) => {
+    if (!key || activityKeys.current.has(key)) return
+    activityKeys.current.add(key)
+    onActivityRef.current?.(label, detail)
+  }, [])
+  const rideRoute = (ride: { pickup: { address?: string; label?: string }; dest: { address?: string; label?: string } }) =>
+    `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
 
   useEffect(() => {
     const profile = loadPartnerProfile()
@@ -6029,8 +6044,31 @@ function DriverDashboard({
       setIncoming(ride)
       setOfferKm(km)
     }
-    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null } | null, active?: PublicRide | null) => {
+    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; earnings?: DriverEarningsStats | null } | null, active?: PublicRide | null) => {
       const ride = pending?.ride ?? null
+      if (pending?.earnings) setEarnings(pending.earnings)
+      if (!activityPrimed.current) {
+        activityPrimed.current = true
+        if (ride?.id) activityKeys.current.add(`offer:${ride.id}`)
+        if (active?.id) activityKeys.current.add(`accept:${active.id}`)
+        lastActiveRef.current = active ?? null
+      } else {
+        if (ride?.id) noteActivity(`offer:${ride.id}`, '호출 접수', rideRoute(ride))
+        if (active) {
+          noteActivity(`accept:${active.id}`, '수락', rideRoute(active))
+          if (active.escrow?.status === 'held') noteActivity(`escrow:${active.id}`, '에스크로 잠금', `${rideRoute(active)} · 잠금 완료`)
+          if (active.escrow?.status === 'released') noteActivity(`settle:${active.id}`, '정산', `${rideRoute(active)} · ${(active.escrow.amount ?? active.estimatedFare).toFixed(2)} Pi`)
+          if (active.readyToSettleAt) noteActivity(`arrive:${active.id}`, '목적지 도착', rideRoute(active))
+          if (active.status === 'completed') noteActivity(`done:${active.id}`, '운행 완료', rideRoute(active))
+          lastActiveRef.current = active
+        } else if (active === null && lastActiveRef.current) {
+          const previous = lastActiveRef.current
+          if (!activityKeys.current.has(`done:${previous.id}`) && !activityKeys.current.has(`cancel:${previous.id}`)) {
+            noteActivity(`cancel:${previous.id}`, '취소', rideRoute(previous))
+          }
+          lastActiveRef.current = null
+        }
+      }
       if (active !== undefined) {
         setActiveRide((current) => {
           if (!active || !current || current.id !== active.id) return active
@@ -6071,7 +6109,7 @@ function DriverDashboard({
     const unsubscribe = online
       ? subscribeDriverLive(driverId, (snapshot) => {
           streamReady.current = true
-          applyOffer({ ride: snapshot.ride, offer: snapshot.offer }, snapshot.active)
+          applyOffer({ ride: snapshot.ride, offer: snapshot.offer, earnings: snapshot.earnings }, snapshot.active)
         })
       : () => undefined
     if (online) {
@@ -6134,7 +6172,20 @@ function DriverDashboard({
       document.removeEventListener('visibilitychange', pullOffer)
       navigator.serviceWorker?.removeEventListener('message', onAlert)
     }
-  }, [driverId, online, deliveryJob])
+  }, [driverId, online, deliveryJob, noteActivity])
+
+  useEffect(() => {
+    const job = deliveryJob ?? localDelivery
+    const key = job ? `${job.id}:${job.status}` : ''
+    if (deliverySeen.current === null) {
+      deliverySeen.current = key
+      return
+    }
+    if (!job || deliverySeen.current === key) return
+    deliverySeen.current = key
+    const label = job.status === 'completed' ? '배송 완료' : job.status === 'assigned' ? '배송 수락' : '배송 접수'
+    noteActivity(`delivery:${key}`, label, `${job.pickupAddress} → ${job.destAddress}`)
+  }, [deliveryJob, localDelivery, noteActivity])
 
   const respond = (action: 'accept' | 'reject') => {
     if (!incoming || busy || !driverId) return
@@ -6144,10 +6195,13 @@ function DriverDashboard({
       .then((ride) => {
         if (action === 'accept') {
           setActiveRide(ride)
+          noteActivity(`accept:${ride.id}`, '수락', rideRoute(ride))
           onNotice('운행을 수락했어요. 승객 에스크로가 잠기면 운행 완료 시 자동 정산됩니다.')
         } else {
+          noteActivity(`reject:${incoming.id}`, '거절', rideRoute(incoming))
           onNotice('요청을 거절했어요. 다음 기사에게 콜이 넘어갑니다.')
         }
+        void fetchDriverEarnings(driverId).then((stats) => { if (stats) setEarnings(stats) })
         setIncoming(null)
       })
       .catch((error) => {
@@ -6172,7 +6226,9 @@ function DriverDashboard({
       .then((result) => {
         if (result.receipt) {
           appendSettlementEntry(result.receipt.amount, `에스크로 정산 · ${result.receipt.route}`)
+          noteActivity(`settle:${activeRide.id}`, '정산', `${result.receipt.route} · ${result.receipt.amount.toFixed(2)} Pi · 정산됨`)
         }
+        noteActivity(`done:${activeRide.id}`, '운행 완료', rideRoute(activeRide))
         const finished = activeRide
         setActiveRide(null)
         onNotice('운행 완료. 에스크로 Pi가 등록 지갑으로 정산되었습니다.')
@@ -6203,9 +6259,14 @@ function DriverDashboard({
     setBusy(true)
     void abandonDriverRide(activeRide.id, driverId)
       .then(() => {
+        noteActivity(`cancel:${activeRide.id}`, '취소', rideRoute(activeRide))
         setActiveRide(null)
         setIncoming(null)
         onNotice('배차를 취소했어요. 승객과 함께 대기 상태로 돌아갑니다.')
+        return fetchDriverEarnings(driverId)
+      })
+      .then((stats) => {
+        if (stats) setEarnings(stats)
       })
       .catch((error) => {
         onNotice(error instanceof Error ? error.message : '배차 취소에 실패했어요.')
@@ -6924,7 +6985,7 @@ export default function HomeScreen() {
         </header>
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (
-            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} deliveryJob={deliveryJob} />
+            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} />
           ) : (
             <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
           )

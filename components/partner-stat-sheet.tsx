@@ -4,6 +4,22 @@ import { useState } from 'react'
 import { FileSpreadsheet, X } from 'lucide-react'
 import type { DriverEarning, DriverEarningsStats, EarningsPeriodRow } from '@/lib/escrow-types'
 
+function periodParts(iso: string) {
+  const date = new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000)
+  const year = String(date.getUTCFullYear())
+  const month = `${year}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+  const day = `${month}-${String(date.getUTCDate()).padStart(2, '0')}`
+  return { year, month, day }
+}
+
+function matchesEarningPeriod(iso: string, period: string, tab: string) {
+  const parts = periodParts(iso)
+  if (tab === 'yearly') return parts.year === period
+  if (tab === 'monthly') return parts.month === period
+  if (tab === 'total') return true
+  return period.startsWith(parts.day)
+}
+
 type Kind = 'revenue' | 'trips'
 
 const emptyStats: DriverEarningsStats = {
@@ -36,13 +52,7 @@ export default function PartnerStatSheet({
   const rows: EarningsPeriodRow[] =
     tab === 'total' ? live.total : tab === 'monthly' ? live.monthly : tab === 'yearly' ? live.yearly : live.daily
   const details: DriverEarning[] = opened
-    ? live.recent.filter((item) => {
-        const at = item.at.slice(0, 7)
-        if (tab === 'yearly') return item.at.startsWith(opened.period)
-        if (tab === 'monthly') return at === opened.period
-        if (tab === 'total') return true
-        return opened.period.startsWith(item.at.slice(0, 10))
-      })
+    ? live.recent.filter((item) => matchesEarningPeriod(item.at, opened.period, tab))
     : []
   const accent = isRevenue
     ? { ink: 'text-teal-700', on: 'bg-teal-700 text-white', off: 'bg-teal-50 text-teal-700', head: 'bg-teal-700', border: 'border-teal-200', zebra: 'bg-teal-50', hover: 'hover:bg-teal-100 active:bg-teal-200', total: 'bg-teal-100 text-teal-900', amount: 'text-teal-700' }
@@ -160,10 +170,10 @@ export default function PartnerStatSheet({
                 <li key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold text-slate-800">{new Date(item.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</p>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>{item.status === 'completed' ? '완료' : '취소'}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>{item.status === 'completed' ? '정산됨' : '취소'}</span>
                   </div>
                   <p className="mt-1.5 text-base font-normal leading-snug text-slate-900">{item.route}</p>
-                  <p className={`mt-1 text-base font-semibold ${accent.amount}`}>{item.status === 'completed' ? `+${item.amount.toFixed(2)} Pi` : '정산 없음'}</p>
+                  <p className={`mt-1 text-base font-semibold ${accent.amount}`}>{item.status === 'completed' || item.amount > 0 ? `+${item.amount.toFixed(2)} Pi` : '정산 없음'}</p>
                 </li>
               ))}
             </ul>

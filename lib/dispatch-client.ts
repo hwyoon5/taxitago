@@ -51,6 +51,7 @@ export type DriverDispatchSnapshot = {
   ride: PublicRide | null
   offer: { pickupDistanceKm: number; expiresAt: string } | null
   active: PublicRide | null
+  earnings?: DriverEarningsStats | null
 }
 
 export function subscribeDriverLive(driverId: string, onDispatch: (snapshot: DriverDispatchSnapshot) => void) {

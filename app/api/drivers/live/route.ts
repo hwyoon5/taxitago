@@ -1,5 +1,6 @@
 import { getDriverActiveRide, getDriverOffer } from '@/lib/dispatch-engine'
 import { subscribeDriverLive } from '@/lib/dispatch-store'
+import { driverEarningsStats } from '@/lib/escrow-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
           ride: pending?.ride ?? null,
           offer: pending?.offer ?? null,
           active: getDriverActiveRide(driverId),
+          earnings: driverEarningsStats(driverId),
         })
       }
       send('ping', { at: Date.now() })
