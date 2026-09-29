@@ -1,6 +1,7 @@
 import { etaMinutesFromKm, haversineKm, headingDegrees, stepToward } from '@/lib/dispatch-geo'
-import { getEscrowByRide } from '@/lib/escrow-store'
+import { getEscrowByRide, syncEscrowFromDisk } from '@/lib/escrow-store'
 import { openEscrowForRide, lockEscrow, refundEscrow, toPublicEscrow } from '@/lib/escrow-engine'
+import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { archiveRideComms, openRideComms } from '@/lib/comms-engine'
 import {
   ensureSeedDrivers,
@@ -414,6 +415,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   publishDriverLive(driverId)
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
   openEscrowForRide(ride.id)
+  if (isPiSandboxEnv()) lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })
   openRideComms(ride.id)
   startLiveDriverTracking(ride.id)
   return { ok: true as const, ride }
@@ -488,6 +490,7 @@ export function confirmMatchOnDevice(
 }
 
 export function getPublicRide(rideId: string) {
+  syncEscrowFromDisk()
   resumeAssignedTracking()
   const ride = getRide(rideId)
   if (!ride) return null
@@ -560,6 +563,7 @@ const offerLookupLog = { key: '' }
 
 export function getDriverActiveRide(driverId: string) {
   syncDispatchFromDisk()
+  syncEscrowFromDisk()
   const ride = listRides().find((item) => item.assignedDriverId === driverId && item.status === 'assigned')
   return ride ? toPublicRide(ride) : null
 }

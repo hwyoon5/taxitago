@@ -10,6 +10,7 @@ import {
   listEarnings,
   saveEscrow,
   saveReceipt,
+  syncEscrowFromDisk,
 } from '@/lib/escrow-store'
 import type { DriverEarningsStats, EarningsPeriodRow, EscrowRecord, PublicEscrow, SettlementReceipt } from '@/lib/escrow-types'
 
@@ -101,19 +102,56 @@ export function lockEscrow(input: {
 
 const releasingRides = new Set<string>()
 
-export async function releaseEscrow(rideId: string, driverId: string) {
+/** Passenger arrival is the settlement gate. Recover a lock saved in another process, or a sandbox lock that never landed on this one. */
+export function ensureSettlementEscrow(
+  rideId: string,
+  driverId: string,
+  proof?: { status?: string | null; lockTxid?: string | null; lockPaymentId?: string | null },
+) {
+  syncEscrowFromDisk()
+  const ride = getRide(rideId)
+  if (!ride || ride.assignedDriverId !== driverId || !ride.readyToSettleAt) return getEscrowByRide(rideId)
+  const current = getEscrowByRide(rideId)
+  if (current?.status === 'held' || current?.status === 'released' || current?.status === 'refunded') return current
+  if (current && (current.lockTxid || current.heldAt)) {
+    current.status = 'held'
+    return stamp(current)
+  }
+  const txid = proof?.lockTxid?.trim() || ''
+  const paymentId = proof?.lockPaymentId?.trim() || txid
+  if (!isPiSandboxEnv() && !txid) return current
+  const locked = lockEscrow({
+    rideId,
+    passengerId: ride.passengerId,
+    paymentId: paymentId || undefined,
+    txid: txid || undefined,
+    sandbox: isPiSandboxEnv(),
+  })
+  return locked.escrow
+}
+
+export async function releaseEscrow(
+  rideId: string,
+  driverId: string,
+  proof?: { status?: string | null; lockTxid?: string | null; lockPaymentId?: string | null },
+) {
   syncDispatchFromDisk()
+  syncEscrowFromDisk()
   const ride = getRide(rideId)
   if (!ride) return { ok: false as const, error: 'not_found', escrow: null, receipt: null }
   if (ride.assignedDriverId !== driverId) return { ok: false as const, error: 'forbidden', escrow: getEscrowByRide(rideId), receipt: null }
-  const escrow = getEscrowByRide(rideId)
+  let escrow = getEscrowByRide(rideId)
   if (ride.status === 'completed' || escrow?.status === 'released') {
     return { ok: true as const, escrow, receipt: getReceipt(rideId) }
   }
   if (releasingRides.has(rideId)) return { ok: false as const, error: 'settling', escrow, receipt: null }
   if (ride.status !== 'assigned') return { ok: false as const, error: ride.status, escrow, receipt: null }
   if (!ride.readyToSettleAt) return { ok: false as const, error: 'passenger_not_ready', escrow, receipt: null }
-  if (!escrow || escrow.status !== 'held') return { ok: false as const, error: 'escrow_not_held', escrow, receipt: null }
+  escrow = ensureSettlementEscrow(rideId, driverId, proof)
+  if (escrow?.status === 'released') return { ok: true as const, escrow, receipt: getReceipt(rideId) }
+  if (!escrow || escrow.status !== 'held') {
+    return { ok: false as const, error: 'escrow_not_held', escrow, receipt: null }
+  }
   releasingRides.add(rideId)
 
   try {

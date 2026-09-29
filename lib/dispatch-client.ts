@@ -285,7 +285,7 @@ export async function abandonDriverRide(rideId: string, driverId: string) {
 export async function completeRideTrip(
   rideId: string,
   driverId: string,
-  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind' | 'boardedAt' | 'readyToSettleAt'>,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind' | 'boardedAt' | 'readyToSettleAt' | 'escrow'>,
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/complete/`, {
     method: 'POST',

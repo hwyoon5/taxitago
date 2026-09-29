@@ -99,6 +99,10 @@ const nextConfig = {
           source: '/api/pi/complete',
           destination: '/api/pi/complete/',
         },
+        {
+          source: '/api/escrow/lock',
+          destination: '/api/escrow/lock/',
+        },
       ],
     }
   },

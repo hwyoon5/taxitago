@@ -6018,7 +6018,15 @@ function DriverDashboard({
     }
     const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null } | null, active?: PublicRide | null) => {
       const ride = pending?.ride ?? null
-      if (active !== undefined) setActiveRide(active)
+      if (active !== undefined) {
+        setActiveRide((current) => {
+          if (!active || !current || current.id !== active.id) return active
+          const incomingLocked = active.escrow?.status === 'held' || active.escrow?.status === 'released'
+          const knownLocked = current.escrow?.status === 'held' || current.escrow?.status === 'released'
+          if (knownLocked && !incomingLocked) return { ...active, escrow: current.escrow }
+          return active
+        })
+      }
       if (!online) {
         localOfferRef.current = null
         setIncoming(null)
@@ -6146,10 +6154,6 @@ function DriverDashboard({
       onNotice('승객이 탑승을 확인하고 목적지에 도착한 뒤에만 정산할 수 있어요.')
       return
     }
-    if (activeRide.escrow?.status !== 'held') {
-      onNotice('승객 에스크로가 잠긴 뒤에 정산할 수 있어요.')
-      return
-    }
     setBusy(true)
     void completeRideTrip(activeRide.id, driverId, activeRide)
       .then((result) => {
@@ -6195,7 +6199,7 @@ function DriverDashboard({
       })
       .finally(() => setBusy(false))
   }
-  const canSettle = Boolean(activeRide?.readyToSettleAt) && activeRide?.escrow?.status === 'held'
+  const canSettle = Boolean(activeRide?.readyToSettleAt)
   const activeDelivery = deliveryJob ?? localDelivery
   return (
     <main className="flex-1 overflow-y-auto px-4 pb-28 pt-4">

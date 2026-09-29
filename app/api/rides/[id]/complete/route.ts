@@ -29,6 +29,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       kind?: unknown
       boardedAt?: unknown
       readyToSettleAt?: unknown
+      escrow?: { status?: unknown; lockTxid?: unknown; lockPaymentId?: unknown }
     }
   } | null
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
@@ -44,11 +45,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     readyToSettleAt: typeof snapshot?.readyToSettleAt === 'string' ? snapshot.readyToSettleAt : null,
   })
   try {
-    const result = await releaseEscrow(id, driverId)
+    const escrowProof = snapshot?.escrow
+    const result = await releaseEscrow(id, driverId, {
+      status: typeof escrowProof?.status === 'string' ? escrowProof.status : null,
+      lockTxid: typeof escrowProof?.lockTxid === 'string' ? escrowProof.lockTxid : null,
+      lockPaymentId: typeof escrowProof?.lockPaymentId === 'string' ? escrowProof.lockPaymentId : null,
+    })
     if (!result.ok) {
       const error = result.error === 'passenger_not_ready'
         ? '승객이 탑승을 확인하고 목적지에 도착한 뒤에만 정산할 수 있어요.'
-        : result.error
+        : result.error === 'escrow_not_held'
+          ? '승객 에스크로가 잠긴 뒤에 정산할 수 있어요.'
+          : result.error
       const message = result.error === 'not_found' ? '완료할 운행을 찾지 못했어요.' : error
       return NextResponse.json(
         { error: message, escrow: toPublicEscrow(result.escrow) },
