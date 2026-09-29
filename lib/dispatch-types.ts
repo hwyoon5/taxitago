@@ -102,6 +102,6 @@ export type PublicRide = {
   updatedAt: string
 }
 
-export const OFFER_TIMEOUT_MS = 12_000
+export const OFFER_TIMEOUT_MS = 45_000
 export const MATCH_RADIUS_KM = 25
 export const DRIVER_STALE_MS = 45_000

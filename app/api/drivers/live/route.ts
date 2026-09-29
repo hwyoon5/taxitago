@@ -22,15 +22,17 @@ export async function GET(request: Request) {
           active: getDriverActiveRide(driverId),
         })
       }
+      send('ping', { at: Date.now() })
       push()
       const unsubscribe = subscribeDriverLive(driverId, push)
       const ping = setInterval(() => {
         try {
+          push()
           send('ping', { at: Date.now() })
         } catch {
           close()
         }
-      }, 15000)
+      }, 2000)
       const close = () => {
         clearInterval(ping)
         unsubscribe()

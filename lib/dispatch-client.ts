@@ -146,10 +146,14 @@ export async function sendDriverPresence(input: {
 }
 
 export async function fetchDriverOffer(driverId: string) {
-  const res = await apiFetch(`/api/drivers/offer?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
-  const data = await readJson<{ ride?: PublicRide | null; offer?: { pickupDistanceKm: number; expiresAt: string } | null }>(res)
-  if (!res.ok) return null
-  return data.ride ? { ride: data.ride, offer: data.offer ?? null } : null
+  try {
+    const res = await apiFetch(`/api/drivers/offer?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+    const data = await readJson<{ ride?: PublicRide | null; offer?: { pickupDistanceKm: number; expiresAt: string } | null }>(res)
+    if (!res.ok) return undefined
+    return { ride: data.ride ?? null, offer: data.offer ?? null }
+  } catch {
+    return undefined
+  }
 }
 
 export async function respondToRideOffer(rideId: string, driverId: string, action: 'accept' | 'reject') {

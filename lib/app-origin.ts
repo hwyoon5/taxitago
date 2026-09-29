@@ -27,7 +27,8 @@ export function localApiUrls(path: string, query?: string | URLSearchParams) {
 }
 
 export function localEventSourceUrl(path: string, query?: string | URLSearchParams) {
-  return localApiUrls(path, query)[0]
+  const urls = localApiUrls(path, query)
+  return urls.find((url) => /\/(\?|$)/.test(url)) ?? urls[0]
 }
 
 export async function apiFetch(path: string, init?: RequestInit) {

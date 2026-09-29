@@ -5944,29 +5944,48 @@ function DriverDashboard({
     } else {
       setIncoming(null)
     }
+    let offerRequest = 0
+    const pullOffer = () => {
+      if (!online) return
+      const request = ++offerRequest
+      void fetchDriverOffer(driverId).then((pending) => {
+        if (request !== offerRequest || pending === undefined) return
+        applyOffer(pending)
+      })
+    }
     const refreshDesk = () => {
+      pullOffer()
       void Promise.all([
-        online && !streamReady.current ? fetchDriverOffer(driverId) : Promise.resolve(undefined),
         streamReady.current ? Promise.resolve(undefined) : fetchDriverActiveRide(driverId),
         fetchDriverEarnings(driverId),
         fetchUserRating(driverId, 'driver'),
         fetchSosInbox(driverId, 'driver'),
         fetchLostInbox(driverId, 'driver'),
-      ]).then(([pending, active, stats, rating, alerts, lost]) => {
-        if (pending !== undefined) applyOffer(pending, active === undefined ? undefined : active)
-        else if (active !== undefined) setActiveRide(active)
+      ]).then(([active, stats, rating, alerts, lost]) => {
+        if (active !== undefined) setActiveRide(active)
         if (stats) setEarnings(stats)
         if (rating) setDriverRating(rating.average.toFixed(2))
         setSosAlerts(alerts)
         setLostItems(lost)
         setLocalDelivery(deliveryJob ?? loadDeliveryJob())
-      })
+      }).catch(() => undefined)
+    }
+    const onAlert = (event: MessageEvent) => {
+      if (event.data?.type === 'driver-offer') pullOffer()
     }
     refreshDesk()
+    const offerPoll = window.setInterval(pullOffer, 2000)
     const poll = window.setInterval(refreshDesk, 20000)
+    window.addEventListener('online', pullOffer)
+    document.addEventListener('visibilitychange', pullOffer)
+    navigator.serviceWorker?.addEventListener('message', onAlert)
     return () => {
       unsubscribe()
+      window.clearInterval(offerPoll)
       window.clearInterval(poll)
+      window.removeEventListener('online', pullOffer)
+      document.removeEventListener('visibilitychange', pullOffer)
+      navigator.serviceWorker?.removeEventListener('message', onAlert)
     }
   }, [driverId, online, deliveryJob])
 
@@ -6151,7 +6170,7 @@ function DriverDashboard({
           </p>
           <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
             <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
-            <strong className="text-[#0F172A]">{incoming.estimatedFare.toFixed(2)} Pi</strong>
+            <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(2)} Pi</strong>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
@@ -6608,7 +6627,11 @@ export default function HomeScreen() {
   }
   useEffect(() => {
     const openFromAlert = () => {
-      if (!loadIsDriverRegistered() && !loadIsPartnerRegistered()) return
+      const driver = loadIsDriverRegistered()
+      const partner = loadIsPartnerRegistered()
+      if (!driver && !partner) return
+      if (driver) setIsDriverRegistered(true)
+      if (partner) setIsPartnerRegistered(true)
       setDriverMode(true)
       setDriverOnline(true)
       setTab('기사/파트너')
