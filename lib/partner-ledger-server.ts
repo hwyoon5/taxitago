@@ -27,3 +27,7 @@ export function upsertPartnerLink(record: Omit<PartnerLinkRecord, 'updatedAt'>):
 export function getPartnerLink(uid: string) {
   return store().get(uid) ?? null
 }
+
+export function deletePartnerLink(uid: string) {
+  return store().delete(uid)
+}

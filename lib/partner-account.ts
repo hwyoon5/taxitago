@@ -103,6 +103,22 @@ export function clearPartnerAccount() {
   window.localStorage.removeItem(LEDGER_KEY)
 }
 
+export async function requestAccountWithdrawal(uid?: string) {
+  const id = uid?.trim() || loadPiIdentity()?.uid || loadPartnerProfile()?.uid || ''
+  if (id) {
+    const res = await apiFetch('/api/partner/link/', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: id }),
+    })
+    const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
+    if (!res.ok || data?.ok !== true) {
+      throw new Error(typeof data?.error === 'string' ? data.error : '회원 탈퇴에 실패했어요.')
+    }
+  }
+  clearPartnerAccount()
+}
+
 export async function syncPartnerLink(profile: PartnerProfile) {
   try {
     await apiFetch('/api/partner/link', {

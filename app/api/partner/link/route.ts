@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getPartnerLink, upsertPartnerLink } from '@/lib/partner-ledger-server'
+import { deletePartnerLink, getPartnerLink, upsertPartnerLink } from '@/lib/partner-ledger-server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,6 +28,15 @@ export async function POST(request: Request) {
     linkedAt: typeof body?.linkedAt === 'string' ? body.linkedAt : new Date().toISOString(),
   })
   return NextResponse.json({ ok: true, profile: record })
+}
+
+export async function DELETE(request: Request) {
+  const body = (await request.json().catch(() => null)) as { uid?: unknown } | null
+  const fromBody = typeof body?.uid === 'string' ? body.uid.trim() : ''
+  const uid = fromBody || new URL(request.url).searchParams.get('uid')?.trim() || ''
+  if (!uid) return NextResponse.json({ error: 'uid required' }, { status: 400 })
+  deletePartnerLink(uid)
+  return NextResponse.json({ ok: true })
 }
 
 export async function GET(request: Request) {

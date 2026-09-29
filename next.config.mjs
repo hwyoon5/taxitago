@@ -103,6 +103,10 @@ const nextConfig = {
           source: '/api/escrow/lock',
           destination: '/api/escrow/lock/',
         },
+        {
+          source: '/api/partner/link',
+          destination: '/api/partner/link/',
+        },
       ],
     }
   },

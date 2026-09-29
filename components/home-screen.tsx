@@ -21,8 +21,9 @@ import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveF
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import {
   appendSettlementEntry,
-  clearPartnerAccount,
   loadPartnerProfile,
+  loadPiIdentity,
+  requestAccountWithdrawal,
   savePartnerProfile,
   savePiIdentity,
   syncPartnerLink,
@@ -4879,6 +4880,25 @@ function WalletModal({
   )
 }
 
+function WithdrawConfirmModal({ busy, onConfirm, onClose }: { busy?: boolean; onConfirm: () => void; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[97] flex items-center justify-center bg-[#1e1033]/55 px-5" onClick={onClose}>
+      <section className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <h2 className="text-lg font-bold leading-snug text-[#0F172A]">정말로 회원 탈퇴 하시겠습니까?</h2>
+        <p className="mt-2 text-sm font-medium leading-6 text-[#64748B]">승인하면 계정 연동이 해제되고 로그아웃됩니다.</p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} disabled={busy} className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-bold text-[#334155] disabled:opacity-60">
+            돌아가기
+          </button>
+          <button type="button" onClick={onConfirm} disabled={busy} className="rounded-2xl bg-[#B91C1C] py-3 text-sm font-bold text-white disabled:opacity-60">
+            {busy ? '처리 중…' : '회원탈퇴'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function HeaderModal({
   kind,
   username,
@@ -4893,12 +4913,13 @@ function HeaderModal({
   piLinked: boolean
   onClose: () => void
   onLinkPi: () => void | Promise<void>
-  onUnlinkPi: () => void
+  onUnlinkPi: () => void | Promise<void>
   activities?: ActivityEntry[]
 }) {
   const isActivity = kind === 'activity'
   const [linking, setLinking] = useState(false)
   const [unlinkConfirm, setUnlinkConfirm] = useState(false)
+  const [withdrawing, setWithdrawing] = useState(false)
   const showLinked = piLinked
   const connect = () => {
     if (linking || piLinked) return
@@ -4906,10 +4927,15 @@ function HeaderModal({
     void Promise.resolve(onLinkPi()).finally(() => setLinking(false))
   }
   const unlink = () => {
-    onUnlinkPi()
-    setUnlinkConfirm(false)
+    if (withdrawing) return
+    setWithdrawing(true)
+    void Promise.resolve(onUnlinkPi())
+      .then(() => setUnlinkConfirm(false))
+      .catch(() => setWithdrawing(false))
   }
   return (
+    <>
+    {unlinkConfirm ? <WithdrawConfirmModal busy={withdrawing} onConfirm={unlink} onClose={() => { if (!withdrawing) setUnlinkConfirm(false) }} /> : null}
     <div className="fixed inset-0 z-[90] flex items-start justify-center bg-[#1e293b]/35 px-4 pt-24" onClick={onClose}>
       <section className="w-full max-w-md rounded-[28px] border-2 border-[#CBD5E1] bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between">
@@ -4956,28 +4982,13 @@ function HeaderModal({
               <span className="h-3 w-3 rounded-full bg-[#10B981]" />
             </div>
             <p className="px-1 text-sm font-semibold leading-6 text-[#B91C1C]">Pi 계정 연동을 해제하면 회원 탈퇴 처리됩니다.</p>
-            {unlinkConfirm ? (
-              <div className="rounded-2xl border-2 border-[#FECACA] bg-[#FEF2F2] p-4">
-                <p className="text-sm font-bold text-[#0F172A]">연동을 해제하고 탈퇴할까요?</p>
-                <p className="mt-1 text-xs font-medium leading-5 text-[#64748B]">비회원 상태로 돌아가며, 기사/파트너 권한도 함께 해제됩니다.</p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => setUnlinkConfirm(false)} className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-bold text-[#334155]">
-                    취소
-                  </button>
-                  <button type="button" onClick={unlink} className="rounded-2xl bg-[#B91C1C] py-3 text-sm font-bold text-white">
-                    탈퇴하기
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setUnlinkConfirm(true)}
-                className="flex min-h-12 w-full items-center justify-center rounded-2xl border-2 border-[#FECACA] bg-[#FEF2F2] px-3 py-3.5 text-sm font-bold text-[#B91C1C] transition hover:bg-[#FEE2E2] active:scale-[0.99]"
-              >
-                Pi 계정 연동 해제 (회원탈퇴)
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setUnlinkConfirm(true)}
+              className="flex min-h-12 w-full items-center justify-center rounded-2xl border-2 border-[#FECACA] bg-[#FEF2F2] px-3 py-3.5 text-sm font-bold text-[#B91C1C] transition hover:bg-[#FEE2E2] active:scale-[0.99]"
+            >
+              회원 탈퇴
+            </button>
           </div>
         ) : (
           <div className="mt-5 space-y-4">
@@ -5009,6 +5020,7 @@ function HeaderModal({
         )}
       </section>
     </div>
+    </>
   )
 }
 
@@ -5905,7 +5917,7 @@ function DriverDashboard({
   lng: number
   onToggleOnline: () => void
   onPassengerMode: () => void
-  onWithdraw: () => void
+  onWithdraw: () => void | Promise<void>
   onNotice: (message: string) => void
   onAskPassengerReview: (target: RideReviewTarget) => void
   deliveryJob?: DeliveryJob | null
@@ -5918,6 +5930,7 @@ function DriverDashboard({
   const [busy, setBusy] = useState(false)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [withdrawing, setWithdrawing] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [deskOpen, setDeskOpen] = useState(false)
@@ -6397,27 +6410,18 @@ function DriverDashboard({
         <p className="mt-1 text-[11px] font-medium leading-4 text-[#64748B]">탈퇴하면 콜 수락과 대시보드를 쓸 수 없고, 다시 쓰려면 회원가입이 필요해요.</p>
       </section>
       {withdrawOpen ? (
-        <div className="fixed inset-0 z-[94] flex items-end bg-[#1e1033]/50 p-0 sm:items-center sm:p-4" onClick={() => setWithdrawOpen(false)}>
-          <section className="mx-auto w-full max-w-md rounded-t-[32px] bg-white p-5 shadow-2xl sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
-            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-            <p className="text-xs font-bold text-[#B91C1C]">기사 권한 해제</p>
-            <h2 className="mt-1 text-2xl font-bold text-[#0F172A]">기사/파트너를 탈퇴할까요?</h2>
-            <p className="mt-2 text-sm font-medium leading-6 text-[#475569]">권한이 해제되고 일반 승객 화면으로 돌아갑니다. 언제든 다시 가입할 수 있어요.</p>
-            <button
-              type="button"
-              onClick={() => {
-                setWithdrawOpen(false)
-                onWithdraw()
-              }}
-              className="mt-5 w-full rounded-2xl bg-[#B91C1C] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(185,28,28,0.22)]"
-            >
-              탈퇴하기
-            </button>
-            <button type="button" onClick={() => setWithdrawOpen(false)} className="mt-2 w-full rounded-2xl py-3 text-sm font-bold text-[#64748B]">
-              취소
-            </button>
-          </section>
-        </div>
+        <WithdrawConfirmModal
+          busy={withdrawing}
+          onClose={() => { if (!withdrawing) setWithdrawOpen(false) }}
+          onConfirm={() => {
+            if (withdrawing) return
+            setWithdrawing(true)
+            void Promise.resolve(onWithdraw())
+              .then(() => setWithdrawOpen(false))
+              .catch((error) => onNotice(error instanceof Error ? error.message : '회원 탈퇴에 실패했어요.'))
+              .finally(() => setWithdrawing(false))
+          }}
+        />
       ) : null}
       {statSheet ? <EarningsStatSheet kind={statSheet} stats={earnings} onClose={() => setStatSheet(null)} /> : null}
       {callOpen && activeRide ? (
@@ -6880,16 +6884,20 @@ export default function HomeScreen() {
       setDriverMode(true)
     }
   }
-  const withdrawDriverRegistration = () => {
+  const logoutMember = async () => {
+    const uid = loadPartnerProfile()?.uid || loadPiIdentity()?.uid
+    await requestAccountWithdrawal(uid)
+    setIsPiLinked(false)
+    saveIsPiLinked(false)
     setIsDriverRegistered(false)
     saveIsDriverRegistered(false)
     setIsPartnerRegistered(false)
     saveIsPartnerRegistered(false)
     setDriverMode(false)
     setDriverOnline(false)
-    clearPartnerAccount()
+    setHeaderModal(null)
     setTab('홈')
-    showNotice('기사/파트너 탈퇴가 완료되었습니다')
+    showNotice('회원 탈퇴가 완료되어 로그아웃되었습니다')
   }
 
   return (
@@ -6916,7 +6924,7 @@ export default function HomeScreen() {
         </header>
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (
-            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={withdrawDriverRegistration} onNotice={showNotice} onAskPassengerReview={setRideReview} deliveryJob={deliveryJob} />
+            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} deliveryJob={deliveryJob} />
           ) : (
             <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
           )
@@ -7024,19 +7032,7 @@ export default function HomeScreen() {
               }
             }}
             activities={activities}
-            onUnlinkPi={() => {
-              setIsPiLinked(false)
-              saveIsPiLinked(false)
-              setIsDriverRegistered(false)
-              saveIsDriverRegistered(false)
-              setIsPartnerRegistered(false)
-              saveIsPartnerRegistered(false)
-              setDriverMode(false)
-              setDriverOnline(false)
-              clearPartnerAccount()
-              setTab('홈')
-              showNotice('Pi 계정 연동이 해제되어 회원 탈퇴 처리되었습니다')
-            }}
+            onUnlinkPi={logoutMember}
           />
         )}
         {partnerSignupOpen && (
