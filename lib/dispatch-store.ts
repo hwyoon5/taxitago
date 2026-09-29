@@ -41,6 +41,35 @@ function db(): DispatchDb {
   return globalStore.__taxitagoDispatch
 }
 
+export function syncDispatchFromDisk() {
+  const store = db()
+  try {
+    if (!existsSync(persistFile)) return
+    const parsed = JSON.parse(readFileSync(persistFile, 'utf8')) as PersistShape
+    for (const ride of parsed.rides ?? []) {
+      const current = store.rides.get(ride.id)
+      const incomingAt = Date.parse(ride.updatedAt || '')
+      const currentAt = Date.parse(current?.updatedAt || '')
+      if (!current || !(currentAt > incomingAt)) {
+        store.rides.set(ride.id, { ...ride, kind: ride.kind === 'daeri' ? 'daeri' : 'taxi' })
+      }
+    }
+    for (const driver of parsed.drivers ?? []) {
+      const current = store.drivers.get(driver.id)
+      const incomingAt = Date.parse(driver.lastSeenAt || '')
+      const currentAt = Date.parse(current?.lastSeenAt || '')
+      if (!current || !(currentAt > incomingAt)) {
+        store.drivers.set(driver.id, {
+          ...driver,
+          heading: Number.isFinite(driver.heading) ? driver.heading : 0,
+        })
+      }
+    }
+  } catch (error) {
+    console.error('[dispatch] disk sync failed', error instanceof Error ? error.message : 'read error')
+  }
+}
+
 function hydrateFromDisk(store: DispatchDb) {
   store.hydrated = true
   try {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { apiFetch } from '@/lib/app-origin'
 
 type IncompletePiPayment = {
@@ -625,7 +625,9 @@ export function PiCheckoutButton({
   onPaid?: (result: PiCheckoutResult) => void
   onFailed?: (error: Error) => void
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'type'>) {
+  const lockRef = useRef(false)
   const [busy, setBusy] = useState(false)
+  const [paid, setPaid] = useState(false)
 
   const fail = (error: unknown) => {
     const next = error instanceof Error ? error : new Error(describePiUserMessage(error))
@@ -636,14 +638,21 @@ export function PiCheckoutButton({
   }
 
   const handleClick = () => {
-    if (busy || disabled) return
+    if (lockRef.current || disabled) return
+    lockRef.current = true
     setBusy(true)
     let delivered = false
     const deliver = (result: PiCheckoutResult) => {
       if (delivered || !result.paymentId || !result.txid) return
       delivered = true
+      setPaid(true)
       setBusy(false)
       onPaid?.(result)
+    }
+    const unlock = () => {
+      if (delivered) return
+      lockRef.current = false
+      setBusy(false)
     }
     try {
       void startPiCheckout({ amount, memo, metadata, advanceOnApproval: true, onSettled: deliver })
@@ -651,16 +660,23 @@ export function PiCheckoutButton({
         .catch((error) => {
           if (!delivered) fail(error)
         })
-        .finally(() => setBusy(false))
+        .finally(unlock)
     } catch (error) {
-      setBusy(false)
+      unlock()
       fail(error)
     }
   }
 
   return (
-    <button type="button" {...buttonProps} disabled={busy || disabled} onClick={handleClick} className={className}>
-      {busy ? 'Pi 결제 진행 중…' : children}
+    <button
+      type="button"
+      {...buttonProps}
+      disabled={busy || paid || disabled}
+      aria-busy={busy}
+      onClick={handleClick}
+      className={`${className ?? ''} disabled:cursor-not-allowed disabled:opacity-60`}
+    >
+      {busy ? 'Pi 결제 진행 중…' : paid ? '결제 완료' : children}
     </button>
   )
 }

@@ -14,6 +14,7 @@ import {
   saveDriver,
   saveRide,
   subscribeRideLive,
+  syncDispatchFromDisk,
 } from '@/lib/dispatch-store'
 import { sendDriverPush } from '@/lib/driver-push'
 import {
@@ -138,12 +139,23 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
   publishDriverLive(driver.id)
   const pickup = ride.pickup.address || ride.pickup.label || '출발지'
   const dest = ride.dest.label || ride.dest.address || '목적지'
+  console.log('[dispatch] offered ride', { rideId: ride.id, driverId: driver.id })
   void sendDriverPush(driver.id, {
     title: '새로운 운행 요청',
     body: `${pickup} → ${dest}`,
     tag: `taxitago-offer-${ride.id}`,
     url: '/?driver=1',
     rideId: ride.id,
+    expiresAt: offer.expiresAt,
+    pickupDistanceKm: offer.pickupDistanceKm,
+    ride: {
+      id: ride.id,
+      passengerId: ride.passengerId,
+      kind: ride.kind === 'daeri' ? 'daeri' : 'taxi',
+      pickup: ride.pickup,
+      dest: ride.dest,
+      estimatedFare: ride.estimatedFare,
+    },
   })
   return ride
 }
@@ -274,7 +286,58 @@ export function cancelRide(rideId: string, passengerId?: string) {
   return cancelled
 }
 
+export function restorePendingOffer(
+  rideId: string,
+  driverId: string,
+  snapshot?: {
+    passengerId?: string
+    pickup?: RideRequestRecord['pickup']
+    dest?: RideRequestRecord['dest']
+    estimatedFare?: number
+    kind?: RideRequestRecord['kind']
+  },
+) {
+  syncDispatchFromDisk()
+  let ride = getRide(rideId)
+  if (ride?.currentOffer?.driverId === driverId && ride.currentOffer.decision === 'pending') return ride
+  if (ride && (ride.status === 'assigned' || ride.status === 'cancelled' || ride.status === 'completed')) return ride
+  if (!ride && snapshot?.passengerId && snapshot.pickup && snapshot.dest) {
+    const createdAt = nowIso()
+    ride = saveRide({
+      id: rideId,
+      kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
+      passengerId: snapshot.passengerId,
+      pickup: snapshot.pickup,
+      dest: snapshot.dest,
+      estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
+      status: 'searching',
+      assignedDriverId: null,
+      currentOffer: null,
+      declinedDriverIds: [],
+      timedOutDriverIds: [],
+      createdAt,
+      updatedAt: createdAt,
+    })
+  }
+  if (!ride || ride.status === 'assigned' || ride.status === 'cancelled' || ride.status === 'completed') return ride
+  console.log('[dispatch] restore offer', { rideId, driverId })
+  ride.status = 'offered'
+  ride.currentOffer = {
+    rideId,
+    driverId,
+    rank: ride.currentOffer?.rank ?? 1,
+    pickupDistanceKm: ride.currentOffer?.pickupDistanceKm ?? 0,
+    offeredAt: nowIso(),
+    expiresAt: new Date(Date.now() + OFFER_TIMEOUT_MS).toISOString(),
+    decision: 'pending',
+  }
+  const driver = getDriver(driverId)
+  if (driver?.status === 'offline') saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
+  return stamp(ride)
+}
+
 export function respondToOffer(rideId: string, driverId: string, action: 'accept' | 'reject') {
+  syncDispatchFromDisk()
   const latest = getRide(rideId)
   if (!latest) return { ok: false as const, error: 'not_found', ride: null }
   const ride = refreshRideTimers(latest) ?? getRide(rideId)
@@ -421,20 +484,35 @@ export function completeAssignedRide(rideId: string, driverId: string) {
   return ride
 }
 
+const offerLookupLog = { key: '' }
+
 export function getDriverActiveRide(driverId: string) {
+  syncDispatchFromDisk()
   const ride = listRides().find((item) => item.assignedDriverId === driverId && item.status === 'assigned')
   return ride ? toPublicRide(ride) : null
 }
 
 export function getDriverOffer(driverId: string) {
+  syncDispatchFromDisk()
+  let matched: { ride: ReturnType<typeof toPublicRide>; offer: RideOfferRecord } | null = null
   for (const ride of listSearchingRides()) {
     const live = refreshRideTimers(ride) ?? getRide(ride.id)
     if (!live) continue
     if (live.currentOffer?.driverId === driverId && live.currentOffer.decision === 'pending') {
-      return { ride: toPublicRide(live), offer: live.currentOffer }
+      matched = { ride: toPublicRide(live), offer: live.currentOffer }
+      break
     }
   }
-  return null
+  const key = `${driverId}:${matched?.ride.id ?? 'none'}`
+  if (offerLookupLog.key !== key) {
+    offerLookupLog.key = key
+    console.log('[dispatch] offer lookup', {
+      driverId,
+      rideId: matched?.ride.id ?? null,
+      pendingRides: listSearchingRides().length,
+    })
+  }
+  return matched
 }
 
 export function upsertDriverPresence(input: {

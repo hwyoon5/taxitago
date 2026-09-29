@@ -145,6 +145,60 @@ export async function sendDriverPresence(input: {
   })
 }
 
+export type PushedDriverOffer = {
+  rideId?: string
+  expiresAt?: string
+  pickupDistanceKm?: number
+  ride?: {
+    id?: string
+    passengerId?: string
+    kind?: string
+    pickup?: { lat?: number; lng?: number; address?: string; label?: string }
+    dest?: { lat?: number; lng?: number; address?: string; label?: string }
+    estimatedFare?: number
+  }
+}
+
+function pushedPoint(value: { lat?: number; lng?: number; address?: string; label?: string } | undefined) {
+  const lat = Number(value?.lat)
+  const lng = Number(value?.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  return {
+    lat,
+    lng,
+    address: typeof value?.address === 'string' ? value.address : undefined,
+    label: typeof value?.label === 'string' ? value.label : undefined,
+  }
+}
+
+export function rideFromPushedOffer(payload: PushedDriverOffer | null | undefined) {
+  const pickup = pushedPoint(payload?.ride?.pickup)
+  const dest = pushedPoint(payload?.ride?.dest)
+  const id = payload?.ride?.id || payload?.rideId || ''
+  if (!id || !pickup || !dest) return null
+  const expiresAt = payload?.expiresAt || new Date(Date.now() + 45_000).toISOString()
+  if (Date.parse(expiresAt) <= Date.now()) return null
+  const ride: PublicRide = {
+    id,
+    passengerId: payload?.ride?.passengerId || '',
+    kind: payload?.ride?.kind === 'daeri' ? 'daeri' : 'taxi',
+    pickup,
+    dest,
+    estimatedFare: Number(payload?.ride?.estimatedFare) || 0,
+    status: 'offered',
+    offerExpiresAt: expiresAt,
+    pendingOffer: null,
+    assignedDriver: null,
+    escrow: null,
+    createdAt: expiresAt,
+    updatedAt: new Date().toISOString(),
+  }
+  return {
+    ride,
+    offer: { pickupDistanceKm: Number(payload?.pickupDistanceKm) || 0, expiresAt },
+  }
+}
+
 export async function fetchDriverOffer(driverId: string) {
   try {
     const res = await apiFetch(`/api/drivers/offer?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
@@ -156,11 +210,16 @@ export async function fetchDriverOffer(driverId: string) {
   }
 }
 
-export async function respondToRideOffer(rideId: string, driverId: string, action: 'accept' | 'reject') {
+export async function respondToRideOffer(
+  rideId: string,
+  driverId: string,
+  action: 'accept' | 'reject',
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind'>,
+) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ driverId, action }),
+    body: JSON.stringify({ driverId, action, ride }),
   })
   const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
   if (!res.ok || !data.ride) throw new Error(data.error || '콜 응답에 실패했어요.')

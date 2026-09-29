@@ -12,6 +12,16 @@ type PushPayload = {
   tag: string
   url: string
   rideId: string
+  expiresAt?: string
+  pickupDistanceKm?: number
+  ride?: {
+    id: string
+    passengerId: string
+    kind?: 'taxi' | 'daeri'
+    pickup: { lat: number; lng: number; address?: string; label?: string }
+    dest: { lat: number; lng: number; address?: string; label?: string }
+    estimatedFare: number
+  }
 }
 
 type PushDb = {

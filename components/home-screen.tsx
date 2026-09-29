@@ -43,6 +43,7 @@ import {
   fetchDriverEarnings,
   fetchDriverOffer,
   fetchRideReceipt,
+  rideFromPushedOffer,
   subscribeDriverLive,
   fetchRideRequest,
   lockRideEscrow,
@@ -2042,6 +2043,7 @@ function TaxiMatchingSheet({
   const escrowLockingRef = useRef(false)
   const escrowHeldRef = useRef(false)
   const settledRef = useRef(false)
+  const payingRef = useRef(false)
   const assigned = ride?.assignedDriver
   const driver = {
     name: assigned?.name || '배정 대기',
@@ -2265,17 +2267,24 @@ function TaxiMatchingSheet({
   }
 
   const finishPassengerTrip = () => {
-    if (accepting) return
+    if (accepting || payingRef.current || settledRef.current) return
+    payingRef.current = true
+    setAccepting(true)
     const amount = phase === 'moving' ? billed.actual : fare
     const openPayReceipt = (paymentId: string, txid: string) => {
+      if (settledRef.current) return
+      settledRef.current = true
       onSettle(amount, route, '택시 결제', billed.estimate, { paymentId, txid })
+    }
+    const releasePayLock = () => {
+      payingRef.current = false
+      setAccepting(false)
     }
     const driverId = ride?.assignedDriver?.id
     if (!ride || !driverId) {
       openPayReceipt(`pay-${Date.now()}`, `done-${Date.now()}`)
       return
     }
-    setAccepting(true)
     void completeRideTrip(ride.id, driverId)
       .then((result) => {
         if (result.ride) setRide(result.ride)
@@ -2286,10 +2295,9 @@ function TaxiMatchingSheet({
         onNotice('운행이 완료되어 정산되었습니다.')
       })
       .catch((error) => {
-        onNotice(error instanceof Error ? error.message : '정산에 실패했어요.')
-        openPayReceipt(`pay-${ride.id.slice(0, 8)}`, `done-${ride.id.slice(0, 8)}`)
+        onNotice(error instanceof Error ? error.message : '정산에 실패했어요. 다시 한 번만 눌러 주세요.')
+        releasePayLock()
       })
-      .finally(() => setAccepting(false))
   }
 
   const openCompletedReceipt = () => {
@@ -2498,8 +2506,8 @@ function TaxiMatchingSheet({
               </button>
             ) : (
               <RideCompleteCancelBar onCancel={() => setCancelConfirmOpen(true)}>
-                <button type="button" disabled={accepting} onClick={finishPassengerTrip} className="pointer-events-auto w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:opacity-60">
-                  {accepting ? '정산 중…' : '이용 완료'}
+                <button type="button" disabled={accepting} aria-busy={accepting} onClick={finishPassengerTrip} className="pointer-events-auto w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
+                  {accepting ? '결제 진행 중…' : '이용 완료'}
                 </button>
               </RideCompleteCancelBar>
             )}
@@ -5846,6 +5854,8 @@ function DriverDashboard({
   const [lostItems, setLostItems] = useState<LostItem[]>([])
   const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
   const [driverId, setDriverId] = useState('')
+  const localOfferRef = useRef<{ ride: PublicRide; expiresAt: number; km: number | null } | null>(null)
+  const offerLogRef = useRef('')
 
   useEffect(() => {
     const profile = loadPartnerProfile()
@@ -5917,19 +5927,52 @@ function DriverDashboard({
     const streamReady = { current: false }
     const pushReady = { current: false }
     const notifiedOffer = { current: '' }
-    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number } | null } | null, active?: PublicRide | null) => {
+    const logOffer = (detail: { rideId: string | null; source: string }) => {
+      const key = `${detail.source}:${detail.rideId ?? 'none'}`
+      if (offerLogRef.current === key) return
+      offerLogRef.current = key
+      console.log('[driver-offer] state', { driverId, ...detail })
+    }
+    const rememberOffer = (ride: PublicRide, expiresAt: string | null | undefined, km: number | null) => {
+      const parsed = Date.parse(expiresAt || '')
+      localOfferRef.current = {
+        ride,
+        expiresAt: Number.isFinite(parsed) ? parsed : Date.now() + 45_000,
+        km,
+      }
+      setIncoming(ride)
+      setOfferKm(km)
+    }
+    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null } | null, active?: PublicRide | null) => {
       const ride = pending?.ride ?? null
-      setIncoming(online ? ride : null)
-      setOfferKm(pending?.offer?.pickupDistanceKm ?? ride?.assignedDriver?.pickupDistanceKm ?? null)
       if (active !== undefined) setActiveRide(active)
-      if (!online || !ride) {
-        notifiedOffer.current = ''
+      if (!online) {
+        localOfferRef.current = null
+        setIncoming(null)
+        logOffer({ rideId: null, source: 'offline' })
         return
       }
-      if (ride.id === notifiedOffer.current || pushReady.current) return
-      notifiedOffer.current = ride.id
-      const body = `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
-      void showDriverOfferNotification(ride.id, body)
+      if (ride) {
+        logOffer({ rideId: ride.id, source: 'server' })
+        rememberOffer(ride, pending?.offer?.expiresAt || ride.offerExpiresAt, pending?.offer?.pickupDistanceKm ?? ride.assignedDriver?.pickupDistanceKm ?? null)
+        if (ride.id === notifiedOffer.current || pushReady.current) return
+        notifiedOffer.current = ride.id
+        const body = `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
+        void showDriverOfferNotification(ride.id, body)
+        return
+      }
+      const held = localOfferRef.current
+      if (held && held.expiresAt > Date.now()) {
+        logOffer({ rideId: held.ride.id, source: 'push' })
+        setIncoming(held.ride)
+        setOfferKm(held.km)
+        return
+      }
+      notifiedOffer.current = ''
+      localOfferRef.current = null
+      setIncoming(null)
+      setOfferKm(null)
+      logOffer({ rideId: null, source: 'empty' })
     }
     const unsubscribe = online
       ? subscribeDriverLive(driverId, (snapshot) => {
@@ -5971,9 +6014,19 @@ function DriverDashboard({
       }).catch(() => undefined)
     }
     const onAlert = (event: MessageEvent) => {
-      if (event.data?.type === 'driver-offer') pullOffer()
+      if (event.data?.type !== 'driver-offer') return
+      const pushed = rideFromPushedOffer(event.data.offer)
+      if (!online || !pushed) {
+        pullOffer()
+        return
+      }
+      logOffer({ rideId: pushed.ride.id, source: 'push' })
+      rememberOffer(pushed.ride, pushed.offer.expiresAt, pushed.offer.pickupDistanceKm)
     }
     refreshDesk()
+    const askStoredOffer = () => navigator.serviceWorker?.controller?.postMessage({ type: 'driver-offer-sync' })
+    askStoredOffer()
+    void navigator.serviceWorker?.ready.then(() => askStoredOffer())
     const offerPoll = window.setInterval(pullOffer, 2000)
     const poll = window.setInterval(refreshDesk, 20000)
     window.addEventListener('online', pullOffer)
@@ -5992,7 +6045,8 @@ function DriverDashboard({
   const respond = (action: 'accept' | 'reject') => {
     if (!incoming || busy || !driverId) return
     setBusy(true)
-    void respondToRideOffer(incoming.id, driverId, action)
+    localOfferRef.current = null
+    void respondToRideOffer(incoming.id, driverId, action, incoming)
       .then((ride) => {
         if (action === 'accept') {
           setActiveRide(ride)
@@ -6317,6 +6371,7 @@ export default function HomeScreen() {
   const [inboxItem, setInboxItem] = useState<Notice | null>(null)
   const [readNoticeIds, setReadNoticeIds] = useState<string[]>([])
   const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number; estimated?: number; paymentId: string; txid: string } | null>(null)
+  const settledPaymentIds = useRef(new Set<string>())
   const [driverReview, setDriverReview] = useState<{ name: string; vehicle: string; plate: string; kind?: 'driver' | 'service' } | null>(null)
   const [rideReview, setRideReview] = useState<RideReviewTarget | null>(null)
   const [supportDesk, setSupportDesk] = useState<LostPrefill | null | true>(null)
@@ -6479,6 +6534,8 @@ export default function HomeScreen() {
       showNotice('파이 지갑 승인이 완료되어야 영수증으로 넘어갑니다.')
       return
     }
+    if (settledPaymentIds.current.has(proof.paymentId)) return
+    settledPaymentIds.current.add(proof.paymentId)
     const remaining = Math.round((walletBalance - amount) * 100) / 100
     const at = formatPiTime()
     setWalletBalance(Math.max(0, remaining))
@@ -6502,6 +6559,20 @@ export default function HomeScreen() {
       saveRecentUse(next)
       setRecentUse(next)
     }
+  }
+  const resetToHomeAfterReceipt = () => {
+    taxiSheetRideId = ''
+    daeriSheetRideId = ''
+    setPaymentDone(null)
+    setReceiptRide(null)
+    setActiveTrip(null)
+    setSelectedService(null)
+    setDaeriTrip(null)
+    setDaeriSetupOpen(false)
+    setDestination('')
+    setDestPlace(null)
+    writeRideSession({ dest: null })
+    setTab('홈')
   }
   const payWithPi = async (amount: number, place: string, label: string, estimated?: number) => {
     try {
@@ -6977,7 +7048,7 @@ export default function HomeScreen() {
             place={paymentDone.place}
             remaining={paymentDone.remaining}
             estimated={paymentDone.estimated}
-            onClose={() => setPaymentDone(null)}
+            onClose={resetToHomeAfterReceipt}
           />
         ) : driverReview ? (
           <DriverReviewModal

@@ -99,14 +99,22 @@ export function lockEscrow(input: {
   return { ok: true as const, escrow: stamp(escrow) }
 }
 
+const releasingRides = new Set<string>()
+
 export async function releaseEscrow(rideId: string, driverId: string) {
   const ride = getRide(rideId)
   if (!ride) return { ok: false as const, error: 'not_found', escrow: null, receipt: null }
   if (ride.assignedDriverId !== driverId) return { ok: false as const, error: 'forbidden', escrow: getEscrowByRide(rideId), receipt: null }
-  if (ride.status !== 'assigned') return { ok: false as const, error: ride.status, escrow: getEscrowByRide(rideId), receipt: null }
   const escrow = getEscrowByRide(rideId)
+  if (ride.status === 'completed' || escrow?.status === 'released') {
+    return { ok: true as const, escrow, receipt: getReceipt(rideId) }
+  }
+  if (releasingRides.has(rideId)) return { ok: false as const, error: 'settling', escrow, receipt: null }
+  if (ride.status !== 'assigned') return { ok: false as const, error: ride.status, escrow, receipt: null }
   if (!escrow || escrow.status !== 'held') return { ok: false as const, error: 'escrow_not_held', escrow, receipt: null }
+  releasingRides.add(rideId)
 
+  try {
   const target = driverPayoutTarget(driverId)
   let payoutTxid = `a2u-${escrow.id.slice(0, 10)}`
   if (!isPiSandboxEnv() && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
@@ -160,6 +168,9 @@ export async function releaseEscrow(rideId: string, driverId: string) {
   })
   if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
   return { ok: true as const, escrow, receipt }
+  } finally {
+    releasingRides.delete(rideId)
+  }
 }
 
 /** Passenger in-trip cancel: pay the cancellation fee to the assigned driver and waive the rest. No driver action. */

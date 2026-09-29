@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { confirmMatchOnDevice, respondToOffer, toPublicRide } from '@/lib/dispatch-engine'
+import { confirmMatchOnDevice, respondToOffer, restorePendingOffer, toPublicRide } from '@/lib/dispatch-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -48,7 +48,29 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!driverId) {
     return NextResponse.json({ error: 'driverId and action required' }, { status: 400 })
   }
-  const result = respondToOffer(id, driverId, action)
+  const point = (value: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown } | undefined) => {
+    const lat = Number(value?.lat)
+    const lng = Number(value?.lng)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined
+    return {
+      lat,
+      lng,
+      address: typeof value?.address === 'string' ? value.address : undefined,
+      label: typeof value?.label === 'string' ? value.label : undefined,
+    }
+  }
+  let result = respondToOffer(id, driverId, action)
+  if (!result.ok && result.error === 'not_found' && action === 'accept') {
+    const snapshot = body?.ride
+    const restored = restorePendingOffer(id, driverId, {
+      passengerId: typeof snapshot?.passengerId === 'string' ? snapshot.passengerId : undefined,
+      pickup: point(snapshot?.pickup),
+      dest: point(snapshot?.dest),
+      estimatedFare: typeof snapshot?.estimatedFare === 'number' ? snapshot.estimatedFare : undefined,
+      kind: snapshot?.kind === 'daeri' ? 'daeri' : 'taxi',
+    })
+    if (restored) result = respondToOffer(id, driverId, action)
+  }
   if (!result.ride) return NextResponse.json({ error: result.error }, { status: 404 })
   if (!result.ok) return NextResponse.json({ error: result.error, ride: toPublicRide(result.ride) }, { status: 409 })
   return NextResponse.json({ ok: true, ride: toPublicRide(result.ride) })
