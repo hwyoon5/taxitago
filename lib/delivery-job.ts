@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/app-origin'
 import type { DeliveryVehicle, PackageSizeId } from '@/lib/delivery-fare'
 
 export type DeliveryJobStatus = 'requested' | 'assigned' | 'completed'
@@ -75,4 +76,52 @@ export function appendDeliveryChat(jobId: string, message: DeliveryChatMessage) 
   } catch {
     return [message]
   }
+}
+
+export type PublicDelivery = {
+  id: string
+  pickupAddress: string
+  destAddress: string
+  packageLabel: string
+  fare: number
+  status: 'requested' | 'assigned'
+  driverName: string | null
+  driverVehicle: string | null
+  driverPlate: string | null
+}
+
+export async function publishDelivery(job: DeliveryJob) {
+  const res = await apiFetch('/api/deliveries/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(job),
+  })
+  const data = (await res.json().catch(() => null)) as { job?: PublicDelivery } | null
+  if (!res.ok || !data?.job) throw new Error('택배 호출을 올리지 못했어요.')
+  return data.job
+}
+
+export async function fetchDelivery(id: string) {
+  const res = await apiFetch(`/api/deliveries/${encodeURIComponent(id)}/`)
+  if (res.status === 404) return null
+  const data = (await res.json().catch(() => null)) as { job?: PublicDelivery } | null
+  return data?.job ?? null
+}
+
+export async function fetchOpenDeliveries() {
+  const res = await apiFetch('/api/deliveries/')
+  const data = (await res.json().catch(() => null)) as { jobs?: PublicDelivery[] } | null
+  if (!res.ok) return []
+  return data?.jobs ?? []
+}
+
+export async function acceptDelivery(id: string, driver: { driverId: string; name?: string; vehicle: string; plate: string }) {
+  const res = await apiFetch(`/api/deliveries/${encodeURIComponent(id)}/accept/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(driver),
+  })
+  const data = (await res.json().catch(() => null)) as { job?: PublicDelivery; error?: string } | null
+  if (!res.ok || !data?.job) throw new Error(data?.error || '배차 수락에 실패했어요.')
+  return data.job
 }

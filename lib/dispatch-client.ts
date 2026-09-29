@@ -219,11 +219,12 @@ export async function respondToRideOffer(
   driverId: string,
   action: 'accept' | 'reject',
   ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind'>,
+  driver?: { name?: string; vehicle?: string; plate?: string },
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ driverId, action, ride }),
+    body: JSON.stringify({ driverId, action, ride, name: driver?.name, vehicle: driver?.vehicle, plate: driver?.plate }),
   })
   const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
   if (!res.ok || !data.ride) throw new Error(data.error || '콜 응답에 실패했어요.')

@@ -23,6 +23,7 @@ import {
   appendSettlementEntry,
   loadPartnerProfile,
   loadPiIdentity,
+  partnerVehicle,
   requestAccountWithdrawal,
   savePartnerProfile,
   savePiIdentity,
@@ -30,7 +31,7 @@ import {
 } from '@/lib/partner-account'
 import { getPaymentPolicy } from '@/lib/payment-policy'
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
-import { loadDeliveryJob, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob } from '@/lib/delivery-job'
+import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
@@ -2143,15 +2144,13 @@ function TaxiMatchingSheet({
         onClose()
         return
       }
-      if (matchedRef.current) {
-        if (next.status === 'assigned' || next.status === 'completed') {
-          setRide(next)
-          if (next.readyToSettleAt) setPhase('moving')
-          else if (next.boardedAt) setPhase('boarding')
-        }
+      if (next.status === 'assigned' || next.status === 'completed') {
+        if (!matchedRef.current) lockMatched(next)
+        else setRide(next)
+        if (next.readyToSettleAt) setPhase('moving')
+        else if (next.boardedAt) setPhase('boarding')
         return
       }
-      if (next.status === 'assigned' || next.status === 'completed') return
       setRide(next)
       if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
     }
@@ -2426,12 +2425,20 @@ function TaxiMatchingSheet({
                   <p className="font-black text-[#0F172A]">
                     {driver.name} 기사님 <span className="ml-1 text-xs text-[#CA8A04]">★ {driver.rating}</span>
                   </p>
-                  <p className="mt-1 text-xs font-bold text-[#475569]">
-                    {driver.vehicle} · {driver.plate}
-                  </p>
+                  <p className="mt-1 text-xs font-bold text-[#475569]">배차가 완료되었습니다</p>
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl bg-white px-3 py-2.5">
+                  <p className="text-[10px] font-bold text-[#8b8495]">차량명</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{driver.vehicle && driver.vehicle !== '택시' ? driver.vehicle : '확인 중'}</p>
+                </div>
+                <div className="rounded-2xl bg-white px-3 py-2.5">
+                  <p className="text-[10px] font-bold text-[#8b8495]">차량번호</p>
+                  <p className="mt-1 text-sm font-black tracking-wide text-[#0F172A]">{driver.plate && driver.plate !== '미등록' ? driver.plate : '확인 중'}</p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">예상 도착</p>
                   <p className="mt-1 text-sm font-black text-[#4C1FB8]">{phase === 'arriving' ? `${driver.eta} 후` : phase === 'boarding' ? '탑승 확인' : '이동 중'}</p>
@@ -2703,6 +2710,8 @@ function ServiceSheet({
   const { t } = useLocale()
   const IS_TEST_MODE = true
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
+  const [courier, setCourier] = useState<{ name: string; vehicle: string; plate: string } | null>(null)
+  const deliveryServerId = useRef('')
   const [dispatchRide, setDispatchRide] = useState<PublicRide | null>(null)
   const [daeriMatchError, setDaeriMatchError] = useState('')
   const [daeriAccepting, setDaeriAccepting] = useState(false)
@@ -2789,7 +2798,7 @@ function ServiceSheet({
           kind: 'driver' as const,
         }
       : service === '택배'
-        ? { name: '최배송', vehicle: `${deliveryVehicle} 택배`, plate: '서울 88바 2201', kind: 'driver' as const }
+        ? { name: courier?.name || '배정 대기', vehicle: courier?.vehicle || '확인 중', plate: courier?.plate || '확인 중', kind: 'driver' as const }
         : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate || '', kind: 'service' as const }
   const contactRideId = ride ? dispatchRide?.id || daeriRideIdRef.current : ''
   const canStart = more || ride || service === '택배' || Boolean(selectedItem)
@@ -2842,6 +2851,9 @@ function ServiceSheet({
       }
       saveDeliveryJob(job)
       onDeliveryCreated?.(job)
+      void publishDelivery(job).then((published) => {
+        deliveryServerId.current = published.id
+      }).catch(() => undefined)
       setPhoneError('')
     }
     const didScan = scanned ?? qrScanned
@@ -2931,6 +2943,27 @@ function ServiceSheet({
       window.clearInterval(timer)
     }
   }, [dispatchRide?.id, ride])
+
+  useEffect(() => {
+    if (service !== '택배' || phase !== 'matching') return
+    let stopped = false
+    const pull = () => {
+      const id = deliveryServerId.current
+      if (!id) return
+      void fetchDelivery(id).then((job) => {
+        if (stopped || !job || job.status !== 'assigned' || !job.driverVehicle || !job.driverPlate) return
+        setCourier({ name: job.driverName || '기사', vehicle: job.driverVehicle, plate: job.driverPlate })
+        setPhase('assigned')
+        onNotice('배차가 완료되었습니다.')
+      }).catch(() => undefined)
+    }
+    pull()
+    const timer = window.setInterval(pull, 2000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [service, phase])
 
   const confirmAssignment = () => {
     daeriAcceptedRef.current = true
@@ -3146,7 +3179,17 @@ function ServiceSheet({
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] font-black text-white">{partner.name.slice(0, 1)}</div>
                 <div>
                   <p className="font-black text-[#0F172A]">{partner.name} 기사님</p>
-                  <p className="mt-1 text-xs font-bold text-[#475569]">{partner.vehicle} · {partner.plate}{daeriTrip ? ` · ${daeriTrip.plan}` : ''}</p>
+                  <p className="mt-1 text-xs font-bold text-[#64748B]">배차가 완료되었습니다</p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl bg-white px-3 py-2.5">
+                  <p className="text-[10px] font-bold text-[#8b8495]">차량명</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{partner.vehicle || '확인 중'}</p>
+                </div>
+                <div className="rounded-2xl bg-white px-3 py-2.5">
+                  <p className="text-[10px] font-bold text-[#8b8495]">차량번호</p>
+                  <p className="mt-1 text-sm font-black tracking-wide text-[#0F172A]">{partner.plate || '확인 중'}</p>
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2">
@@ -5055,13 +5098,14 @@ function PartnerSignupModal({
   const [facilityType, setFacilityType] = useState<'주차' | '자전거' | '킥보드' | 'EV 충전'>('주차')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
-  const [detail, setDetail] = useState('')
+  const [vehicleName, setVehicleName] = useState('')
+  const [plateNumber, setPlateNumber] = useState('')
   const [region, setRegion] = useState('서울')
   const [photo, setPhoto] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
   const photoInput = useRef<HTMLInputElement>(null)
   const skipVehicle = role === '기사' && serviceType === '대리운전'
-  const canSubmit = Boolean(session) && name.trim() && phone.trim() && (skipVehicle || detail.trim())
+  const canSubmit = Boolean(session) && name.trim() && phone.trim() && (role === '기사' ? skipVehicle || (vehicleName.trim() && plateNumber.trim()) : vehicleName.trim())
 
   const startPiLogin = async () => {
     if (signing) return
@@ -5087,7 +5131,9 @@ function PartnerSignupModal({
       role,
       name: name.trim(),
       phone: phone.trim(),
-      detail: skipVehicle ? '' : detail.trim(),
+      detail: role === '기사' ? (skipVehicle ? '' : `${vehicleName.trim()} · ${plateNumber.trim()}`) : vehicleName.trim(),
+      vehicle: role === '기사' && !skipVehicle ? vehicleName.trim() : '',
+      plate: role === '기사' && !skipVehicle ? plateNumber.trim() : '',
       region: region.trim() || '서울',
       serviceType: role === '기사' ? serviceType : facilityType,
       linkedAt: new Date().toISOString(),
@@ -5233,17 +5279,41 @@ function PartnerSignupModal({
               <span className="text-xs font-black text-[#334155]">연락처</span>
               <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="010-0000-0000" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
             </label>
+            {role === '기사' ? (
+              <div className="mt-3 grid grid-cols-1 gap-3">
+                <label className="block">
+                  <span className="text-xs font-black text-[#334155]">차량명</span>
+                  <input
+                    value={skipVehicle ? '' : vehicleName}
+                    onChange={(event) => setVehicleName(event.target.value)}
+                    disabled={skipVehicle}
+                    placeholder={skipVehicle ? '대리운전은 차량 정보 입력 제외' : '현대 아슬란'}
+                    className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8] disabled:opacity-60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-black text-[#334155]">차량번호</span>
+                  <input
+                    value={skipVehicle ? '' : plateNumber}
+                    onChange={(event) => setPlateNumber(event.target.value)}
+                    disabled={skipVehicle}
+                    placeholder={skipVehicle ? '대리운전은 차량 정보 입력 제외' : '서울 31바 1842'}
+                    className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8] disabled:opacity-60"
+                  />
+                </label>
+                {skipVehicle ? <p className="text-[11px] font-bold text-[#8b8495]">* 대리운전은 차량 정보 입력 제외</p> : null}
+              </div>
+            ) : (
             <label className="mt-3 block">
-              <span className="text-xs font-black text-[#334155]">{role === '기사' ? '차량 정보' : '업체/가맹점명'}</span>
+              <span className="text-xs font-black text-[#334155]">업체/가맹점명</span>
               <input
-                value={skipVehicle ? '' : detail}
-                onChange={(event) => setDetail(event.target.value)}
-                disabled={skipVehicle}
-                placeholder={skipVehicle ? '대리운전은 차량 정보 입력 제외' : role === '기사' ? '현대 아슬란 · 서울 31바 1842' : '파이 모빌리티 강남점'}
-                className={`mt-2 w-full rounded-2xl border-2 px-4 py-3 text-sm font-bold outline-none ${skipVehicle ? 'cursor-not-allowed border-[#E2E8F0] bg-[#F1F5F9] text-[#94A3B8] placeholder:text-[#94A3B8]' : 'border-[#BFDBFE] bg-[#E8F1FA] focus:border-[#4A82B8]'}`}
+                value={vehicleName}
+                onChange={(event) => setVehicleName(event.target.value)}
+                placeholder="파이 모빌리티 강남점"
+                className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]"
               />
-              {skipVehicle ? <p className="mt-1.5 text-[11px] font-bold text-[#8b8495]">* 대리운전은 차량 정보 입력 제외</p> : null}
             </label>
+            )}
             <label className="mt-3 block">
               <span className="text-xs font-black text-[#334155]">활동 지역</span>
               <input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="서울" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
@@ -5938,6 +6008,7 @@ function DriverDashboard({
   const [deskOpen, setDeskOpen] = useState(false)
   const [deliveryChatPeer, setDeliveryChatPeer] = useState<DeliveryChatPeer | null>(null)
   const [localDelivery, setLocalDelivery] = useState<DeliveryJob | null>(null)
+  const [openDeliveries, setOpenDeliveries] = useState<PublicDelivery[]>([])
   const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([])
   const [lostItems, setLostItems] = useState<LostItem[]>([])
   const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
@@ -5977,12 +6048,15 @@ function DriverDashboard({
     const beat = () => {
       if (stopped || !online || sending) return
       sending = true
+      const fleet = partnerVehicle(partner)
       void sendDriverPresence({
         driverId,
         lat,
         lng,
         online: true,
         name: partner?.name,
+        vehicle: fleet.vehicle,
+        plate: fleet.plate,
         wallet: partner?.wallet,
         piUid: partner?.uid,
       }).then(() => {
@@ -6021,7 +6095,7 @@ function DriverDashboard({
       window.removeEventListener('online', wake)
       document.removeEventListener('visibilitychange', wake)
     }
-  }, [driverId, lat, lng, online, partner?.name, partner?.wallet, partner?.uid])
+  }, [driverId, lat, lng, online, partner?.name, partner?.vehicle, partner?.plate, partner?.detail, partner?.wallet, partner?.uid])
 
   useEffect(() => {
     if (!driverId) return
@@ -6175,6 +6249,25 @@ function DriverDashboard({
   }, [driverId, online, deliveryJob, noteActivity])
 
   useEffect(() => {
+    if (!online || partner?.serviceType !== '택배') {
+      setOpenDeliveries([])
+      return
+    }
+    let stopped = false
+    const pull = () => {
+      void fetchOpenDeliveries().then((jobs) => {
+        if (!stopped) setOpenDeliveries(jobs)
+      }).catch(() => undefined)
+    }
+    pull()
+    const timer = window.setInterval(pull, 2000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [online, partner?.serviceType])
+
+  useEffect(() => {
     const job = deliveryJob ?? localDelivery
     const key = job ? `${job.id}:${job.status}` : ''
     if (deliverySeen.current === null) {
@@ -6191,7 +6284,12 @@ function DriverDashboard({
     if (!incoming || busy || !driverId) return
     setBusy(true)
     localOfferRef.current = null
-    void respondToRideOffer(incoming.id, driverId, action, incoming)
+    const fleet = partnerVehicle(partner)
+    void respondToRideOffer(incoming.id, driverId, action, incoming, {
+      name: partner?.name,
+      vehicle: fleet.vehicle,
+      plate: fleet.plate,
+    })
       .then((ride) => {
         if (action === 'accept') {
           setActiveRide(ride)
@@ -6409,6 +6507,37 @@ function DriverDashboard({
           <p className="text-xs font-black text-[#4C1FB8]">분실물 문의 {lostItems.length}건</p>
           <p className="mt-1 text-sm font-black text-[#0F172A]">{lostItems[0].itemType} · {lostItems[0].route}</p>
         </button>
+      ) : null}
+      {partner?.serviceType === '택배' && openDeliveries[0] ? (
+        <section className="mt-2 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
+          <p className="text-xs font-bold text-[#4A82B8]">새로운 택배 요청</p>
+          <p className="mt-2 text-base font-bold text-[#0F172A]">{openDeliveries[0].pickupAddress} → {openDeliveries[0].destAddress}</p>
+          <p className="mt-1 text-xs font-semibold text-[#475569]">{openDeliveries[0].packageLabel} · {openDeliveries[0].fare.toFixed(1)} Pi</p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              const job = openDeliveries[0]
+              const fleet = partnerVehicle(partner)
+              if (!job || !driverId || !fleet.vehicle || !fleet.plate) {
+                onNotice('프로필에 차량명과 차량번호를 등록한 뒤 수락해 주세요.')
+                return
+              }
+              setBusy(true)
+              void acceptDelivery(job.id, { driverId, name: partner?.name, vehicle: fleet.vehicle, plate: fleet.plate })
+                .then(() => {
+                  setOpenDeliveries((items) => items.filter((item) => item.id !== job.id))
+                  noteActivity(`delivery-accept:${job.id}`, '배차 수락', `${job.pickupAddress} → ${job.destAddress} · ${fleet.vehicle} ${fleet.plate}`)
+                  onNotice('택배를 수락했어요. 화주 화면에 차량 정보가 표시됩니다.')
+                })
+                .catch((error) => onNotice(error instanceof Error ? error.message : '배차 수락에 실패했어요.'))
+                .finally(() => setBusy(false))
+            }}
+            className="mt-3 w-full rounded-2xl bg-[#4A82B8] py-3 font-bold text-white disabled:opacity-60"
+          >
+            배차 수락
+          </button>
+        </section>
       ) : null}
       {online && incoming ? (
         <section className="mt-2 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { confirmMatchOnDevice, respondToOffer, restorePendingOffer, toPublicRide } from '@/lib/dispatch-engine'
+import { confirmMatchOnDevice, rememberDriverVehicle, respondToOffer, restorePendingOffer, toPublicRide } from '@/lib/dispatch-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,6 +9,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const body = (await request.json().catch(() => null)) as {
     driverId?: unknown
     action?: unknown
+    name?: unknown
+    vehicle?: unknown
+    plate?: unknown
     ride?: {
       passengerId?: unknown
       pickup?: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }
@@ -58,6 +61,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       address: typeof value?.address === 'string' ? value.address : undefined,
       label: typeof value?.label === 'string' ? value.label : undefined,
     }
+  }
+  if (action === 'accept') {
+    rememberDriverVehicle(driverId, {
+      name: typeof body?.name === 'string' ? body.name : undefined,
+      vehicle: typeof body?.vehicle === 'string' ? body.vehicle : undefined,
+      plate: typeof body?.plate === 'string' ? body.plate : undefined,
+    })
   }
   let result = respondToOffer(id, driverId, action)
   if (!result.ok && result.error === 'not_found' && action === 'accept') {

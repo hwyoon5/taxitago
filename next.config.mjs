@@ -107,6 +107,18 @@ const nextConfig = {
           source: '/api/partner/link',
           destination: '/api/partner/link/',
         },
+        {
+          source: '/api/deliveries',
+          destination: '/api/deliveries/',
+        },
+        {
+          source: '/api/deliveries/:id',
+          destination: '/api/deliveries/:id/',
+        },
+        {
+          source: '/api/deliveries/:id/accept',
+          destination: '/api/deliveries/:id/accept/',
+        },
       ],
     }
   },

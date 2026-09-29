@@ -591,6 +591,22 @@ export function getDriverOffer(driverId: string) {
   return matched
 }
 
+export function rememberDriverVehicle(driverId: string, info: { name?: string; vehicle?: string; plate?: string }) {
+  const current = getDriver(driverId)
+  if (!current) return null
+  const name = info.name?.trim()
+  const vehicle = info.vehicle?.trim()
+  const plate = info.plate?.trim()
+  if (!name && !vehicle && !plate) return current
+  return saveDriver({
+    ...current,
+    name: name || current.name,
+    vehicle: vehicle || current.vehicle,
+    plate: plate || current.plate,
+    lastSeenAt: nowIso(),
+  })
+}
+
 export function upsertDriverPresence(input: {
   id: string
   name?: string

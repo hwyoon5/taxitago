@@ -13,7 +13,23 @@ export type PartnerProfile = PiIdentity & {
   detail: string
   region: string
   serviceType?: string
+  vehicle?: string
+  plate?: string
   linkedAt: string
+}
+
+export function splitVehicleDetail(detail: string) {
+  const text = detail.trim()
+  const parts = text.split(/\s*[·|/]\s*/).map((part) => part.trim()).filter(Boolean)
+  if (parts.length >= 2) return { vehicle: parts[0], plate: parts.slice(1).join(' ') }
+  return { vehicle: text, plate: '' }
+}
+
+export function partnerVehicle(profile: Pick<PartnerProfile, 'detail' | 'vehicle' | 'plate'> | null | undefined) {
+  const vehicle = profile?.vehicle?.trim() || ''
+  const plate = profile?.plate?.trim() || ''
+  if (vehicle || plate) return { vehicle, plate }
+  return splitVehicleDetail(profile?.detail || '')
 }
 
 export type SettlementEntry = {
