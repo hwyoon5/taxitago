@@ -74,6 +74,8 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
         }
       : null,
     escrow: toPublicEscrow(getEscrowByRide(ride.id)),
+    boardedAt: ride.boardedAt ?? null,
+    readyToSettleAt: ride.readyToSettleAt ?? null,
     createdAt: ride.createdAt,
     updatedAt: ride.updatedAt,
   }
@@ -285,6 +287,35 @@ export function cancelRide(rideId: string, passengerId?: string) {
   if (offeredDriverId) publishDriverLive(offeredDriverId)
   if (ride.assignedDriverId) publishDriverLive(ride.assignedDriverId)
   return cancelled
+}
+
+export function markRideProgress(rideId: string, passengerId: string, step: 'boarded' | 'arrived') {
+  syncDispatchFromDisk()
+  const ride = getRide(rideId)
+  if (!ride) return { ok: false as const, error: 'not_found', ride: null }
+  if (ride.passengerId !== passengerId) return { ok: false as const, error: 'forbidden', ride }
+  if (ride.status !== 'assigned') return { ok: false as const, error: ride.status, ride }
+  if (step === 'boarded') {
+    if (!ride.boardedAt) ride.boardedAt = nowIso()
+  } else if (!ride.boardedAt) {
+    return { ok: false as const, error: 'not_boarded', ride }
+  } else if (!ride.readyToSettleAt) {
+    ride.readyToSettleAt = nowIso()
+  }
+  const saved = stamp(ride)
+  if (saved.assignedDriverId) publishDriverLive(saved.assignedDriverId)
+  return { ok: true as const, ride: saved }
+}
+
+export function abandonAssignedRide(rideId: string, driverId: string) {
+  syncDispatchFromDisk()
+  const ride = getRide(rideId)
+  if (!ride) return { ok: false as const, error: 'not_found', ride: null }
+  if (ride.assignedDriverId !== driverId || ride.status !== 'assigned') {
+    return { ok: false as const, error: ride.status === 'assigned' ? 'forbidden' : ride.status || 'not_assigned', ride }
+  }
+  const cancelled = cancelRide(rideId)
+  return cancelled ? { ok: true as const, ride: cancelled } : { ok: false as const, error: 'not_found', ride: null }
 }
 
 export function restorePendingOffer(

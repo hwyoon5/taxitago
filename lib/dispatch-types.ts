@@ -32,6 +32,8 @@ export type RideRequestRecord = {
   currentOffer: RideOfferRecord | null
   declinedDriverIds: string[]
   timedOutDriverIds: string[]
+  boardedAt?: string | null
+  readyToSettleAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -98,6 +100,8 @@ export type PublicRide = {
   pendingOffer: { driverId: string; driverName: string } | null
   assignedDriver: PublicDriver | null
   escrow: PublicEscrow | null
+  boardedAt: string | null
+  readyToSettleAt: string | null
   createdAt: string
   updatedAt: string
 }

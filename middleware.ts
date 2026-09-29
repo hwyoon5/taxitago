@@ -8,10 +8,10 @@ export function middleware(request: NextRequest) {
     url.pathname = '/api/geocode/'
     return NextResponse.rewrite(url)
   }
-  const rideCancel = pathname.match(/^\/api\/rides\/([^/]+)\/cancel$/)
-  if (rideCancel) {
+  const rideAction = pathname.match(/^\/api\/rides\/([^/]+)\/(cancel|progress|abandon|complete)$/)
+  if (rideAction) {
     const url = request.nextUrl.clone()
-    url.pathname = `/api/rides/${rideCancel[1]}/cancel/`
+    url.pathname = `/api/rides/${rideAction[1]}/${rideAction[2]}/`
     return NextResponse.rewrite(url)
   }
   const prefix = '/api/naver-maps/upstream/'
@@ -33,5 +33,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/geocode', '/api/rides/:id/cancel', '/api/naver-maps/upstream/:path*'],
+  matcher: ['/api/geocode', '/api/rides/:id/cancel', '/api/rides/:id/progress', '/api/rides/:id/abandon', '/api/rides/:id/complete', '/api/naver-maps/upstream/:path*'],
 }

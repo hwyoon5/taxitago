@@ -79,6 +79,18 @@ const nextConfig = {
           source: '/api/rides/:id/cancel',
           destination: '/api/rides/:id/cancel/',
         },
+        {
+          source: '/api/rides/:id/progress',
+          destination: '/api/rides/:id/progress/',
+        },
+        {
+          source: '/api/rides/:id/abandon',
+          destination: '/api/rides/:id/abandon/',
+        },
+        {
+          source: '/api/rides/:id/complete',
+          destination: '/api/rides/:id/complete/',
+        },
       ],
     }
   },

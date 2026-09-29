@@ -111,6 +111,7 @@ export async function releaseEscrow(rideId: string, driverId: string) {
   }
   if (releasingRides.has(rideId)) return { ok: false as const, error: 'settling', escrow, receipt: null }
   if (ride.status !== 'assigned') return { ok: false as const, error: ride.status, escrow, receipt: null }
+  if (!ride.readyToSettleAt) return { ok: false as const, error: 'passenger_not_ready', escrow, receipt: null }
   if (!escrow || escrow.status !== 'held') return { ok: false as const, error: 'escrow_not_held', escrow, receipt: null }
   releasingRides.add(rideId)
 

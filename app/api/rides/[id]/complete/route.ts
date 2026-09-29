@@ -13,8 +13,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     const result = await releaseEscrow(id, driverId)
     if (!result.ok) {
+      const error = result.error === 'passenger_not_ready'
+        ? '승객이 탑승을 확인하고 목적지에 도착한 뒤에만 정산할 수 있어요.'
+        : result.error
       return NextResponse.json(
-        { error: result.error, escrow: toPublicEscrow(result.escrow) },
+        { error, escrow: toPublicEscrow(result.escrow) },
         { status: result.error === 'not_found' ? 404 : 409 },
       )
     }

@@ -191,6 +191,8 @@ export function rideFromPushedOffer(payload: PushedDriverOffer | null | undefine
     pendingOffer: null,
     assignedDriver: null,
     escrow: null,
+    boardedAt: null,
+    readyToSettleAt: null,
     createdAt: expiresAt,
     updatedAt: new Date().toISOString(),
   }
@@ -255,6 +257,28 @@ export async function lockRideEscrow(input: {
   })
   const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
   if (!res.ok || !data.ride) throw new Error(data.error || '에스크로 잠금에 실패했어요.')
+  return data.ride
+}
+
+export async function markRideProgress(rideId: string, passengerId: string, step: 'boarded' | 'arrived') {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/progress/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ passengerId, step }),
+  })
+  const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
+  if (!res.ok || !data.ride) throw new Error(data.error || '운행 상태를 저장하지 못했어요.')
+  return data.ride
+}
+
+export async function abandonDriverRide(rideId: string, driverId: string) {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/abandon/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ driverId }),
+  })
+  const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
+  if (!res.ok || !data.ride) throw new Error(data.error || '배차 취소에 실패했어요.')
   return data.ride
 }
 

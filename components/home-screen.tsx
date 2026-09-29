@@ -36,8 +36,10 @@ import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ri
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
 import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, setMobilityDeviceStatus } from '@/lib/mobility-devices'
 import {
+  abandonDriverRide,
   cancelRideRequest,
   completeRideTrip,
+  markRideProgress,
   createRideRequest,
   fetchDriverActiveRide,
   fetchDriverEarnings,
@@ -2135,14 +2137,22 @@ function TaxiMatchingSheet({
     const rideId = ride?.id || rideIdRef.current
     if (!rideId) return
     const apply = (next: PublicRide) => {
+      if (next.status === 'cancelled') {
+        taxiSheetRideId = ''
+        onClose()
+        return
+      }
       if (matchedRef.current) {
-        if (next.status === 'assigned' || next.status === 'completed') setRide(next)
+        if (next.status === 'assigned' || next.status === 'completed') {
+          setRide(next)
+          if (next.readyToSettleAt) setPhase('moving')
+          else if (next.boardedAt) setPhase('boarding')
+        }
         return
       }
       if (next.status === 'assigned' || next.status === 'completed') return
       setRide(next)
       if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
-      if (next.status === 'cancelled') onClose()
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
     const timer = window.setInterval(() => {
@@ -2270,8 +2280,26 @@ function TaxiMatchingSheet({
       .finally(() => setAccepting(false))
   }
 
+  const confirmRideProgress = (step: 'boarded' | 'arrived') => {
+    const rideId = ride?.id || rideIdRef.current
+    if (!rideId || accepting) return
+    setAccepting(true)
+    void markRideProgress(rideId, passengerIdRef.current || localPassengerId(), step)
+      .then((next) => {
+        setRide(next)
+        setPhase(step === 'boarded' ? 'boarding' : 'moving')
+        onNotice(step === 'boarded' ? '탑승을 확인했어요. 목적지에 도착하면 도착 확인을 눌러 주세요.' : '목적지 도착을 확인했어요. 이제 정산할 수 있어요.')
+      })
+      .catch((error) => onNotice(error instanceof Error ? error.message : '운행 상태를 저장하지 못했어요.'))
+      .finally(() => setAccepting(false))
+  }
+
   const finishPassengerTrip = () => {
     if (accepting || payingRef.current || settledRef.current) return
+    if (!ride?.readyToSettleAt) {
+      onNotice(ride?.boardedAt ? '목적지에 도착한 뒤에 이용 완료를 눌러 주세요.' : '탑승 확인과 목적지 도착 확인 후에 이용 완료를 눌러 주세요.')
+      return
+    }
     payingRef.current = true
     setAccepting(true)
     const amount = phase === 'moving' ? billed.actual : fare
@@ -2440,15 +2468,14 @@ function TaxiMatchingSheet({
             </div>
             <div className="mt-4 space-y-2">
               {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
-              {IS_TEST_MODE && phase === 'arriving' && (
-                <button type="button" onClick={() => setPhase('boarding')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8]">
-                  탑승 시작
+              {phase === 'arriving' && (
+                <button type="button" disabled={accepting} onClick={() => confirmRideProgress('boarded')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8] disabled:opacity-60">
+                  {accepting ? '확인 중…' : '탑승 확인'}
                 </button>
               )}
-              {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
-              {IS_TEST_MODE && phase === 'boarding' && (
-                <button type="button" onClick={() => setPhase('moving')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8]">
-                  이동 시작
+              {phase === 'boarding' && (
+                <button type="button" disabled={accepting} onClick={() => confirmRideProgress('arrived')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8] disabled:opacity-60">
+                  {accepting ? '확인 중…' : '목적지 도착'}
                 </button>
               )}
               <PaymentHandler
@@ -2882,10 +2909,16 @@ function ServiceSheet({
     const rideId = dispatchRide?.id || daeriRideIdRef.current
     if (!ride || !rideId) return
     const apply = (next: PublicRide) => {
+      if (next.status === 'cancelled') {
+        daeriSheetRideId = ''
+        onClose()
+        return
+      }
       if (!daeriAcceptedRef.current && (next.status === 'assigned' || next.status === 'completed')) return
       setDispatchRide(next)
+      if (next.readyToSettleAt) setRideStage('moving')
+      else if (next.boardedAt) setRideStage('arriving')
       if (next.status === 'unmatched') setDaeriMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
-      if (next.status === 'cancelled') onClose()
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
     const timer = window.setInterval(() => {
@@ -3141,9 +3174,47 @@ function ServiceSheet({
               </div>
             </div>
             {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
-            {IS_TEST_MODE && ride && rideStage === 'arriving' ? (
-              <button type="button" onClick={() => setRideStage('moving')} className="w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-base font-bold text-[#4A82B8]">
-                운행 시작
+            {ride && !dispatchRide?.boardedAt ? (
+              <button
+                type="button"
+                disabled={daeriAccepting}
+                onClick={() => {
+                  const rideId = dispatchRide?.id || daeriRideIdRef.current
+                  if (!rideId) return
+                  setDaeriAccepting(true)
+                  void markRideProgress(rideId, daeriPassengerIdRef.current || localPassengerId(), 'boarded')
+                    .then((next) => {
+                      setDispatchRide(next)
+                      onNotice('탑승을 확인했어요.')
+                    })
+                    .catch((error) => onNotice(error instanceof Error ? error.message : '탑승 확인에 실패했어요.'))
+                    .finally(() => setDaeriAccepting(false))
+                }}
+                className="w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-base font-bold text-[#4A82B8] disabled:opacity-60"
+              >
+                탑승 확인
+              </button>
+            ) : null}
+            {ride && dispatchRide?.boardedAt && !dispatchRide.readyToSettleAt ? (
+              <button
+                type="button"
+                disabled={daeriAccepting}
+                onClick={() => {
+                  const rideId = dispatchRide?.id || daeriRideIdRef.current
+                  if (!rideId) return
+                  setDaeriAccepting(true)
+                  void markRideProgress(rideId, daeriPassengerIdRef.current || localPassengerId(), 'arrived')
+                    .then((next) => {
+                      setDispatchRide(next)
+                      setRideStage('moving')
+                      onNotice('목적지 도착을 확인했어요.')
+                    })
+                    .catch((error) => onNotice(error instanceof Error ? error.message : '도착 확인에 실패했어요.'))
+                    .finally(() => setDaeriAccepting(false))
+                }}
+                className="w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-base font-bold text-[#4A82B8] disabled:opacity-60"
+              >
+                목적지 도착
               </button>
             ) : null}
             {ride ? (
@@ -3159,6 +3230,7 @@ function ServiceSheet({
                   amount={rideStage === 'moving' ? billed.actual : fare}
                   memo={`${service} ${(rideStage === 'moving' ? billed.actual : fare)} Pi`}
                   metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
+                  disabled={!dispatchRide?.readyToSettleAt}
                   className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
                   onPaid={(result) => {
                     if (!result.paymentId || !result.txid) return
@@ -6073,7 +6145,19 @@ function DriverDashboard({
   }
 
   const finishTrip = () => {
-    if (!activeRide || busy || !driverId) return
+    if (busy) return
+    if (!activeRide || !driverId) {
+      onNotice('정산할 운행 정보를 찾지 못했어요. 화면을 새로고침한 뒤 다시 눌러 주세요.')
+      return
+    }
+    if (!activeRide.readyToSettleAt) {
+      onNotice('승객이 탑승을 확인하고 목적지에 도착한 뒤에만 정산할 수 있어요.')
+      return
+    }
+    if (activeRide.escrow?.status !== 'held') {
+      onNotice('승객 에스크로가 잠긴 뒤에 정산할 수 있어요.')
+      return
+    }
     setBusy(true)
     void completeRideTrip(activeRide.id, driverId)
       .then((result) => {
@@ -6101,6 +6185,25 @@ function DriverDashboard({
       })
       .finally(() => setBusy(false))
   }
+  const abandonTrip = () => {
+    if (busy) return
+    if (!activeRide || !driverId) {
+      onNotice('취소할 배차를 찾지 못했어요.')
+      return
+    }
+    setBusy(true)
+    void abandonDriverRide(activeRide.id, driverId)
+      .then(() => {
+        setActiveRide(null)
+        setIncoming(null)
+        onNotice('배차를 취소했어요. 승객과 함께 대기 상태로 돌아갑니다.')
+      })
+      .catch((error) => {
+        onNotice(error instanceof Error ? error.message : '배차 취소에 실패했어요.')
+      })
+      .finally(() => setBusy(false))
+  }
+  const canSettle = Boolean(activeRide?.readyToSettleAt) && activeRide?.escrow?.status === 'held'
   const activeDelivery = deliveryJob ?? localDelivery
   return (
     <main className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
@@ -6162,13 +6265,25 @@ function DriverDashboard({
           <p className="mt-1 text-sm font-semibold text-[#334155]">
             에스크로 {activeRide.escrow?.amount?.toFixed(2) ?? activeRide.estimatedFare.toFixed(2)} Pi · {activeRide.escrow?.status === 'held' ? '잠금 완료' : activeRide.escrow?.status === 'released' ? '정산됨' : '승객 입금 대기'}
           </p>
+          <p className="mt-2 text-xs font-bold text-[#047857]">
+            {activeRide.readyToSettleAt ? '승객이 목적지 도착을 확인했어요. 정산할 수 있어요.' : activeRide.boardedAt ? '승객이 탑승을 확인했어요. 목적지 도착 확인을 기다리는 중이에요.' : '승객의 탑승 확인 전에는 정산할 수 없어요.'}
+          </p>
           <button
             type="button"
-            disabled={busy || activeRide.escrow?.status !== 'held'}
+            disabled={busy}
+            aria-busy={busy}
             onClick={finishTrip}
-            className="mt-4 w-full rounded-2xl bg-[#047857] py-3.5 font-bold text-white disabled:opacity-50"
+            className={`relative z-10 mt-4 w-full rounded-2xl py-3.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 ${canSettle ? 'bg-[#047857]' : 'bg-[#94A3B8]'}`}
           >
-            운행 완료 · 자동 정산
+            {busy ? '정산 중…' : '운행 완료 · 자동 정산'}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={abandonTrip}
+            className="relative z-10 mt-2 w-full rounded-2xl border-2 border-[#FECACA] bg-white py-3.5 font-bold text-[#BE123C] disabled:opacity-50"
+          >
+            배차 취소
           </button>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setCallOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] py-3 text-sm font-bold text-white">
