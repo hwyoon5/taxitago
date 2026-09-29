@@ -6202,29 +6202,29 @@ function DriverDashboard({
   const canSettle = Boolean(activeRide?.readyToSettleAt)
   const activeDelivery = deliveryJob ?? localDelivery
   return (
-    <main className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
-      <section className="rounded-[28px] bg-[#243044] p-5 text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)]">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-xs font-semibold text-[#93C5FD]">기사/파트너 모드</p>
-            <h2 className="mt-1 text-2xl font-bold tracking-tight">오늘도 안전 운행하세요</h2>
-            <p className="mt-2 text-xs font-medium text-[#CBD5E1]">근처 호출 요청을 실시간으로 확인하세요</p>
+    <main className="flex-1 overflow-y-auto px-4 pb-24 pt-2">
+      <section className="rounded-2xl bg-[#243044] px-3.5 py-2.5 text-white shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold leading-none text-[#93C5FD]">기사/파트너 모드</p>
+            <h2 className="mt-1 truncate text-base font-bold leading-tight tracking-tight">오늘도 안전 운행하세요</h2>
           </div>
-          <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${online ? 'bg-[#D1FAE5] text-[#047857]' : 'bg-white/10 text-[#CBD5E1]'}`}>{online ? '영업 중' : '영업 종료'}</span>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${online ? 'bg-[#D1FAE5] text-[#047857]' : 'bg-white/10 text-[#CBD5E1]'}`}>{online ? '영업 중' : '영업 종료'}</span>
         </div>
+        <p className="mt-1 text-[10px] font-medium leading-tight text-[#CBD5E1]">근처 호출 요청을 실시간으로 확인하세요</p>
         <button
           onClick={() => {
             if (!online && driverId) void enableDriverPush(driverId, true).catch(() => undefined)
             onToggleOnline()
           }}
-          className={`mt-5 flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-left ${online ? 'bg-[#4A82B8]' : 'bg-white/10'}`}
+          className={`mt-2 flex w-full items-center justify-between rounded-xl px-3 py-2 text-left ${online ? 'bg-[#4A82B8]' : 'bg-white/10'}`}
         >
           <span>
-            <span className="block text-xs font-medium text-white/70">운행 상태</span>
-            <strong className="text-base font-bold">{online ? '영업 중 (Online)' : '영업 종료 (Offline)'}</strong>
+            <span className="block text-[10px] font-medium leading-none text-white/70">운행 상태</span>
+            <strong className="mt-0.5 block text-sm font-bold leading-tight">{online ? '영업 중 (Online)' : '영업 종료 (Offline)'}</strong>
           </span>
-          <span className={`relative h-7 w-12 rounded-full p-1 transition ${online ? 'bg-white/25' : 'bg-black/20'}`}>
-            <span className={`block h-5 w-5 rounded-full bg-white transition ${online ? 'translate-x-5' : ''}`} />
+          <span className={`relative h-6 w-10 rounded-full p-0.5 transition ${online ? 'bg-white/25' : 'bg-black/20'}`}>
+            <span className={`block h-5 w-5 rounded-full bg-white transition ${online ? 'translate-x-4' : ''}`} />
           </span>
         </button>
       </section>
@@ -6239,20 +6239,20 @@ function DriverDashboard({
           </div>
         </section>
       ) : null}
-      <section className="mt-4 grid grid-cols-3 gap-2.5">
-        <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 text-left shadow-[0_6px_18px_rgba(15,23,42,0.08)] transition active:scale-[0.98]">
+      <section className="mt-2 grid grid-cols-3 gap-2">
+        <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-xl border border-[#CBD5E1] bg-white px-2.5 py-2 text-left shadow-sm transition active:scale-[0.98]">
           <p className="text-[10px] font-semibold text-[#64748B]">오늘의 수익</p>
-          <p className="mt-2 text-lg font-bold text-[#0F766E]">{(earnings?.todayAmount ?? 0).toFixed(1)} Pi</p>
-          <p className="mt-1 text-[10px] font-bold text-[#0D9488]">상세 보기 ›</p>
+          <p className="mt-1 text-base font-bold leading-tight text-[#0F766E]">{(earnings?.todayAmount ?? 0).toFixed(1)} Pi</p>
+          <p className="mt-0.5 text-[10px] font-bold text-[#0D9488]">상세 보기 ›</p>
         </button>
-        <button type="button" onClick={() => setStatSheet('trips')} className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 text-left shadow-[0_6px_18px_rgba(15,23,42,0.08)] transition active:scale-[0.98]">
+        <button type="button" onClick={() => setStatSheet('trips')} className="rounded-xl border border-[#CBD5E1] bg-white px-2.5 py-2 text-left shadow-sm transition active:scale-[0.98]">
           <p className="text-[10px] font-semibold text-[#64748B]">{earnings?.todayTrips ?? 0}건 운행</p>
-          <p className="mt-2 text-lg font-bold text-[#0F172A]">{earnings?.todayTrips ?? 0}건</p>
-          <p className="mt-1 text-[10px] font-bold text-[#0369A1]">상세 보기 ›</p>
+          <p className="mt-1 text-base font-bold leading-tight text-[#0F172A]">{earnings?.todayTrips ?? 0}건</p>
+          <p className="mt-0.5 text-[10px] font-bold text-[#0369A1]">상세 보기 ›</p>
         </button>
-        <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 shadow-[0_6px_18px_rgba(15,23,42,0.08)]">
+        <div className="rounded-xl border border-[#CBD5E1] bg-white px-2.5 py-2 shadow-sm">
           <p className="text-[10px] font-semibold text-[#64748B]">기사 평점</p>
-          <p className="mt-2 text-lg font-bold text-[#0F172A]">{driverRating}</p>
+          <p className="mt-1 text-base font-bold leading-tight text-[#0F172A]">{driverRating}</p>
         </div>
       </section>
       {activeRide ? (
@@ -6337,7 +6337,7 @@ function DriverDashboard({
         </button>
       ) : null}
       {online && incoming ? (
-        <section className="mt-4 rounded-[26px] border-2 border-[#BFDBFE] bg-[#F8FAFC] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
+        <section className="mt-2 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-[#4A82B8]">새로운 운행 요청</p>
             <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
@@ -6367,28 +6367,34 @@ function DriverDashboard({
           </div>
         </section>
       ) : (
-        <section className="mt-4 rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 text-center shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
-          <p className="font-bold text-[#0F172A]">{online ? '새로운 요청을 기다리는 중이에요' : '영업을 시작하면 요청을 받을 수 있어요'}</p>
-          <p className="mt-1 text-xs font-medium text-[#64748B]">주변 승객의 호출이 이곳에 표시됩니다.</p>
+        <section className="mt-2 rounded-xl border border-[#CBD5E1] bg-white px-3 py-2.5 text-center shadow-sm">
+          <p className="text-sm font-bold text-[#0F172A]">{online ? '새로운 요청을 기다리는 중이에요' : '영업을 시작하면 요청을 받을 수 있어요'}</p>
+          <p className="mt-0.5 text-[11px] font-medium text-[#64748B]">주변 승객의 호출이 이곳에 표시됩니다.</p>
         </section>
       )}
-      <button onClick={onPassengerMode} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-bold text-[#334155] shadow-sm">
-        홈으로 돌아가기
-      </button>
-      <button type="button" onClick={() => setDeskOpen(true)} className="mt-2 w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-sm font-bold text-[#4A82B8]">
-        분실물 · 고객지원
-      </button>
-      <section className="mt-4 rounded-[26px] border-2 border-[#CBD5E1] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
-        <p className="text-xs font-bold text-[#4A82B8]">계정 설정</p>
-        <h3 className="mt-1 text-base font-bold text-[#0F172A]">기사/파트너 권한</h3>
-        <p className="mt-1.5 text-sm font-medium leading-6 text-[#64748B]">탈퇴하면 콜 수락과 파트너 대시보드를 이용할 수 없으며, 다시 이용하려면 회원가입이 필요해요.</p>
-        <button
-          type="button"
-          onClick={() => setWithdrawOpen(true)}
-          className="mt-4 w-full rounded-2xl border-2 border-[#FECACA] bg-[#FEF2F2] py-3.5 font-bold text-[#B91C1C] transition hover:bg-[#FEE2E2] active:scale-[0.99]"
-        >
-          회원탈퇴
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <button onClick={onPassengerMode} className="rounded-xl border border-[#CBD5E1] bg-white py-2 text-xs font-bold text-[#334155]">
+          홈으로 돌아가기
         </button>
+        <button type="button" onClick={() => setDeskOpen(true)} className="rounded-xl border border-[#4A82B8] bg-white py-2 text-xs font-bold text-[#4A82B8]">
+          분실물 · 고객지원
+        </button>
+      </div>
+      <section className="mt-2 rounded-xl border border-[#CBD5E1] bg-white px-3 py-2 shadow-sm">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold leading-none text-[#4A82B8]">계정 설정</p>
+            <h3 className="mt-0.5 text-sm font-bold leading-tight text-[#0F172A]">기사/파트너 권한</h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setWithdrawOpen(true)}
+            className="shrink-0 rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-2.5 py-1.5 text-xs font-bold text-[#B91C1C] transition hover:bg-[#FEE2E2] active:scale-[0.99]"
+          >
+            회원탈퇴
+          </button>
+        </div>
+        <p className="mt-1 text-[11px] font-medium leading-4 text-[#64748B]">탈퇴하면 콜 수락과 대시보드를 쓸 수 없고, 다시 쓰려면 회원가입이 필요해요.</p>
       </section>
       {withdrawOpen ? (
         <div className="fixed inset-0 z-[94] flex items-end bg-[#1e1033]/50 p-0 sm:items-center sm:p-4" onClick={() => setWithdrawOpen(false)}>
