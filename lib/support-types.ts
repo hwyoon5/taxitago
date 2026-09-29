@@ -66,6 +66,7 @@ export type TicketMessage = {
   fromRole: SupportActor
   text: string
   at: string
+  editedAt?: string
 }
 
 export type SupportTicket = {

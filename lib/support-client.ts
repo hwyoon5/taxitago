@@ -163,6 +163,24 @@ export async function sendTicketMessage(ticketId: string, actorId: string, role:
   return data.ticket
 }
 
+export async function fetchTicket(ticketId: string) {
+  const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}/`, { cache: 'no-store' })
+  const data = await readJson<{ ticket?: SupportTicket }>(res)
+  if (!res.ok || !data.ticket) return null
+  return data.ticket
+}
+
+export async function editTicketReply(ticketId: string, messageId: string, text: string) {
+  const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'admin', messageId, text }),
+  })
+  const data = await readJson<{ ticket?: SupportTicket; error?: string }>(res)
+  if (!res.ok || !data.ticket) throw new Error(data.error || '답변을 수정하지 못했어요.')
+  return data.ticket
+}
+
 export async function setTicketStatus(ticketId: string, status: TicketStatus) {
   const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'PATCH',

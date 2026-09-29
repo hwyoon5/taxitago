@@ -1,36 +1,32 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import {
   createTicket,
   fetchLostInbox,
   fetchLostRides,
-  fetchSosInbox,
+  fetchTicket,
   fetchTickets,
   sendLostMessage,
   sendTicketMessage,
   setLostStatus,
-  setTicketStatus,
   submitLostItem,
-  updateSos,
 } from '@/lib/support-client'
 import {
   LOST_ITEM_TYPES,
   LOST_STATUS_LABEL,
-  SOS_STATUS_LABEL,
   TICKET_CATEGORY_LABEL,
   TICKET_STATUS_LABEL,
   type LostItem,
   type LostItemType,
   type LostKind,
-  type SosAlert,
   type SupportActor,
   type SupportTicket,
   type TicketCategory,
-  type TicketStatus,
 } from '@/lib/support-types'
 
-type Tab = 'ask' | 'lost' | 'tickets' | 'ops'
+type Tab = 'ask' | 'lost' | 'tickets'
 
 const SAMPLE_RIDES = [
   { id: '', route: '서울시청 → 강남역', driverName: '김민수', plate: '서울 31바 1842', vehicle: '현대 아슬란' },
@@ -59,16 +55,18 @@ export default function SupportCenter({
   const [tab, setTab] = useState<Tab>(prefillLost ? 'lost' : 'ask')
   const [tickets, setTickets] = useState<SupportTicket[]>([])
   const [lost, setLost] = useState<LostItem[]>([])
-  const [alerts, setAlerts] = useState<SosAlert[]>([])
-  const [adminTickets, setAdminTickets] = useState<SupportTicket[]>([])
   const [openTicket, setOpenTicket] = useState<SupportTicket | null>(null)
   const [openLost, setOpenLost] = useState<LostItem | null>(null)
 
   const reload = () => {
-    void fetchTickets(actorId, actorRole).then(setTickets)
-    void fetchLostInbox(actorId, actorRole).then(setLost)
-    void fetchTickets('ops', 'admin').then(setAdminTickets)
-    void fetchSosInbox('ops', 'admin').then(setAlerts)
+    void fetchTickets(actorId, actorRole).then((next) => {
+      setTickets(next)
+      setOpenTicket((current) => current ? next.find((item) => item.id === current.id) ?? current : current)
+    })
+    void fetchLostInbox(actorId, actorRole).then((next) => {
+      setLost(next)
+      setOpenLost((current) => current ? next.find((item) => item.id === current.id) ?? current : current)
+    })
   }
 
   useEffect(() => {
@@ -79,12 +77,11 @@ export default function SupportCenter({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-1 rounded-2xl bg-[#F1F5F9] p-1">
+      <div className="grid grid-cols-3 gap-1 rounded-2xl bg-[#F1F5F9] p-1">
         {([
           ['ask', '1:1 문의'],
           ['lost', '분실물'],
           ['tickets', '내 접수'],
-          ['ops', '운영'],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -123,15 +120,25 @@ export default function SupportCenter({
         />
       ) : null}
       {tab === 'tickets' ? (
-        <TicketList tickets={tickets} onOpen={setOpenTicket} />
-      ) : null}
-      {tab === 'ops' ? (
-        <OpsPanel
-          alerts={alerts}
-          tickets={adminTickets}
-          onNotice={onNotice}
-          onChange={() => reload()}
-        />
+        <div className="space-y-3">
+          <TicketList tickets={tickets} onOpen={setOpenTicket} />
+          {lost.length ? (
+            <div className="space-y-2">
+              <p className="text-xs font-black text-[#4C1FB8]">분실물 접수</p>
+              {lost.map((item) => {
+                const reply = [...item.messages].reverse().find((message) => message.fromRole === 'admin')
+                return (
+                  <button key={item.id} type="button" onClick={() => setOpenLost(item)} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 text-left">
+                    <p className="text-[11px] font-black text-[#4C1FB8]">분실물 · {LOST_STATUS_LABEL[item.status]}</p>
+                    <p className="mt-1 text-sm font-black text-[#0F172A]">{item.itemType}</p>
+                    {reply ? <p className="mt-1 line-clamp-2 text-xs font-bold text-[#4C1FB8]">고객지원 답변 · {reply.text}</p> : <p className="mt-1 text-xs font-bold text-[#64748B]">답변을 기다리는 중입니다.</p>}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+          <Link href="/admin/support" className="block text-center text-[11px] font-black text-[#64748B]">관리자 문의함</Link>
+        </div>
       ) : null}
       {openTicket ? (
         <TicketThread
@@ -238,6 +245,11 @@ function TicketList({ tickets, onOpen }: { tickets: SupportTicket[]; onOpen: (ti
           </div>
           <p className="mt-1 text-sm font-black text-[#0F172A]">{ticket.subject}</p>
           <p className="mt-1 line-clamp-2 text-xs font-bold text-[#64748B]">{ticket.body}</p>
+          {ticket.messages.some((message) => message.fromRole === 'admin') ? (
+            <p className="mt-2 line-clamp-2 text-xs font-bold text-[#4C1FB8]">고객지원 답변 · {ticket.messages.filter((message) => message.fromRole === 'admin').at(-1)?.text}</p>
+          ) : (
+            <p className="mt-2 text-xs font-bold text-[#94A3B8]">답변을 기다리는 중입니다.</p>
+          )}
         </button>
       ))}
     </div>
@@ -258,6 +270,14 @@ function TicketThread({
   onUpdate: (ticket: SupportTicket) => void
 }) {
   const [draft, setDraft] = useState('')
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void fetchTicket(ticket.id).then((next) => {
+        if (next) onUpdate(next)
+      })
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [ticket.id, onUpdate])
   return (
     <div className="fixed inset-0 z-[105] flex items-end bg-[#1e1033]/50 sm:items-center sm:p-4">
       <section className="mx-auto flex max-h-[90vh] w-full max-w-md flex-col rounded-t-[32px] bg-white p-5 sm:rounded-[32px]">
@@ -273,8 +293,9 @@ function TicketThread({
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
           {ticket.messages.map((message) => (
             <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
-              <p className="text-[10px] font-black">{message.fromRole === 'admin' ? '고객지원' : '나'}</p>
+              <p className="text-[10px] font-black">{message.fromRole === 'admin' ? '고객지원 답변' : '나'}</p>
               <p className="mt-1 leading-5">{message.text}</p>
+              {message.editedAt ? <p className="mt-1 text-[10px] font-bold opacity-70">수정됨</p> : null}
             </div>
           ))}
         </div>
@@ -426,10 +447,11 @@ function LostThread({
         </div>
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
           {item.messages.length ? item.messages.map((message) => (
-            <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromId === actorId ? 'bg-[#4C1FB8] text-white' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
-              {message.text}
+            <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : message.fromId === actorId ? 'bg-[#4C1FB8] text-white' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
+              <p className="text-[10px] font-black">{message.fromRole === 'admin' ? '고객지원 답변' : message.fromId === actorId ? '나' : '상대'}</p>
+              <p className="mt-1 leading-5">{message.text}</p>
             </div>
-          )) : <p className="text-sm font-bold text-[#64748B]">기사님과 분실물 위치를 확인해 보세요.</p>}
+          )) : <p className="text-sm font-bold text-[#64748B]">아직 답변이 없습니다.</p>}
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => void setLostStatus(item.id, 'returned', actorId, role).then(onUpdate)} className="rounded-2xl bg-[#047857] py-2.5 text-xs font-black text-white">반환 완료</button>
@@ -450,73 +472,6 @@ function LostThread({
             전송
           </button>
         </div>
-      </section>
-    </div>
-  )
-}
-
-function OpsPanel({
-  alerts,
-  tickets,
-  onNotice,
-  onChange,
-}: {
-  alerts: SosAlert[]
-  tickets: SupportTicket[]
-  onNotice?: (message: string) => void
-  onChange: () => void
-}) {
-  const statuses: TicketStatus[] = ['received', 'in_progress', 'waiting', 'resolved', 'closed']
-  return (
-    <div className="space-y-4">
-      <section>
-        <p className="text-xs font-black text-[#B91C1C]">긴급 SOS</p>
-        {alerts.length ? alerts.map((alert) => (
-          <div key={alert.id} className="mt-2 rounded-2xl border-2 border-[#FECACA] bg-[#FEF2F2] p-3">
-            <p className="text-xs font-black text-[#B91C1C]">{SOS_STATUS_LABEL[alert.status]} · {alert.fromRole === 'passenger' ? '승객' : '기사'}</p>
-            <p className="mt-1 text-sm font-black">{alert.route}</p>
-            <p className="mt-1 text-xs font-bold text-[#7F1D1D]">
-              GPS {alert.lat.toFixed(5)}, {alert.lng.toFixed(5)} · {alert.vehicle} {alert.plate}
-            </p>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => void updateSos(alert.id, 'acked').then(() => { onNotice?.('SOS를 확인했습니다.'); onChange() })} className="rounded-xl bg-[#B91C1C] py-2 text-[11px] font-black text-white">확인</button>
-              <button type="button" onClick={() => void updateSos(alert.id, 'resolved').then(() => { onNotice?.('SOS를 해제했습니다.'); onChange() })} className="rounded-xl border border-[#FECACA] py-2 text-[11px] font-black text-[#B91C1C]">해제</button>
-            </div>
-          </div>
-        )) : <p className="mt-2 text-sm font-bold text-[#64748B]">열린 긴급 신고가 없습니다.</p>}
-      </section>
-      <section>
-        <p className="text-xs font-black text-[#4C1FB8]">티켓 처리 상태</p>
-        {tickets.map((ticket) => (
-          <div key={ticket.id} className="mt-2 rounded-2xl border-2 border-[#CBD5E1] bg-white p-3">
-            <div className="flex justify-between gap-2">
-              <p className="text-sm font-black">{ticket.subject}</p>
-              <span className="text-[10px] font-black text-[#4C1FB8]">{TICKET_STATUS_LABEL[ticket.status]}</span>
-            </div>
-            <p className="mt-1 text-xs font-bold text-[#64748B]">{TICKET_CATEGORY_LABEL[ticket.category]} · {ticket.userId.slice(0, 10)}</p>
-            <select
-              value={ticket.status}
-              onChange={(event) => {
-                void setTicketStatus(ticket.id, event.target.value as TicketStatus).then(() => {
-                  onNotice?.('처리 상태를 변경했습니다.')
-                  onChange()
-                })
-              }}
-              className="mt-2 w-full rounded-xl border border-[#D8CCF5] px-2 py-2 text-xs font-black text-[#4C1FB8]"
-            >
-              {statuses.map((status) => (
-                <option key={status} value={status}>{TICKET_STATUS_LABEL[status]}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => void sendTicketMessage(ticket.id, 'ops-admin', 'admin', '확인했습니다. 빠르게 도와드리겠습니다.').then(() => onChange())}
-              className="mt-2 w-full rounded-xl bg-[#F8F5FF] py-2 text-[11px] font-black text-[#4C1FB8]"
-            >
-              운영 답변 보내기
-            </button>
-          </div>
-        ))}
       </section>
     </div>
   )

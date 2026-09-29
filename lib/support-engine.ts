@@ -266,6 +266,20 @@ export function postTicketMessage(input: { ticketId: string; actorId: string; ro
   return { ok: true as const, ticket: next, message }
 }
 
+export function editTicketMessage(input: { ticketId: string; messageId: string; role: SupportActor; text: string }) {
+  if (input.role !== 'admin') return { ok: false as const, error: 'forbidden', ticket: null as SupportTicket | null }
+  const ticket = getTicket(input.ticketId)
+  if (!ticket) return { ok: false as const, error: 'not_found', ticket: null }
+  const text = input.text.trim().slice(0, 800)
+  if (!text) return { ok: false as const, error: 'empty', ticket: null }
+  const message = ticket.messages.find((item) => item.id === input.messageId && item.fromRole === 'admin')
+  if (!message) return { ok: false as const, error: 'not_found', ticket: null }
+  message.text = text
+  message.editedAt = nowIso()
+  const next = saveTicket({ ...ticket, updatedAt: message.editedAt })
+  return { ok: true as const, ticket: next }
+}
+
 export function setTicketStatus(id: string, status: TicketStatus) {
   const ticket = getTicket(id)
   if (!ticket) return null

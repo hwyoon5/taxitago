@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getTicket } from '@/lib/support-store'
-import { postTicketMessage, setTicketStatus } from '@/lib/support-engine'
+import { editTicketMessage, postTicketMessage, setTicketStatus } from '@/lib/support-engine'
 import type { SupportActor, TicketStatus } from '@/lib/support-types'
 
 export const runtime = 'nodejs'
@@ -35,6 +35,21 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  const messageId = typeof body?.messageId === 'string' ? body.messageId.trim() : ''
+  const text = typeof body?.text === 'string' ? body.text : ''
+  if (messageId) {
+    const result = editTicketMessage({
+      ticketId: id,
+      messageId,
+      role: body?.role === 'admin' ? 'admin' : 'passenger',
+      text,
+    })
+    if (!result.ok) {
+      const status = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 400
+      return NextResponse.json({ error: result.error }, { status })
+    }
+    return NextResponse.json({ ok: true, ticket: result.ticket })
+  }
   const status = body?.status
   if (!STATUSES.includes(status as TicketStatus)) {
     return NextResponse.json({ error: 'status required' }, { status: 400 })
