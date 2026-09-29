@@ -9,6 +9,7 @@ type DispatchDb = {
   rides: Map<string, RideRequestRecord>
   drivers: Map<string, DriverRecord>
   listeners: Map<string, Set<LiveListener>>
+  driverListeners: Map<string, Set<() => void>>
   seeded: boolean
   hydrated: boolean
 }
@@ -29,6 +30,7 @@ function db(): DispatchDb {
       rides: new Map(),
       drivers: new Map(),
       listeners: new Map(),
+      driverListeners: new Map(),
       seeded: false,
       hydrated: false,
     }
@@ -193,4 +195,29 @@ export function publishRideLive(rideId: string) {
   if (!listeners?.size) return
   const encoded = `event: ride\ndata: ${JSON.stringify({ rideId, at: nowIso() })}\n\n`
   for (const listener of listeners) listener(encoded)
+}
+
+function driverListenerMap() {
+  const store = db()
+  if (!store.driverListeners) store.driverListeners = new Map()
+  return store.driverListeners
+}
+
+export function subscribeDriverLive(driverId: string, listener: () => void) {
+  const id = driverId.trim()
+  if (!id) return () => undefined
+  const map = driverListenerMap()
+  const set = map.get(id) ?? new Set<() => void>()
+  set.add(listener)
+  map.set(id, set)
+  return () => {
+    set.delete(listener)
+    if (set.size === 0) map.delete(id)
+  }
+}
+
+export function publishDriverLive(driverId: string) {
+  const set = driverListenerMap().get(driverId.trim())
+  if (!set?.size) return
+  for (const listener of set) listener()
 }

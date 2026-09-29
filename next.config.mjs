@@ -37,6 +37,13 @@ const nextConfig = {
       { key: 'X-Content-Type-Options', value: 'nosniff' },
     ]
     return [
+      {
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
       { source: '/validation-key.txt', headers: validationKeyHeaders },
       { source: '/validation-key.txt/', headers: validationKeyHeaders },
       {

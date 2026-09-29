@@ -47,6 +47,59 @@ export async function fetchRideRequest(rideId: string): Promise<PublicRide | nul
   }
 }
 
+export type DriverDispatchSnapshot = {
+  ride: PublicRide | null
+  offer: { pickupDistanceKm: number; expiresAt: string } | null
+  active: PublicRide | null
+}
+
+export function subscribeDriverLive(driverId: string, onDispatch: (snapshot: DriverDispatchSnapshot) => void) {
+  const id = driverId.trim()
+  if (!id || typeof window === 'undefined') return () => undefined
+  let source: EventSource | null = null
+  let closed = false
+  let retryMs = 1000
+  let retryTimer = 0
+  const connect = () => {
+    if (closed) return
+    source?.close()
+    source = new EventSource(localEventSourceUrl('api/drivers/live', new URLSearchParams({ driverId: id })))
+    source.addEventListener('dispatch', (event) => {
+      retryMs = 1000
+      try {
+        onDispatch(JSON.parse((event as MessageEvent).data) as DriverDispatchSnapshot)
+      } catch {
+        undefined
+      }
+    })
+    source.onerror = () => {
+      source?.close()
+      source = null
+      if (closed) return
+      window.clearTimeout(retryTimer)
+      retryTimer = window.setTimeout(connect, retryMs)
+      retryMs = Math.min(retryMs * 2, 15000)
+    }
+  }
+  const wake = () => {
+    if (closed) return
+    if (!source || source.readyState === EventSource.CLOSED) {
+      retryMs = 1000
+      connect()
+    }
+  }
+  connect()
+  window.addEventListener('online', wake)
+  document.addEventListener('visibilitychange', wake)
+  return () => {
+    closed = true
+    window.clearTimeout(retryTimer)
+    source?.close()
+    window.removeEventListener('online', wake)
+    document.removeEventListener('visibilitychange', wake)
+  }
+}
+
 export function subscribeRideLive(rideId: string, onRide: (ride: PublicRide) => void) {
   const source = new EventSource(localEventSourceUrl(`api/rides/${encodeURIComponent(rideId)}/live`))
   const apply = (raw: string) => {

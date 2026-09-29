@@ -10,10 +10,12 @@ import {
   listRides,
   listSearchingRides,
   nowIso,
+  publishDriverLive,
   saveDriver,
   saveRide,
   subscribeRideLive,
 } from '@/lib/dispatch-store'
+import { sendDriverPush } from '@/lib/driver-push'
 import {
   DRIVER_STALE_MS,
   MATCH_RADIUS_KM,
@@ -133,6 +135,16 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
   ride.currentOffer = offer
   stamp(ride)
   scheduleOfferWatch(ride)
+  publishDriverLive(driver.id)
+  const pickup = ride.pickup.address || ride.pickup.label || '출발지'
+  const dest = ride.dest.label || ride.dest.address || '목적지'
+  void sendDriverPush(driver.id, {
+    title: '새로운 운행 요청',
+    body: `${pickup} → ${dest}`,
+    tag: `taxitago-offer-${ride.id}`,
+    url: '/?driver=1',
+    rideId: ride.id,
+  })
   return ride
 }
 
@@ -192,10 +204,12 @@ export function assignNextDriver(rideId: string) {
 export function expireCurrentOffer(rideId: string) {
   const ride = getRide(rideId)
   if (!ride?.currentOffer || ride.currentOffer.decision !== 'pending') return ride
-  ride.timedOutDriverIds = [...new Set([...ride.timedOutDriverIds, ride.currentOffer.driverId])]
+  const previousDriverId = ride.currentOffer.driverId
+  ride.timedOutDriverIds = [...new Set([...ride.timedOutDriverIds, previousDriverId])]
   ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
   ride.status = 'searching'
   stamp(ride)
+  publishDriverLive(previousDriverId)
   return assignNextDriver(ride.id)
 }
 
@@ -238,6 +252,7 @@ export function cancelRide(rideId: string, passengerId?: string) {
   clearRideTimer(ride.id)
   clearVirtualAccept(ride.id)
   stopLiveDriverMove(ride.id)
+  const offeredDriverId = ride.currentOffer?.decision === 'pending' ? ride.currentOffer.driverId : ''
   if (ride.assignedDriverId) {
     const driver = getDriver(ride.assignedDriverId)
     if (driver && driver.status === 'busy' && !driver.virtual) {
@@ -253,7 +268,10 @@ export function cancelRide(rideId: string, passengerId?: string) {
   }
   refundEscrow(ride.id)
   archiveRideComms(ride.id, 'cancelled')
-  return stamp(ride)
+  const cancelled = stamp(ride)
+  if (offeredDriverId) publishDriverLive(offeredDriverId)
+  if (ride.assignedDriverId) publishDriverLive(ride.assignedDriverId)
+  return cancelled
 }
 
 export function respondToOffer(rideId: string, driverId: string, action: 'accept' | 'reject') {
@@ -280,6 +298,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     ride.currentOffer = { ...ride.currentOffer, decision: 'rejected' }
     ride.status = 'searching'
     stamp(ride)
+    publishDriverLive(driverId)
     return { ok: true as const, ride: assignNextDriver(ride.id) ?? ride }
   }
 
@@ -289,6 +308,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
     ride.status = 'searching'
     stamp(ride)
+    publishDriverLive(driverId)
     return { ok: false as const, error: 'driver_unavailable', ride: assignNextDriver(ride.id) ?? ride }
   }
 
@@ -296,6 +316,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   ride.assignedDriverId = driverId
   ride.status = 'assigned'
   stamp(ride)
+  publishDriverLive(driverId)
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
   openEscrowForRide(ride.id)
   openRideComms(ride.id)

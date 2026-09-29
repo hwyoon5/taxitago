@@ -43,6 +43,7 @@ import {
   fetchDriverEarnings,
   fetchDriverOffer,
   fetchRideReceipt,
+  subscribeDriverLive,
   fetchRideRequest,
   lockRideEscrow,
   respondToRideOffer,
@@ -50,6 +51,7 @@ import {
   sendDriverPresence,
   subscribeRideLive,
 } from '@/lib/dispatch-client'
+import { enableDriverPush, showDriverOfferNotification } from '@/lib/driver-notify-client'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
@@ -5857,17 +5859,13 @@ function DriverDashboard({
 
   useEffect(() => {
     if (!driverId) return
-    void sendDriverPresence({
-      driverId,
-      lat,
-      lng,
-      online,
-      name: partner?.name,
-      wallet: partner?.wallet,
-      piUid: partner?.uid,
-    })
-    if (!online) return
-    const beat = window.setInterval(() => {
+    let stopped = false
+    let timer = 0
+    let delay = 1000
+    let sending = false
+    const beat = () => {
+      if (stopped || !online || sending) return
+      sending = true
       void sendDriverPresence({
         driverId,
         lat,
@@ -5876,33 +5874,100 @@ function DriverDashboard({
         name: partner?.name,
         wallet: partner?.wallet,
         piUid: partner?.uid,
+      }).then(() => {
+        delay = document.visibilityState === 'visible' ? 12000 : 20000
+      }).catch(() => {
+        delay = Math.min(delay * 2, 30000)
+      }).finally(() => {
+        sending = false
+        if (!stopped && online) timer = window.setTimeout(beat, delay)
       })
-    }, 2500)
-    return () => window.clearInterval(beat)
+    }
+    const wake = () => {
+      window.clearTimeout(timer)
+      delay = 1000
+      beat()
+    }
+    if (!online) {
+      void sendDriverPresence({
+        driverId,
+        lat,
+        lng,
+        online: false,
+        name: partner?.name,
+        wallet: partner?.wallet,
+        piUid: partner?.uid,
+      }).catch(() => undefined)
+    } else {
+      void enableDriverPush(driverId).catch(() => undefined)
+      beat()
+    }
+    window.addEventListener('online', wake)
+    document.addEventListener('visibilitychange', wake)
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+      window.removeEventListener('online', wake)
+      document.removeEventListener('visibilitychange', wake)
+    }
   }, [driverId, lat, lng, online, partner?.name, partner?.wallet, partner?.uid])
 
   useEffect(() => {
     if (!driverId) return
-    const poll = window.setInterval(() => {
+    const streamReady = { current: false }
+    const pushReady = { current: false }
+    const notifiedOffer = { current: '' }
+    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number } | null } | null, active?: PublicRide | null) => {
+      const ride = pending?.ride ?? null
+      setIncoming(online ? ride : null)
+      setOfferKm(pending?.offer?.pickupDistanceKm ?? ride?.assignedDriver?.pickupDistanceKm ?? null)
+      if (active !== undefined) setActiveRide(active)
+      if (!online || !ride) {
+        notifiedOffer.current = ''
+        return
+      }
+      if (ride.id === notifiedOffer.current || pushReady.current) return
+      notifiedOffer.current = ride.id
+      const body = `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
+      void showDriverOfferNotification(ride.id, body)
+    }
+    const unsubscribe = online
+      ? subscribeDriverLive(driverId, (snapshot) => {
+          streamReady.current = true
+          applyOffer({ ride: snapshot.ride, offer: snapshot.offer }, snapshot.active)
+        })
+      : () => undefined
+    if (online) {
+      void enableDriverPush(driverId).then((ready) => {
+        pushReady.current = ready
+      }).catch(() => undefined)
+    } else {
+      setIncoming(null)
+    }
+    const refreshDesk = () => {
       void Promise.all([
-        online ? fetchDriverOffer(driverId) : Promise.resolve(null),
-        fetchDriverActiveRide(driverId),
+        online && !streamReady.current ? fetchDriverOffer(driverId) : Promise.resolve(undefined),
+        streamReady.current ? Promise.resolve(undefined) : fetchDriverActiveRide(driverId),
         fetchDriverEarnings(driverId),
         fetchUserRating(driverId, 'driver'),
         fetchSosInbox(driverId, 'driver'),
         fetchLostInbox(driverId, 'driver'),
       ]).then(([pending, active, stats, rating, alerts, lost]) => {
-        setIncoming(pending?.ride ?? null)
-        setOfferKm(pending?.offer?.pickupDistanceKm ?? pending?.ride?.assignedDriver?.pickupDistanceKm ?? null)
-        setActiveRide(active)
+        if (pending !== undefined) applyOffer(pending, active === undefined ? undefined : active)
+        else if (active !== undefined) setActiveRide(active)
         if (stats) setEarnings(stats)
         if (rating) setDriverRating(rating.average.toFixed(2))
         setSosAlerts(alerts)
         setLostItems(lost)
         setLocalDelivery(deliveryJob ?? loadDeliveryJob())
       })
-    }, 1500)
-    return () => window.clearInterval(poll)
+    }
+    refreshDesk()
+    const poll = window.setInterval(refreshDesk, 20000)
+    return () => {
+      unsubscribe()
+      window.clearInterval(poll)
+    }
   }, [driverId, online, deliveryJob])
 
   const respond = (action: 'accept' | 'reject') => {
@@ -5966,7 +6031,13 @@ function DriverDashboard({
           </div>
           <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${online ? 'bg-[#D1FAE5] text-[#047857]' : 'bg-white/10 text-[#CBD5E1]'}`}>{online ? '영업 중' : '영업 종료'}</span>
         </div>
-        <button onClick={onToggleOnline} className={`mt-5 flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-left ${online ? 'bg-[#4A82B8]' : 'bg-white/10'}`}>
+        <button
+          onClick={() => {
+            if (!online && driverId) void enableDriverPush(driverId, true).catch(() => undefined)
+            onToggleOnline()
+          }}
+          className={`mt-5 flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-left ${online ? 'bg-[#4A82B8]' : 'bg-white/10'}`}
+        >
           <span>
             <span className="block text-xs font-medium text-white/70">운행 상태</span>
             <strong className="text-base font-bold">{online ? '영업 중 (Online)' : '영업 종료 (Offline)'}</strong>
@@ -6535,6 +6606,20 @@ export default function HomeScreen() {
     setTab('기사/파트너')
     showNotice('기사 모드로 전환했어요.')
   }
+  useEffect(() => {
+    const openFromAlert = () => {
+      if (!loadIsDriverRegistered() && !loadIsPartnerRegistered()) return
+      setDriverMode(true)
+      setDriverOnline(true)
+      setTab('기사/파트너')
+    }
+    if (new URLSearchParams(window.location.search).get('driver') === '1') openFromAlert()
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'driver-offer') openFromAlert()
+    }
+    navigator.serviceWorker?.addEventListener('message', onMessage)
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage)
+  }, [])
   const leaveDriverMode = () => {
     setDriverMode(false)
     setTab('홈')
