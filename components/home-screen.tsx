@@ -75,6 +75,24 @@ const LOCAL_TEST_USER = { username: 'taxitago' }
 const PASSENGER_ID_KEY = 'taxitago-passenger-id'
 const DRIVER_ID_KEY = 'taxitago-driver-id'
 let taxiSheetRideId = ''
+const ACTIVE_TAXI_KEY = 'taxitago-active-taxi'
+
+function readStoredTaxi(): { rideId: string; trip: ActiveTrip; phase: TaxiMatchPhase } | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(ACTIVE_TAXI_KEY) || 'null') as { rideId?: string; trip?: ActiveTrip; phase?: TaxiMatchPhase } | null
+    if (!parsed?.rideId || !parsed.trip) return null
+    return { rideId: parsed.rideId, trip: parsed.trip, phase: parsed.phase || 'searching' }
+  } catch {
+    return null
+  }
+}
+
+function writeStoredTaxi(value: { rideId: string; trip: ActiveTrip; phase: TaxiMatchPhase } | null) {
+  if (typeof window === 'undefined') return
+  if (!value) window.sessionStorage.removeItem(ACTIVE_TAXI_KEY)
+  else window.sessionStorage.setItem(ACTIVE_TAXI_KEY, JSON.stringify(value))
+}
 let daeriSheetRideId = ''
 
 function readOrCreateLocalId(key: string, prefix: string) {
@@ -2021,6 +2039,9 @@ function TaxiMatchingSheet({
   onAskReview,
   onReceipt,
   onActivity,
+  initialPhase = 'searching',
+  onKeep,
+  onEnd,
 }: {
   destination: string
   pickupLat: number
@@ -2038,9 +2059,12 @@ function TaxiMatchingSheet({
   onAskReview: (target: RideReviewTarget) => void
   onReceipt: (ride: RideReceipt) => void
   onActivity?: (label: string, detail: string) => void
+  initialPhase?: TaxiMatchPhase
+  onKeep?: (phase: TaxiMatchPhase) => void
+  onEnd?: () => void
 }) {
   const IS_TEST_MODE = true
-  const [phase, setPhase] = useState<TaxiMatchPhase>('searching')
+  const [phase, setPhase] = useState<TaxiMatchPhase>(initialPhase)
   const [matched, setMatched] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
@@ -2132,7 +2156,14 @@ function TaxiMatchingSheet({
     if (taxiSheetRideId) {
       rideIdRef.current = taxiSheetRideId
       void fetchRideRequest(taxiSheetRideId).then((existing) => {
-        if (existing) attach(existing)
+        if (!existing) return
+        attach(existing)
+        if (existing.status === 'assigned' || existing.status === 'completed') {
+          lockMatched(existing)
+          if (existing.readyToSettleAt || existing.status === 'completed') setPhase('moving')
+          else if (existing.boardedAt) setPhase('boarding')
+          else setPhase('arriving')
+        }
       }).catch(() => undefined)
       return () => {
         cancelled = true
@@ -2168,6 +2199,7 @@ function TaxiMatchingSheet({
     const apply = (next: PublicRide) => {
       if (next.status === 'cancelled') {
         taxiSheetRideId = ''
+        onEnd?.()
         onClose()
         return
       }
@@ -2271,6 +2303,7 @@ function TaxiMatchingSheet({
       taxiSheetRideId = ''
       setCancelConfirmOpen(false)
       setCancelSettling(false)
+      onEnd?.()
       onClose()
     }
   }
@@ -2311,7 +2344,7 @@ function TaxiMatchingSheet({
     const rideId = ride?.id || rideIdRef.current
     if (!rideId || accepting) return
     setAccepting(true)
-    void markRideProgress(rideId, passengerIdRef.current || localPassengerId(), step)
+    void markRideProgress(rideId, ride?.passengerId || passengerIdRef.current || localPassengerId(), step, ride)
       .then((next) => {
         setRide(next)
         setPhase(step === 'boarded' ? 'boarding' : 'moving')
@@ -2344,7 +2377,18 @@ function TaxiMatchingSheet({
       openPayReceipt(`pay-${Date.now()}`, `done-${Date.now()}`)
       return
     }
-    void completeRideTrip(ride.id, driverId, ride)
+    const abort = new AbortController()
+    const timeout = window.setTimeout(() => abort.abort(), 20000)
+    void (async () => {
+      if (ride.escrow?.status !== 'held' && ride.escrow?.status !== 'released') {
+        await lockRideEscrow({
+          rideId: ride.id,
+          passengerId: ride.passengerId,
+          sandbox: true,
+        }).catch(() => undefined)
+      }
+      return completeRideTrip(ride.id, driverId, ride, { signal: abort.signal })
+    })()
       .then((result) => {
         if (result.ride) setRide(result.ride)
         finishedRef.current = true
@@ -2353,10 +2397,16 @@ function TaxiMatchingSheet({
         openPayReceipt(paymentId, txid)
       })
       .catch((error) => {
-        onNotice(error instanceof Error ? error.message : '정산에 실패했어요. 다시 한 번만 눌러 주세요.')
+        const timedOut = error instanceof Error && error.name === 'AbortError'
+        onNotice(timedOut ? '정산 응답이 지연되고 있어요. 다시 눌러 주세요.' : error instanceof Error ? error.message : '정산에 실패했어요. 다시 한 번만 눌러 주세요.')
         releasePayLock()
       })
+      .finally(() => window.clearTimeout(timeout))
   }
+
+  useEffect(() => {
+    if (ride?.id) onKeep?.(phase)
+  }, [ride?.id, phase])
 
   const openCompletedReceipt = () => {
     if (!ride || settledRef.current) return
@@ -6703,6 +6753,7 @@ export default function HomeScreen() {
   const [destination, setDestination] = useState('')
   const [destPlace, setDestPlace] = useState<RidePlace | null>(null)
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null)
+  const [taxiPhase, setTaxiPhase] = useState<TaxiMatchPhase>('searching')
   const [selectedService, setSelectedService] = useState<string | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const [daeriSetupOpen, setDaeriSetupOpen] = useState(false)
@@ -6927,8 +6978,30 @@ export default function HomeScreen() {
       setRecentUse(next)
     }
   }
+  useEffect(() => {
+    const stored = readStoredTaxi()
+    if (!stored) return
+    taxiSheetRideId = stored.rideId
+    setActiveTrip(stored.trip)
+    setTaxiPhase(stored.phase)
+    setSelectedService('택시')
+  }, [])
+  const rememberTaxi = (phase: TaxiMatchPhase) => {
+    if (!activeTrip || !taxiSheetRideId) return
+    setTaxiPhase((current) => (current === phase ? current : phase))
+    writeStoredTaxi({ rideId: taxiSheetRideId, trip: activeTrip, phase })
+  }
+  const endTaxi = () => {
+    taxiSheetRideId = ''
+    writeStoredTaxi(null)
+    setActiveTrip(null)
+    setTaxiPhase('searching')
+    setSelectedService(null)
+    setTab('홈')
+  }
   const resetToHomeAfterReceipt = () => {
     taxiSheetRideId = ''
+    writeStoredTaxi(null)
     daeriSheetRideId = ''
     setPaymentDone(null)
     setReceiptRide(null)
@@ -7037,7 +7110,12 @@ export default function HomeScreen() {
       origin: { lat: origin.lat, lng: origin.lng, address: origin.address },
       dest: { lat: place.lat, lng: place.lng, address: place.address, label: place.label },
     })
-    taxiSheetRideId = ''
+    if (taxiSheetRideId && activeTrip) {
+      setSelectedService('택시')
+      setTab('홈')
+      showNotice('진행 중인 택시 호출로 돌아갑니다.')
+      return
+    }
     setPaymentDone(null)
     setReceiptRide(null)
     setRideReview(null)
@@ -7323,6 +7401,12 @@ export default function HomeScreen() {
             }}
           />
         ) : null}
+        {activeTrip && selectedService !== '택시' && tab === '홈' ? (
+          <button type="button" onClick={() => setSelectedService('택시')} className="fixed bottom-24 left-1/2 z-40 w-[min(100%-2rem,24rem)] -translate-x-1/2 rounded-2xl bg-[#0F172A] px-4 py-3 text-left text-white shadow-lg">
+            <p className="text-[11px] font-bold text-[#93C5FD]">진행 중인 택시</p>
+            <p className="mt-1 text-sm font-black">{activeTrip.originAddress} → {activeTrip.destLabel}</p>
+          </button>
+        ) : null}
         {selectedService === '택시' && activeTrip ? (
           <div className={tab === '기사/파트너' ? 'hidden' : undefined}>
             <TaxiMatchingSheet
@@ -7333,10 +7417,11 @@ export default function HomeScreen() {
             destLng={activeTrip.destLng}
             destAddress={activeTrip.destAddress}
             pickupAddress={activeTrip.originAddress}
+            initialPhase={taxiPhase}
+            onKeep={rememberTaxi}
+            onEnd={endTaxi}
             onClose={() => {
-              taxiSheetRideId = ''
               setSelectedService(null)
-              setActiveTrip(null)
               setTab('홈')
             }}
             onNotice={showNotice}

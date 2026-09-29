@@ -290,10 +290,45 @@ export function cancelRide(rideId: string, passengerId?: string) {
   return cancelled
 }
 
-export function markRideProgress(rideId: string, passengerId: string, step: 'boarded' | 'arrived') {
+export function markRideProgress(
+  rideId: string,
+  passengerId: string,
+  step: 'boarded' | 'arrived',
+  snapshot?: {
+    pickup?: RideRequestRecord['pickup']
+    dest?: RideRequestRecord['dest']
+    estimatedFare?: number
+    kind?: RideRequestRecord['kind']
+    boardedAt?: string | null
+    driverId?: string | null
+  },
+) {
   syncDispatchFromDisk()
-  const ride = getRide(rideId)
+  let ride = getRide(rideId)
+  if (!ride && snapshot?.pickup && snapshot.dest) {
+    const createdAt = nowIso()
+    ride = saveRide({
+      id: rideId,
+      kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
+      passengerId,
+      pickup: snapshot.pickup,
+      dest: snapshot.dest,
+      estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
+      status: 'assigned',
+      assignedDriverId: snapshot.driverId || null,
+      currentOffer: null,
+      declinedDriverIds: [],
+      timedOutDriverIds: [],
+      boardedAt: snapshot.boardedAt || (step === 'arrived' ? createdAt : null),
+      createdAt,
+      updatedAt: createdAt,
+    })
+  }
   if (!ride) return { ok: false as const, error: 'not_found', ride: null }
+  if ((ride.status === 'searching' || ride.status === 'offered') && snapshot?.driverId) {
+    ride.assignedDriverId = snapshot.driverId
+    ride.status = 'assigned'
+  }
   if (ride.passengerId !== passengerId) return { ok: false as const, error: 'forbidden', ride }
   if (ride.status !== 'assigned') return { ok: false as const, error: ride.status, ride }
   if (step === 'boarded') {

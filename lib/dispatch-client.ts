@@ -262,14 +262,37 @@ export async function lockRideEscrow(input: {
   return data.ride
 }
 
-export async function markRideProgress(rideId: string, passengerId: string, step: 'boarded' | 'arrived') {
+export async function markRideProgress(
+  rideId: string,
+  passengerId: string,
+  step: 'boarded' | 'arrived',
+  ride?: PublicRide | null,
+) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/progress/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ passengerId, step }),
+    body: JSON.stringify({
+      passengerId,
+      step,
+      ride: ride
+        ? {
+            passengerId: ride.passengerId,
+            pickup: ride.pickup,
+            dest: ride.dest,
+            estimatedFare: ride.estimatedFare,
+            kind: ride.kind,
+            boardedAt: ride.boardedAt,
+            readyToSettleAt: ride.readyToSettleAt,
+            driverId: ride.assignedDriver?.id,
+          }
+        : undefined,
+    }),
   })
-  const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
-  if (!res.ok || !data.ride) throw new Error(data.error || '운행 상태를 저장하지 못했어요.')
+  const data = await readJson<{ ride?: PublicRide; error?: string }>(res).catch(() => null)
+  if (!res.ok || !data?.ride) {
+    const error = data?.error === 'not_found' ? '운행 정보를 찾지 못했어요. 호출 화면을 연 뒤 다시 눌러 주세요.' : data?.error
+    throw new Error(error || '운행 상태를 저장하지 못했어요.')
+  }
   return data.ride
 }
 
@@ -288,11 +311,13 @@ export async function completeRideTrip(
   rideId: string,
   driverId: string,
   ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind' | 'boardedAt' | 'readyToSettleAt' | 'escrow'>,
+  init?: { signal?: AbortSignal },
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/complete/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ driverId, ride }),
+    signal: init?.signal,
   })
   const data = await readJson<{ ride?: PublicRide; receipt?: SettlementReceipt; error?: string }>(res).catch(() => null)
   if (!res.ok || !data?.ride) throw new Error(data?.error || '이용 완료 처리에 실패했어요.')
