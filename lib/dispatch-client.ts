@@ -300,14 +300,14 @@ export async function completeRideTrip(
 }
 
 export async function fetchDriverActiveRide(driverId: string) {
-  const res = await apiFetch(`/api/drivers/active?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/drivers/active/?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
   const data = await readJson<{ ride?: PublicRide | null }>(res)
   if (!res.ok) return null
   return data.ride ?? null
 }
 
 export async function fetchDriverEarnings(driverId: string) {
-  const res = await apiFetch(`/api/drivers/earnings?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+  const res = await apiFetch(`/api/drivers/earnings/?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
   const data = await readJson<{ stats?: DriverEarningsStats; error?: string }>(res)
   if (!res.ok || !data.stats) return null
   return data.stats

@@ -119,6 +119,14 @@ const nextConfig = {
           source: '/api/deliveries/:id/accept',
           destination: '/api/deliveries/:id/accept/',
         },
+        {
+          source: '/api/drivers/active',
+          destination: '/api/drivers/active/',
+        },
+        {
+          source: '/api/drivers/earnings',
+          destination: '/api/drivers/earnings/',
+        },
       ],
     }
   },
