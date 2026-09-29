@@ -147,6 +147,22 @@ export async function sendDriverPresence(input: {
   })
 }
 
+export async function updateDriverProfile(input: { driverId: string; name?: string; vehicle?: string; plate?: string }) {
+  const driverId = input.driverId.trim()
+  if (!driverId) return null
+  try {
+    const res = await apiFetch('/api/drivers/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    const data = await readJson<{ driver?: unknown }>(res).catch(() => null)
+    return res.ok ? (data?.driver ?? null) : null
+  } catch {
+    return null
+  }
+}
+
 export type PushedDriverOffer = {
   rideId?: string
   expiresAt?: string

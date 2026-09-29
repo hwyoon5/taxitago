@@ -5,8 +5,10 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { BadgeCheck, Briefcase, Car, CircleUserRound, Copy, Gift, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
 import PartnerStatSheet from '@/components/partner-stat-sheet'
+import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { copyInviteCode, getOrCreateInviteCode, inviteShareLink } from '@/lib/invite-code'
+import { loadPartnerProfile, type PartnerProfile } from '@/lib/partner-account'
 
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
@@ -99,6 +101,8 @@ export default function MyPage({
   const [inviteCode, setInviteCode] = useState('')
   const [copied, setCopied] = useState(false)
   const [inviteLaunchOpen, setInviteLaunchOpen] = useState(false)
+  const [partnerProfile, setPartnerProfile] = useState<PartnerProfile | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -110,6 +114,7 @@ export default function MyPage({
     setLocalPi(readFlag(PI_ACCOUNT_KEY) || true)
     setLocalBalance(DEFAULT_BALANCE)
     setInviteCode(getOrCreateInviteCode(username))
+    setPartnerProfile(loadPartnerProfile())
   }, [username])
 
   const notify = (message: string) => {
@@ -364,6 +369,15 @@ export default function MyPage({
                     {modeOn ? '승객 모드' : '기사 모드'}
                   </button>
                 </div>
+                {driverOk && partnerProfile ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditOpen(true)}
+                    className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] py-3 text-xs font-black text-[#4A82B8]"
+                  >
+                    차량 정보 수정
+                  </button>
+                ) : null}
               </article>
 
               <article className="rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4">
@@ -389,6 +403,15 @@ export default function MyPage({
                       운행 관리
                     </button>
                   </div>
+                ) : null}
+                {partnerOk && partnerProfile ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditOpen(true)}
+                    className="mt-2 w-full rounded-2xl border-2 border-[#FED7AA] bg-[#FFF7ED] py-3 text-xs font-black text-[#C2410C]"
+                  >
+                    파트너 정보 수정
+                  </button>
                 ) : null}
               </article>
             </div>
@@ -420,6 +443,14 @@ export default function MyPage({
       ) : null}
       {statSheet ? <PartnerStatSheet kind={statSheet} onClose={() => setStatSheet(null)} /> : null}
       {inviteLaunchOpen ? <InviteLaunchModal onClose={() => setInviteLaunchOpen(false)} /> : null}
+      {editOpen && partnerProfile ? (
+        <PartnerProfileEditModal
+          profile={partnerProfile}
+          onClose={() => setEditOpen(false)}
+          onSaved={(next) => setPartnerProfile(next)}
+          onDone={notify}
+        />
+      ) : null}
       {mounted && walletSheet
         ? createPortal(
             <div className="fixed inset-0 z-[120] flex items-end justify-center bg-[#1e1033]/45 p-0 sm:items-center sm:p-4" onClick={() => setWalletSheet(false)}>
@@ -478,6 +509,18 @@ export default function MyPage({
                 >
                   지갑 관리 열기
                 </button>
+                {partnerProfile ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileSheet(false)
+                      setEditOpen(true)
+                    }}
+                    className="mt-2 w-full rounded-2xl border-2 border-[#4C1FB8] py-3.5 text-sm font-black text-[#4C1FB8]"
+                  >
+                    파트너 정보 수정
+                  </button>
+                ) : null}
                 <button type="button" onClick={() => setProfileSheet(false)} className="mt-2 w-full py-2 text-sm font-black text-[#64748B]">
                   닫기
                 </button>

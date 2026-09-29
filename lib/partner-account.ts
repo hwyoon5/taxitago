@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/app-origin'
+import { updateDriverProfile } from '@/lib/dispatch-client'
 
 export type PiIdentity = {
   uid: string
@@ -146,10 +147,50 @@ export async function syncPartnerLink(profile: PartnerProfile) {
         wallet: profile.wallet,
         role: profile.role,
         name: profile.name,
+        phone: profile.phone,
+        detail: profile.detail,
+        vehicle: profile.vehicle,
+        plate: profile.plate,
+        region: profile.region,
+        serviceType: profile.serviceType,
         linkedAt: profile.linkedAt,
       }),
     })
   } catch {
     /* local profile remains the source of truth when the API is unreachable */
   }
+}
+
+export type PartnerProfilePatch = {
+  name: string
+  phone: string
+  region: string
+  detail: string
+  vehicle?: string
+  plate?: string
+}
+
+/**
+ * 최초 등록 이후 기사/파트너 정보 수정. 로컬 프로필을 갱신하고,
+ * 파트너 연동 DB와 배차용 기사 레코드(차량명/차량번호)에도 반영한다.
+ */
+export async function updatePartnerProfile(patch: PartnerProfilePatch): Promise<PartnerProfile | null> {
+  const current = loadPartnerProfile()
+  if (!current?.uid) return null
+  const next: PartnerProfile = {
+    ...current,
+    name: patch.name.trim() || current.name,
+    phone: patch.phone.trim(),
+    region: patch.region.trim() || current.region,
+    detail: patch.detail.trim(),
+    vehicle: patch.vehicle?.trim() ?? current.vehicle,
+    plate: patch.plate?.trim() ?? current.plate,
+  }
+  savePartnerProfile(next)
+  const fleet = partnerVehicle(next)
+  await Promise.all([
+    syncPartnerLink(next),
+    updateDriverProfile({ driverId: next.uid, name: next.name, vehicle: fleet.vehicle, plate: fleet.plate }),
+  ])
+  return next
 }

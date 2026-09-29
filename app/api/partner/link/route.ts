@@ -11,6 +11,12 @@ export async function POST(request: Request) {
     wallet?: unknown
     role?: unknown
     name?: unknown
+    phone?: unknown
+    detail?: unknown
+    vehicle?: unknown
+    plate?: unknown
+    region?: unknown
+    serviceType?: unknown
     linkedAt?: unknown
   } | null
   const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
@@ -19,13 +25,21 @@ export async function POST(request: Request) {
   if (!uid || !wallet) {
     return NextResponse.json({ error: 'uid and wallet required' }, { status: 400 })
   }
+  const previous = getPartnerLink(uid)
+  const text = (value: unknown, fallback?: string) => (typeof value === 'string' ? value.trim() : fallback)
   const record = upsertPartnerLink({
     uid,
     username: username || uid,
     wallet,
-    role: typeof body?.role === 'string' ? body.role : undefined,
-    name: typeof body?.name === 'string' ? body.name : undefined,
-    linkedAt: typeof body?.linkedAt === 'string' ? body.linkedAt : new Date().toISOString(),
+    role: text(body?.role, previous?.role),
+    name: text(body?.name, previous?.name),
+    phone: text(body?.phone, previous?.phone),
+    detail: text(body?.detail, previous?.detail),
+    vehicle: text(body?.vehicle, previous?.vehicle),
+    plate: text(body?.plate, previous?.plate),
+    region: text(body?.region, previous?.region),
+    serviceType: text(body?.serviceType, previous?.serviceType),
+    linkedAt: typeof body?.linkedAt === 'string' ? body.linkedAt : previous?.linkedAt || new Date().toISOString(),
   })
   return NextResponse.json({ ok: true, profile: record })
 }

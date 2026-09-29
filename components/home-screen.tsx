@@ -61,6 +61,7 @@ import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
+import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
 import RideChat from '@/components/ride-chat'
@@ -6099,6 +6100,7 @@ function DriverDashboard({
   const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([])
   const [lostItems, setLostItems] = useState<LostItem[]>([])
   const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
+  const [profileEditOpen, setProfileEditOpen] = useState(false)
   const [driverId, setDriverId] = useState('')
   const localOfferRef = useRef<{ ride: PublicRide; expiresAt: number; km: number | null } | null>(null)
   const offerLogRef = useRef('')
@@ -6683,15 +6685,27 @@ function DriverDashboard({
             <p className="text-[10px] font-bold leading-none text-[#4A82B8]">계정 설정</p>
             <h3 className="mt-0.5 text-sm font-bold leading-tight text-[#0F172A]">기사/파트너 권한</h3>
           </div>
-          <button
-            type="button"
-            onClick={() => setWithdrawOpen(true)}
-            className="shrink-0 rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-2.5 py-1.5 text-xs font-bold text-[#B91C1C] transition hover:bg-[#FEE2E2] active:scale-[0.99]"
-          >
-            회원탈퇴
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                if (partner) setProfileEditOpen(true)
+                else onNotice('먼저 기사/파트너 등록을 완료해 주세요.')
+              }}
+              className="rounded-lg border border-[#BFDBFE] bg-[#E8F1FA] px-2.5 py-1.5 text-xs font-bold text-[#4A82B8] transition hover:bg-[#DCEBF8] active:scale-[0.99]"
+            >
+              정보 수정
+            </button>
+            <button
+              type="button"
+              onClick={() => setWithdrawOpen(true)}
+              className="rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-2.5 py-1.5 text-xs font-bold text-[#B91C1C] transition hover:bg-[#FEE2E2] active:scale-[0.99]"
+            >
+              회원탈퇴
+            </button>
+          </div>
         </div>
-        <p className="mt-1 text-[11px] font-medium leading-4 text-[#64748B]">탈퇴하면 콜 수락과 대시보드를 쓸 수 없고, 다시 쓰려면 회원가입이 필요해요.</p>
+        <p className="mt-1 text-[11px] font-medium leading-4 text-[#64748B]">차량명·차량번호·연락처를 수정하면 승객 매칭 화면에도 바로 반영돼요. 탈퇴하면 콜 수락과 대시보드를 쓸 수 없습니다.</p>
       </section>
       {withdrawOpen ? (
         <WithdrawConfirmModal
@@ -6708,6 +6722,14 @@ function DriverDashboard({
         />
       ) : null}
       {statSheet ? <EarningsStatSheet kind={statSheet} stats={earnings} onClose={() => setStatSheet(null)} /> : null}
+      {profileEditOpen && partner ? (
+        <PartnerProfileEditModal
+          profile={partner}
+          onClose={() => setProfileEditOpen(false)}
+          onSaved={(next) => setPartner(next)}
+          onDone={onNotice}
+        />
+      ) : null}
       {callOpen && activeRide ? (
         <RideSafeCall
           rideId={activeRide.id}

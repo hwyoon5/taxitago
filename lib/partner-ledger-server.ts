@@ -4,6 +4,12 @@ export type PartnerLinkRecord = {
   wallet: string
   role?: string
   name?: string
+  phone?: string
+  detail?: string
+  vehicle?: string
+  plate?: string
+  region?: string
+  serviceType?: string
   linkedAt: string
   updatedAt: string
 }
