@@ -40,10 +40,9 @@ export async function apiFetch(path: string, init?: RequestInit) {
       const response = await fetch(url, { cache: 'no-store', ...init })
       lastResponse = response
       const type = (response.headers.get('content-type') || '').toLowerCase()
-      const jsonLike = type.includes('json') || type.includes('event-stream') || type.includes('text/plain')
-      if (response.ok && !jsonLike) continue
-      if (response.ok) return response
-      if (response.status === 404 || response.status === 301 || response.status === 302 || response.status === 307 || response.status === 308) {
+      const jsonLike = type.includes('json') || type.includes('event-stream')
+      if (jsonLike) return response
+      if (response.status === 404 || response.status === 301 || response.status === 302 || response.status === 307 || response.status === 308 || response.ok) {
         continue
       }
       return response

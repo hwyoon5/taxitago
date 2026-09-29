@@ -75,6 +75,10 @@ const nextConfig = {
           source: '/api/geocode',
           destination: '/api/geocode/',
         },
+        {
+          source: '/api/rides/:id/cancel',
+          destination: '/api/rides/:id/cancel/',
+        },
       ],
     }
   },

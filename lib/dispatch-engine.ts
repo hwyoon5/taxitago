@@ -257,6 +257,7 @@ export function createRideAndMatch(input: {
 }
 
 export function cancelRide(rideId: string, passengerId?: string) {
+  syncDispatchFromDisk()
   const ride = getRide(rideId)
   if (!ride) return null
   if (passengerId && ride.passengerId !== passengerId) return ride

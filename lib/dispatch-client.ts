@@ -116,13 +116,14 @@ export function subscribeRideLive(rideId: string, onRide: (ride: PublicRide) => 
 }
 
 export async function cancelRideRequest(rideId: string, passengerId: string, options?: { settleFee?: boolean }) {
-  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/cancel`, {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/cancel/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ passengerId, settleFee: options?.settleFee === true }),
   })
-  const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
-  if (!res.ok || !data.ride) throw new Error(data.error || '이용 취소를 완료하지 못했어요.')
+  const data = await readJson<{ ride?: PublicRide | null; error?: string; missing?: boolean }>(res).catch(() => null)
+  if (res.status === 404 || data?.missing) return null
+  if (!res.ok || !data?.ride) throw new Error(data?.error || '이용 취소를 완료하지 못했어요.')
   return data.ride
 }
 

@@ -2211,26 +2211,30 @@ function TaxiMatchingSheet({
   }
 
   const confirmInTripCancel = async () => {
-    if (cancelSettling) return
+    if (cancelSettling || payingRef.current) return
+    payingRef.current = true
     const rideId = ride?.id || rideIdRef.current
     if (!rideId) {
+      taxiSheetRideId = ''
+      setCancelConfirmOpen(false)
       onClose()
       return
     }
     setCancelSettling(true)
     try {
       await cancelRideRequest(rideId, passengerIdRef.current, { settleFee: true })
-      taxiSheetRideId = ''
-      setCancelConfirmOpen(false)
       onActivity?.('이용 취소', `취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi · 미청구 ${cancelSettlement.waived.toFixed(2)} Pi`)
       onNotice(
         `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
       )
-      onClose()
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : '취소 정산을 마치지 못했어요. 다시 시도해 주세요.')
+      console.error('[cancel] passenger taxi', error)
+      onNotice(error instanceof Error ? error.message : '취소 처리 중 문제가 생겼지만 홈으로 돌아갑니다.')
     } finally {
+      taxiSheetRideId = ''
+      setCancelConfirmOpen(false)
       setCancelSettling(false)
+      onClose()
     }
   }
 
@@ -2692,6 +2696,7 @@ function ServiceSheet({
   const [rideStage, setRideStage] = useState<'arriving' | 'moving'>('arriving')
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
+  const cancelLockRef = useRef(false)
   const [preparingOpen, setPreparingOpen] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
@@ -2901,26 +2906,30 @@ function ServiceSheet({
     onNotice(selfServe ? `${service} 이용이 시작되었습니다.` : `${service} 배정이 완료되었습니다.`)
   }
   const confirmInTripCancel = async () => {
-    if (cancelSettling) return
+    if (cancelSettling || cancelLockRef.current) return
+    cancelLockRef.current = true
     const rideId = dispatchRide?.id || daeriRideIdRef.current
     if (!rideId) {
+      daeriSheetRideId = ''
+      setCancelConfirmOpen(false)
       onClose()
       return
     }
     setCancelSettling(true)
     try {
       await cancelRideRequest(rideId, daeriPassengerIdRef.current || localPassengerId(), { settleFee: true })
-      daeriSheetRideId = ''
-      setCancelConfirmOpen(false)
       onActivity?.('이용 취소', `${service} · 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi`)
       onNotice(
         `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
       )
-      onClose()
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : '취소 정산을 마치지 못했어요. 다시 시도해 주세요.')
+      console.error('[cancel] passenger service', error)
+      onNotice(error instanceof Error ? error.message : '취소 처리 중 문제가 생겼지만 홈으로 돌아갑니다.')
     } finally {
+      daeriSheetRideId = ''
+      setCancelConfirmOpen(false)
       setCancelSettling(false)
+      onClose()
     }
   }
   return (
@@ -6978,6 +6987,7 @@ export default function HomeScreen() {
               taxiSheetRideId = ''
               setSelectedService(null)
               setActiveTrip(null)
+              setTab('홈')
             }}
             onNotice={showNotice}
             balance={walletBalance}
@@ -7002,6 +7012,7 @@ export default function HomeScreen() {
             onClose={() => {
               setSelectedService(null)
               setDaeriTrip(null)
+              setTab('홈')
             }}
             onNotice={showNotice}
             balance={walletBalance}
