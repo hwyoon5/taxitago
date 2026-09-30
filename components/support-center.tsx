@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import {
   createTicket,
   fetchLostInbox,
+  fetchLostItem,
   fetchLostRides,
   fetchTicket,
   fetchTickets,
@@ -455,6 +456,23 @@ function LostThread({
   onUpdate: (item: LostItem) => void
 }) {
   const [draft, setDraft] = useState('')
+  useEffect(() => {
+    const pull = () => {
+      void fetchLostItem(item.id).then(onUpdate).catch(() => undefined)
+    }
+    pull()
+    const timer = window.setInterval(pull, 3000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') pull()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', pull)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', pull)
+    }
+  }, [item.id, onUpdate])
   return (
     <div className="fixed inset-0 z-[105] flex items-end bg-[#1e1033]/50 sm:items-center sm:p-4">
       <section className="mx-auto flex max-h-[90vh] w-full max-w-md flex-col rounded-t-[32px] bg-white p-5 sm:rounded-[32px]">
