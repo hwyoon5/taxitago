@@ -4503,18 +4503,22 @@ function receiptFromRideHistory(ride: PublicRide): RideReceipt {
 
 type InboxIdentity = { id: string; role: 'passenger' | 'driver' }
 
+const PAYMENT_ACTIVITY_LABELS = new Set(['결제 완료', '취소 수수료 결제', 'Pi 충전 완료', 'Pi 환불'])
+
 function ActivityInbox({
   tabRides,
   readNoticeIds,
   onOpenInbox,
   identities,
   activities,
+  transactions,
 }: {
   tabRides: (ride: RideReceipt) => void
   readNoticeIds: string[]
   onOpenInbox: (item: Notice) => void
   identities: InboxIdentity[]
   activities: ActivityEntry[]
+  transactions: PiTransaction[]
 }) {
   const [view, setView] = useState<'rides' | 'inbox'>('rides')
   const [history, setHistory] = useState<PublicRide[]>([])
@@ -4561,6 +4565,12 @@ function ActivityInbox({
 
   const kindClass = (kind: Notice['kind']) =>
     kind === '이벤트' ? 'bg-[#FEF3C7] text-[#B45309]' : kind === '업데이트' ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-[#EDE5FF] text-[#4C1FB8]'
+  const localEntries = [
+    ...transactions.map((tx, index) => ({ id: `tx-${index}`, label: tx.label, detail: tx.detail || tx.place, amount: tx.amount, at: tx.at })),
+    ...activities
+      .filter((entry) => !PAYMENT_ACTIVITY_LABELS.has(entry.label))
+      .map((entry) => ({ id: entry.id, label: entry.label, detail: entry.detail, amount: null as number | null, at: entry.at })),
+  ]
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 pb-8 [-webkit-overflow-scrolling:touch]">
@@ -4608,7 +4618,25 @@ function ActivityInbox({
               </button>
             )
           })}
-          {historyReady && !history.length ? (
+          {localEntries.length ? (
+            <div className="mt-3 space-y-2">
+              {localEntries.slice(0, 30).map((entry) => (
+                <div key={entry.id} className="rounded-2xl border-2 border-[#E2E8F0] bg-white px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-black text-[#0F172A]">{entry.label}</p>
+                    {entry.amount != null ? (
+                      <span className={`shrink-0 text-sm font-black tabular-nums ${entry.amount < 0 ? 'text-[#0F172A]' : 'text-[#047857]'}`}>{entry.amount > 0 ? '+' : ''}{entry.amount.toFixed(2)} Pi</span>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-xs font-bold text-[#64748B]">{entry.detail}</p>
+                    <span className="shrink-0 text-[11px] font-bold text-[#8b8495]">{entry.at}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {historyReady && !history.length && !localEntries.length ? (
             <p className="mt-3 rounded-3xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">아직 이용 내역이 없습니다.</p>
           ) : null}
         </>
@@ -4671,6 +4699,7 @@ function TabContent({
   onNotice,
   inboxIdentities,
   activities,
+  transactions,
 }: {
   tab: string
   destination: string
@@ -4692,6 +4721,7 @@ function TabContent({
   onOpenPartnerSignup: () => void
   inboxIdentities: InboxIdentity[]
   activities: ActivityEntry[]
+  transactions: PiTransaction[]
 }) {
   const { t } = useLocale()
   const [preparingOpen, setPreparingOpen] = useState(false)
@@ -4730,7 +4760,7 @@ function TabContent({
     )
   }
   if (tab === '이용/알림') {
-    return <ActivityInbox tabRides={onReceipt} readNoticeIds={readNoticeIds} onOpenInbox={onOpenInbox} identities={inboxIdentities} activities={activities} />
+    return <ActivityInbox tabRides={onReceipt} readNoticeIds={readNoticeIds} onOpenInbox={onOpenInbox} identities={inboxIdentities} activities={activities} transactions={transactions} />
   }
   return (
     <div className="h-full min-h-0">
@@ -7387,7 +7417,7 @@ export default function HomeScreen() {
             <div className="mx-auto flex h-[min(92dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[30px] bg-[#f7f7fb] pt-3" onClick={(event) => event.stopPropagation()}>
               <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} />
+                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} transactions={transactions} />
               </div>
             </div>
           </div>
