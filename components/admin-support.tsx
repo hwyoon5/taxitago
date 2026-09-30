@@ -23,6 +23,58 @@ import {
 const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'in_progress', 'waiting', 'resolved', 'closed']
 
+const SELECTION_KEY = 'taxitago.admin.selection'
+const DRAFT_PREFIX = 'taxitago.admin.draft.'
+
+function loadDraft(kind: 'ticket' | 'lost', id: string) {
+  try {
+    return window.sessionStorage.getItem(`${DRAFT_PREFIX}${kind}:${id}`)
+  } catch {
+    return null
+  }
+}
+
+function saveDraft(kind: 'ticket' | 'lost', id: string, text: string) {
+  try {
+    if (text) window.sessionStorage.setItem(`${DRAFT_PREFIX}${kind}:${id}`, text)
+    else window.sessionStorage.removeItem(`${DRAFT_PREFIX}${kind}:${id}`)
+  } catch {
+    undefined
+  }
+}
+
+function loadSelection(): { kind: 'ticket' | 'lost'; id: string } | null {
+  try {
+    const raw = window.sessionStorage.getItem(SELECTION_KEY)
+    const parsed = raw ? (JSON.parse(raw) as { kind?: string; id?: string }) : null
+    if ((parsed?.kind === 'ticket' || parsed?.kind === 'lost') && typeof parsed.id === 'string') {
+      return { kind: parsed.kind, id: parsed.id }
+    }
+  } catch {
+    undefined
+  }
+  return null
+}
+
+function saveSelection(kind: 'ticket' | 'lost', id: string) {
+  try {
+    window.sessionStorage.setItem(SELECTION_KEY, JSON.stringify({ kind, id }))
+  } catch {
+    undefined
+  }
+}
+
+function clearAdminWork() {
+  try {
+    for (let i = window.sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = window.sessionStorage.key(i)
+      if (key && (key === SELECTION_KEY || key.startsWith(DRAFT_PREFIX))) window.sessionStorage.removeItem(key)
+    }
+  } catch {
+    undefined
+  }
+}
+
 export default function AdminSupportDesk() {
   const [tickets, setTickets] = useState<SupportTicket[]>([])
   const [lost, setLost] = useState<LostItem[]>([])
@@ -65,6 +117,14 @@ export default function AdminSupportDesk() {
         const current = new Set([...nextTickets.map((row) => `t:${row.id}`), ...nextLost.map((row) => `l:${row.id}`)])
         if (seenRef.current === null) {
           seenRef.current = current
+          const saved = loadSelection()
+          if (saved?.kind === 'ticket') {
+            const found = nextTickets.find((row) => row.id === saved.id)
+            if (found) openTicket(found)
+          } else if (saved?.kind === 'lost') {
+            const found = nextLost.find((row) => row.id === saved.id)
+            if (found) openLost(found)
+          }
           return
         }
         const arrived = [...current].filter((id) => !seenRef.current!.has(id))
@@ -102,18 +162,26 @@ export default function AdminSupportDesk() {
   const openTicket = (next: SupportTicket) => {
     setKind('ticket')
     setSelectedId(next.id)
+    saveSelection('ticket', next.id)
     setFreshIds((prev) => prev.filter((id) => id !== `t:${next.id}`))
     const reply = next.messages.filter((message) => message.fromRole === 'admin').at(-1)
-    setDraft(reply?.text || '')
-    setEditing(Boolean(reply))
+    const stored = loadDraft('ticket', next.id)
+    setDraft(stored ?? reply?.text ?? '')
+    setEditing(stored == null ? Boolean(reply) : stored === (reply?.text ?? ''))
   }
   const openLost = (next: LostItem) => {
     setKind('lost')
     setSelectedId(next.id)
+    saveSelection('lost', next.id)
     setFreshIds((prev) => prev.filter((id) => id !== `l:${next.id}`))
     const reply = [...next.messages].reverse().find((message) => message.fromRole === 'admin')
-    setDraft(reply?.text || '')
+    const stored = loadDraft('lost', next.id)
+    setDraft(stored ?? reply?.text ?? '')
     setEditing(false)
+  }
+  const updateDraft = (value: string) => {
+    setDraft(value)
+    if (selectedId) saveDraft(kind, selectedId, value)
   }
   const tell = (message: string) => {
     setNotice(message)
@@ -163,6 +231,7 @@ export default function AdminSupportDesk() {
     void request
       .then((next) => {
         setTickets((rows) => rows.map((row) => (row.id === next.id ? next : row)))
+        saveDraft('ticket', next.id, text)
         tell(editing && latestAdmin ? '답변을 수정했습니다.' : '답변을 등록했습니다.')
       })
       .catch((error) => guard(error, '답변을 저장하지 못했어요.'))
@@ -176,7 +245,7 @@ export default function AdminSupportDesk() {
     void sendLostMessage(item.id, ADMIN_ID, 'admin', text)
       .then((next) => {
         setLost((rows) => rows.map((row) => (row.id === next.id ? next : row)))
-        setDraft('')
+        updateDraft('')
         tell('분실물 답변을 등록했습니다.')
       })
       .catch((error) => guard(error, '답변을 저장하지 못했어요.'))
@@ -250,6 +319,7 @@ export default function AdminSupportDesk() {
               type="button"
               onClick={() => {
                 setAdminKey('')
+                clearAdminWork()
                 setAuthed(false)
               }}
               className="rounded-full border-2 border-[#CBD5E1] bg-white px-3 py-2 text-xs font-black text-[#475569]"
@@ -349,9 +419,9 @@ export default function AdminSupportDesk() {
                   </div>
                 ))}
               </div>
-              <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} placeholder={latestAdmin ? '등록한 답변을 수정하거나 새 답변을 작성' : '답변을 작성하세요'} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none" />
+              <textarea value={draft} onChange={(event) => updateDraft(event.target.value)} rows={4} placeholder={latestAdmin ? '등록한 답변을 수정하거나 새 답변을 작성' : '답변을 작성하세요'} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none" />
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <button type="button" disabled={busy} onClick={() => { setEditing(false); setDraft(''); }} className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]">새 답변</button>
+                <button type="button" disabled={busy} onClick={() => { setEditing(false); updateDraft(''); }} className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]">새 답변</button>
                 <button type="button" disabled={busy} onClick={saveTicketReply} className="rounded-2xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white disabled:opacity-60">{busy ? '저장 중…' : editing && latestAdmin ? '답변 수정' : '답변 등록'}</button>
               </div>
             </div>
@@ -370,7 +440,7 @@ export default function AdminSupportDesk() {
                   </div>
                 ))}
               </div>
-              <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} placeholder="분실물 답변" className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none" />
+              <textarea value={draft} onChange={(event) => updateDraft(event.target.value)} rows={4} placeholder="분실물 답변" className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none" />
               <button type="button" disabled={busy} onClick={saveLostReply} className="mt-2 w-full rounded-2xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white disabled:opacity-60">{busy ? '저장 중…' : '답변 등록'}</button>
             </div>
           ) : null}
