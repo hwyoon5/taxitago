@@ -16,7 +16,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const role = roleOf(url.searchParams.get('role'))
   const after = url.searchParams.get('after')?.trim() || undefined
   if (!actorId || !role) return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
-  const result = listChatMessages(id, actorId, role, after)
+  const result = await listChatMessages(id, actorId, role, after)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.error === 'not_found' ? 404 : 403 })
   return NextResponse.json({ ok: true, room: result.room })
 }
@@ -28,7 +28,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const role = roleOf(body?.role)
   const text = typeof body?.text === 'string' ? body.text : ''
   if (!actorId || !role) return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
-  const result = postChatMessage({ rideId: id, actorId, role, text })
+  const result = await postChatMessage({ rideId: id, actorId, role, text })
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.error === 'archived' ? 409 : 400 })
   }

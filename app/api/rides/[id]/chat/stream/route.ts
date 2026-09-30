@@ -13,7 +13,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!actorId || !role) {
     return new Response('actorId and role required', { status: 400 })
   }
-  const access = listChatMessages(id, actorId, role)
+  const access = await listChatMessages(id, actorId, role)
   if (!access.ok) {
     return new Response(access.error, { status: access.error === 'not_found' ? 404 : 403 })
   }

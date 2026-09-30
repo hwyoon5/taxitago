@@ -138,7 +138,7 @@ export default function RideChat({
               value={draft}
               disabled={archived}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder={archived ? '종료된 채팅방입니다' : '메시지를 입력해 주세요'}
+              placeholder={archived ? '종료된 채팅방입니다' : role === 'driver' ? '승객에게 메시지' : '기사님께 메시지'}
               className="min-w-0 flex-1 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8] disabled:opacity-50"
             />
             <button type="submit" disabled={archived} className="rounded-2xl bg-[#4C1FB8] px-4 font-black text-white disabled:opacity-40">

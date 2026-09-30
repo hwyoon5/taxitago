@@ -15,7 +15,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const actorId = url.searchParams.get('actorId')?.trim() || ''
   const role = roleOf(url.searchParams.get('role'))
   if (!actorId || !role) return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
-  const result = getPublicSafeCall(id, actorId, role)
+  const result = await getPublicSafeCall(id, actorId, role)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.error === 'not_found' ? 404 : 403 })
   return NextResponse.json({ ok: true, call: result.call })
 }
@@ -29,10 +29,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!actorId || !role) return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
   const result =
     action === 'answer'
-      ? answerSafeCall(id, actorId, role)
+      ? await answerSafeCall(id, actorId, role)
       : action === 'hangup'
-        ? hangupSafeCall(id, actorId, role)
-        : startSafeCall({
+        ? await hangupSafeCall(id, actorId, role)
+        : await startSafeCall({
             rideId: id,
             actorId,
             role,

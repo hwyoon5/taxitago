@@ -283,7 +283,7 @@ export function cancelRide(rideId: string, passengerId?: string) {
     ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
   }
   refundEscrow(ride.id)
-  archiveRideComms(ride.id, 'cancelled')
+  void archiveRideComms(ride.id, 'cancelled')
   const cancelled = stamp(ride)
   if (offeredDriverId) publishDriverLive(offeredDriverId)
   if (ride.assignedDriverId) publishDriverLive(ride.assignedDriverId)
@@ -451,7 +451,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
   openEscrowForRide(ride.id)
   if (isPiSandboxEnv()) lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })
-  openRideComms(ride.id)
+  void openRideComms(ride.id)
   startLiveDriverTracking(ride.id)
   return { ok: true as const, ride }
 }
@@ -518,7 +518,7 @@ export function confirmMatchOnDevice(
   stamp(ride)
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
   openEscrowForRide(ride.id)
-  openRideComms(ride.id)
+  void openRideComms(ride.id)
   lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })
   startLiveDriverTracking(ride.id)
   return { ok: true as const, ride: getRide(ride.id) ?? ride }
@@ -590,7 +590,7 @@ export function completeAssignedRide(rideId: string, driverId: string) {
   stopLiveDriverMove(rideId)
   const driver = getDriver(driverId)
   if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
-  archiveRideComms(rideId, 'completed')
+  void archiveRideComms(rideId, 'completed')
   return ride
 }
 

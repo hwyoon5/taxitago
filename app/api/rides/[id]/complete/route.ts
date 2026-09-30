@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { completeAssignedRide, ensureRideForCompletion, getPublicRide, toPublicRide } from '@/lib/dispatch-engine'
 import { releaseEscrow, toPublicEscrow } from '@/lib/escrow-engine'
+import { archiveRideComms } from '@/lib/comms-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -64,6 +65,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       )
     }
     const finished = completeAssignedRide(id, driverId)
+    await archiveRideComms(id, 'completed').catch(() => undefined)
     const ride = getPublicRide(id) ?? (finished ? toPublicRide(finished) : null)
     if (!ride) return NextResponse.json({ error: '이용 완료 결과를 만들지 못했어요.' }, { status: 500 })
     return NextResponse.json({

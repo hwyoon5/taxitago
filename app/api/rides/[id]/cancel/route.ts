@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { cancelRide, toPublicRide } from '@/lib/dispatch-engine'
 import { settlePassengerCancelFee } from '@/lib/escrow-engine'
 import { getRide, syncDispatchFromDisk } from '@/lib/dispatch-store'
+import { archiveRideComms } from '@/lib/comms-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,6 +28,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
     const ride = cancelRide(id, passengerId)
     if (!ride) return NextResponse.json({ ok: true, missing: true, ride: null })
+    await archiveRideComms(id, 'cancelled').catch(() => undefined)
     return NextResponse.json({ ok: true, ride: toPublicRide(ride) })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'cancel settlement failed'

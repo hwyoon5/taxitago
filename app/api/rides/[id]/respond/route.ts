@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { confirmMatchOnDevice, rememberDriverVehicle, respondToOffer, restorePendingOffer, toPublicRide } from '@/lib/dispatch-engine'
+import { openRideComms } from '@/lib/comms-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -45,6 +46,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     })
     if (!result.ride) return NextResponse.json({ error: result.error }, { status: 404 })
     if (!result.ok) return NextResponse.json({ error: result.error, ride: toPublicRide(result.ride) }, { status: 409 })
+    await openRideComms(id).catch(() => null)
     return NextResponse.json({ ok: true, ride: toPublicRide(result.ride) })
   }
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
@@ -83,5 +85,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   if (!result.ride) return NextResponse.json({ error: result.error }, { status: 404 })
   if (!result.ok) return NextResponse.json({ error: result.error, ride: toPublicRide(result.ride) }, { status: 409 })
+  if (result.ride.assignedDriverId) await openRideComms(id).catch(() => null)
   return NextResponse.json({ ok: true, ride: toPublicRide(result.ride) })
 }

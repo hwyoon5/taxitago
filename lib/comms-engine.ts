@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import { getDriver, getRide, nowIso } from '@/lib/dispatch-store'
 import { getChatRoom, getSafeCall, publishRide, saveChatRoom, saveSafeCall } from '@/lib/comms-store'
-import type { ChatMessage, CommsRole, PublicChatRoom, PublicSafeCall, SafeCallSession } from '@/lib/comms-types'
+import type { ChatMessage, ChatRoom, CommsRole, PublicChatRoom, PublicSafeCall, SafeCallSession } from '@/lib/comms-types'
 
 function hashSecret(value: string) {
   return createHash('sha256').update(value).digest('hex')
@@ -15,7 +15,7 @@ function virtualNumber(seed: string, prefix: '7' | '8') {
   return `050-${prefix}${mid.slice(1)}-${last}`
 }
 
-function publicRoom(room: NonNullable<ReturnType<typeof getChatRoom>>): PublicChatRoom {
+function publicRoom(room: ChatRoom): PublicChatRoom {
   return {
     rideId: room.rideId,
     status: room.status,
@@ -25,12 +25,16 @@ function publicRoom(room: NonNullable<ReturnType<typeof getChatRoom>>): PublicCh
   }
 }
 
-export function openRideComms(rideId: string) {
+export async function openRideComms(rideId: string) {
+  const existingRoom = await getChatRoom(rideId)
+  if (existingRoom) {
+    const call = await getSafeCall(rideId)
+    return { room: existingRoom, call }
+  }
   const ride = getRide(rideId)
   if (!ride?.assignedDriverId) return null
   const createdAt = nowIso()
-  const existingRoom = getChatRoom(rideId)
-  const room = existingRoom ?? saveChatRoom({
+  const room = await saveChatRoom({
     rideId,
     passengerId: ride.passengerId,
     driverId: ride.assignedDriverId,
@@ -49,8 +53,7 @@ export function openRideComms(rideId: string) {
       },
     ],
   })
-  const existingCall = getSafeCall(rideId)
-  const call = existingCall ?? saveSafeCall({
+  const call = await saveSafeCall({
     rideId,
     status: 'idle',
     passengerVirtual: virtualNumber(rideId, '8'),
@@ -64,46 +67,51 @@ export function openRideComms(rideId: string) {
   return { room, call }
 }
 
-export function archiveRideComms(rideId: string, reason: 'completed' | 'cancelled') {
-  const room = getChatRoom(rideId)
+export async function archiveRideComms(rideId: string, reason: 'completed' | 'cancelled') {
+  const room = await getChatRoom(rideId)
   if (room && room.status === 'open') {
     room.status = 'archived'
     room.closeReason = reason
     room.closedAt = nowIso()
-    saveChatRoom(room)
+    await saveChatRoom(room)
     publishRide(rideId, { type: 'archived', reason, at: room.closedAt })
   }
-  const call = getSafeCall(rideId)
+  const call = await getSafeCall(rideId)
   if (call && call.status !== 'released') {
     call.status = 'released'
     call.endedAt = call.endedAt || nowIso()
     call.releasedAt = nowIso()
-    saveSafeCall(call)
+    await saveSafeCall(call)
   }
 }
 
-function assertMember(rideId: string, actorId: string, role: CommsRole) {
+async function assertMember(rideId: string, actorId: string, role: CommsRole) {
   const ride = getRide(rideId)
-  if (!ride) return { ok: false as const, error: 'not_found' }
-  if (role === 'passenger' && ride.passengerId !== actorId) return { ok: false as const, error: 'forbidden' }
-  if (role === 'driver' && ride.assignedDriverId !== actorId) return { ok: false as const, error: 'forbidden' }
-  return { ok: true as const, ride }
+  if (ride) {
+    if (role === 'passenger' && ride.passengerId !== actorId) return { ok: false as const, error: 'forbidden' }
+    if (role === 'driver' && ride.assignedDriverId !== actorId) return { ok: false as const, error: 'forbidden' }
+    return { ok: true as const }
+  }
+  const room = await getChatRoom(rideId)
+  if (!room) return { ok: false as const, error: 'not_found' }
+  if (role === 'passenger' && room.passengerId !== actorId) return { ok: false as const, error: 'forbidden' }
+  if (role === 'driver' && room.driverId !== actorId) return { ok: false as const, error: 'forbidden' }
+  return { ok: true as const }
 }
 
-export function listChatMessages(rideId: string, actorId: string, role: CommsRole, after?: string) {
-  const gate = assertMember(rideId, actorId, role)
+export async function listChatMessages(rideId: string, actorId: string, role: CommsRole, after?: string) {
+  const gate = await assertMember(rideId, actorId, role)
   if (!gate.ok) return gate
-  const room = getChatRoom(rideId) ?? openRideComms(rideId)?.room
+  const room = (await getChatRoom(rideId)) ?? (await openRideComms(rideId))?.room
   if (!room) return { ok: false as const, error: 'not_found' }
   const messages = after ? room.messages.filter((item) => item.at > after || item.id > after) : room.messages
   return { ok: true as const, room: { ...publicRoom(room), messages } }
 }
 
-export function postChatMessage(input: { rideId: string; actorId: string; role: CommsRole; text: string }) {
-  const gate = assertMember(input.rideId, input.actorId, input.role)
+export async function postChatMessage(input: { rideId: string; actorId: string; role: CommsRole; text: string }) {
+  const gate = await assertMember(input.rideId, input.actorId, input.role)
   if (!gate.ok) return { ok: false as const, error: gate.error, message: null as ChatMessage | null }
-  const opened = openRideComms(input.rideId)
-  const room = opened?.room ?? getChatRoom(input.rideId)
+  const room = (await getChatRoom(input.rideId)) ?? (await openRideComms(input.rideId))?.room
   if (!room) return { ok: false as const, error: 'not_found', message: null }
   if (room.status !== 'open') return { ok: false as const, error: 'archived', message: null }
   const text = input.text.trim().slice(0, 500)
@@ -117,7 +125,7 @@ export function postChatMessage(input: { rideId: string; actorId: string; role: 
     at: nowIso(),
   }
   room.messages = [...room.messages, message].slice(-200)
-  saveChatRoom(room)
+  await saveChatRoom(room)
   publishRide(input.rideId, { type: 'message', message })
 
   const driver = getDriver(room.driverId)
@@ -130,9 +138,11 @@ export function postChatMessage(input: { rideId: string; actorId: string; role: 
       text: autoReply(text),
       at: nowIso(),
     }
-    room.messages = [...room.messages, reply].slice(-200)
-    saveChatRoom(room)
+    const latest = (await getChatRoom(input.rideId)) ?? room
+    latest.messages = [...latest.messages, reply].slice(-200)
+    await saveChatRoom(latest)
     publishRide(input.rideId, { type: 'message', message: reply })
+    return { ok: true as const, message, room: publicRoom(latest) }
   }
   return { ok: true as const, message, room: publicRoom(room) }
 }
@@ -157,11 +167,10 @@ export function publicSafeCall(session: SafeCallSession, role: CommsRole): Publi
   }
 }
 
-export function startSafeCall(input: { rideId: string; actorId: string; role: CommsRole; realPhone?: string }) {
-  const gate = assertMember(input.rideId, input.actorId, input.role)
+export async function startSafeCall(input: { rideId: string; actorId: string; role: CommsRole; realPhone?: string }) {
+  const gate = await assertMember(input.rideId, input.actorId, input.role)
   if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
-  const opened = openRideComms(input.rideId)
-  const session = opened?.call ?? getSafeCall(input.rideId)
+  const session = (await getSafeCall(input.rideId)) ?? (await openRideComms(input.rideId))?.call
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   if (session.status === 'released') return { ok: false as const, error: 'released', call: publicSafeCall(session, input.role) }
   if (input.realPhone?.trim()) {
@@ -171,41 +180,41 @@ export function startSafeCall(input: { rideId: string; actorId: string; role: Co
   }
   session.status = 'ringing'
   session.startedAt = session.startedAt || nowIso()
-  saveSafeCall(session)
+  await saveSafeCall(session)
   publishRide(input.rideId, { type: 'call', status: session.status })
   return { ok: true as const, call: publicSafeCall(session, input.role) }
 }
 
-export function answerSafeCall(rideId: string, actorId: string, role: CommsRole) {
-  const gate = assertMember(rideId, actorId, role)
+export async function answerSafeCall(rideId: string, actorId: string, role: CommsRole) {
+  const gate = await assertMember(rideId, actorId, role)
   if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
-  const session = getSafeCall(rideId)
+  const session = await getSafeCall(rideId)
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   if (session.status === 'released') return { ok: false as const, error: 'released', call: publicSafeCall(session, role) }
   session.status = 'active'
-  saveSafeCall(session)
+  await saveSafeCall(session)
   publishRide(rideId, { type: 'call', status: session.status })
   return { ok: true as const, call: publicSafeCall(session, role) }
 }
 
-export function hangupSafeCall(rideId: string, actorId: string, role: CommsRole) {
-  const gate = assertMember(rideId, actorId, role)
+export async function hangupSafeCall(rideId: string, actorId: string, role: CommsRole) {
+  const gate = await assertMember(rideId, actorId, role)
   if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
-  const session = getSafeCall(rideId)
+  const session = await getSafeCall(rideId)
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   if (session.status !== 'released') {
     session.status = 'ended'
     session.endedAt = nowIso()
-    saveSafeCall(session)
+    await saveSafeCall(session)
     publishRide(rideId, { type: 'call', status: session.status })
   }
   return { ok: true as const, call: publicSafeCall(session, role) }
 }
 
-export function getPublicSafeCall(rideId: string, actorId: string, role: CommsRole) {
-  const gate = assertMember(rideId, actorId, role)
+export async function getPublicSafeCall(rideId: string, actorId: string, role: CommsRole) {
+  const gate = await assertMember(rideId, actorId, role)
   if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
-  const session = getSafeCall(rideId) ?? openRideComms(rideId)?.call
+  const session = (await getSafeCall(rideId)) ?? (await openRideComms(rideId))?.call
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   return { ok: true as const, call: publicSafeCall(session, role) }
 }
