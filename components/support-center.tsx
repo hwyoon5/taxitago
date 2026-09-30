@@ -321,7 +321,7 @@ function TicketThread({
           ))}
         </div>
         <div className="relative mt-3">
-          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="추가 문의" className="h-11 w-full rounded-2xl border-2 border-[#CBD5E1] py-0 pl-3 pr-[4.25rem] text-sm font-bold outline-none" />
+          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={role === 'driver' ? '고객지원에 메시지' : '추가 문의'} className="h-11 w-full rounded-2xl border-2 border-[#CBD5E1] py-0 pl-3 pr-[4.25rem] text-sm font-bold outline-none" />
           <button
             type="button"
             onClick={() => {
@@ -469,7 +469,7 @@ function LostThread({
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
           {item.messages.length ? item.messages.map((message) => (
             <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : message.fromId === actorId ? 'bg-[#4C1FB8] text-white' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
-              <p className="text-[10px] font-black">{message.fromRole === 'admin' ? '고객지원 답변' : message.fromId === actorId ? '나' : '상대'}</p>
+              <p className="text-[10px] font-black">{message.fromRole === 'admin' ? '고객지원 답변' : message.fromId === actorId ? '나' : role === 'driver' ? '승객' : '기사님'}</p>
               <p className="mt-1 leading-5">{message.text}</p>
             </div>
           )) : <p className="text-sm font-bold text-[#64748B]">아직 답변이 없습니다.</p>}
@@ -479,7 +479,7 @@ function LostThread({
           <button type="button" onClick={() => void setLostStatus(item.id, 'closed', actorId, role).then(onUpdate)} className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]">종료</button>
         </div>
         <div className="relative mt-2">
-          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="기사님께 메시지" className="h-11 w-full rounded-2xl border-2 border-[#CBD5E1] py-0 pl-3 pr-[4.25rem] text-sm font-bold" />
+          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={role === 'driver' ? '승객에게 메시지' : '기사님께 메시지'} className="h-11 w-full rounded-2xl border-2 border-[#CBD5E1] py-0 pl-3 pr-[4.25rem] text-sm font-bold" />
           <button
             type="button"
             onClick={() => {
