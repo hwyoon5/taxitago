@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { estimateTaxiFarePi, haversineKm } from '@/lib/dispatch-geo'
 import { createRideAndMatch, toPublicRide } from '@/lib/dispatch-engine'
-import { ensureSeedDrivers } from '@/lib/dispatch-store'
+import { ensureSeedDrivers, listRides } from '@/lib/dispatch-store'
 import { isUsableCoord } from '@/lib/ride-session'
 
 export const runtime = 'nodejs'
@@ -15,6 +15,19 @@ function asPoint(lat: unknown, lng: unknown, extra?: { address?: unknown; label?
     address: typeof extra?.address === 'string' ? extra.address : undefined,
     label: typeof extra?.label === 'string' ? extra.label : undefined,
   }
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url)
+  const actorId = url.searchParams.get('actorId')?.trim() || ''
+  const role = url.searchParams.get('role')
+  if (!actorId) return NextResponse.json({ error: 'actorId required' }, { status: 400 })
+  const rides = listRides()
+    .filter((ride) => (role === 'driver' ? ride.assignedDriverId === actorId : ride.passengerId === actorId))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 30)
+    .map(toPublicRide)
+  return NextResponse.json({ ok: true, rides })
 }
 
 export async function POST(request: Request) {

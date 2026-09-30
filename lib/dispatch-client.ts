@@ -340,6 +340,19 @@ export async function completeRideTrip(
   return data
 }
 
+export async function fetchRideHistory(actorId: string, role: 'passenger' | 'driver') {
+  const id = actorId.trim()
+  if (!id) return [] as PublicRide[]
+  try {
+    const res = await apiFetch(`/api/rides/?actorId=${encodeURIComponent(id)}&role=${role}`, { cache: 'no-store' })
+    const data = await readJson<{ ok?: boolean; rides?: PublicRide[] }>(res)
+    if (!res.ok || !data.ok) return [] as PublicRide[]
+    return data.rides ?? []
+  } catch {
+    return [] as PublicRide[]
+  }
+}
+
 export async function fetchDriverActiveRide(driverId: string) {
   const res = await apiFetch(`/api/drivers/active/?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
   const data = await readJson<{ ride?: PublicRide | null }>(res)

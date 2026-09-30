@@ -46,6 +46,7 @@ import {
   fetchDriverActiveRide,
   fetchDriverEarnings,
   fetchDriverOffer,
+  fetchRideHistory,
   fetchRideReceipt,
   rideFromPushedOffer,
   subscribeDriverLive,
@@ -4468,17 +4469,96 @@ function InboxDetailModal({ item, onClose }: { item: Notice; onClose: () => void
   )
 }
 
+const INBOX_RIDE_STATUS: Record<string, string> = {
+  searching: '호출 중',
+  offered: '배차 제안',
+  assigned: '운행 중',
+  unmatched: '배차 실패',
+  cancelled: '취소됨',
+  completed: '이용 완료',
+}
+
+function receiptFromRideHistory(ride: PublicRide): RideReceipt {
+  const origin = ride.pickup.address || ride.pickup.label || '출발지'
+  const dest = ride.dest.label || ride.dest.address || '목적지'
+  const paid = ride.escrow?.amount ?? ride.estimatedFare
+  return {
+    rideId: ride.id,
+    route: `${origin} → ${dest}`,
+    origin,
+    dest,
+    fare: `${paid.toFixed(2)} Pi`,
+    estimatedFare: `${ride.estimatedFare.toFixed(2)} Pi`,
+    vehicle: ride.kind === 'daeri' ? '대리' : '택시',
+    date: new Date(ride.updatedAt).toLocaleString('ko-KR'),
+    distance: '-',
+    duration: '-',
+    driver: ride.assignedDriver?.name || '기사 배정 전',
+    car: ride.assignedDriver?.vehicle || '-',
+    plate: ride.assignedDriver?.plate || '-',
+    transactionId: ride.escrow?.payoutTxid || ride.escrow?.lockTxid || ride.id,
+    method: 'Pi 월렛',
+  }
+}
+
+type InboxIdentity = { id: string; role: 'passenger' | 'driver' }
+
 function ActivityInbox({
   tabRides,
   readNoticeIds,
   onOpenInbox,
+  identities,
+  activities,
 }: {
   tabRides: (ride: RideReceipt) => void
   readNoticeIds: string[]
   onOpenInbox: (item: Notice) => void
+  identities: InboxIdentity[]
+  activities: ActivityEntry[]
 }) {
   const [view, setView] = useState<'rides' | 'inbox'>('rides')
+  const [history, setHistory] = useState<PublicRide[]>([])
+  const [historyReady, setHistoryReady] = useState(false)
   const unreadCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
+  const identitiesKey = JSON.stringify(identities)
+
+  useEffect(() => {
+    const ids = JSON.parse(identitiesKey) as InboxIdentity[]
+    let stopped = false
+    const refresh = () => {
+      void Promise.all(ids.map((item) => fetchRideHistory(item.id, item.role)))
+        .then((lists) => {
+          if (stopped) return
+          const seen = new Set<string>()
+          const merged: PublicRide[] = []
+          for (const ride of lists.flat()) {
+            if (seen.has(ride.id)) continue
+            seen.add(ride.id)
+            merged.push(ride)
+          }
+          merged.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          setHistory(merged)
+          setHistoryReady(true)
+        })
+        .catch(() => {
+          if (!stopped) setHistoryReady(true)
+        })
+    }
+    refresh()
+    const timer = window.setInterval(refresh, 5000)
+    const wake = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('focus', wake)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('focus', wake)
+    }
+  }, [identitiesKey])
+
   const kindClass = (kind: Notice['kind']) =>
     kind === '이벤트' ? 'bg-[#FEF3C7] text-[#B45309]' : kind === '업데이트' ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-[#EDE5FF] text-[#4C1FB8]'
 
@@ -4504,26 +4584,46 @@ function ActivityInbox({
       </div>
       {view === 'rides' ? (
         <>
-          {SAMPLE_RIDES.map((ride) => (
-            <button key={ride.transactionId} type="button" onClick={() => tabRides(ride)} className="mt-3 w-full rounded-3xl border-2 border-[#CBD5E1] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.1)] transition hover:border-[#4C1FB8] active:scale-[0.99]">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1 overflow-hidden pr-1">
-                  <p className="break-all font-black leading-5 text-[#1E293B] [overflow-wrap:anywhere] line-clamp-2">{ride.route}</p>
-                  <p className="mt-2 truncate text-xs font-bold text-[#64748B]">
-                    {ride.vehicle} · {ride.date}
-                  </p>
+          {history.map((ride) => {
+            const receipt = receiptFromRideHistory(ride)
+            const statusLabel = INBOX_RIDE_STATUS[ride.status] ?? ride.status
+            return (
+              <button key={ride.id} type="button" onClick={() => tabRides(receipt)} className="mt-3 w-full rounded-3xl border-2 border-[#CBD5E1] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.1)] transition hover:border-[#4C1FB8] active:scale-[0.99]">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 overflow-hidden pr-1">
+                    <p className="break-all font-black leading-5 text-[#1E293B] [overflow-wrap:anywhere] line-clamp-2">{receipt.route}</p>
+                    <p className="mt-2 truncate text-xs font-bold text-[#64748B]">
+                      {receipt.vehicle} · {receipt.date}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <strong className="block whitespace-nowrap tabular-nums text-[#7046dc]">{receipt.fare}</strong>
+                    <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-black ${ride.status === 'completed' ? 'bg-[#ECFDF5] text-[#047857]' : ride.status === 'cancelled' || ride.status === 'unmatched' ? 'bg-[#F1F5F9] text-[#64748B]' : 'bg-[#FEF3C7] text-[#B45309]'}`}>{statusLabel}</span>
+                  </div>
                 </div>
-                <strong className="shrink-0 whitespace-nowrap tabular-nums text-[#7046dc]">{ride.fare}</strong>
-              </div>
-              <div className="mt-3 flex items-center justify-between border-t border-[#E2E8F0] pt-3 text-xs font-bold text-[#8b8495]">
-                <span>{ride.distance}</span>
-                <span className="text-[#7046dc]">영수증 보기 ›</span>
-              </div>
-            </button>
-          ))}
+                <div className="mt-3 flex items-center justify-between border-t border-[#E2E8F0] pt-3 text-xs font-bold text-[#8b8495]">
+                  <span>{receipt.driver !== '기사 배정 전' ? `${receipt.driver} 기사` : receipt.driver}</span>
+                  <span className="text-[#7046dc]">영수증 보기 ›</span>
+                </div>
+              </button>
+            )
+          })}
+          {historyReady && !history.length ? (
+            <p className="mt-3 rounded-3xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">아직 이용 내역이 없습니다.</p>
+          ) : null}
         </>
       ) : (
         <div className="mt-3 space-y-3">
+          {activities.slice(0, 15).map((entry) => (
+            <div key={entry.id} className="rounded-[24px] border-2 border-[#CBD5E1] bg-white p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="rounded-full bg-[#EDE5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">{entry.label}</span>
+                <span className="text-[11px] font-bold text-[#8b8495]">{entry.at}</span>
+              </div>
+              <p className="mt-2 text-xs font-bold leading-5 text-[#64748B]">{entry.detail}</p>
+            </div>
+          ))}
+          {activities.length ? <p className="pt-1 text-xs font-black text-[#4C1FB8]">공지</p> : null}
           {notices.map((item) => {
             const unread = !readNoticeIds.includes(item.id)
             return (
@@ -4569,6 +4669,8 @@ function TabContent({
   onOpenDriverSignup,
   onOpenPartnerSignup,
   onNotice,
+  inboxIdentities,
+  activities,
 }: {
   tab: string
   destination: string
@@ -4588,6 +4690,8 @@ function TabContent({
   onToggleDriverMode: () => void
   onOpenDriverSignup: () => void
   onOpenPartnerSignup: () => void
+  inboxIdentities: InboxIdentity[]
+  activities: ActivityEntry[]
 }) {
   const { t } = useLocale()
   const [preparingOpen, setPreparingOpen] = useState(false)
@@ -4626,7 +4730,7 @@ function TabContent({
     )
   }
   if (tab === '이용/알림') {
-    return <ActivityInbox tabRides={onReceipt} readNoticeIds={readNoticeIds} onOpenInbox={onOpenInbox} />
+    return <ActivityInbox tabRides={onReceipt} readNoticeIds={readNoticeIds} onOpenInbox={onOpenInbox} identities={inboxIdentities} activities={activities} />
   }
   return (
     <div className="h-full min-h-0">
@@ -7283,7 +7387,7 @@ export default function HomeScreen() {
             <div className="mx-auto flex h-[min(92dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[30px] bg-[#f7f7fb] pt-3" onClick={(event) => event.stopPropagation()}>
               <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} />
+                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} />
               </div>
             </div>
           </div>
