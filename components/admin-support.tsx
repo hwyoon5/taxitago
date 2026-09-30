@@ -5,8 +5,8 @@ import { useEffect, useRef, useState } from 'react'
 import { getAdminKey, setAdminKey } from '@/lib/admin-key'
 import {
   editTicketReply,
+  fetchAdminInbox,
   fetchLostInbox,
-  fetchTickets,
   sendLostMessage,
   sendTicketMessage,
   setTicketStatus,
@@ -91,11 +91,12 @@ export default function AdminSupportDesk() {
   const [notifEnabled, setNotifEnabled] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState('')
+  const [storage, setStorage] = useState<'kv' | 'file' | null>(null)
   const seenRef = useRef<Set<string> | null>(null)
 
   const reload = () => {
     setRefreshing(true)
-    void Promise.allSettled([fetchTickets(ADMIN_ID, 'admin'), fetchLostInbox(ADMIN_ID, 'admin')]).then(
+    void Promise.allSettled([fetchAdminInbox(ADMIN_ID), fetchLostInbox(ADMIN_ID, 'admin')]).then(
       ([ticketResult, lostResult]) => {
         const denied =
           (ticketResult.status === 'rejected' && ticketResult.reason instanceof Error && ticketResult.reason.message === 'unauthorized') ||
@@ -109,8 +110,9 @@ export default function AdminSupportDesk() {
           setAuthed(false)
           return
         }
-        const nextTickets = ticketResult.status === 'fulfilled' ? ticketResult.value : []
+        const nextTickets = ticketResult.status === 'fulfilled' ? ticketResult.value.tickets : []
         const nextLost = lostResult.status === 'fulfilled' ? lostResult.value : []
+        if (ticketResult.status === 'fulfilled') setStorage(ticketResult.value.storage)
         setTickets(nextTickets)
         setLost(nextLost)
         setAuthed(true)
@@ -194,7 +196,12 @@ export default function AdminSupportDesk() {
       setAuthed(false)
       return
     }
-    tell(error instanceof Error ? error.message : fallback)
+    const message = error instanceof Error ? error.message : ''
+    if (message === 'not_found') {
+      tell('서버에서 해당 문의를 찾지 못했습니다. 영구 저장소 연결 상태를 확인한 뒤 새로고침해 주세요.')
+      return
+    }
+    tell(message || fallback)
   }
   const submitKey = () => {
     const key = keyDraft.trim()
@@ -317,6 +324,11 @@ export default function AdminSupportDesk() {
           <Link href="/" className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]">홈</Link>
         </div>
       </div>
+      {storage === 'file' ? (
+        <p className="mt-3 rounded-2xl border-2 border-[#F59E0B] bg-[#FFFBEB] px-4 py-3 text-xs font-bold leading-5 text-[#92400E]">
+          영구 저장소(KV)가 연결되지 않았습니다. 이 환경에서는 새로고침·재배포 후 문의가 사라질 수 있습니다. Vercel 대시보드에서 KV(또는 Upstash Redis)를 연결하고 KV_REST_API_URL / KV_REST_API_TOKEN을 설정해 주세요.
+        </p>
+      ) : null}
       {freshIds.length ? (
         <button
           type="button"

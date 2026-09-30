@@ -23,6 +23,17 @@ const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL
 const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
 const useKv = Boolean(kvUrl && kvToken)
 
+export function supportStorageBackend() {
+  return useKv ? ('kv' as const) : ('file' as const)
+}
+
+let warnedEphemeral = false
+function warnEphemeral() {
+  if (warnedEphemeral || !process.env.VERCEL) return
+  warnedEphemeral = true
+  console.error('[support-store] no KV configured on Vercel — support data is NOT durable (set KV_REST_API_URL/KV_REST_API_TOKEN)')
+}
+
 const entityKey = (kind: EntityKind, id: string) => `taxitago:support:${kind}:${id}`
 const indexKey = (kind: EntityKind) => `taxitago:support:index:${kind}`
 
@@ -126,6 +137,7 @@ export function syncSupportFromDisk() {
 
 function persist() {
   const store = db()
+  warnEphemeral()
   try {
     mkdirSync(path.dirname(persistFile), { recursive: true })
     const payload: PersistShape = {

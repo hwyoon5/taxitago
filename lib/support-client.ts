@@ -156,6 +156,14 @@ export async function fetchTickets(actorId: string, role: SupportActor) {
   return data.tickets ?? []
 }
 
+export async function fetchAdminInbox(actorId: string) {
+  const res = await apiFetch(`/api/support/tickets?actorId=${encodeURIComponent(actorId)}&role=admin`, { cache: 'no-store', headers: adminHeaders() })
+  if (res.status === 401) throw new Error('unauthorized')
+  const data = await readJson<{ tickets?: SupportTicket[]; storage?: string }>(res)
+  const storage: 'kv' | 'file' = data.storage === 'kv' ? 'kv' : 'file'
+  return { tickets: data.tickets ?? [], storage }
+}
+
 export async function sendTicketMessage(ticketId: string, actorId: string, role: SupportActor, text: string) {
   const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'POST',

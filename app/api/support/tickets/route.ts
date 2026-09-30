@@ -1,5 +1,6 @@
 import { NextResponse, after } from 'next/server'
 import { createSupportTicket, ticketInbox } from '@/lib/support-engine'
+import { supportStorageBackend } from '@/lib/support-store'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { notifySupportInbox } from '@/lib/admin-notify'
 import type { SupportActor, TicketCategory } from '@/lib/support-types'
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
   if (role === 'admin' && !isAdminRequest(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  return NextResponse.json({ ok: true, tickets: await ticketInbox({ actorId, role: role ?? undefined }) })
+  return NextResponse.json({ ok: true, tickets: await ticketInbox({ actorId, role: role ?? undefined }), storage: supportStorageBackend() })
 }
 
 export async function POST(request: Request) {
