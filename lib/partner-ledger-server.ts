@@ -34,6 +34,10 @@ export function getPartnerLink(uid: string) {
   return store().get(uid) ?? null
 }
 
+export function listPartnerLinks() {
+  return [...store().values()].sort((a, b) => b.linkedAt.localeCompare(a.linkedAt))
+}
+
 export function deletePartnerLink(uid: string) {
   return store().delete(uid)
 }

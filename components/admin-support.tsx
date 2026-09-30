@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { getAdminKey, setAdminKey } from '@/lib/admin-key'
+import AdminPartners from '@/components/admin-partners'
 import {
   editTicketReply,
   fetchAdminInbox,
@@ -92,6 +93,7 @@ export default function AdminSupportDesk() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState('')
   const [storage, setStorage] = useState<'kv' | 'file' | null>(null)
+  const [view, setView] = useState<'inbox' | 'partners'>('inbox')
   const seenRef = useRef<Set<string> | null>(null)
 
   const reload = () => {
@@ -359,6 +361,24 @@ export default function AdminSupportDesk() {
           <Link href="/" className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]">홈</Link>
         </div>
       </div>
+      <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
+        {(['inbox', 'partners'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setView(tab)}
+            className={`rounded-xl py-2 text-xs font-black ${view === tab ? 'bg-white text-[#4C1FB8] shadow-sm' : 'text-[#64748B]'}`}
+          >
+            {tab === 'inbox' ? '문의 관리' : '기사·파트너'}
+          </button>
+        ))}
+      </div>
+      {view === 'partners' ? (
+        <div className="mt-4">
+          <AdminPartners />
+        </div>
+      ) : (
+      <>
       {storage === 'file' ? (
         <p className="mt-3 rounded-2xl border-2 border-[#F59E0B] bg-[#FFFBEB] px-4 py-3 text-xs font-bold leading-5 text-[#92400E]">
           영구 저장소(KV)가 연결되지 않았습니다. 이 환경에서는 새로고침·재배포 후 문의가 사라질 수 있습니다. Vercel 대시보드에서 KV(또는 Upstash Redis)를 연결하고 KV_REST_API_URL / KV_REST_API_TOKEN을 설정해 주세요.
@@ -483,6 +503,8 @@ export default function AdminSupportDesk() {
           ) : null}
         </section>
       </div>
+      </>
+      )}
     </main>
   )
 }
