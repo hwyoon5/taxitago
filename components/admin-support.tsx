@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAdminAuth } from '@/components/admin-guard'
 import { getAdminKey } from '@/lib/admin-key'
 import AdminPartners from '@/components/admin-partners'
+import AdminSettlements from '@/components/admin-settlements'
 import {
   editTicketReply,
   fetchAdminInbox,
@@ -91,7 +92,7 @@ export default function AdminSupportDesk() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState('')
   const [storage, setStorage] = useState<'kv' | 'file' | null>(null)
-  const [view, setView] = useState<'inbox' | 'partners'>('inbox')
+  const [view, setView] = useState<'inbox' | 'partners' | 'settlement'>('inbox')
   const seenRef = useRef<Set<string> | null>(null)
   const { logout } = useAdminAuth()
 
@@ -317,15 +318,15 @@ export default function AdminSupportDesk() {
           <Link href="/" className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]">홈</Link>
         </div>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
-        {(['inbox', 'partners'] as const).map((tab) => (
+      <div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
+        {(['inbox', 'partners', 'settlement'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => setView(tab)}
             className={`rounded-xl py-2 text-xs font-black ${view === tab ? 'bg-white text-[#4C1FB8] shadow-sm' : 'text-[#64748B]'}`}
           >
-            {tab === 'inbox' ? '문의 관리' : '기사·파트너'}
+            {tab === 'inbox' ? '문의 관리' : tab === 'partners' ? '기사·파트너' : '정산·수수료'}
           </button>
         ))}
       </div>
@@ -333,6 +334,8 @@ export default function AdminSupportDesk() {
         <div className="mt-4">
           <AdminPartners />
         </div>
+      ) : view === 'settlement' ? (
+        <AdminSettlements />
       ) : (
       <>
       {storage === 'file' ? (

@@ -1,6 +1,7 @@
 import { getDriver, getRide, listRides, nowIso, saveDriver, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { getPartnerLink } from '@/lib/partner-ledger-server'
+import { recordSettlement } from '@/lib/settlement-store'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { createA2UPayment } from '@/lib/pi-platform'
 import {
@@ -207,6 +208,14 @@ export async function releaseEscrow(
     at: receipt.settledAt,
   })
   if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
+  await recordSettlement({
+    refId: `ride:${rideId}`,
+    service: ride.kind === 'daeri' ? 'daeri' : 'taxi',
+    driverId,
+    driverName: target.name,
+    memo: receipt.route,
+    gross: escrow.amount,
+  }).catch(() => null)
   return { ok: true as const, escrow, receipt }
   } finally {
     releasingRides.delete(rideId)
@@ -278,6 +287,14 @@ export async function settlePassengerCancelFee(rideId: string) {
     at: settledAt,
   })
   if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: settledAt })
+  await recordSettlement({
+    refId: `ride:${rideId}:cancel`,
+    service: ride.kind === 'daeri' ? 'daeri' : 'taxi',
+    driverId,
+    driverName: target.name,
+    memo: `취소 수수료 · ${routeLabel(ride)}`,
+    gross: settlement.cancelFee,
+  }).catch(() => null)
   return { ok: true as const, settlement, payoutTxid }
 }
 
