@@ -18,22 +18,6 @@ const DEFAULT_BALANCE = 11.3
 
 type InnerTab = 'profile' | 'history' | 'center'
 
-type RideRow = {
-  id: string
-  route: string
-  vehicle: string
-  date: string
-  fare: string
-  status: '완료' | '진행'
-}
-
-const RIDES: RideRow[] = [
-  { id: '1', route: '서울시청 → 강남역', vehicle: '택시', date: '오늘 · 09:20', fare: '3.2 Pi', status: '완료' },
-  { id: '2', route: '홍대입구 → 합정', vehicle: '대리', date: '어제 · 18:40', fare: '4.8 Pi', status: '완료' },
-  { id: '3', route: '여의도 → 공덕', vehicle: '택시', date: '9월 15일 · 14:10', fare: '5.1 Pi', status: '완료' },
-  { id: '4', route: '성수 → 건대입구', vehicle: '택시', date: '9월 12일 · 21:05', fare: '2.9 Pi', status: '완료' },
-]
-
 function readFlag(key: string) {
   try {
     return window.localStorage.getItem(key) === 'true'
@@ -64,6 +48,8 @@ export type MyPageProps = {
   onOpenDriverSignup?: () => void
   onOpenPartnerSignup?: () => void
   onNotice?: (message: string) => void
+  activities?: ActivityRow[]
+  transactions?: TxRow[]
 }
 
 const tabs: { id: InnerTab; label: string }[] = [
@@ -71,6 +57,41 @@ const tabs: { id: InnerTab; label: string }[] = [
   { id: 'history', label: '이용 내역' },
   { id: 'center', label: '기사·파트너 센터' },
 ]
+
+const ACTIVITY_LOG_KEY = 'taxitago-activity-log'
+const WALLET_STORE_KEY = 'taxitago-pi-wallet'
+const PAYMENT_DUP_LABELS = new Set(['결제 완료', '취소 수수료 결제', 'Pi 충전 완료', 'Pi 환불'])
+
+type HistoryEntry = { id: string; label: string; detail: string; at: string; amount: number | null }
+type ActivityRow = { id: string; at: string; label: string; detail: string }
+type TxRow = { label: string; amount: number; detail: string; place: string; at: string }
+
+function storedActivities(): ActivityRow[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(ACTIVITY_LOG_KEY) || '[]') as ActivityRow[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function storedTransactions(): TxRow[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(WALLET_STORE_KEY) || 'null') as { transactions?: TxRow[] } | null
+    return Array.isArray(parsed?.transactions) ? parsed.transactions : []
+  } catch {
+    return []
+  }
+}
+
+function mergedHistory(activities: ActivityRow[], transactions: TxRow[]): HistoryEntry[] {
+  return [
+    ...transactions.map((tx, index) => ({ id: `tx-${index}`, label: tx.label, detail: tx.detail || tx.place, at: tx.at, amount: tx.amount })),
+    ...activities
+      .filter((entry) => !PAYMENT_DUP_LABELS.has(entry.label))
+      .map((entry) => ({ id: entry.id, label: entry.label, detail: entry.detail, at: entry.at, amount: null })),
+  ]
+}
 
 export default function MyPage({
   username = 'taxitago',
@@ -85,6 +106,8 @@ export default function MyPage({
   onOpenDriverSignup,
   onOpenPartnerSignup,
   onNotice,
+  activities,
+  transactions,
 }: MyPageProps) {
   const [innerTab, setInnerTab] = useState<InnerTab>('profile')
   const [localDriver, setLocalDriver] = useState(false)
@@ -103,10 +126,29 @@ export default function MyPage({
   const [inviteLaunchOpen, setInviteLaunchOpen] = useState(false)
   const [partnerProfile, setPartnerProfile] = useState<PartnerProfile | null>(null)
   const [editOpen, setEditOpen] = useState(false)
+  const [historyRows, setHistoryRows] = useState<HistoryEntry[]>([])
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    if (innerTab !== 'history') return
+    const load = () =>
+      setHistoryRows(mergedHistory(activities ?? storedActivities(), transactions ?? storedTransactions()))
+    load()
+    const timer = window.setInterval(load, 5000)
+    const wake = () => {
+      if (document.visibilityState === 'visible') load()
+    }
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('focus', wake)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('focus', wake)
+    }
+  }, [innerTab, activities, transactions])
 
   useEffect(() => {
     setLocalDriver(readFlag(DRIVER_REG_KEY))
@@ -328,18 +370,25 @@ export default function MyPage({
 
           {innerTab === 'history' ? (
             <div className="space-y-2">
-              {RIDES.map((ride) => (
-                <article key={ride.id} className="rounded-[22px] border-2 border-[#E2E8F0] bg-white p-4">
+              {historyRows.map((row) => (
+                <article key={row.id} className="rounded-[22px] border-2 border-[#E2E8F0] bg-white p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-black text-[#0F172A]">{ride.route}</p>
-                      <p className="mt-1 text-xs font-bold text-[#64748B]">{ride.vehicle} · {ride.date}</p>
+                    <div className="min-w-0">
+                      <p className="font-black text-[#0F172A]">{row.label}</p>
+                      <p className="mt-1 break-all text-xs font-bold text-[#64748B]">{row.detail}</p>
                     </div>
-                    <span className="text-sm font-black text-[#4C1FB8]">{ride.fare}</span>
+                    {row.amount != null ? (
+                      <span className={`shrink-0 text-sm font-black tabular-nums ${row.amount < 0 ? 'text-[#0F172A]' : 'text-[#047857]'}`}>
+                        {row.amount > 0 ? '+' : ''}{row.amount.toFixed(2)} Pi
+                      </span>
+                    ) : null}
                   </div>
-                  <p className="mt-3 text-[11px] font-black text-[#10B981]">{ride.status}</p>
+                  <p className="mt-3 text-[11px] font-bold text-[#94A3B8]">{row.at}</p>
                 </article>
               ))}
+              {!historyRows.length ? (
+                <p className="rounded-[22px] border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">아직 이용 내역이 없습니다.</p>
+              ) : null}
             </div>
           ) : null}
 

@@ -4777,6 +4777,8 @@ function TabContent({
       onOpenDriverSignup={onOpenDriverSignup}
       onOpenPartnerSignup={onOpenPartnerSignup}
       onNotice={onNotice}
+      activities={activities}
+      transactions={transactions}
     />
     </div>
   )
