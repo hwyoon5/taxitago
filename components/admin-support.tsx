@@ -37,16 +37,21 @@ export default function AdminSupportDesk() {
   const [authError, setAuthError] = useState('')
   const [freshIds, setFreshIds] = useState<string[]>([])
   const [notifEnabled, setNotifEnabled] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastSync, setLastSync] = useState('')
   const seenRef = useRef<Set<string> | null>(null)
 
   const reload = () => {
+    setRefreshing(true)
     void Promise.allSettled([fetchTickets(ADMIN_ID, 'admin'), fetchLostInbox(ADMIN_ID, 'admin')]).then(
       ([ticketResult, lostResult]) => {
         if (ticketResult.status === 'rejected' && ticketResult.reason instanceof Error && ticketResult.reason.message === 'unauthorized') {
+          setRefreshing(false)
           setAuthed(false)
           return
         }
         if (lostResult.status === 'rejected' && lostResult.reason instanceof Error && lostResult.reason.message === 'unauthorized') {
+          setRefreshing(false)
           setAuthed(false)
           return
         }
@@ -55,6 +60,8 @@ export default function AdminSupportDesk() {
         setTickets(nextTickets)
         setLost(nextLost)
         setAuthed(true)
+        setRefreshing(false)
+        setLastSync(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }))
         const current = new Set([...nextTickets.map((row) => `t:${row.id}`), ...nextLost.map((row) => `l:${row.id}`)])
         if (seenRef.current === null) {
           seenRef.current = current
@@ -79,8 +86,6 @@ export default function AdminSupportDesk() {
 
   useEffect(() => {
     reload()
-    const timer = window.setInterval(reload, 3000)
-    return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {
@@ -221,6 +226,14 @@ export default function AdminSupportDesk() {
           <p className="mt-1 text-sm font-bold text-[#64748B]">1:1 문의와 분실물 접수를 확인하고 답변을 남깁니다.</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={reload}
+            disabled={refreshing}
+            className="rounded-full border-2 border-[#D8CCF5] bg-white px-3 py-2 text-xs font-black text-[#4C1FB8] disabled:opacity-60"
+          >
+            {refreshing ? '새로고침 중…' : '새로고침'}
+          </button>
           {typeof window !== 'undefined' && 'Notification' in window && !notifEnabled && Notification.permission === 'default' ? (
             <button
               type="button"
@@ -269,7 +282,10 @@ export default function AdminSupportDesk() {
       {notice ? <p className="mt-3 rounded-full bg-[#0F172A] px-3 py-2 text-center text-xs font-black text-white">{notice}</p> : null}
       <div className="mt-4 grid gap-3 md:grid-cols-[1.1fr_0.9fr]">
         <section className="space-y-2">
-          <p className="text-xs font-black text-[#4C1FB8]">접수 목록 · {tickets.length + lost.length}건</p>
+          <p className="flex items-center justify-between text-xs font-black text-[#4C1FB8]">
+            <span>접수 목록 · {tickets.length + lost.length}건</span>
+            {lastSync ? <span className="font-bold text-[#94A3B8]">마지막 새로고침 {lastSync}</span> : null}
+          </p>
           {tickets.length + lost.length === 0 ? (
             <p className="rounded-2xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">아직 접수된 문의가 없습니다.</p>
           ) : null}
