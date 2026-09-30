@@ -76,7 +76,16 @@ export default function SupportCenter({
   useEffect(() => {
     reload()
     const timer = window.setInterval(reload, 8000)
-    return () => window.clearInterval(timer)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') reload()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', reload)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', reload)
+    }
   }, [actorId, actorRole])
 
   return (
