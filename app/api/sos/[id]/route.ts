@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSos } from '@/lib/support-store'
 import { updateSosStatus } from '@/lib/support-engine'
+import { isAdminRequest } from '@/lib/admin-auth'
 import type { SosStatus } from '@/lib/support-types'
 
 export const runtime = 'nodejs'
@@ -15,6 +16,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
+  if (!isAdminRequest(request)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
   const body = (await request.json().catch(() => null)) as { status?: unknown } | null
   const status = body?.status
   if (status !== 'open' && status !== 'acked' && status !== 'resolved') {

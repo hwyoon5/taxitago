@@ -241,7 +241,12 @@ function TicketList({ tickets, onOpen }: { tickets: SupportTicket[]; onOpen: (ti
         <button key={ticket.id} type="button" onClick={() => onOpen(ticket)} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 text-left">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[11px] font-black text-[#4C1FB8]">{TICKET_CATEGORY_LABEL[ticket.category]}</p>
-            <span className="rounded-full bg-[#F8F5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">{TICKET_STATUS_LABEL[ticket.status]}</span>
+            <span className="flex items-center gap-1.5">
+              {ticket.messages.some((message) => message.fromRole === 'admin') ? (
+                <span className="rounded-full bg-[#ECFDF5] px-2 py-1 text-[10px] font-black text-[#047857]">답변 완료</span>
+              ) : null}
+              <span className="rounded-full bg-[#F8F5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">{TICKET_STATUS_LABEL[ticket.status]}</span>
+            </span>
           </div>
           <p className="mt-1 text-sm font-black text-[#0F172A]">{ticket.subject}</p>
           <p className="mt-1 line-clamp-2 text-xs font-bold text-[#64748B]">{ticket.body}</p>

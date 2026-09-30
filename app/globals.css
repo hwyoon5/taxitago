@@ -511,3 +511,8 @@
     animation: none;
   }
 }
+
+/* iOS Safari (viewport-fit=cover): lift bottom-anchored modal sheets above the home indicator */
+.fixed.inset-0.items-end > * {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}

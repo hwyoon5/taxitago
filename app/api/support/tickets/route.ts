@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createSupportTicket, ticketInbox } from '@/lib/support-engine'
+import { isAdminRequest } from '@/lib/admin-auth'
+import { notifySupportInbox } from '@/lib/admin-notify'
 import type { SupportActor, TicketCategory } from '@/lib/support-types'
 
 export const runtime = 'nodejs'
@@ -15,6 +17,9 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const actorId = url.searchParams.get('actorId')?.trim() || undefined
   const role = roleOf(url.searchParams.get('role'))
+  if (role === 'admin' && !isAdminRequest(request)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
   return NextResponse.json({ ok: true, tickets: ticketInbox({ actorId, role: role ?? undefined }) })
 }
 
@@ -36,5 +41,15 @@ export async function POST(request: Request) {
     rideId: typeof body?.rideId === 'string' ? body.rideId : undefined,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
-  return NextResponse.json({ ok: true, ticket: result.ticket })
+  const ticket = result.ticket
+  after(() =>
+    notifySupportInbox({
+      kind: 'ticket',
+      id: ticket.id,
+      title: ticket.subject,
+      detail: ticket.body,
+      from: `${ticket.userRole === 'driver' ? '기사' : '이용자'} ${ticket.userId}`,
+    }),
+  )
+  return NextResponse.json({ ok: true, ticket })
 }

@@ -187,7 +187,7 @@ export function PlacePickerScreen({
         type="button"
         data-map-ui="true"
         onClick={onClose}
-        className="absolute left-4 top-[max(0.9rem,env(safe-area-inset-top))] z-20 inline-flex min-h-10 items-center gap-0.5 rounded-full bg-white/95 px-3.5 pr-4 text-[13px] font-black text-[#0F172A] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
+        className="absolute left-4 top-[max(0.9rem,calc(env(safe-area-inset-top)+0.5rem))] z-20 inline-flex min-h-10 items-center gap-0.5 rounded-full bg-white/95 px-3.5 pr-4 text-[13px] font-black text-[#0F172A] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
         aria-label="뒤로가기"
       >
         <ChevronLeft className="h-5 w-5" />
@@ -197,12 +197,12 @@ export function PlacePickerScreen({
         type="button"
         data-map-ui="true"
         onClick={goInitial}
-        className="absolute right-4 top-[max(0.9rem,env(safe-area-inset-top))] z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#4C1FB8] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
+        className="absolute right-4 top-[max(0.9rem,calc(env(safe-area-inset-top)+0.5rem))] z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#4C1FB8] shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
         aria-label="처음 위치로"
       >
         <LocateFixed className="h-5 w-5" />
       </button>
-      <div data-map-ui="true" className={`absolute inset-x-3 z-20 ${isDest ? 'bottom-[max(1rem,env(safe-area-inset-bottom))]' : 'top-[max(4.4rem,calc(env(safe-area-inset-top)+3.4rem))]'}`}>
+      <div data-map-ui="true" className={`absolute inset-x-3 z-20 ${isDest ? 'bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.6rem))]' : 'top-[max(4.4rem,calc(env(safe-area-inset-top)+3.9rem))]'}`}>
         <div className="rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3.5 shadow-[0_12px_24px_rgba(15,23,42,0.16)]">
           <p className="text-[11px] font-black text-[#4C1FB8]">{isDest ? '선택한 목적지' : '현재 지도 위치'}</p>
           <p className="mt-1 text-[15px] font-black leading-snug text-[#0F172A]">{looking ? ADDRESS_LOADING : label}</p>

@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { getAdminKey, setAdminKey } from '@/lib/admin-key'
 import {
   editTicketReply,
   fetchLostInbox,
@@ -31,10 +32,49 @@ export default function AdminSupportDesk() {
   const [editing, setEditing] = useState(false)
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [authed, setAuthed] = useState<boolean | null>(null)
+  const [keyDraft, setKeyDraft] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [freshIds, setFreshIds] = useState<string[]>([])
+  const [notifEnabled, setNotifEnabled] = useState(false)
+  const seenRef = useRef<Set<string> | null>(null)
 
   const reload = () => {
-    void fetchTickets(ADMIN_ID, 'admin').then(setTickets)
-    void fetchLostInbox(ADMIN_ID, 'admin').then(setLost)
+    void Promise.allSettled([fetchTickets(ADMIN_ID, 'admin'), fetchLostInbox(ADMIN_ID, 'admin')]).then(
+      ([ticketResult, lostResult]) => {
+        if (ticketResult.status === 'rejected' && ticketResult.reason instanceof Error && ticketResult.reason.message === 'unauthorized') {
+          setAuthed(false)
+          return
+        }
+        if (lostResult.status === 'rejected' && lostResult.reason instanceof Error && lostResult.reason.message === 'unauthorized') {
+          setAuthed(false)
+          return
+        }
+        const nextTickets = ticketResult.status === 'fulfilled' ? ticketResult.value : []
+        const nextLost = lostResult.status === 'fulfilled' ? lostResult.value : []
+        setTickets(nextTickets)
+        setLost(nextLost)
+        setAuthed(true)
+        const current = new Set([...nextTickets.map((row) => `t:${row.id}`), ...nextLost.map((row) => `l:${row.id}`)])
+        if (seenRef.current === null) {
+          seenRef.current = current
+          return
+        }
+        const arrived = [...current].filter((id) => !seenRef.current!.has(id))
+        seenRef.current = current
+        if (arrived.length) {
+          setFreshIds((prev) => [...new Set([...prev, ...arrived])])
+          const first = arrived[0]
+          const source = first.startsWith('t:')
+            ? nextTickets.find((row) => `t:${row.id}` === first)
+            : nextLost.find((row) => `l:${row.id}` === first)
+          const title = source && 'subject' in source ? source.subject : source && 'itemType' in source ? `분실물 · ${source.itemType}` : '새 문의'
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification(`택시타고 ${arrived.length > 1 ? `새 문의 ${arrived.length}건` : '새 문의'}`, { body: title })
+          }
+        }
+      },
+    )
   }
 
   useEffect(() => {
@@ -43,13 +83,21 @@ export default function AdminSupportDesk() {
     return () => window.clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotifEnabled(Notification.permission === 'granted')
+    }
+  }, [authed])
+
   const ticket = tickets.find((item) => kind === 'ticket' && item.id === selectedId) ?? null
   const item = lost.find((row) => kind === 'lost' && row.id === selectedId) ?? null
   const latestAdmin = ticket?.messages.filter((message) => message.fromRole === 'admin').at(-1) ?? null
+  const pendingCount = tickets.filter((row) => row.status === 'received').length + lost.filter((row) => row.status === 'open').length
 
   const openTicket = (next: SupportTicket) => {
     setKind('ticket')
     setSelectedId(next.id)
+    setFreshIds((prev) => prev.filter((id) => id !== `t:${next.id}`))
     const reply = next.messages.filter((message) => message.fromRole === 'admin').at(-1)
     setDraft(reply?.text || '')
     setEditing(Boolean(reply))
@@ -57,6 +105,7 @@ export default function AdminSupportDesk() {
   const openLost = (next: LostItem) => {
     setKind('lost')
     setSelectedId(next.id)
+    setFreshIds((prev) => prev.filter((id) => id !== `l:${next.id}`))
     const reply = [...next.messages].reverse().find((message) => message.fromRole === 'admin')
     setDraft(reply?.text || '')
     setEditing(false)
@@ -64,6 +113,36 @@ export default function AdminSupportDesk() {
   const tell = (message: string) => {
     setNotice(message)
     window.setTimeout(() => setNotice(''), 2200)
+  }
+  const guard = (error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message === 'unauthorized') {
+      setAuthed(false)
+      return
+    }
+    tell(error instanceof Error ? error.message : fallback)
+  }
+  const submitKey = () => {
+    const key = keyDraft.trim()
+    if (!key) return
+    setAdminKey(key)
+    setKeyDraft('')
+    setAuthError('')
+    void Promise.allSettled([fetchTickets(ADMIN_ID, 'admin'), fetchLostInbox(ADMIN_ID, 'admin')]).then(
+      ([ticketResult, lostResult]) => {
+        const denied =
+          (ticketResult.status === 'rejected' && ticketResult.reason instanceof Error && ticketResult.reason.message === 'unauthorized') ||
+          (lostResult.status === 'rejected' && lostResult.reason instanceof Error && lostResult.reason.message === 'unauthorized')
+        if (denied) {
+          setAdminKey('')
+          setAuthError('인증 코드가 올바르지 않습니다.')
+          setAuthed(false)
+          return
+        }
+        setAuthed(true)
+        if (ticketResult.status === 'fulfilled') setTickets(ticketResult.value)
+        if (lostResult.status === 'fulfilled') setLost(lostResult.value)
+      },
+    )
   }
   const saveTicketReply = () => {
     if (!ticket || busy) return
@@ -81,7 +160,7 @@ export default function AdminSupportDesk() {
         setTickets((rows) => rows.map((row) => (row.id === next.id ? next : row)))
         tell(editing && latestAdmin ? '답변을 수정했습니다.' : '답변을 등록했습니다.')
       })
-      .catch((error) => tell(error instanceof Error ? error.message : '답변을 저장하지 못했어요.'))
+      .catch((error) => guard(error, '답변을 저장하지 못했어요.'))
       .finally(() => setBusy(false))
   }
   const saveLostReply = () => {
@@ -95,8 +174,37 @@ export default function AdminSupportDesk() {
         setDraft('')
         tell('분실물 답변을 등록했습니다.')
       })
-      .catch((error) => tell(error instanceof Error ? error.message : '답변을 저장하지 못했어요.'))
+      .catch((error) => guard(error, '답변을 저장하지 못했어요.'))
       .finally(() => setBusy(false))
+  }
+
+  if (authed === null) {
+    return <main className="mx-auto flex min-h-dvh w-full max-w-sm items-center justify-center bg-[#F8FAFC] text-sm font-bold text-[#64748B]">관리자 권한을 확인하는 중…</main>
+  }
+
+  if (authed === false) {
+    return (
+      <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center bg-[#F8FAFC] px-6 text-[#0F172A]">
+        <p className="text-xs font-black text-[#4C1FB8]">ADMIN</p>
+        <h1 className="mt-1 text-2xl font-black">관리자 인증</h1>
+        <p className="mt-1 text-sm font-bold text-[#64748B]">고객센터 관리 코드를 입력해 주세요.</p>
+        <input
+          type="password"
+          value={keyDraft}
+          onChange={(event) => setKeyDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') submitKey()
+          }}
+          placeholder="관리자 코드"
+          className="mt-4 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]"
+        />
+        {authError ? <p className="mt-2 text-xs font-black text-[#DC2626]">{authError}</p> : null}
+        <button type="button" onClick={submitKey} className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
+          로그인
+        </button>
+        <Link href="/" className="mt-3 text-center text-xs font-black text-[#64748B]">홈으로</Link>
+      </main>
+    )
   }
 
   return (
@@ -104,11 +212,60 @@ export default function AdminSupportDesk() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-black text-[#4C1FB8]">ADMIN</p>
-          <h1 className="mt-1 text-2xl font-black">문의 관리</h1>
+          <h1 className="mt-1 flex items-center gap-2 text-2xl font-black">
+            문의 관리
+            {pendingCount ? (
+              <span className="rounded-full bg-[#DC2626] px-2 py-0.5 text-xs font-black text-white">미처리 {pendingCount}</span>
+            ) : null}
+          </h1>
           <p className="mt-1 text-sm font-bold text-[#64748B]">1:1 문의와 분실물 접수를 확인하고 답변을 남깁니다.</p>
         </div>
-        <Link href="/" className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]">홈</Link>
+        <div className="flex items-center gap-2">
+          {typeof window !== 'undefined' && 'Notification' in window && !notifEnabled && Notification.permission === 'default' ? (
+            <button
+              type="button"
+              onClick={() => {
+                void Notification.requestPermission().then((permission) => setNotifEnabled(permission === 'granted'))
+              }}
+              className="rounded-full border-2 border-[#D8CCF5] bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]"
+            >
+              알림 켜기
+            </button>
+          ) : null}
+          {getAdminKey() ? (
+            <button
+              type="button"
+              onClick={() => {
+                setAdminKey('')
+                setAuthed(false)
+              }}
+              className="rounded-full border-2 border-[#CBD5E1] bg-white px-3 py-2 text-xs font-black text-[#475569]"
+            >
+              로그아웃
+            </button>
+          ) : null}
+          <Link href="/" className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]">홈</Link>
+        </div>
       </div>
+      {freshIds.length ? (
+        <button
+          type="button"
+          onClick={() => {
+            const first = freshIds[0]
+            setFreshIds((prev) => prev.slice(1))
+            if (first.startsWith('t:')) {
+              const found = tickets.find((row) => `t:${row.id}` === first)
+              if (found) openTicket(found)
+            } else {
+              const found = lost.find((row) => `l:${row.id}` === first)
+              if (found) openLost(found)
+            }
+          }}
+          className="mt-3 w-full rounded-2xl bg-[#DC2626] py-2.5 text-xs font-black text-white"
+        >
+          새로 접수된 문의 {freshIds.length}건 — 눌러서 확인
+        </button>
+      ) : null}
       {notice ? <p className="mt-3 rounded-full bg-[#0F172A] px-3 py-2 text-center text-xs font-black text-white">{notice}</p> : null}
       <div className="mt-4 grid gap-3 md:grid-cols-[1.1fr_0.9fr]">
         <section className="space-y-2">
@@ -119,7 +276,10 @@ export default function AdminSupportDesk() {
           {tickets.map((row) => (
             <button key={row.id} type="button" onClick={() => openTicket(row)} className={`w-full rounded-2xl border-2 bg-white p-3 text-left ${selectedId === row.id && kind === 'ticket' ? 'border-[#4C1FB8]' : 'border-[#CBD5E1]'}`}>
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] font-black text-[#4C1FB8]">{TICKET_CATEGORY_LABEL[row.category]}</p>
+                <p className="flex items-center gap-1.5 text-[11px] font-black text-[#4C1FB8]">
+                  {TICKET_CATEGORY_LABEL[row.category]}
+                  {freshIds.includes(`t:${row.id}`) ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">NEW</span> : null}
+                </p>
                 <span className="rounded-full bg-[#F8F5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{TICKET_STATUS_LABEL[row.status]}</span>
               </div>
               <p className="mt-1 text-sm font-black">{row.subject}</p>
@@ -130,7 +290,10 @@ export default function AdminSupportDesk() {
           {lost.map((row) => (
             <button key={row.id} type="button" onClick={() => openLost(row)} className={`w-full rounded-2xl border-2 bg-white p-3 text-left ${selectedId === row.id && kind === 'lost' ? 'border-[#4C1FB8]' : 'border-[#CBD5E1]'}`}>
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] font-black text-[#4C1FB8]">분실물 · {row.kind === 'lost' ? '분실' : '습득'}</p>
+                <p className="flex items-center gap-1.5 text-[11px] font-black text-[#4C1FB8]">
+                  분실물 · {row.kind === 'lost' ? '분실' : '습득'}
+                  {freshIds.includes(`l:${row.id}`) ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">NEW</span> : null}
+                </p>
                 <span className="rounded-full bg-[#F8F5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{LOST_STATUS_LABEL[row.status]}</span>
               </div>
               <p className="mt-1 text-sm font-black">{row.itemType}</p>
@@ -150,10 +313,12 @@ export default function AdminSupportDesk() {
               <select
                 value={ticket.status}
                 onChange={(event) => {
-                  void setTicketStatus(ticket.id, event.target.value as TicketStatus).then((next) => {
-                    setTickets((rows) => rows.map((row) => (row.id === next.id ? next : row)))
-                    tell('상태를 바꿨습니다.')
-                  })
+                  void setTicketStatus(ticket.id, event.target.value as TicketStatus)
+                    .then((next) => {
+                      setTickets((rows) => rows.map((row) => (row.id === next.id ? next : row)))
+                      tell('상태를 바꿨습니다.')
+                    })
+                    .catch((error) => guard(error, '상태를 바꾸지 못했어요.'))
                 }}
                 className="mt-3 w-full rounded-xl border border-[#D8CCF5] px-2 py-2 text-xs font-black text-[#4C1FB8]"
               >

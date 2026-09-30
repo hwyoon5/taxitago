@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getLostItem } from '@/lib/support-store'
 import { updateLostStatus } from '@/lib/support-engine'
+import { isAdminRequest } from '@/lib/admin-auth'
 import type { LostStatus, SupportActor } from '@/lib/support-types'
 
 export const runtime = 'nodejs'
@@ -22,6 +23,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const allowed: LostStatus[] = ['open', 'matched', 'talking', 'returned', 'closed']
   if (!actorId || (role !== 'passenger' && role !== 'driver' && role !== 'admin') || !allowed.includes(status as LostStatus)) {
     return NextResponse.json({ error: 'actorId, role, status required' }, { status: 400 })
+  }
+  if (role === 'admin' && !isAdminRequest(request)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const item = updateLostStatus(id, status as LostStatus, actorId, role as SupportActor)
   if (!item) return NextResponse.json({ error: 'not_found' }, { status: 404 })

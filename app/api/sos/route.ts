@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { raiseSosAlert, sosInbox } from '@/lib/support-engine'
+import { isAdminRequest } from '@/lib/admin-auth'
+import { notifySupportInbox } from '@/lib/admin-notify'
 import type { SupportActor } from '@/lib/support-types'
 
 export const runtime = 'nodejs'
@@ -14,6 +16,9 @@ export async function GET(request: Request) {
   const actorId = url.searchParams.get('actorId')?.trim() || undefined
   const role = roleOf(url.searchParams.get('role'))
   const openOnly = url.searchParams.get('open') === '1'
+  if (role === 'admin' && !isAdminRequest(request)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
   return NextResponse.json({ ok: true, alerts: sosInbox({ actorId, role: role ?? undefined, openOnly }) })
 }
 
@@ -40,5 +45,17 @@ export async function POST(request: Request) {
     const status = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 400
     return NextResponse.json({ error: result.error }, { status })
   }
-  return NextResponse.json({ ok: true, alert: result.alert, duplicate: result.duplicate })
+  const alert = result.alert
+  if (!result.duplicate) {
+    after(() =>
+      notifySupportInbox({
+        kind: 'sos',
+        id: alert.id,
+        title: `긴급 신고 · 운행 ${alert.rideId}`,
+        detail: alert.note || `위치 ${alert.lat}, ${alert.lng}`,
+        from: `${alert.fromRole === 'driver' ? '기사' : '이용자'} ${alert.fromId}`,
+      }),
+    )
+  }
+  return NextResponse.json({ ok: true, alert, duplicate: result.duplicate })
 }

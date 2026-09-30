@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { fileLostItem, lostInbox } from '@/lib/support-engine'
+import { isAdminRequest } from '@/lib/admin-auth'
+import { notifySupportInbox } from '@/lib/admin-notify'
 import type { LostItemType, LostKind, SupportActor } from '@/lib/support-types'
 import { LOST_ITEM_TYPES } from '@/lib/support-types'
 
@@ -15,6 +17,9 @@ export async function GET(request: Request) {
   const actorId = url.searchParams.get('actorId')?.trim() || ''
   const role = roleOf(url.searchParams.get('role'))
   if (!actorId || !role) return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
+  if (role === 'admin' && !isAdminRequest(request)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
   return NextResponse.json({ ok: true, items: lostInbox({ actorId, role }) })
 }
 
@@ -41,5 +46,15 @@ export async function POST(request: Request) {
     vehicle: typeof body?.vehicle === 'string' ? body.vehicle : undefined,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.error === 'forbidden' ? 403 : 400 })
-  return NextResponse.json({ ok: true, item: result.item })
+  const item = result.item
+  after(() =>
+    notifySupportInbox({
+      kind: 'lost',
+      id: item.id,
+      title: `${item.kind === 'lost' ? '분실' : '습득'} · ${item.itemType}`,
+      detail: item.description || item.route,
+      from: `${item.reporterRole === 'driver' ? '기사' : '이용자'} ${item.reporterId}`,
+    }),
+  )
+  return NextResponse.json({ ok: true, item })
 }

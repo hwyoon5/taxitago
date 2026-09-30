@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { postLostMessage } from '@/lib/support-engine'
+import { isAdminRequest } from '@/lib/admin-auth'
 import type { SupportActor } from '@/lib/support-types'
 
 export const runtime = 'nodejs'
@@ -13,6 +14,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const text = typeof body?.text === 'string' ? body.text : ''
   if (!actorId || (role !== 'passenger' && role !== 'driver' && role !== 'admin')) {
     return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
+  }
+  if (role === 'admin' && !isAdminRequest(request)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const result = postLostMessage({ itemId: id, actorId, role: role as SupportActor, text })
   if (!result.ok) {

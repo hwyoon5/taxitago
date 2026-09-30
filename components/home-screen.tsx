@@ -7279,7 +7279,7 @@ export default function HomeScreen() {
           />
         )}
         {tab !== '홈' && tab !== '기사/파트너' && (
-          <div className="fixed inset-x-0 top-0 z-30 flex items-end bg-[#241d35]/35" style={{ bottom: '4.75rem' }} onClick={() => setTab('홈')}>
+          <div className="fixed inset-x-0 top-0 z-30 flex items-end bg-[#241d35]/35" style={{ bottom: 'calc(4.75rem + env(safe-area-inset-bottom, 0px))' }} onClick={() => setTab('홈')}>
             <div className="mx-auto flex h-[min(92dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[30px] bg-[#f7f7fb] pt-3" onClick={(event) => event.stopPropagation()}>
               <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
