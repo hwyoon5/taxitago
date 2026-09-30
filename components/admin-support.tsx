@@ -161,7 +161,13 @@ export default function AdminSupportDesk() {
   const ticket = tickets.find((item) => kind === 'ticket' && item.id === selectedId) ?? null
   const item = lost.find((row) => kind === 'lost' && row.id === selectedId) ?? null
   const latestAdmin = ticket?.messages.filter((message) => message.fromRole === 'admin').at(-1) ?? null
-  const pendingCount = tickets.filter((row) => row.status === 'received').length + lost.filter((row) => row.status === 'open').length
+  const needsAdmin = (row: SupportTicket) =>
+    row.status !== 'closed' &&
+    row.status !== 'resolved' &&
+    (row.needsReview === true || row.status === 'received' || row.status === 'waiting')
+  const pendingTickets = tickets.filter(needsAdmin)
+  const otherTickets = tickets.filter((row) => !needsAdmin(row))
+  const pendingCount = pendingTickets.length + lost.filter((row) => row.status === 'open').length
 
   const openTicket = (next: SupportTicket) => {
     setKind('ticket')
@@ -245,6 +251,23 @@ export default function AdminSupportDesk() {
       .catch((error) => guard(error, '답변을 저장하지 못했어요.'))
       .finally(() => setBusy(false))
   }
+
+  const ticketCard = (row: SupportTicket, pending: boolean) => (
+    <button key={row.id} type="button" onClick={() => openTicket(row)} className={`w-full rounded-2xl border-2 bg-white p-3 text-left ${pending ? 'border-[#FCA5A5]' : 'border-[#CBD5E1]'} ${selectedId === row.id && kind === 'ticket' ? 'border-[#4C1FB8]' : ''}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[11px] font-black text-[#4C1FB8]">
+          {TICKET_CATEGORY_LABEL[row.category]}
+          {pending ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">확인 필요</span> : null}
+          {row.autoResolved ? <span className="rounded-full bg-[#DCFCE7] px-1.5 py-0.5 text-[9px] font-black text-[#15803D]">자동 답변</span> : null}
+          {freshIds.includes(`t:${row.id}`) ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">NEW</span> : null}
+        </p>
+        <span className="rounded-full bg-[#F8F5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{TICKET_STATUS_LABEL[row.status]}</span>
+      </div>
+      <p className="mt-1 text-sm font-black">{row.subject}</p>
+      <p className="mt-1 line-clamp-2 text-xs font-bold text-[#64748B]">{row.body}</p>
+      <p className="mt-1 text-[11px] font-bold text-[#64748B]">{row.userRole === 'driver' ? '기사' : '이용자'} · {row.userId}</p>
+    </button>
+  )
 
   if (authed === null) {
     return <main className="mx-auto flex min-h-dvh w-full max-w-sm items-center justify-center bg-[#F8FAFC] text-sm font-bold text-[#64748B]">관리자 권한을 확인하는 중…</main>
@@ -358,20 +381,13 @@ export default function AdminSupportDesk() {
           {tickets.length + lost.length === 0 ? (
             <p className="rounded-2xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">아직 접수된 문의가 없습니다.</p>
           ) : null}
-          {tickets.map((row) => (
-            <button key={row.id} type="button" onClick={() => openTicket(row)} className={`w-full rounded-2xl border-2 bg-white p-3 text-left ${selectedId === row.id && kind === 'ticket' ? 'border-[#4C1FB8]' : 'border-[#CBD5E1]'}`}>
-              <div className="flex items-center justify-between gap-2">
-                <p className="flex items-center gap-1.5 text-[11px] font-black text-[#4C1FB8]">
-                  {TICKET_CATEGORY_LABEL[row.category]}
-                  {freshIds.includes(`t:${row.id}`) ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">NEW</span> : null}
-                </p>
-                <span className="rounded-full bg-[#F8F5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{TICKET_STATUS_LABEL[row.status]}</span>
-              </div>
-              <p className="mt-1 text-sm font-black">{row.subject}</p>
-              <p className="mt-1 line-clamp-2 text-xs font-bold text-[#64748B]">{row.body}</p>
-              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{row.userRole === 'driver' ? '기사' : '이용자'} · {row.userId}</p>
-            </button>
-          ))}
+          {pendingTickets.length ? (
+            <div className="space-y-2 rounded-2xl border-2 border-[#FCA5A5] bg-[#FEF2F2] p-2">
+              <p className="px-1 text-[11px] font-black text-[#DC2626]">관리자 확인 필요 · {pendingTickets.length}건</p>
+              {pendingTickets.map((row) => ticketCard(row, true))}
+            </div>
+          ) : null}
+          {otherTickets.map((row) => ticketCard(row, false))}
           {lost.map((row) => (
             <button key={row.id} type="button" onClick={() => openLost(row)} className={`w-full rounded-2xl border-2 bg-white p-3 text-left ${selectedId === row.id && kind === 'lost' ? 'border-[#4C1FB8]' : 'border-[#CBD5E1]'}`}>
               <div className="flex items-center justify-between gap-2">
@@ -391,7 +407,10 @@ export default function AdminSupportDesk() {
           {!ticket && !item ? <p className="text-sm font-bold text-[#64748B]">왼쪽 목록에서 문의를 선택해 주세요.</p> : null}
           {ticket ? (
             <div>
-              <p className="text-xs font-black text-[#4C1FB8]">{TICKET_CATEGORY_LABEL[ticket.category]} · {TICKET_STATUS_LABEL[ticket.status]}</p>
+              <p className="text-xs font-black text-[#4C1FB8]">
+                {TICKET_CATEGORY_LABEL[ticket.category]} · {TICKET_STATUS_LABEL[ticket.status]}
+                {ticket.autoResolved ? ' · 자동 답변 완료' : ''}
+              </p>
               <h2 className="mt-1 text-lg font-black">{ticket.subject}</h2>
               <p className="mt-2 text-sm font-bold leading-6 text-[#334155]">{ticket.body}</p>
               <p className="mt-2 text-[11px] font-bold text-[#64748B]">{ticket.userRole === 'driver' ? '기사' : '이용자'} · {ticket.userId}</p>
@@ -412,7 +431,7 @@ export default function AdminSupportDesk() {
               <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
                 {ticket.messages.map((message) => (
                   <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
-                    <p className="text-[10px] font-black">{message.fromRole === 'admin' ? '관리자 답변' : '고객'}</p>
+                    <p className="text-[10px] font-black">{message.fromRole === 'admin' ? (message.auto ? '자동 답변' : '관리자 답변') : '고객'}</p>
                     <p className="mt-1 leading-5">{message.text}</p>
                     {message.editedAt ? <p className="mt-1 text-[10px] font-bold text-[#8b8495]">수정됨</p> : null}
                   </div>

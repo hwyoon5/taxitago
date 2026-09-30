@@ -1,4 +1,5 @@
 import { getDriver, getRide, listRides, nowIso } from '@/lib/dispatch-store'
+import { autoReplyFor } from '@/lib/support-auto'
 import { getLostItem, getSos, getTicket, listLostItems, listSos, listTickets, saveLostItem, saveSos, saveTicket } from '@/lib/support-store'
 import type {
   LostItem,
@@ -209,28 +210,44 @@ export async function createSupportTicket(input: {
   const body = input.body.trim().slice(0, 800)
   if (!body) return { ok: false as const, error: 'empty', ticket: null as SupportTicket | null }
   const subject = (input.subject ?? '').trim().slice(0, 80) || body.slice(0, 24)
-  const ticket = await saveTicket({
+  const auto = autoReplyFor({ category: input.category, subject, body })
+  const first: TicketMessage = {
     id: crypto.randomUUID(),
+    ticketId: '',
+    fromId: input.userId,
+    fromRole: input.userRole,
+    text: body,
+    at: nowIso(),
+  }
+  const ticketId = crypto.randomUUID()
+  first.ticketId = ticketId
+  const messages: TicketMessage[] = [first]
+  if (auto) {
+    messages.push({
+      id: crypto.randomUUID(),
+      ticketId,
+      fromId: 'auto-support',
+      fromRole: 'admin',
+      text: auto,
+      at: nowIso(),
+      auto: true,
+    })
+  }
+  const saved = await saveTicket({
+    id: ticketId,
     userId: input.userId,
     userRole: input.userRole,
     category: input.category,
     subject,
     body,
     rideId: input.rideId || null,
-    status: 'received',
-    messages: [],
+    status: auto ? 'resolved' : 'received',
+    messages,
+    autoResolved: Boolean(auto),
+    needsReview: !auto,
     createdAt: nowIso(),
     updatedAt: nowIso(),
   })
-  const first: TicketMessage = {
-    id: crypto.randomUUID(),
-    ticketId: ticket.id,
-    fromId: input.userId,
-    fromRole: input.userRole,
-    text: body,
-    at: nowIso(),
-  }
-  const saved = await saveTicket({ ...ticket, messages: [first] })
   return { ok: true as const, ticket: saved }
 }
 
@@ -261,10 +278,13 @@ export async function postTicketMessage(input: { ticketId: string; actorId: stri
       : ticket.status === 'in_progress' || ticket.status === 'resolved'
         ? 'waiting'
         : ticket.status
+  const needsReview =
+    input.role === 'admin' ? false : ticket.autoResolved || ticket.needsReview === true ? true : ticket.needsReview
   const next = await saveTicket({
     ...ticket,
     messages: [...ticket.messages, message],
     status,
+    needsReview,
     updatedAt: nowIso(),
   })
   return { ok: true as const, ticket: next, message }

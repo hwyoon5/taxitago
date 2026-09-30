@@ -67,6 +67,7 @@ export type TicketMessage = {
   text: string
   at: string
   editedAt?: string
+  auto?: boolean
 }
 
 export type SupportTicket = {
@@ -79,6 +80,8 @@ export type SupportTicket = {
   rideId: string | null
   status: TicketStatus
   messages: TicketMessage[]
+  autoResolved?: boolean
+  needsReview?: boolean
   createdAt: string
   updatedAt: string
 }

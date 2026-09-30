@@ -43,7 +43,8 @@ export async function POST(request: Request) {
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
   const ticket = result.ticket
-  after(() =>
+  if (!ticket.autoResolved) {
+    after(() =>
     notifySupportInbox({
       kind: 'ticket',
       id: ticket.id,
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
       detail: ticket.body,
       from: `${ticket.userRole === 'driver' ? '기사' : '이용자'} ${ticket.userId}`,
     }),
-  )
+    )
+  }
   return NextResponse.json({ ok: true, ticket })
 }

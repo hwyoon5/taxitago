@@ -259,7 +259,7 @@ function TicketList({ tickets, onOpen }: { tickets: SupportTicket[]; onOpen: (ti
             <p className="text-[11px] font-black text-[#4C1FB8]">{TICKET_CATEGORY_LABEL[ticket.category]}</p>
             <span className="flex items-center gap-1.5">
               {ticket.messages.some((message) => message.fromRole === 'admin') ? (
-                <span className="rounded-full bg-[#ECFDF5] px-2 py-1 text-[10px] font-black text-[#047857]">답변 완료</span>
+                <span className="rounded-full bg-[#ECFDF5] px-2 py-1 text-[10px] font-black text-[#047857]">{ticket.autoResolved ? '자동 답변 완료' : '답변 완료'}</span>
               ) : null}
               <span className="rounded-full bg-[#F8F5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">{TICKET_STATUS_LABEL[ticket.status]}</span>
             </span>
@@ -314,7 +314,7 @@ function TicketThread({
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
           {ticket.messages.map((message) => (
             <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
-              <p className="text-[10px] font-black">{message.fromRole === 'admin' ? '고객지원 답변' : '나'}</p>
+              <p className="text-[10px] font-black">{message.fromRole === 'admin' ? (message.auto ? '자동 답변' : '고객지원 답변') : '나'}</p>
               <p className="mt-1 leading-5">{message.text}</p>
               {message.editedAt ? <p className="mt-1 text-[10px] font-bold opacity-70">수정됨</p> : null}
             </div>
