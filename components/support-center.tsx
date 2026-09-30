@@ -492,10 +492,30 @@ function LostThread({
             </div>
           )) : <p className="text-sm font-bold text-[#64748B]">아직 답변이 없습니다.</p>}
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => void setLostStatus(item.id, 'returned', actorId, role).then(onUpdate)} className="rounded-2xl bg-[#047857] py-2.5 text-xs font-black text-white">반환 완료</button>
-          <button type="button" onClick={() => void setLostStatus(item.id, 'closed', actorId, role).then(onUpdate)} className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]">종료</button>
-        </div>
+        {item.status === 'returned' || item.status === 'closed' ? (
+          <p className="mt-3 rounded-2xl bg-[#F8F5FF] px-3 py-2.5 text-center text-xs font-black text-[#4C1FB8]">
+            {item.status === 'returned' ? '물건 반환이 완료된 건입니다.' : '종료된 건입니다.'}
+          </p>
+        ) : (
+          <div className={`mt-3 grid gap-2 ${item.status === 'open' ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            {item.status !== 'open' ? (
+              <button
+                type="button"
+                onClick={() => void setLostStatus(item.id, 'returned', actorId, role).then(onUpdate).catch(() => undefined)}
+                className="rounded-2xl bg-[#047857] py-2.5 text-xs font-black text-white"
+              >
+                {role === 'driver' ? '반환 완료' : '수령 확인'}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void setLostStatus(item.id, 'closed', actorId, role).then(onUpdate).catch(() => undefined)}
+              className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]"
+            >
+              종료
+            </button>
+          </div>
+        )}
         <div className="relative mt-2">
           <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={role === 'driver' ? '승객에게 메시지' : '기사님께 메시지'} className="h-11 w-full rounded-2xl border-2 border-[#CBD5E1] py-0 pl-3 pr-[4.25rem] text-sm font-bold" />
           <button

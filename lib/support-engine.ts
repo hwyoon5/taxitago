@@ -209,11 +209,22 @@ export async function postLostMessage(input: { itemId: string; actorId: string; 
   return { ok: true as const, item: next, message }
 }
 
+const LOST_TRANSITIONS: Record<LostStatus, { from: LostStatus[]; roles: SupportActor[] }> = {
+  open: { from: ['matched', 'talking'], roles: ['admin'] },
+  matched: { from: ['open'], roles: ['admin'] },
+  talking: { from: ['open', 'matched'], roles: ['passenger', 'driver', 'admin'] },
+  returned: { from: ['matched', 'talking'], roles: ['passenger', 'driver', 'admin'] },
+  closed: { from: ['open', 'matched', 'talking', 'returned'], roles: ['passenger', 'driver', 'admin'] },
+}
+
 export async function updateLostStatus(id: string, status: LostStatus, actorId: string, role: SupportActor) {
   const item = await getLostItem(id)
-  if (!item) return null
-  if (!canTalkLost(item, actorId, role)) return null
-  return saveLostItem({ ...item, status, updatedAt: nowIso() })
+  if (!item) return { ok: false as const, error: 'not_found', item: null as LostItem | null }
+  if (!canTalkLost(item, actorId, role)) return { ok: false as const, error: 'forbidden', item: null }
+  const rule = LOST_TRANSITIONS[status]
+  if (!rule?.from.includes(item.status)) return { ok: false as const, error: 'invalid_transition', item }
+  if (!rule.roles.includes(role)) return { ok: false as const, error: 'forbidden', item: null }
+  return { ok: true as const, item: await saveLostItem({ ...item, status, updatedAt: nowIso() }) }
 }
 
 export async function createSupportTicket(input: {

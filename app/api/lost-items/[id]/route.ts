@@ -27,7 +27,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (role === 'admin' && !isAdminRequest(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const item = await updateLostStatus(id, status as LostStatus, actorId, role as SupportActor)
-  if (!item) return NextResponse.json({ error: 'not_found' }, { status: 404 })
-  return NextResponse.json({ ok: true, item })
+  const result = await updateLostStatus(id, status as LostStatus, actorId, role as SupportActor)
+  if (!result.ok) {
+    const code = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 409
+    return NextResponse.json({ error: result.error }, { status: code })
+  }
+  return NextResponse.json({ ok: true, item: result.item })
 }
