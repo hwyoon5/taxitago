@@ -1,4 +1,5 @@
 import { getDriver, getRide, listRides, nowIso } from '@/lib/dispatch-store'
+import { getPartnerLink } from '@/lib/partner-ledger-server'
 import { autoReplyFor } from '@/lib/support-auto'
 import { getLostItem, getSos, getTicket, listLostItems, listSos, listTickets, saveLostItem, saveSos, saveTicket } from '@/lib/support-store'
 import type {
@@ -25,6 +26,20 @@ function routeLabel(ride: NonNullable<ReturnType<typeof getRide>>) {
 function actorOnRide(ride: NonNullable<ReturnType<typeof getRide>>, actorId: string, role: Exclude<SupportActor, 'admin'>) {
   if (role === 'passenger') return ride.passengerId === actorId
   return ride.assignedDriverId === actorId
+}
+
+function serviceRoleLabel(role: string | undefined, serviceType: string | undefined) {
+  if (role === '파트너') return serviceType ? `파트너 · ${serviceType}` : '파트너'
+  if (serviceType === '대리운전') return '대리 기사'
+  if (serviceType === '택배') return '택배 기사'
+  return '택시 기사'
+}
+
+function reporterOf(userId: string, userRole: SupportActor) {
+  const link = getPartnerLink(userId)
+  const driver = userRole === 'driver' ? getDriver(userId) : null
+  const label = link ? serviceRoleLabel(link.role, link.serviceType) : userRole === 'driver' ? '택시 기사' : '이용자(승객)'
+  return { label, name: link?.name || driver?.name || '', phone: link?.phone || '' }
 }
 
 export async function raiseSosAlert(input: {
@@ -152,13 +167,15 @@ export async function fileLostItem(input: {
 }
 
 export async function lostInbox(filter: { actorId: string; role: SupportActor }) {
-  return (await listLostItems()).filter((item) => {
-    if (filter.role === 'admin') return true
-    if (item.reporterId === filter.actorId) return true
-    if (filter.role === 'driver' && item.driverId === filter.actorId) return true
-    if (filter.role === 'passenger' && item.passengerId === filter.actorId) return true
-    return false
-  })
+  return (await listLostItems())
+    .filter((item) => {
+      if (filter.role === 'admin') return true
+      if (item.reporterId === filter.actorId) return true
+      if (filter.role === 'driver' && item.driverId === filter.actorId) return true
+      if (filter.role === 'passenger' && item.passengerId === filter.actorId) return true
+      return false
+    })
+    .map((item) => ({ ...item, reporter: reporterOf(item.reporterId, item.reporterRole) }))
 }
 
 function canTalkLost(item: LostItem, actorId: string, role: SupportActor) {
@@ -252,8 +269,11 @@ export async function createSupportTicket(input: {
 }
 
 export async function ticketInbox(filter: { actorId?: string; role?: SupportActor }) {
-  if (filter.role === 'admin' || !filter.actorId) return listTickets()
-  return (await listTickets()).filter((item) => item.userId === filter.actorId)
+  const tickets =
+    filter.role === 'admin' || !filter.actorId
+      ? await listTickets()
+      : (await listTickets()).filter((item) => item.userId === filter.actorId)
+  return tickets.map((item) => ({ ...item, reporter: reporterOf(item.userId, item.userRole) }))
 }
 
 export async function postTicketMessage(input: { ticketId: string; actorId: string; role: SupportActor; text: string }) {

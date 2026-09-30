@@ -35,6 +35,12 @@ export type LostMessage = {
   at: string
 }
 
+export type ReporterInfo = {
+  label: string
+  name: string
+  phone: string
+}
+
 export type LostItem = {
   id: string
   kind: LostKind
@@ -45,6 +51,7 @@ export type LostItem = {
   route: string
   reporterId: string
   reporterRole: Exclude<SupportActor, 'admin'>
+  reporter?: ReporterInfo
   driverId: string | null
   driverName: string
   passengerId: string | null
@@ -79,6 +86,7 @@ export type SupportTicket = {
   body: string
   rideId: string | null
   status: TicketStatus
+  reporter?: ReporterInfo
   messages: TicketMessage[]
   autoResolved?: boolean
   needsReview?: boolean

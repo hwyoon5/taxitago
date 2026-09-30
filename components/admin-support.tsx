@@ -252,10 +252,22 @@ export default function AdminSupportDesk() {
       .finally(() => setBusy(false))
   }
 
+  const roleBadge = (label: string) => {
+    const tone = label.includes('기사')
+      ? 'bg-[#DBEAFE] text-[#1D4ED8]'
+      : label.startsWith('파트너')
+        ? 'bg-[#DCFCE7] text-[#15803D]'
+        : 'bg-[#F1F5F9] text-[#475569]'
+    return <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${tone}`}>{label}</span>
+  }
+  const reporterLine = (reporter: SupportTicket['reporter'] | undefined, id: string) =>
+    `${reporter?.name ? `${reporter.name} · ` : ''}${id}${reporter?.phone ? ` · ${reporter.phone}` : ''}`
+
   const ticketCard = (row: SupportTicket, pending: boolean) => (
     <button key={row.id} type="button" onClick={() => openTicket(row)} className={`w-full rounded-2xl border-2 bg-white p-3 text-left ${pending ? 'border-[#FCA5A5]' : 'border-[#CBD5E1]'} ${selectedId === row.id && kind === 'ticket' ? 'border-[#4C1FB8]' : ''}`}>
       <div className="flex items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-[11px] font-black text-[#4C1FB8]">
+          {roleBadge(row.reporter?.label ?? (row.userRole === 'driver' ? '기사' : '이용자(승객)'))}
           {TICKET_CATEGORY_LABEL[row.category]}
           {pending ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">확인 필요</span> : null}
           {row.autoResolved ? <span className="rounded-full bg-[#DCFCE7] px-1.5 py-0.5 text-[9px] font-black text-[#15803D]">자동 답변</span> : null}
@@ -265,7 +277,7 @@ export default function AdminSupportDesk() {
       </div>
       <p className="mt-1 text-sm font-black">{row.subject}</p>
       <p className="mt-1 line-clamp-2 text-xs font-bold text-[#64748B]">{row.body}</p>
-      <p className="mt-1 text-[11px] font-bold text-[#64748B]">{row.userRole === 'driver' ? '기사' : '이용자'} · {row.userId}</p>
+      <p className="mt-1 text-[11px] font-bold text-[#64748B]">{reporterLine(row.reporter, row.userId)}</p>
     </button>
   )
 
@@ -392,6 +404,7 @@ export default function AdminSupportDesk() {
             <button key={row.id} type="button" onClick={() => openLost(row)} className={`w-full rounded-2xl border-2 bg-white p-3 text-left ${selectedId === row.id && kind === 'lost' ? 'border-[#4C1FB8]' : 'border-[#CBD5E1]'}`}>
               <div className="flex items-center justify-between gap-2">
                 <p className="flex items-center gap-1.5 text-[11px] font-black text-[#4C1FB8]">
+                  {roleBadge(row.reporter?.label ?? (row.reporterRole === 'driver' ? '기사' : '이용자(승객)'))}
                   분실물 · {row.kind === 'lost' ? '분실' : '습득'}
                   {freshIds.includes(`l:${row.id}`) ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">NEW</span> : null}
                 </p>
@@ -399,7 +412,7 @@ export default function AdminSupportDesk() {
               </div>
               <p className="mt-1 text-sm font-black">{row.itemType}</p>
               <p className="mt-1 line-clamp-2 text-xs font-bold text-[#64748B]">{row.description || row.route}</p>
-              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{row.reporterRole === 'driver' ? '기사' : '이용자'} · {row.reporterId}</p>
+              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{reporterLine(row.reporter, row.reporterId)}</p>
             </button>
           ))}
         </section>
@@ -413,7 +426,10 @@ export default function AdminSupportDesk() {
               </p>
               <h2 className="mt-1 text-lg font-black">{ticket.subject}</h2>
               <p className="mt-2 text-sm font-bold leading-6 text-[#334155]">{ticket.body}</p>
-              <p className="mt-2 text-[11px] font-bold text-[#64748B]">{ticket.userRole === 'driver' ? '기사' : '이용자'} · {ticket.userId}</p>
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-[#64748B]">
+                {roleBadge(ticket.reporter?.label ?? (ticket.userRole === 'driver' ? '기사' : '이용자(승객)'))}
+                {reporterLine(ticket.reporter, ticket.userId)}
+              </p>
               <select
                 value={ticket.status}
                 onChange={(event) => {
@@ -449,7 +465,10 @@ export default function AdminSupportDesk() {
               <p className="text-xs font-black text-[#4C1FB8]">분실물 · {LOST_STATUS_LABEL[item.status]}</p>
               <h2 className="mt-1 text-lg font-black">{item.itemType}</h2>
               <p className="mt-2 text-sm font-bold leading-6 text-[#334155]">{item.description || item.route}</p>
-              <p className="mt-2 text-[11px] font-bold text-[#64748B]">{item.reporterRole === 'driver' ? '기사' : '이용자'} · {item.reporterId}</p>
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-[#64748B]">
+                {roleBadge(item.reporter?.label ?? (item.reporterRole === 'driver' ? '기사' : '이용자(승객)'))}
+                {reporterLine(item.reporter, item.reporterId)}
+              </p>
               <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
                 {item.messages.map((message) => (
                   <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : 'bg-[#F1F5F9]'}`}>
