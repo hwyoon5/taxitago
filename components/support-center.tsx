@@ -320,8 +320,8 @@ function TicketThread({
             </div>
           ))}
         </div>
-        <div className="mt-3 flex gap-2">
-          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="추가 문의" className="flex-1 rounded-2xl border-2 border-[#CBD5E1] px-3 py-2.5 text-sm font-bold outline-none" />
+        <div className="relative mt-3">
+          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="추가 문의" className="h-11 w-full rounded-2xl border-2 border-[#CBD5E1] py-0 pl-3 pr-[4.25rem] text-sm font-bold outline-none" />
           <button
             type="button"
             onClick={() => {
@@ -330,7 +330,7 @@ function TicketThread({
               setDraft('')
               void sendTicketMessage(ticket.id, actorId, role, text).then(onUpdate)
             }}
-            className="rounded-2xl bg-[#4C1FB8] px-4 text-sm font-black text-white"
+            className="absolute right-1.5 top-1/2 flex h-8 w-14 -translate-y-1/2 items-center justify-center whitespace-nowrap rounded-xl bg-[#4C1FB8] text-xs font-black text-white"
           >
             전송
           </button>
@@ -478,8 +478,8 @@ function LostThread({
           <button type="button" onClick={() => void setLostStatus(item.id, 'returned', actorId, role).then(onUpdate)} className="rounded-2xl bg-[#047857] py-2.5 text-xs font-black text-white">반환 완료</button>
           <button type="button" onClick={() => void setLostStatus(item.id, 'closed', actorId, role).then(onUpdate)} className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]">종료</button>
         </div>
-        <div className="mt-2 flex gap-2">
-          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="기사님께 메시지" className="flex-1 rounded-2xl border-2 border-[#CBD5E1] px-3 py-2.5 text-sm font-bold" />
+        <div className="relative mt-2">
+          <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="기사님께 메시지" className="h-11 w-full rounded-2xl border-2 border-[#CBD5E1] py-0 pl-3 pr-[4.25rem] text-sm font-bold" />
           <button
             type="button"
             onClick={() => {
@@ -488,7 +488,7 @@ function LostThread({
               setDraft('')
               void sendLostMessage(item.id, actorId, role, text).then(onUpdate)
             }}
-            className="rounded-2xl bg-[#4C1FB8] px-4 text-sm font-black text-white"
+            className="absolute right-1.5 top-1/2 flex h-8 w-14 -translate-y-1/2 items-center justify-center whitespace-nowrap rounded-xl bg-[#4C1FB8] text-xs font-black text-white"
           >
             전송
           </button>
