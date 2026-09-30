@@ -25,7 +25,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!actorId || (role !== 'passenger' && role !== 'driver' && role !== 'admin')) {
     return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
   }
-  if (role === 'admin' && !isAdminRequest(request)) {
+  if (role === 'admin' && !(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const result = await postTicketMessage({ ticketId: id, actorId, role: role as SupportActor, text })
@@ -38,7 +38,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
-  if (!isAdminRequest(request)) {
+  if (!(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null

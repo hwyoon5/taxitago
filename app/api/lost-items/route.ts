@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const actorId = url.searchParams.get('actorId')?.trim() || ''
   const role = roleOf(url.searchParams.get('role'))
   if (!actorId || !role) return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
-  if (role === 'admin' && !isAdminRequest(request)) {
+  if (role === 'admin' && !(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   return NextResponse.json({ ok: true, items: await lostInbox({ actorId, role }) })

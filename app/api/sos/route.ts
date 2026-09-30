@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const actorId = url.searchParams.get('actorId')?.trim() || undefined
   const role = roleOf(url.searchParams.get('role'))
   const openOnly = url.searchParams.get('open') === '1'
-  if (role === 'admin' && !isAdminRequest(request)) {
+  if (role === 'admin' && !(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   return NextResponse.json({ ok: true, alerts: await sosInbox({ actorId, role: role ?? undefined, openOnly }) })

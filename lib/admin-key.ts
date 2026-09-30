@@ -16,3 +16,32 @@ export function adminHeaders(): Record<string, string> {
   const key = getAdminKey()
   return key ? { 'x-admin-key': key } : {}
 }
+
+export async function adminLogin(password: string) {
+  const res = await fetch('/api/admin/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+  const data = (await res.json().catch(() => null)) as { token?: string; expiresAt?: string; error?: string } | null
+  if (!res.ok || !data?.token) throw new Error(data?.error || 'login_failed')
+  setAdminKey(data.token)
+  return data
+}
+
+export async function adminLogout() {
+  const token = getAdminKey()
+  setAdminKey('')
+  if (!token) return
+  await fetch('/api/admin/session', { method: 'DELETE', headers: { 'x-admin-key': token } }).catch(() => undefined)
+}
+
+export async function adminResetPassword(code: string, newPassword: string) {
+  const res = await fetch('/api/admin/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, newPassword }),
+  })
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+  if (!res.ok || !data?.ok) throw new Error(data?.error || 'reset_failed')
+}

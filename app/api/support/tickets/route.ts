@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const actorId = url.searchParams.get('actorId')?.trim() || undefined
   const role = roleOf(url.searchParams.get('role'))
-  if (role === 'admin' && !isAdminRequest(request)) {
+  if (role === 'admin' && !(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   return NextResponse.json({ ok: true, tickets: await ticketInbox({ actorId, role: role ?? undefined }), storage: supportStorageBackend() })

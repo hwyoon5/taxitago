@@ -24,7 +24,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!actorId || (role !== 'passenger' && role !== 'driver' && role !== 'admin') || !allowed.includes(status as LostStatus)) {
     return NextResponse.json({ error: 'actorId, role, status required' }, { status: 400 })
   }
-  if (role === 'admin' && !isAdminRequest(request)) {
+  if (role === 'admin' && !(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const result = await updateLostStatus(id, status as LostStatus, actorId, role as SupportActor)
