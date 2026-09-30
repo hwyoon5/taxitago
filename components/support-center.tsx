@@ -59,14 +59,18 @@ export default function SupportCenter({
   const [openLost, setOpenLost] = useState<LostItem | null>(null)
 
   const reload = () => {
-    void fetchTickets(actorId, actorRole).then((next) => {
-      setTickets(next)
-      setOpenTicket((current) => current ? next.find((item) => item.id === current.id) ?? current : current)
-    })
-    void fetchLostInbox(actorId, actorRole).then((next) => {
-      setLost(next)
-      setOpenLost((current) => current ? next.find((item) => item.id === current.id) ?? current : current)
-    })
+    void fetchTickets(actorId, actorRole)
+      .then((next) => {
+        setTickets(next)
+        setOpenTicket((current) => current ? next.find((item) => item.id === current.id) ?? current : current)
+      })
+      .catch(() => undefined)
+    void fetchLostInbox(actorId, actorRole)
+      .then((next) => {
+        setLost(next)
+        setOpenLost((current) => current ? next.find((item) => item.id === current.id) ?? current : current)
+      })
+      .catch(() => undefined)
   }
 
   useEffect(() => {
@@ -181,6 +185,7 @@ function TicketForm({
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
   const categories: TicketCategory[] = ['fare_dispute', 'general', 'payment', 'safety', 'lost']
   return (
     <div>
@@ -215,19 +220,21 @@ function TicketForm({
         disabled={busy || !body.trim()}
         onClick={() => {
           setBusy(true)
+          setError('')
           void createTicket({ userId: actorId, userRole: actorRole, category, subject, body })
-            .then(onCreated)
-            .catch(() => undefined)
-            .finally(() => {
-              setBusy(false)
+            .then((ticket) => {
               setBody('')
               setSubject('')
+              onCreated(ticket)
             })
+            .catch((reason) => setError(reason instanceof Error && reason.message ? `접수에 실패했습니다 (${reason.message}). 잠시 후 다시 시도해 주세요.` : '접수에 실패했습니다. 잠시 후 다시 시도해 주세요.'))
+            .finally(() => setBusy(false))
         }}
         className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white disabled:opacity-60"
       >
         {busy ? '접수 중…' : '문의 보내기'}
       </button>
+      {error ? <p className="mt-2 text-center text-xs font-black text-[#DC2626]">{error}</p> : null}
       <p className="mt-3 text-center text-xs font-bold text-[#64748B]">긴급 전화 1588-0000 · 매일 09:00–22:00</p>
     </div>
   )

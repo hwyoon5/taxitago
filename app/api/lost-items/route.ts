@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   if (role === 'admin' && !isAdminRequest(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  return NextResponse.json({ ok: true, items: lostInbox({ actorId, role }) })
+  return NextResponse.json({ ok: true, items: await lostInbox({ actorId, role }) })
 }
 
 export async function POST(request: Request) {
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   if (!kind || !itemType || !reporterId || !reporterRole) {
     return NextResponse.json({ error: 'kind, itemType, reporterId, reporterRole required' }, { status: 400 })
   }
-  const result = fileLostItem({
+  const result = await fileLostItem({
     kind,
     itemType,
     description: typeof body?.description === 'string' ? body.description : '',

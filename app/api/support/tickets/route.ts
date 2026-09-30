@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   if (role === 'admin' && !isAdminRequest(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  return NextResponse.json({ ok: true, tickets: ticketInbox({ actorId, role: role ?? undefined }) })
+  return NextResponse.json({ ok: true, tickets: await ticketInbox({ actorId, role: role ?? undefined }) })
 }
 
 export async function POST(request: Request) {
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   if (!userId || !userRole || !category) {
     return NextResponse.json({ error: 'userId, userRole, category required' }, { status: 400 })
   }
-  const result = createSupportTicket({
+  const result = await createSupportTicket({
     userId,
     userRole,
     category,

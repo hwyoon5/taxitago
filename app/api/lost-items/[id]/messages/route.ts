@@ -18,7 +18,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (role === 'admin' && !isAdminRequest(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const result = postLostMessage({ itemId: id, actorId, role: role as SupportActor, text })
+  const result = await postLostMessage({ itemId: id, actorId, role: role as SupportActor, text })
   if (!result.ok) {
     const status = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 400
     return NextResponse.json({ error: result.error }, { status })

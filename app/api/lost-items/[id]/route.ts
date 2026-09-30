@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
-  const item = getLostItem(id)
+  const item = await getLostItem(id)
   if (!item) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   return NextResponse.json({ ok: true, item })
 }
@@ -27,7 +27,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (role === 'admin' && !isAdminRequest(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const item = updateLostStatus(id, status as LostStatus, actorId, role as SupportActor)
+  const item = await updateLostStatus(id, status as LostStatus, actorId, role as SupportActor)
   if (!item) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   return NextResponse.json({ ok: true, item })
 }

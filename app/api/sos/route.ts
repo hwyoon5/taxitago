@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   if (role === 'admin' && !isAdminRequest(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  return NextResponse.json({ ok: true, alerts: sosInbox({ actorId, role: role ?? undefined, openOnly }) })
+  return NextResponse.json({ ok: true, alerts: await sosInbox({ actorId, role: role ?? undefined, openOnly }) })
 }
 
 export async function POST(request: Request) {
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   if (!rideId || !fromId || !fromRole || !Number.isFinite(lat) || !Number.isFinite(lng)) {
     return NextResponse.json({ error: 'rideId, fromId, fromRole, lat, lng required' }, { status: 400 })
   }
-  const result = raiseSosAlert({
+  const result = await raiseSosAlert({
     rideId,
     fromId,
     fromRole,

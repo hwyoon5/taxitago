@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
-  const alert = getSos(id)
+  const alert = await getSos(id)
   if (!alert) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   return NextResponse.json({ ok: true, alert })
 }
@@ -24,7 +24,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (status !== 'open' && status !== 'acked' && status !== 'resolved') {
     return NextResponse.json({ error: 'status required' }, { status: 400 })
   }
-  const alert = updateSosStatus(id, status as SosStatus)
+  const alert = await updateSosStatus(id, status as SosStatus)
   if (!alert) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   return NextResponse.json({ ok: true, alert })
 }

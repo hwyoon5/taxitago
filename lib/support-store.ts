@@ -15,7 +15,59 @@ type PersistShape = {
   tickets?: SupportTicket[]
 }
 
+type EntityKind = 'sos' | 'lost' | 'ticket'
+
 const persistFile = path.join(process.cwd(), 'data', 'support.json')
+
+const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
+const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
+const useKv = Boolean(kvUrl && kvToken)
+
+const entityKey = (kind: EntityKind, id: string) => `taxitago:support:${kind}:${id}`
+const indexKey = (kind: EntityKind) => `taxitago:support:index:${kind}`
+
+async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
+  const res = await fetch(kvUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
+  const data = (await res.json()) as { result?: T | null }
+  return data.result ?? null
+}
+
+async function kvSave<T extends { id: string }>(kind: EntityKind, value: T) {
+  await kvCommand(['SET', entityKey(kind, value.id), JSON.stringify(value)])
+  await kvCommand(['SADD', indexKey(kind), value.id])
+}
+
+async function kvGet<T>(kind: EntityKind, id: string): Promise<T | null> {
+  const raw = await kvCommand<string | null>(['GET', entityKey(kind, id)])
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+async function kvList<T>(kind: EntityKind): Promise<T[]> {
+  const ids = (await kvCommand<string[]>(['SMEMBERS', indexKey(kind)])) ?? []
+  if (!ids.length) return []
+  const raw = (await kvCommand<(string | null)[]>(['MGET', ...ids.map((id) => entityKey(kind, id))])) ?? []
+  const items: T[] = []
+  for (const value of raw) {
+    if (!value) continue
+    try {
+      items.push(JSON.parse(value) as T)
+    } catch {
+      undefined
+    }
+  }
+  return items
+}
 
 function db(): SupportDb {
   const globalStore = globalThis as typeof globalThis & { __taxitagoSupport?: SupportDb }
@@ -87,50 +139,65 @@ function persist() {
   }
 }
 
-export function saveSos(alert: SosAlert) {
-  db().sos.set(alert.id, alert)
-  persist()
+export async function saveSos(alert: SosAlert) {
+  if (useKv) await kvSave('sos', alert)
+  else {
+    db().sos.set(alert.id, alert)
+    persist()
+  }
   return alert
 }
 
-export function getSos(id: string) {
+export async function getSos(id: string) {
+  if (useKv) return kvGet<SosAlert>('sos', id)
   syncSupportFromDisk()
   return db().sos.get(id) ?? null
 }
 
-export function listSos() {
+export async function listSos() {
+  if (useKv) return (await kvList<SosAlert>('sos')).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   syncSupportFromDisk()
   return [...db().sos.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
-export function saveLostItem(item: LostItem) {
-  db().lost.set(item.id, item)
-  persist()
+export async function saveLostItem(item: LostItem) {
+  if (useKv) await kvSave('lost', item)
+  else {
+    db().lost.set(item.id, item)
+    persist()
+  }
   return item
 }
 
-export function getLostItem(id: string) {
+export async function getLostItem(id: string) {
+  if (useKv) return kvGet<LostItem>('lost', id)
   syncSupportFromDisk()
   return db().lost.get(id) ?? null
 }
 
-export function listLostItems() {
+export async function listLostItems() {
+  if (useKv) return (await kvList<LostItem>('lost')).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   syncSupportFromDisk()
   return [...db().lost.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
-export function saveTicket(ticket: SupportTicket) {
-  db().tickets.set(ticket.id, ticket)
-  persist()
+export async function saveTicket(ticket: SupportTicket) {
+  if (useKv) await kvSave('ticket', ticket)
+  else {
+    db().tickets.set(ticket.id, ticket)
+    persist()
+  }
   return ticket
 }
 
-export function getTicket(id: string) {
+export async function getTicket(id: string) {
+  if (useKv) return kvGet<SupportTicket>('ticket', id)
   syncSupportFromDisk()
   return db().tickets.get(id) ?? null
 }
 
-export function listTickets() {
+export async function listTickets() {
+  if (useKv) return (await kvList<SupportTicket>('ticket')).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   syncSupportFromDisk()
   return [...db().tickets.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }

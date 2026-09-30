@@ -11,7 +11,7 @@ const STATUSES: TicketStatus[] = ['received', 'in_progress', 'waiting', 'resolve
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
-  const ticket = getTicket(id)
+  const ticket = await getTicket(id)
   if (!ticket) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   return NextResponse.json({ ok: true, ticket })
 }
@@ -28,7 +28,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (role === 'admin' && !isAdminRequest(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const result = postTicketMessage({ ticketId: id, actorId, role: role as SupportActor, text })
+  const result = await postTicketMessage({ ticketId: id, actorId, role: role as SupportActor, text })
   if (!result.ok) {
     const status = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 400
     return NextResponse.json({ error: result.error }, { status })
@@ -45,7 +45,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const messageId = typeof body?.messageId === 'string' ? body.messageId.trim() : ''
   const text = typeof body?.text === 'string' ? body.text : ''
   if (messageId) {
-    const result = editTicketMessage({
+    const result = await editTicketMessage({
       ticketId: id,
       messageId,
       role: body?.role === 'admin' ? 'admin' : 'passenger',
@@ -61,7 +61,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!STATUSES.includes(status as TicketStatus)) {
     return NextResponse.json({ error: 'status required' }, { status: 400 })
   }
-  const ticket = setTicketStatus(id, status as TicketStatus)
+  const ticket = await setTicketStatus(id, status as TicketStatus)
   if (!ticket) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   return NextResponse.json({ ok: true, ticket })
 }

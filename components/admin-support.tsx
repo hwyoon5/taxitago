@@ -97,13 +97,15 @@ export default function AdminSupportDesk() {
     setRefreshing(true)
     void Promise.allSettled([fetchTickets(ADMIN_ID, 'admin'), fetchLostInbox(ADMIN_ID, 'admin')]).then(
       ([ticketResult, lostResult]) => {
-        if (ticketResult.status === 'rejected' && ticketResult.reason instanceof Error && ticketResult.reason.message === 'unauthorized') {
+        const denied =
+          (ticketResult.status === 'rejected' && ticketResult.reason instanceof Error && ticketResult.reason.message === 'unauthorized') ||
+          (lostResult.status === 'rejected' && lostResult.reason instanceof Error && lostResult.reason.message === 'unauthorized')
+        if (denied) {
           setRefreshing(false)
-          setAuthed(false)
-          return
-        }
-        if (lostResult.status === 'rejected' && lostResult.reason instanceof Error && lostResult.reason.message === 'unauthorized') {
-          setRefreshing(false)
+          if (getAdminKey()) {
+            setAdminKey('')
+            setAuthError('인증 코드가 올바르지 않습니다.')
+          }
           setAuthed(false)
           return
         }
@@ -200,22 +202,7 @@ export default function AdminSupportDesk() {
     setAdminKey(key)
     setKeyDraft('')
     setAuthError('')
-    void Promise.allSettled([fetchTickets(ADMIN_ID, 'admin'), fetchLostInbox(ADMIN_ID, 'admin')]).then(
-      ([ticketResult, lostResult]) => {
-        const denied =
-          (ticketResult.status === 'rejected' && ticketResult.reason instanceof Error && ticketResult.reason.message === 'unauthorized') ||
-          (lostResult.status === 'rejected' && lostResult.reason instanceof Error && lostResult.reason.message === 'unauthorized')
-        if (denied) {
-          setAdminKey('')
-          setAuthError('인증 코드가 올바르지 않습니다.')
-          setAuthed(false)
-          return
-        }
-        setAuthed(true)
-        if (ticketResult.status === 'fulfilled') setTickets(ticketResult.value)
-        if (lostResult.status === 'fulfilled') setLost(lostResult.value)
-      },
-    )
+    reload()
   }
   const saveTicketReply = () => {
     if (!ticket || busy) return

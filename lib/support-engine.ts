@@ -26,7 +26,7 @@ function actorOnRide(ride: NonNullable<ReturnType<typeof getRide>>, actorId: str
   return ride.assignedDriverId === actorId
 }
 
-export function raiseSosAlert(input: {
+export async function raiseSosAlert(input: {
   rideId: string
   fromId: string
   fromRole: Exclude<SupportActor, 'admin'>
@@ -43,10 +43,10 @@ export function raiseSosAlert(input: {
   if (!actorOnRide(ride, input.fromId, input.fromRole)) {
     return { ok: false as const, error: 'forbidden', alert: null }
   }
-  const existing = listSos().find((item) => item.rideId === input.rideId && item.fromId === input.fromId && item.status !== 'resolved')
+  const existing = (await listSos()).find((item) => item.rideId === input.rideId && item.fromId === input.fromId && item.status !== 'resolved')
   if (existing) return { ok: true as const, alert: existing, duplicate: true }
   const driver = ride.assignedDriverId ? getDriver(ride.assignedDriverId) : null
-  const alert = saveSos({
+  const alert = await saveSos({
     id: crypto.randomUUID(),
     rideId: ride.id,
     fromId: input.fromId,
@@ -68,14 +68,14 @@ export function raiseSosAlert(input: {
   return { ok: true as const, alert, duplicate: false }
 }
 
-export function updateSosStatus(id: string, status: SosStatus) {
-  const alert = getSos(id)
+export async function updateSosStatus(id: string, status: SosStatus) {
+  const alert = await getSos(id)
   if (!alert) return null
   return saveSos({ ...alert, status, updatedAt: nowIso() })
 }
 
-export function sosInbox(filter: { actorId?: string; role?: SupportActor; openOnly?: boolean }) {
-  return listSos().filter((item) => {
+export async function sosInbox(filter: { actorId?: string; role?: SupportActor; openOnly?: boolean }) {
+  return (await listSos()).filter((item) => {
     if (filter.openOnly && item.status === 'resolved') return false
     if (filter.role === 'driver' && filter.actorId) return item.driverId === filter.actorId
     if (filter.role === 'passenger' && filter.actorId) return item.passengerId === filter.actorId || item.fromId === filter.actorId
@@ -108,7 +108,7 @@ export function ridesForLostAndFound(userId: string, role: Exclude<SupportActor,
     })
 }
 
-export function fileLostItem(input: {
+export async function fileLostItem(input: {
   kind: LostKind
   itemType: LostItemType
   description?: string
@@ -127,7 +127,7 @@ export function fileLostItem(input: {
   }
   const driver = ride?.assignedDriverId ? getDriver(ride.assignedDriverId) : null
   const matched = Boolean(ride?.assignedDriverId)
-  const item = saveLostItem({
+  const item = await saveLostItem({
     id: crypto.randomUUID(),
     kind: input.kind,
     itemType: input.itemType,
@@ -150,8 +150,8 @@ export function fileLostItem(input: {
   return { ok: true as const, item }
 }
 
-export function lostInbox(filter: { actorId: string; role: SupportActor }) {
-  return listLostItems().filter((item) => {
+export async function lostInbox(filter: { actorId: string; role: SupportActor }) {
+  return (await listLostItems()).filter((item) => {
     if (filter.role === 'admin') return true
     if (item.reporterId === filter.actorId) return true
     if (filter.role === 'driver' && item.driverId === filter.actorId) return true
@@ -168,8 +168,8 @@ function canTalkLost(item: LostItem, actorId: string, role: SupportActor) {
   return false
 }
 
-export function postLostMessage(input: { itemId: string; actorId: string; role: SupportActor; text: string }) {
-  const item = getLostItem(input.itemId)
+export async function postLostMessage(input: { itemId: string; actorId: string; role: SupportActor; text: string }) {
+  const item = await getLostItem(input.itemId)
   if (!item) return { ok: false as const, error: 'not_found', item: null as LostItem | null }
   if (!canTalkLost(item, input.actorId, input.role)) return { ok: false as const, error: 'forbidden', item: null }
   const text = input.text.trim().slice(0, 400)
@@ -182,7 +182,7 @@ export function postLostMessage(input: { itemId: string; actorId: string; role: 
     text,
     at: nowIso(),
   }
-  const next = saveLostItem({
+  const next = await saveLostItem({
     ...item,
     messages: [...item.messages, message],
     status: item.status === 'open' || item.status === 'matched' ? 'talking' : item.status,
@@ -191,14 +191,14 @@ export function postLostMessage(input: { itemId: string; actorId: string; role: 
   return { ok: true as const, item: next, message }
 }
 
-export function updateLostStatus(id: string, status: LostStatus, actorId: string, role: SupportActor) {
-  const item = getLostItem(id)
+export async function updateLostStatus(id: string, status: LostStatus, actorId: string, role: SupportActor) {
+  const item = await getLostItem(id)
   if (!item) return null
   if (!canTalkLost(item, actorId, role)) return null
   return saveLostItem({ ...item, status, updatedAt: nowIso() })
 }
 
-export function createSupportTicket(input: {
+export async function createSupportTicket(input: {
   userId: string
   userRole: Exclude<SupportActor, 'admin'>
   category: TicketCategory
@@ -209,15 +209,7 @@ export function createSupportTicket(input: {
   const body = input.body.trim().slice(0, 800)
   if (!body) return { ok: false as const, error: 'empty', ticket: null as SupportTicket | null }
   const subject = (input.subject ?? '').trim().slice(0, 80) || body.slice(0, 24)
-  const first: TicketMessage = {
-    id: crypto.randomUUID(),
-    ticketId: '',
-    fromId: input.userId,
-    fromRole: input.userRole,
-    text: body,
-    at: nowIso(),
-  }
-  const ticket = saveTicket({
+  const ticket = await saveTicket({
     id: crypto.randomUUID(),
     userId: input.userId,
     userRole: input.userRole,
@@ -230,18 +222,25 @@ export function createSupportTicket(input: {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   })
-  first.ticketId = ticket.id
-  const saved = saveTicket({ ...ticket, messages: [first] })
+  const first: TicketMessage = {
+    id: crypto.randomUUID(),
+    ticketId: ticket.id,
+    fromId: input.userId,
+    fromRole: input.userRole,
+    text: body,
+    at: nowIso(),
+  }
+  const saved = await saveTicket({ ...ticket, messages: [first] })
   return { ok: true as const, ticket: saved }
 }
 
-export function ticketInbox(filter: { actorId?: string; role?: SupportActor }) {
+export async function ticketInbox(filter: { actorId?: string; role?: SupportActor }) {
   if (filter.role === 'admin' || !filter.actorId) return listTickets()
-  return listTickets().filter((item) => item.userId === filter.actorId)
+  return (await listTickets()).filter((item) => item.userId === filter.actorId)
 }
 
-export function postTicketMessage(input: { ticketId: string; actorId: string; role: SupportActor; text: string }) {
-  const ticket = getTicket(input.ticketId)
+export async function postTicketMessage(input: { ticketId: string; actorId: string; role: SupportActor; text: string }) {
+  const ticket = await getTicket(input.ticketId)
   if (!ticket) return { ok: false as const, error: 'not_found', ticket: null as SupportTicket | null }
   if (input.role !== 'admin' && ticket.userId !== input.actorId) {
     return { ok: false as const, error: 'forbidden', ticket: null }
@@ -256,8 +255,13 @@ export function postTicketMessage(input: { ticketId: string; actorId: string; ro
     text,
     at: nowIso(),
   }
-  const status: TicketStatus = input.role === 'admin' ? 'in_progress' : ticket.status === 'in_progress' ? 'waiting' : ticket.status
-  const next = saveTicket({
+  const status: TicketStatus =
+    input.role === 'admin'
+      ? 'resolved'
+      : ticket.status === 'in_progress' || ticket.status === 'resolved'
+        ? 'waiting'
+        : ticket.status
+  const next = await saveTicket({
     ...ticket,
     messages: [...ticket.messages, message],
     status,
@@ -266,9 +270,9 @@ export function postTicketMessage(input: { ticketId: string; actorId: string; ro
   return { ok: true as const, ticket: next, message }
 }
 
-export function editTicketMessage(input: { ticketId: string; messageId: string; role: SupportActor; text: string }) {
+export async function editTicketMessage(input: { ticketId: string; messageId: string; role: SupportActor; text: string }) {
   if (input.role !== 'admin') return { ok: false as const, error: 'forbidden', ticket: null as SupportTicket | null }
-  const ticket = getTicket(input.ticketId)
+  const ticket = await getTicket(input.ticketId)
   if (!ticket) return { ok: false as const, error: 'not_found', ticket: null }
   const text = input.text.trim().slice(0, 800)
   if (!text) return { ok: false as const, error: 'empty', ticket: null }
@@ -276,12 +280,12 @@ export function editTicketMessage(input: { ticketId: string; messageId: string; 
   if (!message) return { ok: false as const, error: 'not_found', ticket: null }
   message.text = text
   message.editedAt = nowIso()
-  const next = saveTicket({ ...ticket, updatedAt: message.editedAt })
+  const next = await saveTicket({ ...ticket, updatedAt: message.editedAt })
   return { ok: true as const, ticket: next }
 }
 
-export function setTicketStatus(id: string, status: TicketStatus) {
-  const ticket = getTicket(id)
+export async function setTicketStatus(id: string, status: TicketStatus) {
+  const ticket = await getTicket(id)
   if (!ticket) return null
   return saveTicket({ ...ticket, status, updatedAt: nowIso() })
 }
