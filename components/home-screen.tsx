@@ -2212,6 +2212,7 @@ function TaxiMatchingSheet({
         else if (next.boardedAt) setPhase('boarding')
         return
       }
+      if (matchedRef.current) return
       setRide(next)
       if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
     }
@@ -3006,6 +3007,7 @@ function ServiceSheet({
         return
       }
       if (!daeriAcceptedRef.current && (next.status === 'assigned' || next.status === 'completed')) return
+      if (daeriAcceptedRef.current && next.status !== 'assigned' && next.status !== 'completed') return
       setDispatchRide(next)
       if (next.readyToSettleAt) setRideStage('moving')
       else if (next.boardedAt) setRideStage('arriving')
@@ -6244,6 +6246,7 @@ function DriverDashboard({
   const onActivityRef = useRef(onActivity)
   onActivityRef.current = onActivity
   const lastActiveRef = useRef<PublicRide | null>(null)
+  const activeEndChecks = useRef(new Set<string>())
   const activityPrimed = useRef(false)
   const deliverySeen = useRef<string | null>(null)
   const noteActivity = useCallback((key: string, label: string, detail: string) => {
@@ -6369,15 +6372,26 @@ function DriverDashboard({
           lastActiveRef.current = active
         } else if (active === null && lastActiveRef.current) {
           const previous = lastActiveRef.current
-          if (!activityKeys.current.has(`done:${previous.id}`) && !activityKeys.current.has(`cancel:${previous.id}`)) {
-            noteActivity(`cancel:${previous.id}`, '취소', rideRoute(previous))
+          if (!activeEndChecks.current.has(previous.id)) {
+            activeEndChecks.current.add(previous.id)
+            void fetchRideRequest(previous.id).then((check) => {
+              activeEndChecks.current.delete(previous.id)
+              if (!check || (check.status !== 'completed' && check.status !== 'cancelled')) return
+              if (!activityKeys.current.has(`done:${previous.id}`) && !activityKeys.current.has(`cancel:${previous.id}`)) {
+                noteActivity(`cancel:${previous.id}`, '취소', rideRoute(previous))
+              }
+              lastActiveRef.current = null
+              setActiveRide((current) => (current?.id === previous.id ? null : current))
+            }).catch(() => {
+              activeEndChecks.current.delete(previous.id)
+            })
           }
-          lastActiveRef.current = null
         }
       }
       if (active !== undefined) {
         setActiveRide((current) => {
-          if (!active || !current || current.id !== active.id) return active
+          if (!active) return lastActiveRef.current ? current : null
+          if (!current || current.id !== active.id) return active
           const incomingLocked = active.escrow?.status === 'held' || active.escrow?.status === 'released'
           const knownLocked = current.escrow?.status === 'held' || current.escrow?.status === 'released'
           if (knownLocked && !incomingLocked) return { ...active, escrow: current.escrow }
