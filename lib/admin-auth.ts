@@ -86,10 +86,15 @@ function safeEqual(a: string, b: string) {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-export function adminAccessRequired() {
+function envPasswordConfigured() {
   return Boolean(
     process.env.ADMIN_PASSWORD_HASH?.trim() || process.env.ADMIN_PASSWORD?.trim() || process.env.ADMIN_SUPPORT_KEY?.trim(),
   )
+}
+
+export async function hasAdminPassword() {
+  if (envPasswordConfigured()) return true
+  return Boolean(await getStoredPassword())
 }
 
 export async function verifyAdminPassword(password: string) {
@@ -98,8 +103,24 @@ export async function verifyAdminPassword(password: string) {
   const expectedHash = process.env.ADMIN_PASSWORD_HASH?.trim().toLowerCase()
   if (expectedHash) return safeEqual(createHash('sha256').update(password).digest('hex'), expectedHash)
   const expected = (process.env.ADMIN_PASSWORD || process.env.ADMIN_SUPPORT_KEY || '').trim()
-  if (!expected) return true
+  if (!expected) return false
   return safeEqual(password, expected)
+}
+
+export async function setupAdminPassword(newPassword: string) {
+  if (await hasAdminPassword()) return { ok: false as const, error: 'already_configured' }
+  const password = newPassword.trim()
+  if (password.length < 8) return { ok: false as const, error: 'password_too_short' }
+  const salt = randomUUID()
+  const stored: StoredPassword = { hash: hashPassword(password, salt), salt, updatedAt: new Date().toISOString() }
+  if (useKv) {
+    await kvCommand(['SET', PASSWORD_KEY, JSON.stringify(stored)])
+  } else {
+    warnEphemeral()
+    db().password = stored
+  }
+  await bumpVersion()
+  return { ok: true as const }
 }
 
 export async function createAdminSession() {
@@ -142,10 +163,7 @@ export async function isAdminRequest(request: Request) {
   const header = request.headers.get('x-admin-key')?.trim()
   const query = new URL(request.url).searchParams.get('key')?.trim()
   const provided = header || query || ''
-  if (!provided) {
-    if (await getStoredPassword()) return false
-    return !adminAccessRequired()
-  }
+  if (!provided) return false
   if (await verifyAdminPassword(provided)) return true
   const session = await getSession(provided)
   if (!session) return false

@@ -13,28 +13,40 @@ export function useAdminAuth() {
   return { logout: context?.logout ?? (() => void adminLogout()) }
 }
 
+type GateState = 'checking' | 'login' | 'setup' | 'authed'
+
 export default function AdminGuard({ children }: { children: ReactNode }) {
-  const [authed, setAuthed] = useState<boolean | null>(null)
+  const [gate, setGate] = useState<GateState>('checking')
 
   useEffect(() => {
     let cancelled = false
     const token = getAdminKey()
-    fetch('/api/admin/session', {
+    fetch('/api/admin/auth', {
       method: 'GET',
       headers: token ? { 'x-admin-key': token } : {},
       cache: 'no-store',
     })
       .then(async (res) => {
-        const data = (await res.json().catch(() => null)) as { authenticated?: boolean } | null
-        return Boolean(res.ok && data?.authenticated)
+        const data = (await res.json().catch(() => null)) as { authenticated?: boolean; needsSetup?: boolean } | null
+        return {
+          authenticated: Boolean(res.ok && data?.authenticated),
+          needsSetup: Boolean(res.ok && data?.needsSetup),
+        }
       })
-      .then((ok) => {
+      .then(({ authenticated, needsSetup }) => {
         if (cancelled) return
-        if (!ok) setAdminKey('')
-        setAuthed(ok)
+        if (authenticated) {
+          setGate('authed')
+          return
+        }
+        setAdminKey('')
+        setGate(needsSetup ? 'setup' : 'login')
       })
       .catch(() => {
-        if (!cancelled) setAuthed(false)
+        if (!cancelled) {
+          setAdminKey('')
+          setGate('login')
+        }
       })
     return () => {
       cancelled = true
@@ -43,16 +55,18 @@ export default function AdminGuard({ children }: { children: ReactNode }) {
 
   const logout = () => {
     void adminLogout()
-    setAuthed(false)
+    setGate('login')
   }
 
-  if (authed === null) {
+  if (gate === 'checking') {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-sm items-center justify-center bg-[#F8FAFC] text-sm font-bold text-[#64748B]">
         관리자 권한을 확인하는 중…
       </main>
     )
   }
-  if (!authed) return <AdminLogin onSuccess={() => setAuthed(true)} />
+  if (gate !== 'authed') {
+    return <AdminLogin mode={gate} onSuccess={() => setGate('authed')} />
+  }
   return <AdminAuthContext.Provider value={{ logout }}>{children}</AdminAuthContext.Provider>
 }
