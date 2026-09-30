@@ -32,6 +32,7 @@ const EMPTY_FORM: FormState = {
 }
 
 const SERVICE_TYPES = ['택시', '대리운전', '택배']
+const PAGE_SIZE = 20
 
 function formatDate(value: string) {
   const date = new Date(value)
@@ -46,6 +47,10 @@ export default function AdminPartners() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [roleFilter, setRoleFilter] = useState<'all' | '기사' | '파트너'>('all')
+  const [serviceFilter, setServiceFilter] = useState<'all' | string>('all')
+  const [page, setPage] = useState(1)
 
   const reload = () => {
     void apiFetch('/api/admin/partners', { cache: 'no-store', headers: adminHeaders() })
@@ -61,6 +66,22 @@ export default function AdminPartners() {
   useEffect(() => {
     reload()
   }, [])
+
+  useEffect(() => {
+    setPage(1)
+  }, [query, roleFilter, serviceFilter])
+
+  const needle = query.replace(/[\s-]/g, '').toLowerCase()
+  const filtered = partners.filter((row) => {
+    if (roleFilter !== 'all' && (row.role === '파트너' ? '파트너' : '기사') !== roleFilter) return false
+    if (serviceFilter !== 'all' && (row.serviceType || '택시') !== serviceFilter) return false
+    if (!needle) return true
+    const haystack = [row.name, row.phone, row.plate].map((v) => (v || '').replace(/[\s-]/g, '').toLowerCase())
+    return haystack.some((v) => v.includes(needle))
+  })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const tell = (message: string) => {
     setNotice(message)
@@ -179,14 +200,33 @@ export default function AdminPartners() {
 
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-black">등록된 기사/파트너 ({partners.length}명)</h2>
+          <h2 className="text-sm font-black">등록된 기사/파트너 ({filtered.length}명{filtered.length !== partners.length ? ` / 전체 ${partners.length}` : ''})</h2>
           <button type="button" onClick={reload} className="text-xs font-black text-[#4C1FB8]">새로고침</button>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-[1fr_7rem_8rem]">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="이름 · 전화번호 · 차량번호 검색"
+            className="col-span-2 w-full rounded-xl border-2 border-[#CBD5E1] px-3 py-2.5 text-sm font-bold outline-none focus:border-[#4C1FB8] sm:col-span-1"
+          />
+          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)} className="w-full rounded-xl border-2 border-[#CBD5E1] px-2 py-2.5 text-xs font-black text-[#475569] outline-none focus:border-[#4C1FB8]">
+            <option value="all">구분: 전체</option>
+            <option value="기사">기사</option>
+            <option value="파트너">파트너</option>
+          </select>
+          <select value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} className="w-full rounded-xl border-2 border-[#CBD5E1] px-2 py-2.5 text-xs font-black text-[#475569] outline-none focus:border-[#4C1FB8]">
+            <option value="all">서비스: 전체</option>
+            {SERVICE_TYPES.map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
         </div>
         {loading ? (
           <p className="mt-4 text-center text-xs font-bold text-[#64748B]">불러오는 중…</p>
-        ) : partners.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <p className="mt-4 rounded-xl border-2 border-dashed border-[#CBD5E1] p-4 text-center text-xs font-bold text-[#64748B]">
-            등록된 기사/파트너가 없습니다.
+            {partners.length === 0 ? '등록된 기사/파트너가 없습니다.' : '검색 조건에 맞는 결과가 없습니다.'}
           </p>
         ) : (
           <div className="mt-3 overflow-x-auto">
@@ -203,7 +243,7 @@ export default function AdminPartners() {
                 </tr>
               </thead>
               <tbody>
-                {partners.map((row) => (
+                {paged.map((row) => (
                   <tr key={row.uid} className="border-b border-[#F1F5F9]">
                     <td className="px-2 py-2.5">
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${row.role === '파트너' ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#DBEAFE] text-[#1D4ED8]'}`}>
@@ -229,6 +269,29 @@ export default function AdminPartners() {
             </table>
           </div>
         )}
+        {filtered.length > PAGE_SIZE ? (
+          <div className="mt-3 flex items-center justify-between">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="rounded-xl border-2 border-[#D8CCF5] px-3 py-1.5 text-xs font-black text-[#4C1FB8] disabled:opacity-40"
+            >
+              이전
+            </button>
+            <p className="text-xs font-black text-[#64748B]">
+              {currentPage} / {totalPages} 페이지 · {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)}번째
+            </p>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="rounded-xl border-2 border-[#D8CCF5] px-3 py-1.5 text-xs font-black text-[#4C1FB8] disabled:opacity-40"
+            >
+              다음
+            </button>
+          </div>
+        ) : null}
       </section>
     </div>
   )
