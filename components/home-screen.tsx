@@ -2093,12 +2093,9 @@ function TaxiMatchingSheet({
   const fare = ride?.estimatedFare ?? 2.34
   const billed = settleRideFare(fare, ride?.id ?? route)
   const cancelSettlement = settleMidTripCancelFee(phase === 'moving' ? billed.actual : fare)
-  const [piPaying, setPiPaying] = useState(false)
   const [accepting, setAccepting] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
-  const escrowLockingRef = useRef(false)
-  const escrowHeldRef = useRef(false)
   const settledRef = useRef(false)
   const payingRef = useRef(false)
   const assigned = ride?.assignedDriver
@@ -2255,49 +2252,6 @@ function TaxiMatchingSheet({
     }
   }, [ride?.id])
 
-  useEffect(() => {
-    if (!ride || ride.status !== 'assigned') return
-    if (ride.escrow?.status === 'held' || ride.escrow?.status === 'released') {
-      escrowHeldRef.current = true
-      return
-    }
-    if (escrowLockingRef.current || escrowHeldRef.current) return
-    escrowLockingRef.current = true
-    setPiPaying(true)
-    void (async () => {
-      try {
-        let paymentId: string | undefined
-        let txid: string | undefined
-        try {
-          const proof = await startPiCheckout({
-            amount: ride.estimatedFare,
-            memo: '택시 에스크로',
-            metadata: { kind: 'escrow-lock', rideId: ride.id },
-          })
-          paymentId = proof.paymentId
-          txid = proof.txid
-        } catch (error) {
-          if (!PI_SANDBOX) throw error
-        }
-        const next = await lockRideEscrow({
-          rideId: ride.id,
-          passengerId: passengerIdRef.current,
-          paymentId,
-          txid,
-          sandbox: !paymentId || !txid,
-        })
-        escrowHeldRef.current = true
-        setRide(next)
-        onNotice('예상 요금이 에스크로에 잠겼습니다. 운행 완료 후 기사 지갑으로 정산됩니다.')
-      } catch (error) {
-        onNotice(describePiUserMessage(error))
-      } finally {
-        escrowLockingRef.current = false
-        setPiPaying(false)
-      }
-    })()
-  }, [ride?.id, ride?.status, ride?.escrow?.status])
-
   const cancelRide = () => {
     try {
       if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
@@ -2408,22 +2362,52 @@ function TaxiMatchingSheet({
       return
     }
     const abort = new AbortController()
-    const timeout = window.setTimeout(() => abort.abort(), 20000)
+    const timeout = window.setTimeout(() => abort.abort(), 60000)
     void (async () => {
+      let proof: { paymentId: string; txid: string } | undefined
       if (ride.escrow?.status !== 'held' && ride.escrow?.status !== 'released') {
-        await lockRideEscrow({
-          rideId: ride.id,
-          passengerId: ride.passengerId,
-          sandbox: true,
-        }).catch(() => undefined)
+        try {
+          proof = await startPiCheckout({
+            amount,
+            memo: `택시 ${amount} Pi`,
+            metadata: { kind: 'escrow-lock', rideId: ride.id },
+          })
+        } catch (error) {
+          if (!PI_SANDBOX) throw error
+        }
+        if (!proof) {
+          await lockRideEscrow({
+            rideId: ride.id,
+            passengerId: ride.passengerId,
+            sandbox: true,
+          }).catch(() => undefined)
+        }
       }
-      return completeRideTrip(ride.id, driverId, ride, { signal: abort.signal })
+      const result = await completeRideTrip(
+        ride.id,
+        driverId,
+        proof
+          ? {
+              ...ride,
+              escrow: {
+                status: 'held',
+                amount,
+                lockTxid: proof.txid,
+                lockPaymentId: proof.paymentId,
+                payoutTxid: null,
+                payoutWallet: null,
+              } as PublicRide['escrow'],
+            }
+          : ride,
+        { signal: abort.signal },
+      )
+      return { result, proof }
     })()
-      .then((result) => {
+      .then(({ result, proof }) => {
         if (result.ride) setRide(result.ride)
         finishedRef.current = true
-        const txid = result.receipt?.payoutTxid || result.ride?.escrow?.payoutTxid || `done-${ride.id.slice(0, 8)}`
-        const paymentId = result.receipt?.lockTxid || result.ride?.escrow?.lockTxid || txid
+        const txid = result.receipt?.payoutTxid || result.ride?.escrow?.payoutTxid || proof?.txid || `done-${ride.id.slice(0, 8)}`
+        const paymentId = proof?.paymentId || result.receipt?.lockTxid || result.ride?.escrow?.lockTxid || txid
         openPayReceipt(paymentId, txid)
       })
       .catch((error) => {
@@ -2610,13 +2594,13 @@ function TaxiMatchingSheet({
               />
               <div className="rounded-[22px] border-2 border-[#BFDBFE] bg-[#F8FAFC] px-4 py-3 text-center">
                 <p className="text-[11px] font-black text-[#4A82B8]">
-                  {escrowStatus === 'held' ? '에스크로 보관 중' : escrowStatus === 'released' ? '기사 지갑 정산 완료' : piPaying ? '에스크로 잠금 중' : '예상 요금 에스크로'}
+                  {escrowStatus === 'held' ? '에스크로 보관 중' : escrowStatus === 'released' ? '기사 지갑 정산 완료' : '이용 완료 시 결제'}
                 </p>
                 <p className="mt-1 text-lg font-black text-[#0F172A]">{escrowAmount.toFixed(2)} Pi</p>
                 <p className="mt-1 text-[11px] font-bold leading-5 text-[#64748B]">
-                  {escrowStatus === 'held'
+                  {escrowStatus === 'held' || escrowStatus === 'released'
                     ? '기사님이 운행 완료를 승인하면 등록된 Pi 지갑으로 자동 이체됩니다.'
-                    : '매칭과 함께 예상 요금이 에스크로에 잠깁니다.'}
+                    : '목적지 도착 후 이용 완료를 누르면 결제되고 기사님께 정산됩니다.'}
                 </p>
               </div>
               <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 아래에서 이용 완료 또는 취소를 눌러 주세요</p>
@@ -2651,8 +2635,8 @@ function TaxiMatchingSheet({
               </button>
             ) : (
               <RideCompleteCancelBar onCancel={() => setCancelConfirmOpen(true)}>
-                <button type="button" disabled={accepting} aria-busy={accepting} onClick={finishPassengerTrip} className="pointer-events-auto w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
-                  {accepting ? '결제 진행 중…' : '이용 완료'}
+                <button type="button" disabled={accepting || !ride?.readyToSettleAt} aria-busy={accepting} onClick={finishPassengerTrip} className="pointer-events-auto w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
+                  {accepting ? '결제 진행 중…' : ride?.readyToSettleAt ? '이용 완료' : ride?.boardedAt ? '목적지 도착 후 완료 가능' : '탑승 확인 후 진행'}
                 </button>
               </RideCompleteCancelBar>
             )}
@@ -3044,11 +3028,16 @@ function ServiceSheet({
         return
       }
       if (next.status === 'completed') daeriSheetRideId = ''
-      if (!daeriAcceptedRef.current && (next.status === 'assigned' || next.status === 'completed')) return
+      if ((next.status === 'assigned' || next.status === 'completed') && !daeriAcceptedRef.current) {
+        daeriAcceptedRef.current = true
+        setPhase('assigned')
+        setRideStage('arriving')
+        onActivity?.('배차 완료', `${next.assignedDriver?.name || '기사'} · ${place}`)
+        onNotice(`${service} 배정이 완료되었습니다.`)
+      }
       if (daeriAcceptedRef.current && next.status !== 'assigned' && next.status !== 'completed') return
       setDispatchRide(next)
-      if (next.readyToSettleAt) setRideStage('moving')
-      else if (next.boardedAt) setRideStage('arriving')
+      if (next.boardedAt) setRideStage('moving')
       if (next.status === 'unmatched') setDaeriMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
@@ -6270,6 +6259,223 @@ function DriverNeedSignupModal({ onClose, onSignup }: { onClose: () => void; onS
   )
 }
 
+/** Headless listener that keeps an online driver reachable while they browse other tabs. */
+function DriverOfferWatcher({
+  lat,
+  lng,
+  onOpenDesk,
+  onNotice,
+  onActivity,
+}: {
+  lat: number
+  lng: number
+  onOpenDesk: () => void
+  onNotice: (message: string) => void
+  onActivity?: (label: string, detail: string) => void
+}) {
+  const [driverId, setDriverId] = useState('')
+  const [incoming, setIncoming] = useState<PublicRide | null>(null)
+  const [offerKm, setOfferKm] = useState<number | null>(null)
+  const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
+  const [busy, setBusy] = useState(false)
+  const notifiedRef = useRef('')
+  const onActivityRef = useRef(onActivity)
+  onActivityRef.current = onActivity
+
+  useEffect(() => {
+    const profile = loadPartnerProfile()
+    setDriverId(localDriverId(profile?.uid))
+  }, [])
+
+  useEffect(() => {
+    if (!driverId) return
+    const partner = loadPartnerProfile()
+    let stopped = false
+    let timer = 0
+    let delay = 1000
+    let sending = false
+    const beat = () => {
+      if (stopped || sending) return
+      sending = true
+      const fleet = partnerVehicle(partner)
+      void sendDriverPresence({
+        driverId,
+        lat,
+        lng,
+        online: true,
+        name: partner?.name,
+        vehicle: fleet.vehicle,
+        plate: fleet.plate,
+        wallet: partner?.wallet,
+        piUid: partner?.uid,
+      }).then(() => {
+        delay = document.visibilityState === 'visible' ? 12000 : 20000
+      }).catch(() => {
+        delay = Math.min(delay * 2, 30000)
+      }).finally(() => {
+        sending = false
+        if (!stopped) timer = window.setTimeout(beat, delay)
+      })
+    }
+    const wake = () => {
+      window.clearTimeout(timer)
+      delay = 1000
+      beat()
+    }
+    beat()
+    window.addEventListener('online', wake)
+    document.addEventListener('visibilitychange', wake)
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+      window.removeEventListener('online', wake)
+      document.removeEventListener('visibilitychange', wake)
+    }
+  }, [driverId, lat, lng])
+
+  useEffect(() => {
+    if (!driverId) return
+    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; active?: PublicRide | null } | null) => {
+      const ride = pending?.ride ?? null
+      const active = pending?.active ?? null
+      setActiveRide((current) => {
+        if (!active) return null
+        if (!current || current.id !== active.id) return active
+        return { ...active, boardedAt: active.boardedAt ?? current.boardedAt ?? null, readyToSettleAt: active.readyToSettleAt ?? current.readyToSettleAt ?? null }
+      })
+      if (!ride) {
+        setIncoming(null)
+        setOfferKm(null)
+        notifiedRef.current = ''
+        return
+      }
+      setIncoming(ride)
+      setOfferKm(pending?.offer?.pickupDistanceKm ?? ride.assignedDriver?.pickupDistanceKm ?? null)
+      if (notifiedRef.current === ride.id) return
+      notifiedRef.current = ride.id
+      onActivityRef.current?.('호출 접수', `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`)
+      onNotice('새로운 콜 요청이 들어왔어요.')
+      const body = `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
+      void showDriverOfferNotification(ride.id, body)
+    }
+    let requestSeq = 0
+    const pull = () => {
+      const request = ++requestSeq
+      void fetchDriverOffer(driverId).then((pending) => {
+        if (request !== requestSeq || pending === undefined) return
+        applyOffer(pending)
+      }).catch(() => undefined)
+    }
+    const unsubscribe = subscribeDriverLive(driverId, (snapshot) => applyOffer(snapshot))
+    void enableDriverPush(driverId).catch(() => undefined)
+    const onAlert = (event: MessageEvent) => {
+      if (event.data?.type !== 'driver-offer') return
+      const pushed = rideFromPushedOffer(event.data.offer)
+      if (!pushed) {
+        pull()
+        return
+      }
+      applyOffer({ ride: pushed.ride, offer: pushed.offer })
+    }
+    pull()
+    const timer = window.setInterval(pull, 2000)
+    window.addEventListener('online', pull)
+    document.addEventListener('visibilitychange', pull)
+    navigator.serviceWorker?.addEventListener('message', onAlert)
+    return () => {
+      unsubscribe()
+      window.clearInterval(timer)
+      window.removeEventListener('online', pull)
+      document.removeEventListener('visibilitychange', pull)
+      navigator.serviceWorker?.removeEventListener('message', onAlert)
+    }
+  }, [driverId, onNotice])
+
+  const respond = (action: 'accept' | 'reject') => {
+    if (!incoming || busy) return
+    const partner = loadPartnerProfile()
+    const fleet = partnerVehicle(partner)
+    setBusy(true)
+    void respondToRideOffer(
+      incoming.id,
+      driverId,
+      action,
+      {
+        passengerId: incoming.passengerId,
+        pickup: incoming.pickup,
+        dest: incoming.dest,
+        estimatedFare: incoming.estimatedFare,
+        kind: incoming.kind,
+      },
+      { name: partner?.name, vehicle: fleet.vehicle, plate: fleet.plate },
+    )
+      .then(() => {
+        if (action === 'accept') {
+          onActivityRef.current?.('콜 수락', `${incoming.pickup.address || '출발지'} → ${incoming.dest.label || incoming.dest.address || '목적지'}`)
+          onOpenDesk()
+        } else {
+          setIncoming(null)
+        }
+      })
+      .catch((error) => onNotice(error instanceof Error ? error.message : '콜 응답에 실패했어요.'))
+      .finally(() => setBusy(false))
+  }
+
+  if (incoming) {
+    return (
+      <div className="fixed inset-x-0 bottom-20 z-[97] mx-auto w-full max-w-md px-4">
+        <section className="rounded-2xl border-2 border-[#BFDBFE] bg-white p-4 shadow-[0_16px_40px_rgba(15,23,42,0.25)]">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-[#4A82B8]">새로운 운행 요청</p>
+            <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
+          </div>
+          <p className="mt-3 text-lg font-bold text-[#0F172A]">
+            {(incoming.pickup.address || incoming.pickup.label || '출발지')} → {(incoming.dest.label || incoming.dest.address || '목적지')}
+          </p>
+          <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
+            <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
+            <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(2)} Pi</strong>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              disabled={busy}
+              onClick={() => respond('accept')}
+              className="rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white disabled:opacity-60"
+            >
+              수락
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => respond('reject')}
+              className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-bold text-[#475569] disabled:opacity-60"
+            >
+              거절
+            </button>
+          </div>
+        </section>
+      </div>
+    )
+  }
+  if (activeRide) {
+    return (
+      <div className="fixed inset-x-0 bottom-20 z-[97] mx-auto w-full max-w-md px-4">
+        <button
+          type="button"
+          onClick={onOpenDesk}
+          className="w-full rounded-2xl border-2 border-[#BFDBFE] bg-white px-4 py-3 text-left shadow-[0_12px_28px_rgba(15,23,42,0.18)]"
+        >
+          <p className="text-xs font-bold text-[#4A82B8]">진행 중인 운행</p>
+          <p className="mt-1 text-sm font-bold text-[#0F172A]">
+            {(activeRide.pickup.address || '출발지')} → {(activeRide.dest.label || activeRide.dest.address || '목적지')}
+            {activeRide.readyToSettleAt ? ' · 정산 가능' : activeRide.boardedAt ? ' · 승객 탑승' : ''}
+          </p>
+        </button>
+      </div>
+    )
+  }
+  return null
+}
+
 function DriverDashboard({
   online,
   lat,
@@ -7502,6 +7708,18 @@ export default function HomeScreen() {
             </div>
           </div>
         </header>
+        {driverOnline && (isDriverRegistered || isPartnerRegistered) && tab !== '기사/파트너' ? (
+          <DriverOfferWatcher
+            lat={origin.lat}
+            lng={origin.lng}
+            onOpenDesk={() => {
+              setDriverMode(true)
+              setTab('기사/파트너')
+            }}
+            onNotice={showNotice}
+            onActivity={recordActivity}
+          />
+        ) : null}
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (
             <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} />
