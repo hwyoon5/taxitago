@@ -47,6 +47,24 @@ export async function fetchRideRequest(rideId: string): Promise<PublicRide | nul
   }
 }
 
+/** Canonical restore path: the one active ride for this actor, from the server. */
+export async function fetchActiveRide(actorId: string, role: 'passenger' | 'driver'): Promise<PublicRide | null> {
+  const id = actorId.trim()
+  if (!id) return null
+  try {
+    const res = await fetch(`/api/rides/active?actorId=${encodeURIComponent(id)}&role=${role}`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { ride?: PublicRide | null }
+    return data.ride ?? null
+  } catch {
+    return null
+  }
+}
+
 export type DriverDispatchSnapshot = {
   ride: PublicRide | null
   offer: { pickupDistanceKm: number; expiresAt: string } | null

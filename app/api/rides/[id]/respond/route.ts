@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server'
-import { confirmMatchOnDevice, rememberDriverVehicle, respondToOffer, restorePendingOffer, toPublicRide } from '@/lib/dispatch-engine'
+import { confirmMatchOnDevice, rememberDriverVehicle, toPublicRide } from '@/lib/dispatch-engine'
 import { openRideComms } from '@/lib/comms-engine'
 import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
 import { hydrateEscrowFromKv } from '@/lib/escrow-store'
+import { rideTransitionErrorMessage, transitionRide } from '@/lib/ride-machine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+function point(value: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown } | undefined) {
+  const lat = Number(value?.lat)
+  const lng = Number(value?.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined
+  return {
+    lat,
+    lng,
+    address: typeof value?.address === 'string' ? value.address : undefined,
+    label: typeof value?.label === 'string' ? value.label : undefined,
+  }
+}
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
@@ -29,17 +42,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   if (action === 'device-accept') {
-    const point = (value: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown } | undefined) => {
-      const lat = Number(value?.lat)
-      const lng = Number(value?.lng)
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined
-      return {
-        lat,
-        lng,
-        address: typeof value?.address === 'string' ? value.address : undefined,
-        label: typeof value?.label === 'string' ? value.label : undefined,
-      }
-    }
     const result = confirmMatchOnDevice(id, {
       passengerId: typeof body?.ride?.passengerId === 'string' ? body.ride.passengerId : undefined,
       pickup: point(body?.ride?.pickup),
@@ -56,17 +58,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!driverId) {
     return NextResponse.json({ error: 'driverId and action required' }, { status: 400 })
   }
-  const point = (value: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown } | undefined) => {
-    const lat = Number(value?.lat)
-    const lng = Number(value?.lng)
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined
-    return {
-      lat,
-      lng,
-      address: typeof value?.address === 'string' ? value.address : undefined,
-      label: typeof value?.label === 'string' ? value.label : undefined,
-    }
-  }
   if (action === 'accept') {
     rememberDriverVehicle(driverId, {
       name: typeof body?.name === 'string' ? body.name : undefined,
@@ -74,36 +65,23 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       plate: typeof body?.plate === 'string' ? body.plate : undefined,
     })
   }
-  let result = respondToOffer(id, driverId, action)
-  if (!result.ok && result.error === 'not_found' && action === 'accept') {
-    const snapshot = body?.ride
-    const restored = restorePendingOffer(id, driverId, {
-      passengerId: typeof snapshot?.passengerId === 'string' ? snapshot.passengerId : undefined,
-      pickup: point(snapshot?.pickup),
-      dest: point(snapshot?.dest),
-      estimatedFare: typeof snapshot?.estimatedFare === 'number' ? snapshot.estimatedFare : undefined,
-      kind: snapshot?.kind === 'daeri' ? 'daeri' : 'taxi',
-    })
-    if (restored) result = respondToOffer(id, driverId, action)
-  }
-  if (!result.ride) return NextResponse.json({ error: result.error }, { status: 404 })
+  const result = await transitionRide({
+    rideId: id,
+    action,
+    driverId,
+    snapshot: body?.ride
+      ? {
+          passengerId: body.ride.passengerId,
+          pickup: body.ride.pickup,
+          dest: body.ride.dest,
+          estimatedFare: body.ride.estimatedFare,
+          kind: body.ride.kind,
+        }
+      : undefined,
+  })
+  if (!result.ride) return NextResponse.json({ error: result.ok ? 'not_found' : result.error }, { status: 404 })
   if (!result.ok) {
-    const friendly =
-      result.error === 'not_your_offer'
-        ? '이미 만료되었거나 다른 기사에게 배정된 콜이에요.'
-        : result.error === 'already_assigned'
-          ? '이미 배정된 운행이에요.'
-          : result.error === 'cancelled'
-            ? '승객이 호출을 취소했어요.'
-            : result.error === 'completed'
-              ? '이미 완료된 운행이에요.'
-              : result.error === 'driver_busy'
-                ? '다른 운행을 처리 중이라 이 콜은 다음 기사에게 넘겼어요.'
-                : result.error === 'driver_unavailable'
-                  ? '기사 온라인 상태를 확인해 주세요.'
-                  : result.error
-    return NextResponse.json({ error: friendly, ride: toPublicRide(result.ride) }, { status: 409 })
+    return NextResponse.json({ error: rideTransitionErrorMessage(result.error), ride: result.ride }, { status: 409 })
   }
-  if (result.ride.assignedDriverId) await openRideComms(id).catch(() => null)
-  return NextResponse.json({ ok: true, ride: toPublicRide(result.ride) })
+  return NextResponse.json({ ok: true, ride: result.ride })
 }

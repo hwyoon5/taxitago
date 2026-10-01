@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server'
-import { cancelRide, toPublicRide } from '@/lib/dispatch-engine'
-import { settlePassengerCancelFee } from '@/lib/escrow-engine'
-import { getRide, hydrateDispatchFromKv, syncDispatchFromDisk } from '@/lib/dispatch-store'
-import { hydrateEscrowFromKv } from '@/lib/escrow-store'
-import { archiveRideComms } from '@/lib/comms-engine'
+import { rideTransitionErrorMessage, transitionRide } from '@/lib/ride-machine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -14,24 +10,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const passengerId = typeof body?.passengerId === 'string' ? body.passengerId : undefined
   const settleFee = body?.settleFee === true
   try {
-    syncDispatchFromDisk()
-    await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
-    const current = getRide(id)
-    if (!current) return NextResponse.json({ ok: true, missing: true, ride: null })
-    if (passengerId && current.passengerId !== passengerId) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+    const result = await transitionRide({ rideId: id, action: 'cancel', passengerId, settleFee })
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: rideTransitionErrorMessage(result.error) },
+        { status: result.error === 'forbidden' ? 403 : 409 },
+      )
     }
-    if (settleFee && current.status === 'assigned' && current.assignedDriverId) {
-      try {
-        await settlePassengerCancelFee(id)
-      } catch (error) {
-        console.error('[cancel] fee settlement failed', error instanceof Error ? error.message : 'error')
-      }
-    }
-    const ride = cancelRide(id, passengerId)
-    if (!ride) return NextResponse.json({ ok: true, missing: true, ride: null })
-    await archiveRideComms(id, 'cancelled').catch(() => undefined)
-    return NextResponse.json({ ok: true, ride: toPublicRide(ride) })
+    if (!result.ride) return NextResponse.json({ ok: true, missing: true, ride: null })
+    return NextResponse.json({ ok: true, ride: result.ride })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'cancel settlement failed'
     console.error('[cancel] failed', message)

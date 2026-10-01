@@ -1,24 +1,8 @@
 import { NextResponse } from 'next/server'
-import { completeAssignedRide, ensureRideForCompletion, getPublicRide, toPublicRide } from '@/lib/dispatch-engine'
-import { releaseEscrow, toPublicEscrow } from '@/lib/escrow-engine'
-import { archiveRideComms } from '@/lib/comms-engine'
-import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
-import { hydrateEscrowFromKv } from '@/lib/escrow-store'
+import { rideTransitionErrorMessage, transitionRide } from '@/lib/ride-machine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-function point(value: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown } | undefined) {
-  const lat = Number(value?.lat)
-  const lng = Number(value?.lng)
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined
-  return {
-    lat,
-    lng,
-    address: typeof value?.address === 'string' ? value.address : undefined,
-    label: typeof value?.label === 'string' ? value.label : undefined,
-  }
-}
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
@@ -37,48 +21,32 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   } | null
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
   if (!driverId) return NextResponse.json({ error: 'driverId required' }, { status: 400 })
-  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
-  const snapshot = body?.ride
-  ensureRideForCompletion(id, driverId, {
-    passengerId: typeof snapshot?.passengerId === 'string' ? snapshot.passengerId : undefined,
-    pickup: point(snapshot?.pickup),
-    dest: point(snapshot?.dest),
-    estimatedFare: typeof snapshot?.estimatedFare === 'number' ? snapshot.estimatedFare : undefined,
-    kind: snapshot?.kind === 'daeri' ? 'daeri' : 'taxi',
-    boardedAt: typeof snapshot?.boardedAt === 'string' ? snapshot.boardedAt : null,
-    readyToSettleAt: typeof snapshot?.readyToSettleAt === 'string' ? snapshot.readyToSettleAt : null,
-  })
   try {
-    const escrowProof = snapshot?.escrow
-    const result = await releaseEscrow(id, driverId, {
-      status: typeof escrowProof?.status === 'string' ? escrowProof.status : null,
-      lockTxid: typeof escrowProof?.lockTxid === 'string' ? escrowProof.lockTxid : null,
-      lockPaymentId: typeof escrowProof?.lockPaymentId === 'string' ? escrowProof.lockPaymentId : null,
+    const escrowProof = body?.ride?.escrow
+    const result = await transitionRide({
+      rideId: id,
+      action: 'complete',
+      driverId,
+      snapshot: body?.ride,
+      proof: escrowProof
+        ? {
+            status: typeof escrowProof.status === 'string' ? escrowProof.status : null,
+            lockTxid: typeof escrowProof.lockTxid === 'string' ? escrowProof.lockTxid : null,
+            lockPaymentId: typeof escrowProof.lockPaymentId === 'string' ? escrowProof.lockPaymentId : null,
+          }
+        : undefined,
     })
     if (!result.ok) {
-      const error = result.error === 'passenger_not_ready'
-        ? '승객이 탑승을 확인하고 목적지에 도착한 뒤에만 정산할 수 있어요.'
-        : result.error === 'escrow_not_held'
-          ? '승객 에스크로가 잠긴 뒤에 정산할 수 있어요.'
-          : result.error === 'cancelled'
-            ? '승객이 운행을 취소했어요.'
-            : result.error === 'settling'
-              ? '정산이 진행 중이에요. 잠시 후 다시 눌러 주세요.'
-              : result.error
-      const message = result.error === 'not_found' ? '완료할 운행을 찾지 못했어요.' : error
       return NextResponse.json(
-        { error: message, escrow: toPublicEscrow(result.escrow) },
-        { status: 409 },
+        { error: rideTransitionErrorMessage(result.error), escrow: result.ride?.escrow ?? null },
+        { status: result.error === 'not_found' ? 404 : 409 },
       )
     }
-    const finished = completeAssignedRide(id, driverId)
-    await archiveRideComms(id, 'completed').catch(() => undefined)
-    const ride = getPublicRide(id) ?? (finished ? toPublicRide(finished) : null)
-    if (!ride) return NextResponse.json({ error: '이용 완료 결과를 만들지 못했어요.' }, { status: 500 })
+    if (!result.ride) return NextResponse.json({ error: '이용 완료 결과를 만들지 못했어요.' }, { status: 500 })
     return NextResponse.json({
       ok: true,
-      ride,
-      escrow: toPublicEscrow(result.escrow),
+      ride: result.ride,
+      escrow: result.escrow,
       receipt: result.receipt,
     })
   } catch (error) {
