@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   createTicket,
   fetchLostInbox,
@@ -89,6 +89,15 @@ export default function SupportCenter({
     }
   }, [actorId, actorRole])
 
+  const applyTicketUpdate = useCallback((ticket: SupportTicket) => {
+    setTickets((items) => items.map((item) => (item.id === ticket.id ? ticket : item)))
+    setOpenTicket((current) => (current && current.id === ticket.id ? ticket : current))
+  }, [])
+  const applyLostUpdate = useCallback((item: LostItem) => {
+    setLost((rows) => rows.map((row) => (row.id === item.id ? item : row)))
+    setOpenLost((current) => (current && current.id === item.id ? item : current))
+  }, [])
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-1 rounded-2xl bg-[#F1F5F9] p-1">
@@ -160,10 +169,7 @@ export default function SupportCenter({
           actorId={actorId}
           role={actorRole}
           onClose={() => setOpenTicket(null)}
-          onUpdate={(ticket) => {
-            setOpenTicket(ticket)
-            setTickets((items) => items.map((item) => (item.id === ticket.id ? ticket : item)))
-          }}
+          onUpdate={applyTicketUpdate}
         />
       ) : null}
       {openLost ? (
@@ -172,10 +178,7 @@ export default function SupportCenter({
           actorId={actorId}
           role={actorRole}
           onClose={() => setOpenLost(null)}
-          onUpdate={(item) => {
-            setOpenLost(item)
-            setLost((items) => items.map((row) => (row.id === item.id ? item : row)))
-          }}
+          onUpdate={applyLostUpdate}
         />
       ) : null}
     </div>
@@ -301,8 +304,8 @@ function TicketThread({
     return () => window.clearInterval(timer)
   }, [ticket.id, onUpdate])
   return (
-    <div className="fixed inset-0 z-[105] flex items-end bg-[#1e1033]/50 sm:items-center sm:p-4">
-      <section className="mx-auto flex max-h-[90vh] w-full max-w-md flex-col rounded-t-[32px] bg-white p-5 sm:rounded-[32px]">
+    <div className="fixed inset-0 z-[105] flex items-end bg-[#1e1033]/50 sm:items-center sm:p-4" onClick={onClose}>
+      <section className="mx-auto flex max-h-[90vh] w-full max-w-md flex-col rounded-t-[32px] bg-white p-5 sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-black text-[#4C1FB8]">{TICKET_STATUS_LABEL[ticket.status]}</p>
@@ -474,8 +477,8 @@ function LostThread({
     }
   }, [item.id, onUpdate])
   return (
-    <div className="fixed inset-0 z-[105] flex items-end bg-[#1e1033]/50 sm:items-center sm:p-4">
-      <section className="mx-auto flex max-h-[90vh] w-full max-w-md flex-col rounded-t-[32px] bg-white p-5 sm:rounded-[32px]">
+    <div className="fixed inset-0 z-[105] flex items-end bg-[#1e1033]/50 sm:items-center sm:p-4" onClick={onClose}>
+      <section className="mx-auto flex max-h-[90vh] w-full max-w-md flex-col rounded-t-[32px] bg-white p-5 sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-black text-[#4C1FB8]">{LOST_STATUS_LABEL[item.status]} · {item.itemType}</p>
