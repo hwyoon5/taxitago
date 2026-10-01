@@ -2171,6 +2171,22 @@ function TaxiMatchingSheet({
     }
   }, [destination, destLat, destLng, pickupAddress])
 
+  const startNewRide = () => {
+    const pickup = live.origin ?? { lat: pickupLat, lng: pickupLng, address: pickupAddress }
+    const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
+    return createRideRequest({
+      passengerId: passengerIdRef.current,
+      kind: 'taxi',
+      pickupLat: pickup.lat,
+      pickupLng: pickup.lng,
+      pickupAddress: pickup.address,
+      destLat: drop.lat,
+      destLng: drop.lng,
+      destAddress: drop.address,
+      destLabel: dest,
+    })
+  }
+
   useEffect(() => {
     let cancelled = false
     passengerIdRef.current = localPassengerId()
@@ -2182,19 +2198,7 @@ function TaxiMatchingSheet({
       if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요.')
     }
     const createNew = () => {
-      const pickup = live.origin ?? { lat: pickupLat, lng: pickupLng, address: pickupAddress }
-      const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
-      void createRideRequest({
-        passengerId: passengerIdRef.current,
-        kind: 'taxi',
-        pickupLat: pickup.lat,
-        pickupLng: pickup.lng,
-        pickupAddress: pickup.address,
-        destLat: drop.lat,
-        destLng: drop.lng,
-        destAddress: drop.address,
-        destLabel: dest,
-      })
+      void startNewRide()
         .then((created) => {
           attach(created)
         })
@@ -2281,6 +2285,31 @@ function TaxiMatchingSheet({
     }
   }, [ride?.id])
 
+  const retryMatch = () => {
+    if (accepting) return
+    setAccepting(true)
+    setMatchError('')
+    setMatched(false)
+    matchedRef.current = false
+    finishedRef.current = false
+    settledRef.current = false
+    payingRef.current = false
+    setPhase('searching')
+    setRide(null)
+    taxiSheetRideId = ''
+    rideIdRef.current = ''
+    writeStoredTaxi(null)
+    void startNewRide()
+      .then((created) => {
+        taxiSheetRideId = created.id
+        rideIdRef.current = created.id
+        setRide(created)
+        if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요. 다시 호출해 주세요.')
+      })
+      .catch((error) => setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.'))
+      .finally(() => setAccepting(false))
+  }
+
   const cancelRide = () => {
     try {
       if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
@@ -2304,11 +2333,15 @@ function TaxiMatchingSheet({
     }
     setCancelSettling(true)
     try {
-      await cancelRideRequest(rideId, passengerIdRef.current, { settleFee: true })
-      onActivity?.('이용 취소', `취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi · 미청구 ${cancelSettlement.waived.toFixed(2)} Pi`)
-      onNotice(
-        `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
-      )
+      const finished = await cancelRideRequest(rideId, passengerIdRef.current, { settleFee: true })
+      if (finished?.status === 'completed') {
+        onNotice('운행이 이미 완료되어 취소되지 않았어요. 영수증으로 정산 내역을 확인해 주세요.')
+      } else {
+        onActivity?.('이용 취소', `취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi · 미청구 ${cancelSettlement.waived.toFixed(2)} Pi`)
+        onNotice(
+          `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
+        )
+      }
     } catch (error) {
       console.error('[cancel] passenger taxi', error)
       onNotice(error instanceof Error ? error.message : '취소 처리 중 문제가 생겼지만 홈으로 돌아갑니다.')
@@ -2650,6 +2683,16 @@ function TaxiMatchingSheet({
         </div>
         {showMatching ? (
           <div className="pointer-events-auto relative z-[80] shrink-0 space-y-3 border-t border-[#E2E8F0] bg-white px-5 py-4">
+            {matchError ? (
+              <button
+                type="button"
+                disabled={accepting}
+                onClick={retryMatch}
+                className="pointer-events-auto w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
+              >
+                {accepting ? '다시 호출 중…' : '다시 호출'}
+              </button>
+            ) : null}
             {IS_TEST_MODE ? (
               <button
                 type="button"
@@ -3007,6 +3050,20 @@ function ServiceSheet({
     onNotice(selfServe ? `${service} 이용을 시작했어요.` : `${service} 호출을 시작했어요.`)
   }
 
+  const startNewDaeriRide = () =>
+    createRideRequest({
+      passengerId: daeriPassengerIdRef.current,
+      kind: 'daeri',
+      pickupLat: rideOriginLat,
+      pickupLng: rideOriginLng,
+      pickupAddress: daeriTrip?.pickup || pickupAddress,
+      destLat: rideDestLat ?? rideOriginLat,
+      destLng: rideDestLng ?? rideOriginLng,
+      destAddress: daeriTrip?.dest || destAddress,
+      destLabel: daeriTrip?.dest || destAddress,
+      estimatedFare: fare,
+    })
+
   useEffect(() => {
     if (!ride || (phase !== 'matching' && phase !== 'assigned')) return
     let cancelled = false
@@ -3019,18 +3076,7 @@ function ServiceSheet({
       if (created.status === 'unmatched') setDaeriMatchError('지금은 배차 가능한 기사가 없어요.')
     }
     const createNew = () => {
-      void createRideRequest({
-        passengerId: daeriPassengerIdRef.current,
-        kind: 'daeri',
-        pickupLat: rideOriginLat,
-        pickupLng: rideOriginLng,
-        pickupAddress: daeriTrip?.pickup || pickupAddress,
-        destLat: rideDestLat ?? rideOriginLat,
-        destLng: rideDestLng ?? rideOriginLng,
-        destAddress: daeriTrip?.dest || destAddress,
-        destLabel: daeriTrip?.dest || destAddress,
-        estimatedFare: fare,
-      })
+      void startNewDaeriRide()
         .then(attach)
         .catch((error) => {
           if (!cancelled) setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
@@ -3119,6 +3165,24 @@ function ServiceSheet({
     if (ride) setRideStage('arriving')
     onNotice(selfServe ? `${service} 이용이 시작되었습니다.` : `${service} 배정이 완료되었습니다.`)
   }
+  const retryDaeriMatch = () => {
+    if (daeriAccepting) return
+    setDaeriAccepting(true)
+    setDaeriMatchError('')
+    daeriAcceptedRef.current = false
+    setDispatchRide(null)
+    daeriSheetRideId = ''
+    daeriRideIdRef.current = ''
+    void startNewDaeriRide()
+      .then((created) => {
+        daeriSheetRideId = created.id
+        daeriRideIdRef.current = created.id
+        setDispatchRide(created)
+        if (created.status === 'unmatched') setDaeriMatchError('지금은 배차 가능한 기사가 없어요. 다시 호출해 주세요.')
+      })
+      .catch((error) => setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.'))
+      .finally(() => setDaeriAccepting(false))
+  }
   const confirmInTripCancel = async () => {
     if (cancelSettling || cancelLockRef.current) return
     cancelLockRef.current = true
@@ -3131,11 +3195,15 @@ function ServiceSheet({
     }
     setCancelSettling(true)
     try {
-      await cancelRideRequest(rideId, daeriPassengerIdRef.current || localPassengerId(), { settleFee: true })
-      onActivity?.('이용 취소', `${service} · 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi`)
-      onNotice(
-        `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
-      )
+      const finished = await cancelRideRequest(rideId, daeriPassengerIdRef.current || localPassengerId(), { settleFee: true })
+      if (finished?.status === 'completed') {
+        onNotice('운행이 이미 완료되어 취소되지 않았어요. 영수증으로 정산 내역을 확인해 주세요.')
+      } else {
+        onActivity?.('이용 취소', `${service} · 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi`)
+        onNotice(
+          `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
+        )
+      }
     } catch (error) {
       console.error('[cancel] passenger service', error)
       onNotice(error instanceof Error ? error.message : '취소 처리 중 문제가 생겼지만 홈으로 돌아갑니다.')
@@ -3227,6 +3295,16 @@ function ServiceSheet({
                 className="w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
               >
                 {ride ? (daeriAccepting ? '수락 중…' : '이 기기에서 기사 콜 수락') : selfServe ? '이용 시작' : '배정 확인'}
+              </button>
+            ) : null}
+            {ride && daeriMatchError ? (
+              <button
+                type="button"
+                disabled={daeriAccepting}
+                onClick={retryDaeriMatch}
+                className="w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
+              >
+                {daeriAccepting ? '다시 호출 중…' : '다시 호출'}
               </button>
             ) : null}
             <button

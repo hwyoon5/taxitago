@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { estimateTaxiFarePi, haversineKm } from '@/lib/dispatch-geo'
 import { createRideAndMatch, toPublicRide } from '@/lib/dispatch-engine'
-import { ensureSeedDrivers, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
+import { ensureSeedDrivers, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
+import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { isUsableCoord } from '@/lib/ride-session'
 
 export const runtime = 'nodejs'
@@ -23,6 +24,7 @@ export async function GET(request: Request) {
   const role = url.searchParams.get('role')
   if (!actorId) return NextResponse.json({ error: 'actorId required' }, { status: 400 })
   syncDispatchFromDisk()
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   const rides = listRides()
     .filter((ride) => (role === 'driver' ? ride.assignedDriverId === actorId : ride.passengerId === actorId))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -40,6 +42,13 @@ export async function POST(request: Request) {
   if (!pickup || !dest || !passengerId) {
     return NextResponse.json({ error: 'passengerId, pickup, dest required' }, { status: 400 })
   }
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
+  const existing = listRides().find(
+    (ride) =>
+      ride.passengerId === passengerId &&
+      (ride.status === 'searching' || ride.status === 'offered' || ride.status === 'assigned'),
+  )
+  if (existing) return NextResponse.json({ ok: true, ride: toPublicRide(existing), deduped: true })
   const quoted =
     typeof body?.estimatedFare === 'number' && Number.isFinite(body.estimatedFare)
       ? Math.round(body.estimatedFare * 100) / 100

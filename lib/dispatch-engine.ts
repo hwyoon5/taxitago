@@ -85,6 +85,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
 function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: number) {
   if (driver.status === 'offline') return false
   if (listRides().some((item) => item.assignedDriverId === driver.id && item.status === 'assigned')) return false
+  if (listRides().some((item) => item.id !== ride.id && item.currentOffer?.driverId === driver.id && item.currentOffer.decision === 'pending')) return false
   if (ride.declinedDriverIds.includes(driver.id)) return false
   if (ride.timedOutDriverIds.includes(driver.id)) return false
   const staleMs = now - Date.parse(driver.lastSeenAt)
@@ -442,6 +443,18 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     stamp(ride)
     publishDriverLive(driverId)
     return { ok: false as const, error: 'driver_unavailable', ride: assignNextDriver(ride.id) ?? ride }
+  }
+
+  const driverBusyOnRide = listRides().some(
+    (item) => item.id !== ride.id && item.assignedDriverId === driverId && item.status === 'assigned',
+  )
+  if (driverBusyOnRide) {
+    ride.timedOutDriverIds = [...new Set([...ride.timedOutDriverIds, driverId])]
+    ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
+    ride.status = 'searching'
+    stamp(ride)
+    publishDriverLive(driverId)
+    return { ok: false as const, error: 'driver_busy', ride: assignNextDriver(ride.id) ?? ride }
   }
 
   ride.currentOffer = { ...ride.currentOffer, decision: 'accepted' }

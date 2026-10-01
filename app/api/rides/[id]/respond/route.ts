@@ -97,9 +97,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             ? '승객이 호출을 취소했어요.'
             : result.error === 'completed'
               ? '이미 완료된 운행이에요.'
-              : result.error === 'driver_unavailable'
-                ? '기사 온라인 상태를 확인해 주세요.'
-                : result.error
+              : result.error === 'driver_busy'
+                ? '다른 운행을 처리 중이라 이 콜은 다음 기사에게 넘겼어요.'
+                : result.error === 'driver_unavailable'
+                  ? '기사 온라인 상태를 확인해 주세요.'
+                  : result.error
     return NextResponse.json({ error: friendly, ride: toPublicRide(result.ride) }, { status: 409 })
   }
   if (result.ride.assignedDriverId) await openRideComms(id).catch(() => null)
