@@ -6505,7 +6505,7 @@ function DriverOfferWatcher({
         applyOffer(pending)
       }).catch(() => undefined)
     }
-    const unsubscribe = subscribeDriverLive(driverId, (snapshot) => applyOffer(snapshot))
+    const unsubscribe = subscribeDriverLive(driverId, (snapshot) => applyOffer(snapshot), driverAliasRef.current ? [driverAliasRef.current] : [])
     void enableDriverPush(driverId).catch(() => undefined)
     const onAlert = (event: MessageEvent) => {
       if (event.data?.type !== 'driver-offer') return
@@ -6936,7 +6936,7 @@ function DriverDashboard({
       ? subscribeDriverLive(driverId, (snapshot) => {
           streamReady.current = true
           applyOffer({ ride: snapshot.ride, offer: snapshot.offer, earnings: snapshot.earnings }, snapshot.active)
-        })
+        }, driverAliasRef.current ? [driverAliasRef.current] : [])
       : () => undefined
     if (online) {
       void enableDriverPush(driverId).then((ready) => {

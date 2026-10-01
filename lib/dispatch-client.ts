@@ -72,9 +72,10 @@ export type DriverDispatchSnapshot = {
   earnings?: DriverEarningsStats | null
 }
 
-export function subscribeDriverLive(driverId: string, onDispatch: (snapshot: DriverDispatchSnapshot) => void) {
+export function subscribeDriverLive(driverId: string, onDispatch: (snapshot: DriverDispatchSnapshot) => void, aliasIds: string[] = []) {
   const id = driverId.trim()
   if (!id || typeof window === 'undefined') return () => undefined
+  const aliases = aliasIds.map((a) => a.trim()).filter((a) => a && a !== id)
   let source: EventSource | null = null
   let closed = false
   let retryMs = 1000
@@ -82,7 +83,9 @@ export function subscribeDriverLive(driverId: string, onDispatch: (snapshot: Dri
   const connect = () => {
     if (closed) return
     source?.close()
-    source = new EventSource(localEventSourceUrl('api/drivers/live', new URLSearchParams({ driverId: id })))
+    const query = new URLSearchParams({ driverId: id })
+    for (const alias of aliases) query.append('altDriverId', alias)
+    source = new EventSource(localEventSourceUrl('api/drivers/live', query))
     source.addEventListener('dispatch', (event) => {
       retryMs = 1000
       try {

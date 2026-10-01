@@ -1,7 +1,7 @@
 import { getDriver, getRide, listRides, nowIso, saveDriver, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { getPartnerLink } from '@/lib/partner-ledger-server'
-import { recordSettlement } from '@/lib/settlement-store'
+import { listSettlements, recordSettlement } from '@/lib/settlement-store'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { createA2UPayment } from '@/lib/pi-platform'
 import {
@@ -395,7 +395,7 @@ function recordedEarnings(driverId: string): DriverEarning[] {
   return [...byRide.values()].sort((a, b) => (a.at < b.at ? 1 : -1))
 }
 
-export function driverEarningsStats(driverId: string, aliasIds: string[] = []): DriverEarningsStats {
+export async function driverEarningsStats(driverId: string, aliasIds: string[] = []): Promise<DriverEarningsStats> {
   // A driver may have history under a device-generated id (pre-login) and a
   // partner uid (post-login) — merge both identities so stats never vanish.
   const ids = [driverId, ...aliasIds].filter((id, index, list) => Boolean(id) && list.indexOf(id) === index)
@@ -404,6 +404,72 @@ export function driverEarningsStats(driverId: string, aliasIds: string[] = []): 
     for (const entry of recordedEarnings(id)) {
       const key = `${entry.rideId}:${entry.status}`
       if (!merged.has(key)) merged.set(key, entry)
+    }
+  }
+  // The settlement ledger is written with awaited KV writes and is the most
+  // durable record — merge it so rides whose store rows were lost still count.
+  let settlements: Awaited<ReturnType<typeof listSettlements>> = []
+  try {
+    settlements = await listSettlements()
+  } catch {
+    settlements = []
+  }
+  const mergeSettlement = (entry: (typeof settlements)[number]) => {
+    const ref = /^ride:([^:]+)(:cancel)?$/.exec(entry.refId)
+    if (!ref) return
+    const status: DriverEarning['status'] = ref[2] ? 'cancelled' : 'completed'
+    const key = `${ref[1]}:${status}`
+    if (merged.has(key)) return
+    merged.set(key, {
+      id: `settlement-${entry.id}`,
+      driverId: entry.driverId,
+      rideId: ref[1],
+      amount: entry.gross,
+      route: entry.memo || '정산',
+      status,
+      at: entry.settledAt || entry.createdAt,
+    })
+  }
+  const mergeRide = (ride: ReturnType<typeof listRides>[number], earningDriverId: string) => {
+    if (ride.status !== 'completed' && ride.status !== 'cancelled') return
+    const status: DriverEarning['status'] = ride.status === 'completed' ? 'completed' : 'cancelled'
+    const key = `${ride.id}:${status}`
+    if (merged.has(key)) return
+    const receipt = getReceipt(ride.id)
+    const amount = status === 'completed' ? (receipt?.amount ?? ride.estimatedFare) : (receipt?.amount ?? 0)
+    merged.set(key, {
+      id: `ride-${ride.id}-${status}`,
+      driverId: earningDriverId,
+      rideId: ride.id,
+      amount,
+      route: `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`,
+      status,
+      at: receipt?.settledAt || ride.updatedAt,
+    })
+  }
+  for (const entry of settlements) {
+    if (ids.includes(entry.driverId)) mergeSettlement(entry)
+  }
+  // Last-resort identity bridge: records booked under an id this device no
+  // longer knows (lost profile, other browser) still belong to the same
+  // named driver. Only fires when the id-based merge found nothing matching
+  // that name-derived record, so a matched driver's figures can't be skewed.
+  const driverNames = new Set<string>()
+  for (const id of ids) {
+    const name = getDriver(id)?.name?.trim() || getPartnerLink(id)?.name?.trim()
+    if (name) driverNames.add(name)
+  }
+  if (driverNames.size) {
+    for (const ride of listRides()) {
+      if (!ride.assignedDriverId || ids.includes(ride.assignedDriverId)) continue
+      const assignedName = getDriver(ride.assignedDriverId)?.name?.trim()
+      if (!assignedName || !driverNames.has(assignedName)) continue
+      mergeRide(ride, ride.assignedDriverId)
+    }
+    for (const entry of settlements) {
+      if (ids.includes(entry.driverId)) continue
+      const name = entry.driverName?.trim()
+      if (name && driverNames.has(name)) mergeSettlement(entry)
     }
   }
   const entries = [...merged.values()].sort((a, b) => (a.at < b.at ? 1 : -1))

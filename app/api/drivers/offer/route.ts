@@ -22,6 +22,6 @@ export async function GET(request: Request) {
     ride: pending?.ride ?? null,
     offer: pending?.offer ?? null,
     active: ids.map((id) => getDriverActiveRide(id)).find(Boolean) ?? null,
-    earnings: driverEarningsStats(driverId, ids.slice(1)),
+    earnings: await driverEarningsStats(driverId, ids.slice(1)),
   })
 }

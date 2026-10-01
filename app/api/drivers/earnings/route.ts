@@ -12,5 +12,5 @@ export async function GET(request: Request) {
   if (!driverId) return NextResponse.json({ error: 'driverId required' }, { status: 400 })
   const aliases = params.getAll('altDriverId').map((id) => id.trim()).filter((id) => id && id !== driverId)
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
-  return NextResponse.json({ ok: true, stats: driverEarningsStats(driverId, aliases) })
+  return NextResponse.json({ ok: true, stats: await driverEarningsStats(driverId, aliases) })
 }
