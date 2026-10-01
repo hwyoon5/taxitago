@@ -56,8 +56,9 @@ export async function approvePiPayment(paymentId: string) {
 }
 
 export async function completePiPayment(paymentId: string, txid: string) {
-  await getPiPayment(paymentId)
-  return piPaymentsRequest(paymentId, 'POST', '/complete', { txid })
+  const info = (await getPiPayment(paymentId)) as { amount?: number; metadata?: Record<string, unknown> } | null
+  const payment = await piPaymentsRequest(paymentId, 'POST', '/complete', { txid })
+  return { payment, info }
 }
 
 export async function createA2UPayment(input: {

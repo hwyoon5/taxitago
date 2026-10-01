@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { approvePiPayment, completePiPayment } from '@/lib/pi-platform'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
+import { handleServicePaymentComplete } from '@/lib/service-settlement'
 
 function errorStatus(message: string) {
   return message.includes('PI_API_KEY') ? 500 : 502
@@ -37,7 +38,12 @@ export async function handlePiApprove(request: Request) {
 }
 
 export async function handlePiComplete(request: Request) {
-  const body = (await request.json().catch(() => null)) as { paymentId?: unknown; txid?: unknown } | null
+  const body = (await request.json().catch(() => null)) as {
+    paymentId?: unknown
+    txid?: unknown
+    amount?: unknown
+    metadata?: unknown
+  } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
   console.log('[Pi] /api/pi/complete incoming', { paymentId: paymentId || '(empty)', txid: txid || '(empty)', sandbox: isPiSandboxEnv() })
@@ -45,14 +51,30 @@ export async function handlePiComplete(request: Request) {
     console.error('[Pi] /api/pi/complete rejected: paymentId and txid required')
     return NextResponse.json({ error: 'paymentId and txid required' }, { status: 400 })
   }
+  const fallbackAmount = typeof body?.amount === 'number' ? body.amount : null
+  const fallbackMetadata =
+    body?.metadata && typeof body.metadata === 'object' ? (body.metadata as Record<string, unknown>) : null
 
   try {
-    const payment = await completePiPayment(paymentId, txid)
+    const { payment, info } = await completePiPayment(paymentId, txid)
     console.log('[Pi] /api/pi/complete ok', { paymentId, txid })
+    await handleServicePaymentComplete({
+      paymentId,
+      txid,
+      amount: typeof info?.amount === 'number' ? info.amount : fallbackAmount,
+      metadata: info?.metadata ?? fallbackMetadata,
+    }).catch((settleError) => {
+      console.error('[Pi] /api/pi/complete settlement record failed', { paymentId, settleError })
+    })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'complete failed'
-    if (isPiSandboxEnv()) return sandboxOk('complete', paymentId, { txid })
+    if (isPiSandboxEnv()) {
+      await handleServicePaymentComplete({ paymentId, txid, amount: fallbackAmount, metadata: fallbackMetadata }).catch(
+        () => null,
+      )
+      return sandboxOk('complete', paymentId, { txid })
+    }
     console.error('[Pi] /api/pi/complete error', { paymentId, txid, message })
     return NextResponse.json({ error: message }, { status: errorStatus(message) })
   }

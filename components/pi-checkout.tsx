@@ -205,7 +205,7 @@ function waitForPi(timeoutMs = 12000) {
   })
 }
 
-async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, string>) {
+async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, unknown>) {
   logPi('log', `${path} request`, body)
   const response = await apiFetch(path, {
     method: 'POST',
@@ -570,7 +570,11 @@ export async function startPiCheckout(options: {
             return Promise.resolve()
           }
           if (!txid) return Promise.resolve()
-          return withTimeout(postPiApi('/api/pi/complete', { paymentId, txid }), PI_SERVER_TIMEOUT_MS, 'Pi 결제 완료')
+          return withTimeout(
+            postPiApi('/api/pi/complete', { paymentId, txid, amount, metadata: payment.metadata }),
+            PI_SERVER_TIMEOUT_MS,
+            'Pi 결제 완료',
+          )
             .then(() => {
               succeed({ paymentId, txid })
             })
