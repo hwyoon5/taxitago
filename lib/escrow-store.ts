@@ -55,10 +55,26 @@ async function fetchKvState(): Promise<PersistShape | null> {
 let kvPullAt = 0
 let kvPulling = false
 
+const ESCROW_STATUS_RANK: Record<string, number> = {
+  pending: 0,
+  held: 1,
+  released: 2,
+  refunded: 2,
+}
+
+function escrowShouldReplace(current: EscrowRecord | undefined | null, incoming: EscrowRecord) {
+  if (!current) return true
+  const currentRank = ESCROW_STATUS_RANK[current.status] ?? 0
+  const incomingRank = ESCROW_STATUS_RANK[incoming.status] ?? 0
+  if (incomingRank < currentRank) return false
+  if (incomingRank > currentRank) return true
+  return !newer(current.updatedAt, incoming.updatedAt)
+}
+
 function mergePersisted(store: EscrowDb, parsed: PersistShape) {
   for (const record of parsed.escrows ?? []) {
     const current = store.escrows.get(record.id) ?? (store.byRide.get(record.rideId) ? store.escrows.get(store.byRide.get(record.rideId) || '') : null)
-    if (!current || !newer(current.updatedAt, record.updatedAt)) remember(store, record)
+    if (escrowShouldReplace(current, record)) remember(store, record)
   }
   for (const receipt of parsed.receipts ?? []) {
     const current = store.receipts.get(receipt.rideId)
@@ -109,7 +125,7 @@ function pushToKv(payload: PersistShape) {
       const escrowMap = new Map((payload.escrows ?? []).map((record) => [record.id, record]))
       for (const record of remote.escrows ?? []) {
         const local = escrowMap.get(record.id)
-        if (!local || newer(record.updatedAt, local.updatedAt)) escrowMap.set(record.id, record)
+        if (escrowShouldReplace(local, record)) escrowMap.set(record.id, record)
       }
       const receiptMap = new Map((payload.receipts ?? []).map((receipt) => [receipt.rideId, receipt]))
       for (const receipt of remote.receipts ?? []) {

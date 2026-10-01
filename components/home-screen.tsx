@@ -6373,7 +6373,7 @@ function DriverOfferWatcher({
     if (!driverId) return
     const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; active?: PublicRide | null } | null) => {
       const ride = pending?.ride ?? null
-      const active = pending?.active ?? null
+      const active = pending?.active && pending.active.status === 'assigned' ? pending.active : null
       setActiveRide((current) => {
         if (!active) return null
         if (!current || current.id !== active.id) return active
@@ -6573,6 +6573,7 @@ function DriverDashboard({
   onActivityRef.current = onActivity
   const lastActiveRef = useRef<PublicRide | null>(null)
   const activeEndChecks = useRef(new Set<string>())
+  const endedRideIds = useRef(new Set<string>())
   const activityPrimed = useRef(false)
   const deliverySeen = useRef<string | null>(null)
   const noteActivity = useCallback((key: string, label: string, detail: string) => {
@@ -6582,6 +6583,13 @@ function DriverDashboard({
   }, [])
   const rideRoute = (ride: { pickup: { address?: string; label?: string }; dest: { address?: string; label?: string } }) =>
     `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
+  const dropEndedRide = useCallback((ended: PublicRide | string) => {
+    const id = typeof ended === 'string' ? ended : ended.id
+    endedRideIds.current.add(id)
+    if (lastActiveRef.current?.id === id) lastActiveRef.current = null
+    if (driverId) writeStoredDriverRide(driverId, null)
+    setActiveRide((current) => (current?.id === id ? null : current))
+  }, [driverId])
 
   useEffect(() => {
     const profile = loadPartnerProfile()
@@ -6603,7 +6611,9 @@ function DriverDashboard({
         if (latest.status !== 'assigned') {
           if (latest.status === 'completed') noteActivity(`done:${stored.id}`, '운행 완료', rideRoute(stored))
           else noteActivity(`cancel:${stored.id}`, '취소', rideRoute(stored))
+          endedRideIds.current.add(stored.id)
           lastActiveRef.current = null
+          writeStoredDriverRide(id, null)
           setActiveRide((current) => (current?.id === stored.id ? null : current))
           return
         }
@@ -6701,6 +6711,16 @@ function DriverDashboard({
       setOfferKm(km)
     }
     const mergeActiveRide = (incoming: PublicRide | null) => {
+      if (incoming && endedRideIds.current.has(incoming.id)) {
+        dropEndedRide(incoming.id)
+        return
+      }
+      if (incoming && incoming.status !== 'assigned') {
+        if (incoming.status === 'completed') noteActivity(`done:${incoming.id}`, '운행 완료', rideRoute(incoming))
+        else if (incoming.status === 'cancelled' || incoming.status === 'unmatched') noteActivity(`cancel:${incoming.id}`, '취소', rideRoute(incoming))
+        dropEndedRide(incoming.id)
+        return
+      }
       setActiveRide((current) => {
         if (!incoming) return lastActiveRef.current ? current : null
         if (!current || current.id !== incoming.id) return incoming
@@ -6723,13 +6743,13 @@ function DriverDashboard({
         if (!activityKeys.current.has(`done:${previous.id}`) && !activityKeys.current.has(`cancel:${previous.id}`)) {
           noteActivity(`cancel:${previous.id}`, '취소', rideRoute(previous))
         }
-        lastActiveRef.current = null
-        setActiveRide((current) => (current?.id === previous.id ? null : current))
+        dropEndedRide(previous.id)
       }).catch(() => {
         activeEndChecks.current.delete(previous.id)
       })
     }
     const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; earnings?: DriverEarningsStats | null; active?: PublicRide | null } | null, active?: PublicRide | null) => {
+      if (active && endedRideIds.current.has(active.id)) active = null
       const ride = pending?.ride ?? null
       if (pending?.earnings) applyEarnings(driverId, pending.earnings)
       if (!activityPrimed.current) {
@@ -6928,6 +6948,7 @@ function DriverDashboard({
         }
         noteActivity(`done:${activeRide.id}`, '운행 완료', rideRoute(activeRide))
         const finished = activeRide
+        dropEndedRide(finished.id)
         setActiveRide(null)
         onNotice('운행 완료. 에스크로 Pi가 등록 지갑으로 정산되었습니다.')
         if (finished) {
@@ -6958,6 +6979,7 @@ function DriverDashboard({
     void abandonDriverRide(activeRide.id, driverId)
       .then(() => {
         noteActivity(`cancel:${activeRide.id}`, '취소', rideRoute(activeRide))
+        dropEndedRide(activeRide.id)
         setActiveRide(null)
         setIncoming(null)
         onNotice('배차를 취소했어요. 승객과 함께 대기 상태로 돌아갑니다.')

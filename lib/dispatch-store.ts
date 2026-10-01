@@ -57,6 +57,24 @@ async function fetchKvState(): Promise<PersistShape | null> {
   }
 }
 
+const RIDE_STATUS_RANK: Record<string, number> = {
+  searching: 0,
+  offered: 0,
+  unmatched: 0,
+  assigned: 1,
+  cancelled: 2,
+  completed: 2,
+}
+
+function rideShouldReplace(current: RideRequestRecord | undefined, incoming: RideRequestRecord) {
+  if (!current) return true
+  const currentRank = RIDE_STATUS_RANK[current.status] ?? 0
+  const incomingRank = RIDE_STATUS_RANK[incoming.status] ?? 0
+  if (incomingRank < currentRank) return false
+  if (incomingRank > currentRank) return true
+  return !(Date.parse(current.updatedAt || '') > Date.parse(incoming.updatedAt || ''))
+}
+
 let kvPullAt = 0
 let kvPulling = false
 
@@ -77,9 +95,7 @@ export async function hydrateDispatchFromKv() {
 function mergePersisted(store: DispatchDb, parsed: PersistShape) {
   for (const ride of parsed.rides ?? []) {
     const current = store.rides.get(ride.id)
-    const incomingAt = Date.parse(ride.updatedAt || '')
-    const currentAt = Date.parse(current?.updatedAt || '')
-    if (!current || !(currentAt > incomingAt)) {
+    if (rideShouldReplace(current, ride)) {
       store.rides.set(ride.id, { ...ride, kind: ride.kind === 'daeri' ? 'daeri' : 'taxi' })
     }
   }
@@ -188,7 +204,7 @@ function writePersistNow() {
           const rideMap = new Map(payload.rides.map((ride) => [ride.id, ride]))
           for (const ride of remote.rides ?? []) {
             const local = rideMap.get(ride.id)
-            if (!local || Date.parse(ride.updatedAt || '') > Date.parse(local.updatedAt || '')) rideMap.set(ride.id, ride)
+            if (rideShouldReplace(local, ride)) rideMap.set(ride.id, ride)
           }
           const driverMap = new Map(payload.drivers.map((driver) => [driver.id, driver]))
           for (const driver of remote.drivers ?? []) {
