@@ -102,8 +102,8 @@ function rankedCandidates(ride: RideRequestRecord) {
       km: haversineKm({ lat: driver.lat, lng: driver.lng }, ride.pickup),
     }))
     .sort((a, b) => {
-      if (a.km !== b.km) return a.km - b.km
       if (a.driver.virtual !== b.driver.virtual) return Number(a.driver.virtual) - Number(b.driver.virtual)
+      if (a.km !== b.km) return a.km - b.km
       return a.driver.id.localeCompare(b.driver.id)
     })
 }
