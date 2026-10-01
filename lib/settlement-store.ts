@@ -169,6 +169,34 @@ export async function markSettlementSettled(id: string): Promise<SettlementEntry
   return entry
 }
 
+/** Admin manual adjustment — edits a ledger row and recomputes commission/net. */
+export async function updateSettlementEntry(id: string, patch: {
+  gross?: number
+  memo?: string
+  driverId?: string
+  driverName?: string
+  status?: 'pending' | 'settled'
+}): Promise<SettlementEntry | null> {
+  const entries = await readEntries()
+  const entry = entries.find((row) => row.id === id)
+  if (!entry) return null
+  if (patch.gross !== undefined) {
+    if (!Number.isFinite(patch.gross) || patch.gross <= 0) return null
+    entry.gross = Math.round(patch.gross * 100) / 100
+    entry.commission = Math.round(entry.gross * entry.rate) / 100
+    entry.net = Math.round((entry.gross - entry.commission) * 100) / 100
+  }
+  if (typeof patch.memo === 'string' && patch.memo.trim()) entry.memo = patch.memo.trim()
+  if (typeof patch.driverId === 'string' && patch.driverId.trim()) entry.driverId = patch.driverId.trim()
+  if (typeof patch.driverName === 'string') entry.driverName = patch.driverName.trim()
+  if (patch.status === 'pending' || patch.status === 'settled') {
+    entry.status = patch.status
+    entry.settledAt = patch.status === 'settled' ? entry.settledAt || new Date().toISOString() : ''
+  }
+  await writeEntries(entries)
+  return entry
+}
+
 export async function markAllSettlementsSettled(): Promise<number> {
   const entries = await readEntries()
   const at = new Date().toISOString()

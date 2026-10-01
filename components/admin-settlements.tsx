@@ -44,6 +44,9 @@ export default function AdminSettlements() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [filter, setFilter] = useState<'all' | SettlementService>('all')
   const [busy, setBusy] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draft, setDraft] = useState<{ gross: string; memo: string; driverId: string; driverName: string; status: 'pending' | 'settled' } | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -117,6 +120,42 @@ export default function AdminSettlements() {
         reload()
       })
       .catch(() => setError('일괄 정산에 실패했습니다.'))
+      .finally(() => setBusy(false))
+  }
+
+  const reconcile = () => {
+    if (syncing) return
+    setSyncing(true)
+    void patch({ action: 'reconcile' })
+      .then((data: { synced?: number }) => {
+        tell(data.synced ? `기사 수익 ${data.synced}건을 장부와 동기화했습니다.` : '장부와 기사 수익이 이미 일치합니다.')
+        reload()
+      })
+      .catch(() => setError('내역 동기화에 실패했습니다.'))
+      .finally(() => setSyncing(false))
+  }
+
+  const openEditor = (entry: SettlementEntry) => {
+    setEditing(entry.id)
+    setDraft({ gross: String(entry.gross), memo: entry.memo, driverId: entry.driverId, driverName: entry.driverName, status: entry.status })
+  }
+
+  const saveAdjust = () => {
+    if (busy || !editing || !draft) return
+    const gross = Number(draft.gross)
+    if (!Number.isFinite(gross) || gross <= 0) {
+      setError('정산 금액을 확인해 주세요.')
+      return
+    }
+    setBusy(true)
+    void patch({ action: 'adjust', id: editing, gross, memo: draft.memo, driverId: draft.driverId, driverName: draft.driverName, status: draft.status })
+      .then(() => {
+        setEditing(null)
+        setDraft(null)
+        tell('정산 내역을 보정하고 기사 수익에 반영했습니다.')
+        reload()
+      })
+      .catch(() => setError('정산 보정에 실패했습니다.'))
       .finally(() => setBusy(false))
   }
 
@@ -210,7 +249,17 @@ export default function AdminSettlements() {
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-black">정산 내역</p>
-          <div className="flex flex-wrap justify-end gap-1">
+          <button
+            type="button"
+            disabled={syncing}
+            onClick={reconcile}
+            className="rounded-full border-2 border-[#4C1FB8] bg-white px-3 py-1.5 text-[11px] font-black text-[#4C1FB8] disabled:opacity-50"
+          >
+            {syncing ? '동기화 중…' : '내역 동기화·보정'}
+          </button>
+        </div>
+        <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">장부 기준으로 기사 모드 수익 내역을 강제로 일치시킵니다.</p>
+        <div className="mt-2 flex flex-wrap justify-end gap-1">
             {(['all', ...SERVICES] as const).map((key) => (
               <button
                 key={key}
@@ -222,7 +271,6 @@ export default function AdminSettlements() {
               </button>
             ))}
           </div>
-        </div>
         {error ? <p className="mt-2 text-xs font-black text-[#DC2626]">{error}</p> : null}
         <div className="mt-3 space-y-2">
           {visible.map((entry) => (
@@ -232,21 +280,104 @@ export default function AdminSettlements() {
                 <span className="text-[10px] font-bold text-[#94A3B8]">{new Date(entry.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
               </div>
               <p className="mt-1.5 text-xs font-black">{entry.driverName || entry.driverId} <span className="font-bold text-[#64748B]">· {entry.memo}</span></p>
-              <div className="mt-1.5 flex items-center justify-between text-[11px] font-bold text-[#64748B]">
+              <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] font-bold text-[#64748B]">
                 <span>결제 {pi(entry.gross)} · 수수료 {entry.rate}% = <strong className="text-[#4C1FB8]">{pi(entry.commission)}</strong> · 기사 {pi(entry.net)}</span>
-                {entry.status === 'pending' ? (
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {entry.status === 'pending' ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => settleEntry(entry.id)}
+                      className="rounded-full bg-[#FEF3C7] px-2.5 py-1 text-[10px] font-black text-[#B45309] disabled:opacity-50"
+                    >
+                      정산 처리
+                    </button>
+                  ) : (
+                    <span className="rounded-full bg-[#DCFCE7] px-2.5 py-1 text-[10px] font-black text-[#15803D]">정산 완료</span>
+                  )}
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => settleEntry(entry.id)}
-                    className="rounded-full bg-[#FEF3C7] px-2.5 py-1 text-[10px] font-black text-[#B45309] disabled:opacity-50"
+                    onClick={() => (editing === entry.id ? setEditing(null) : openEditor(entry))}
+                    className="rounded-full bg-[#EDE9FE] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8] disabled:opacity-50"
                   >
-                    정산 처리
+                    {editing === entry.id ? '닫기' : '보정'}
                   </button>
-                ) : (
-                  <span className="rounded-full bg-[#DCFCE7] px-2.5 py-1 text-[10px] font-black text-[#15803D]">정산 완료</span>
-                )}
+                </div>
               </div>
+              {editing === entry.id && draft ? (
+                <div className="mt-2 space-y-2 rounded-xl bg-[#F8FAFC] p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-[10px] font-black text-[#64748B]">정산 금액(Pi)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={draft.gross}
+                        onChange={(event) => setDraft({ ...draft, gross: event.target.value })}
+                        className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-black text-[#64748B]">정산 상태</span>
+                      <select
+                        value={draft.status}
+                        onChange={(event) => setDraft({ ...draft, status: event.target.value as 'pending' | 'settled' })}
+                        className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+                      >
+                        <option value="pending">정산 대기</option>
+                        <option value="settled">정산 완료</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-black text-[#64748B]">기사 ID</span>
+                      <input
+                        type="text"
+                        value={draft.driverId}
+                        onChange={(event) => setDraft({ ...draft, driverId: event.target.value })}
+                        className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-black text-[#64748B]">기사명</span>
+                      <input
+                        type="text"
+                        value={draft.driverName}
+                        onChange={(event) => setDraft({ ...draft, driverName: event.target.value })}
+                        className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+                      />
+                    </label>
+                  </div>
+                  <label className="block">
+                    <span className="text-[10px] font-black text-[#64748B]">메모</span>
+                    <input
+                      type="text"
+                      value={draft.memo}
+                      onChange={(event) => setDraft({ ...draft, memo: event.target.value })}
+                      className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+                    />
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={saveAdjust}
+                      className="flex-1 rounded-xl bg-[#4C1FB8] py-2 text-xs font-black text-white disabled:opacity-50"
+                    >
+                      보정 적용
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEditing(null); setDraft(null) }}
+                      className="rounded-xl bg-[#E2E8F0] px-4 py-2 text-xs font-black text-[#475569]"
+                    >
+                      취소
+                    </button>
+                  </div>
+                  <p className="text-[10px] font-bold text-[#94A3B8]">금액·기사 정보를 바꾸면 기사 모드 수익 내역에도 즉시 반영됩니다.</p>
+                </div>
+              ) : null}
             </div>
           ))}
           {visible.length === 0 ? <p className="py-6 text-center text-xs font-bold text-[#94A3B8]">정산 내역이 없습니다.</p> : null}

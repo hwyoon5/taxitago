@@ -7,7 +7,9 @@ import {
   markSettlementSettled,
   saveCommissionRates,
   settlementStorageBackend,
+  updateSettlementEntry,
 } from '@/lib/settlement-store'
+import { addEarning, flushEscrowPersist, hydrateEscrowFromKv, listEarnings } from '@/lib/escrow-store'
 import type { CommissionRates, SettlementEntry, SettlementService } from '@/lib/settlement-types'
 
 export const runtime = 'nodejs'
@@ -82,6 +84,11 @@ export async function PATCH(request: Request) {
     action?: unknown
     id?: unknown
     rates?: Record<string, unknown>
+    gross?: unknown
+    status?: unknown
+    memo?: unknown
+    driverId?: unknown
+    driverName?: unknown
   } | null
   const action = body?.action
 
@@ -107,5 +114,61 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: true, count })
   }
 
+  // Manual adjustment of a single ledger row — then push the corrected figures
+  // into the driver earnings store so the driver dashboard matches the ledger.
+  if (action === 'adjust') {
+    const id = typeof body?.id === 'string' ? body.id.trim() : ''
+    const gross = body?.gross === undefined ? undefined : Number(body.gross)
+    const status = body?.status === 'pending' || body?.status === 'settled' ? body.status : undefined
+    const entry = await updateSettlementEntry(id, {
+      gross,
+      status,
+      memo: typeof body?.memo === 'string' ? body.memo : undefined,
+      driverId: typeof body?.driverId === 'string' ? body.driverId : undefined,
+      driverName: typeof body?.driverName === 'string' ? body.driverName : undefined,
+    })
+    if (!entry) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    await hydrateEscrowFromKv()
+    const synced = syncEntryToEarning(entry)
+    if (synced) await flushEscrowPersist()
+    return NextResponse.json({ ok: true, entry, synced })
+  }
+
+  // Force driver dashboards to agree with the admin ledger: materialize a
+  // driver earnings row for every settlement entry that lacks one (or whose
+  // amount drifted), then flush to shared storage.
+  if (action === 'reconcile') {
+    const onlyDriverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
+    await hydrateEscrowFromKv()
+    const entries = await listSettlements()
+    let synced = 0
+    for (const entry of entries) {
+      if (onlyDriverId && entry.driverId !== onlyDriverId) continue
+      if (syncEntryToEarning(entry)) synced += 1
+    }
+    if (synced) await flushEscrowPersist()
+    return NextResponse.json({ ok: true, synced })
+  }
+
   return NextResponse.json({ error: 'unknown action' }, { status: 400 })
+}
+
+/** Upsert a driver earnings row matching a settlement entry. Returns true when it wrote. */
+function syncEntryToEarning(entry: SettlementEntry): boolean {
+  const ref = /^ride:([^:]+)(:cancel)?$/.exec(entry.refId)
+  if (!ref) return false
+  const rideId = ref[1]
+  const status = ref[2] ? ('cancelled' as const) : ('completed' as const)
+  const existing = listEarnings(entry.driverId).find((row) => row.rideId === rideId && row.status === status)
+  if (existing && existing.amount === entry.gross) return false
+  addEarning({
+    id: crypto.randomUUID(),
+    driverId: entry.driverId,
+    rideId,
+    amount: entry.gross,
+    route: entry.memo || '정산 보정',
+    status,
+    at: entry.settledAt || entry.createdAt,
+  })
+  return true
 }
