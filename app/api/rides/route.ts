@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { estimateTaxiFarePi, haversineKm } from '@/lib/dispatch-geo'
 import { createRideAndMatch, toPublicRide } from '@/lib/dispatch-engine'
-import { ensureSeedDrivers, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
+import { ensureSeedDrivers, flushDispatchPersist, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { isUsableCoord } from '@/lib/ride-session'
 
@@ -62,5 +62,8 @@ export async function POST(request: Request) {
     dest,
     estimatedFare: quoted,
   })
+  // Flush before responding so the pending offer is visible to other
+  // serverless instances (the driver's offer poll) immediately.
+  await flushDispatchPersist().catch(() => undefined)
   return NextResponse.json({ ok: true, ride: toPublicRide(ride) })
 }

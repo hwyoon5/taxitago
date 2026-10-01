@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { hydrateDispatchFromKv, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { rideReviews, submitRideReview } from '@/lib/review-engine'
 import type { RatingRole } from '@/lib/review-types'
 
@@ -14,6 +14,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
+  syncDispatchFromDisk()
   await hydrateDispatchFromKv()
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const fromId = typeof body?.fromId === 'string' ? body.fromId.trim() : ''

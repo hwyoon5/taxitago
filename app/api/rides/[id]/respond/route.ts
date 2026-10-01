@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { confirmMatchOnDevice, rememberDriverVehicle, toPublicRide } from '@/lib/dispatch-engine'
 import { openRideComms } from '@/lib/comms-engine'
-import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
-import { hydrateEscrowFromKv } from '@/lib/escrow-store'
+import { flushDispatchPersist, hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { flushEscrowPersist, hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { rideTransitionErrorMessage, transitionRide } from '@/lib/ride-machine'
 
 export const runtime = 'nodejs'
@@ -55,7 +55,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     )
     if (!result.ride) return NextResponse.json({ error: result.error }, { status: 404 })
     if (!result.ok) return NextResponse.json({ error: result.error, ride: toPublicRide(result.ride) }, { status: 409 })
-    await openRideComms(id).catch(() => null)
+    await Promise.all([flushDispatchPersist(), flushEscrowPersist(), openRideComms(id)]).catch(() => null)
     return NextResponse.json({ ok: true, ride: toPublicRide(result.ride) })
   }
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''

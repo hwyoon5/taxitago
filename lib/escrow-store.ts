@@ -119,7 +119,7 @@ export async function hydrateEscrowFromKv() {
 }
 
 function pushToKv(payload: PersistShape) {
-  void fetchKvState().then((remote) => {
+  return fetchKvState().then((remote) => {
     let merged = payload
     if (remote) {
       const escrowMap = new Map((payload.escrows ?? []).map((record) => [record.id, record]))
@@ -144,9 +144,19 @@ function pushToKv(payload: PersistShape) {
       }
     }
     return kvCommand(['SET', escrowKvKey, JSON.stringify(merged)])
-  }).catch((error) => {
+  }).then(() => undefined).catch((error) => {
     console.error('[escrow-store] kv persist failed', error instanceof Error ? error.message : 'write error')
   })
+}
+
+export async function flushEscrowPersist() {
+  const store = db()
+  const payload: PersistShape = {
+    escrows: [...store.escrows.values()],
+    receipts: [...store.receipts.values()],
+    earnings: store.earnings,
+  }
+  if (useKv) await pushToKv(payload)
 }
 
 function db(): EscrowDb {

@@ -1,4 +1,4 @@
-import { getDriver, getRide, nowIso, saveDriver } from '@/lib/dispatch-store'
+import { getDriver, getRide, nowIso, saveDriver, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import {
   addQualityFlag,
   findRideReview,
@@ -129,6 +129,7 @@ export function submitRideReview(input: {
   tags?: string[]
   comment?: string
 }) {
+  syncDispatchFromDisk()
   const ride = getRide(input.rideId)
   if (!ride) return { ok: false as const, error: 'not_found', review: null as ReviewRecord | null }
   if (ride.status !== 'completed') return { ok: false as const, error: 'not_completed', review: null }

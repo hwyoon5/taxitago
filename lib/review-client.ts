@@ -21,8 +21,9 @@ export async function submitRideReview(input: {
     })
   let res = await post()
   let data = await readJson<{ review?: ReviewRecord; rating?: PublicRating; error?: string }>(res)
-  if (!res.ok && data.error === 'not_found') {
-    await new Promise((resolve) => setTimeout(resolve, 800))
+  for (const delay of [700, 1400]) {
+    if (res.ok || data.error !== 'not_found') break
+    await new Promise((resolve) => setTimeout(resolve, delay))
     res = await post()
     data = await readJson<{ review?: ReviewRecord; rating?: PublicRating; error?: string }>(res)
   }

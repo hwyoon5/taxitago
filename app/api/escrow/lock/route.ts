@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getPublicRide } from '@/lib/dispatch-engine'
 import { lockEscrow, toPublicEscrow } from '@/lib/escrow-engine'
 import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
-import { hydrateEscrowFromKv } from '@/lib/escrow-store'
+import { flushEscrowPersist, hydrateEscrowFromKv } from '@/lib/escrow-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,6 +25,7 @@ export async function POST(request: Request) {
   if (!result.ok) {
     return NextResponse.json({ error: result.error, escrow: toPublicEscrow(result.escrow) }, { status: result.error === 'not_found' ? 404 : 409 })
   }
+  await flushEscrowPersist().catch(() => undefined)
   return NextResponse.json({
     ok: true,
     escrow: toPublicEscrow(result.escrow),

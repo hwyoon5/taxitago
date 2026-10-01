@@ -9,8 +9,9 @@ import {
   restorePendingOffer,
   toPublicRide,
 } from '@/lib/dispatch-engine'
-import { getRide, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
+import { flushDispatchPersist, getRide, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import {
+  flushEscrowPersist,
   getEscrowByRide,
   hydrateEscrowFromKv,
   syncEscrowFromDisk,
@@ -123,6 +124,34 @@ export async function transitionRide(input: {
   syncEscrowFromDisk()
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
 
+  const result = await applyTransition(input)
+  // Mutations must reach the shared store before the response returns —
+  // fire-and-forget writes can be killed when a serverless instance freezes,
+  // leaving later requests on other instances unable to find the ride.
+  if (result.ok) {
+    await Promise.all([flushDispatchPersist(), flushEscrowPersist()]).catch(() => undefined)
+  }
+  return result
+}
+
+async function applyTransition(input: {
+  rideId: string
+  action: RideTransitionAction
+  passengerId?: string
+  driverId?: string
+  settleFee?: boolean
+  proof?: RideEscrowProof
+  snapshot?: {
+    passengerId?: unknown
+    pickup?: RidePointSnapshot
+    dest?: RidePointSnapshot
+    estimatedFare?: unknown
+    kind?: unknown
+    boardedAt?: unknown
+    readyToSettleAt?: unknown
+    driverId?: unknown
+  }
+}): Promise<RideTransitionResult> {
   const { rideId, action } = input
   const driverId = typeof input.driverId === 'string' ? input.driverId.trim() : ''
   const passengerId = typeof input.passengerId === 'string' ? input.passengerId.trim() : ''
