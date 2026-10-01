@@ -94,9 +94,13 @@ export default function SupportCenter({
     setOpenTicket((current) => (current && current.id === ticket.id ? ticket : current))
   }, [])
   const applyLostUpdate = useCallback((item: LostItem) => {
-    setLost((rows) => rows.map((row) => (row.id === item.id ? item : row)))
+    setLost((rows) =>
+      rows
+        .map((row) => (row.id === item.id ? item : row))
+        .filter((row) => actorRole !== 'driver' || (row.status !== 'returned' && row.status !== 'closed')),
+    )
     setOpenLost((current) => (current && current.id === item.id ? item : current))
-  }, [])
+  }, [actorRole])
 
   return (
     <div className="space-y-4">

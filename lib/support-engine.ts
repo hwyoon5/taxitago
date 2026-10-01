@@ -170,6 +170,7 @@ export async function lostInbox(filter: { actorId: string; role: SupportActor })
   return (await listLostItems())
     .filter((item) => {
       if (filter.role === 'admin') return true
+      if (filter.role === 'driver' && (item.status === 'returned' || item.status === 'closed')) return false
       if (item.reporterId === filter.actorId) return true
       if (filter.role === 'driver' && item.driverId === filter.actorId) return true
       if (filter.role === 'passenger' && item.passengerId === filter.actorId) return true
