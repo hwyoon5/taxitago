@@ -492,7 +492,7 @@ function readPaymentId(value: unknown) {
   return typeof identifier === 'string' ? identifier.trim() : ''
 }
 
-const PI_SERVER_TIMEOUT_MS = 20000
+const PI_SERVER_TIMEOUT_MS = 45000
 
 export async function startPiCheckout(options: {
   amount: number

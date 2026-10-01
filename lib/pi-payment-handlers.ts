@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { approvePiPayment, completePiPayment } from '@/lib/pi-platform'
+import { approvePiPayment, completePiPayment, describeError } from '@/lib/pi-platform'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { handleServicePaymentComplete } from '@/lib/service-settlement'
 
@@ -32,7 +32,7 @@ export async function handlePiApprove(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'approve failed'
     if (isPiSandboxEnv()) return sandboxOk('approve', paymentId)
-    console.error('[Pi] /api/pi/approve error', { paymentId, message })
+    console.error('[Pi] /api/pi/approve error', { paymentId, message, ...describeError(error) })
     return NextResponse.json({ error: message }, { status: errorStatus(message) })
   }
 }
@@ -75,7 +75,7 @@ export async function handlePiComplete(request: Request) {
       )
       return sandboxOk('complete', paymentId, { txid })
     }
-    console.error('[Pi] /api/pi/complete error', { paymentId, txid, message })
+    console.error('[Pi] /api/pi/complete error', { paymentId, txid, message, ...describeError(error) })
     return NextResponse.json({ error: message }, { status: errorStatus(message) })
   }
 }
