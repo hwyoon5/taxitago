@@ -691,10 +691,19 @@ export function upsertDriverPresence(input: {
   status: 'online' | 'offline'
   wallet?: string
   piUid?: string
+  altDriverId?: string
 }) {
   syncDispatchFromDisk()
   const current = getDriver(input.id)
-  const hasAssignedRide = input.status !== 'offline' && listRides().some((ride) => ride.assignedDriverId === input.id && ride.status === 'assigned')
+  // Count rides assigned to alias identities (e.g. a device-generated id used
+  // before partner login) so a busy driver is never offered a second ride.
+  const hasAssignedRide =
+    input.status !== 'offline' &&
+    listRides().some(
+      (ride) =>
+        (ride.assignedDriverId === input.id || (!!input.altDriverId && ride.assignedDriverId === input.altDriverId)) &&
+        ride.status === 'assigned',
+    )
   const next: DriverRecord = {
     id: input.id,
     name: input.name?.trim() || current?.name || '파트너 기사',

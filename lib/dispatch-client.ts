@@ -156,6 +156,7 @@ export async function sendDriverPresence(input: {
   plate?: string
   wallet?: string
   piUid?: string
+  altDriverId?: string
 }) {
   if (!isUsableCoord(input.lat, input.lng)) return
   await apiFetch('/api/drivers/presence', {
@@ -237,9 +238,13 @@ export function rideFromPushedOffer(payload: PushedDriverOffer | null | undefine
   }
 }
 
-export async function fetchDriverOffer(driverId: string) {
+function aliasQuery(driverId: string, altDriverId?: string) {
+  return altDriverId && altDriverId !== driverId ? `&altDriverId=${encodeURIComponent(altDriverId)}` : ''
+}
+
+export async function fetchDriverOffer(driverId: string, altDriverId?: string) {
   try {
-    const res = await apiFetch(`/api/drivers/offer?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+    const res = await apiFetch(`/api/drivers/offer?driverId=${encodeURIComponent(driverId)}${aliasQuery(driverId, altDriverId)}`, { cache: 'no-store' })
     const data = await readJson<{ ride?: PublicRide | null; offer?: { pickupDistanceKm: number; expiresAt: string } | null; active?: PublicRide | null; earnings?: DriverEarningsStats | null }>(res)
     if (!res.ok) return undefined
     return { ride: data.ride ?? null, offer: data.offer ?? null, active: data.active ?? null, earnings: data.earnings ?? null }
@@ -372,15 +377,15 @@ export async function fetchRideHistory(actorId: string, role: 'passenger' | 'dri
   }
 }
 
-export async function fetchDriverActiveRide(driverId: string) {
-  const res = await apiFetch(`/api/drivers/active/?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+export async function fetchDriverActiveRide(driverId: string, altDriverId?: string) {
+  const res = await apiFetch(`/api/drivers/active/?driverId=${encodeURIComponent(driverId)}${aliasQuery(driverId, altDriverId)}`, { cache: 'no-store' })
   const data = await readJson<{ ride?: PublicRide | null }>(res)
   if (!res.ok) return null
   return data.ride ?? null
 }
 
-export async function fetchDriverEarnings(driverId: string) {
-  const res = await apiFetch(`/api/drivers/earnings/?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
+export async function fetchDriverEarnings(driverId: string, altDriverId?: string) {
+  const res = await apiFetch(`/api/drivers/earnings/?driverId=${encodeURIComponent(driverId)}${aliasQuery(driverId, altDriverId)}`, { cache: 'no-store' })
   const data = await readJson<{ stats?: DriverEarningsStats; error?: string }>(res)
   if (!res.ok || !data.stats) return null
   return data.stats

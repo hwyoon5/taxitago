@@ -9,15 +9,19 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
   ensureSeedDrivers()
-  const driverId = new URL(request.url).searchParams.get('driverId')?.trim() || ''
+  const params = new URL(request.url).searchParams
+  const driverId = params.get('driverId')?.trim() || ''
   if (!driverId) return NextResponse.json({ error: 'driverId required' }, { status: 400 })
+  // Include alias ids (e.g. a device-generated id used before partner login)
+  // so history recorded under the old identity still surfaces.
+  const ids = [driverId, ...params.getAll('altDriverId').map((id) => id.trim()).filter((id) => id && id !== driverId)]
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
-  const pending = getDriverOffer(driverId)
+  const pending = ids.map((id) => getDriverOffer(id)).find(Boolean) ?? null
   return NextResponse.json({
     ok: true,
     ride: pending?.ride ?? null,
     offer: pending?.offer ?? null,
-    active: getDriverActiveRide(driverId),
-    earnings: driverEarningsStats(driverId),
+    active: ids.map((id) => getDriverActiveRide(id)).find(Boolean) ?? null,
+    earnings: driverEarningsStats(driverId, ids.slice(1)),
   })
 }

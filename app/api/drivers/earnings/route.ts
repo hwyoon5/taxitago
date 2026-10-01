@@ -7,8 +7,10 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
-  const driverId = new URL(request.url).searchParams.get('driverId')?.trim() || ''
+  const params = new URL(request.url).searchParams
+  const driverId = params.get('driverId')?.trim() || ''
   if (!driverId) return NextResponse.json({ error: 'driverId required' }, { status: 400 })
+  const aliases = params.getAll('altDriverId').map((id) => id.trim()).filter((id) => id && id !== driverId)
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
-  return NextResponse.json({ ok: true, stats: driverEarningsStats(driverId) })
+  return NextResponse.json({ ok: true, stats: driverEarningsStats(driverId, aliases) })
 }

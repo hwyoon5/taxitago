@@ -6402,6 +6402,7 @@ function DriverOfferWatcher({
   onActivity?: (label: string, detail: string) => void
 }) {
   const [driverId, setDriverId] = useState('')
+  const driverAliasRef = useRef('')
   const [incoming, setIncoming] = useState<PublicRide | null>(null)
   const [offerKm, setOfferKm] = useState<number | null>(null)
   const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
@@ -6413,6 +6414,8 @@ function DriverOfferWatcher({
   useEffect(() => {
     const profile = loadPartnerProfile()
     const id = localDriverId(profile?.uid)
+    const legacyId = readOrCreateLocalId(DRIVER_ID_KEY, 'driver')
+    driverAliasRef.current = legacyId !== id ? legacyId : ''
     setDriverId(id)
     const stored = readStoredDriverRide(id)
     if (stored) setActiveRide(stored)
@@ -6435,6 +6438,7 @@ function DriverOfferWatcher({
       const fleet = partnerVehicle(partner)
       void sendDriverPresence({
         driverId,
+        altDriverId: driverAliasRef.current,
         lat,
         lng,
         online: true,
@@ -6533,7 +6537,7 @@ function DriverOfferWatcher({
     setBusy(true)
     void respondToRideOffer(
       incoming.id,
-      driverId,
+      incoming.pendingOffer?.driverId || driverId,
       action,
       {
         passengerId: incoming.passengerId,
@@ -6665,6 +6669,9 @@ function DriverDashboard({
   const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
   const [profileEditOpen, setProfileEditOpen] = useState(false)
   const [driverId, setDriverId] = useState('')
+  // Device-generated id used before a partner profile existed — kept as an
+  // alias so rides/earnings recorded under it stay visible.
+  const driverAliasRef = useRef('')
   const localOfferRef = useRef<{ ride: PublicRide; expiresAt: number; km: number | null } | null>(null)
   const offerLogRef = useRef('')
   const activityKeys = useRef(new Set<string>())
@@ -6706,13 +6713,15 @@ function DriverDashboard({
     const profile = loadPartnerProfile()
     setPartner(profile)
     const id = localDriverId(profile?.uid)
+    const legacyId = readOrCreateLocalId(DRIVER_ID_KEY, 'driver')
+    driverAliasRef.current = legacyId !== id ? legacyId : ''
     setDriverId(id)
     const cached = readEarningsCache(id)
     if (cached) {
       setEarnings(cached)
       setEarningsReady(true)
     }
-    void fetchDriverEarnings(id).then((stats) => applyEarnings(id, stats))
+    void fetchDriverEarnings(id, driverAliasRef.current).then((stats) => applyEarnings(id, stats))
     const stored = readStoredDriverRide(id)
     if (stored) {
       lastActiveRef.current = stored
@@ -6758,6 +6767,7 @@ function DriverDashboard({
       const fleet = partnerVehicle(partner)
       void sendDriverPresence({
         driverId,
+        altDriverId: driverAliasRef.current,
         lat,
         lng,
         online: true,
@@ -6783,6 +6793,7 @@ function DriverDashboard({
     if (!online) {
       void sendDriverPresence({
         driverId,
+        altDriverId: driverAliasRef.current,
         lat,
         lng,
         online: false,
@@ -6938,7 +6949,7 @@ function DriverDashboard({
     const pullOffer = () => {
       if (!online) return
       const request = ++offerRequest
-      void fetchDriverOffer(driverId).then((pending) => {
+      void fetchDriverOffer(driverId, driverAliasRef.current).then((pending) => {
         if (request !== offerRequest || pending === undefined) return
         applyOffer(pending, pending.active)
       })
@@ -6946,8 +6957,8 @@ function DriverDashboard({
     const refreshDesk = () => {
       pullOffer()
       void Promise.all([
-        fetchDriverActiveRide(driverId),
-        fetchDriverEarnings(driverId),
+        fetchDriverActiveRide(driverId, driverAliasRef.current),
+        fetchDriverEarnings(driverId, driverAliasRef.current),
         fetchUserRating(driverId, 'driver'),
         fetchSosInbox(driverId, 'driver'),
         fetchLostInbox(driverId, 'driver'),
@@ -7027,7 +7038,7 @@ function DriverDashboard({
     setBusy(true)
     localOfferRef.current = null
     const fleet = partnerVehicle(partner)
-    void respondToRideOffer(incoming.id, driverId, action, incoming, {
+    void respondToRideOffer(incoming.id, incoming.pendingOffer?.driverId || driverId, action, incoming, {
       name: partner?.name,
       vehicle: fleet.vehicle,
       plate: fleet.plate,
@@ -7048,7 +7059,7 @@ function DriverDashboard({
           noteActivity(`reject:${incoming.id}`, '거절', rideRoute(incoming))
           onNotice('요청을 거절했어요. 다음 기사에게 콜이 넘어갑니다.')
         }
-        void fetchDriverEarnings(driverId).then((stats) => applyEarnings(driverId, stats))
+        void fetchDriverEarnings(driverId, driverAliasRef.current).then((stats) => applyEarnings(driverId, stats))
         setIncoming(null)
       })
       .catch((error) => {
@@ -7069,7 +7080,7 @@ function DriverDashboard({
       return
     }
     setBusy(true)
-    void completeRideTrip(activeRide.id, driverId, activeRide)
+    void completeRideTrip(activeRide.id, activeRide.assignedDriver?.id || driverId, activeRide)
       .then((result) => {
         if (result.receipt) {
           appendSettlementEntry(result.receipt.amount, `에스크로 정산 · ${result.receipt.route}`)
@@ -7081,7 +7092,7 @@ function DriverDashboard({
         setActiveRide(null)
         onNotice('운행 완료. 에스크로 Pi가 등록 지갑으로 정산되었습니다.')
         if (finished) askPassengerReviewOnce(finished.id)
-        return fetchDriverEarnings(driverId)
+        return fetchDriverEarnings(driverId, driverAliasRef.current)
       })
       .then((stats) => {
         applyEarnings(driverId, stats)
@@ -7098,14 +7109,14 @@ function DriverDashboard({
       return
     }
     setBusy(true)
-    void abandonDriverRide(activeRide.id, driverId)
+    void abandonDriverRide(activeRide.id, activeRide.assignedDriver?.id || driverId)
       .then(() => {
         noteActivity(`cancel:${activeRide.id}`, '취소', rideRoute(activeRide))
         dropEndedRide(activeRide.id)
         setActiveRide(null)
         setIncoming(null)
         onNotice('배차를 취소했어요. 승객과 함께 대기 상태로 돌아갑니다.')
-        return fetchDriverEarnings(driverId)
+        return fetchDriverEarnings(driverId, driverAliasRef.current)
       })
       .then((stats) => {
         applyEarnings(driverId, stats)

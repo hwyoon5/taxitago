@@ -395,8 +395,18 @@ function recordedEarnings(driverId: string): DriverEarning[] {
   return [...byRide.values()].sort((a, b) => (a.at < b.at ? 1 : -1))
 }
 
-export function driverEarningsStats(driverId: string): DriverEarningsStats {
-  const entries = recordedEarnings(driverId)
+export function driverEarningsStats(driverId: string, aliasIds: string[] = []): DriverEarningsStats {
+  // A driver may have history under a device-generated id (pre-login) and a
+  // partner uid (post-login) — merge both identities so stats never vanish.
+  const ids = [driverId, ...aliasIds].filter((id, index, list) => Boolean(id) && list.indexOf(id) === index)
+  const merged = new Map<string, DriverEarning>()
+  for (const id of ids) {
+    for (const entry of recordedEarnings(id)) {
+      const key = `${entry.rideId}:${entry.status}`
+      if (!merged.has(key)) merged.set(key, entry)
+    }
+  }
+  const entries = [...merged.values()].sort((a, b) => (a.at < b.at ? 1 : -1))
   const daily = rollup(entries, (keys) => keys.day)
   const monthly = rollup(entries, (keys) => keys.month)
   const yearly = rollup(entries, (keys) => keys.year)
@@ -408,7 +418,7 @@ export function driverEarningsStats(driverId: string): DriverEarningsStats {
   return {
     todayAmount: today?.amount ?? 0,
     todayTrips: today?.trips ?? 0,
-    rating: getDriver(driverId)?.rating || '5.00',
+    rating: ids.map((id) => getDriver(id)?.rating).find(Boolean) || '5.00',
     daily,
     monthly,
     yearly,
