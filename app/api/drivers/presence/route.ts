@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { upsertDriverPresence } from '@/lib/dispatch-engine'
-import { ensureSeedDrivers } from '@/lib/dispatch-store'
+import { ensureSeedDrivers, flushDispatchPersist } from '@/lib/dispatch-store'
 import { isUsableCoord } from '@/lib/ride-session'
 
 export const runtime = 'nodejs'
@@ -27,5 +27,6 @@ export async function POST(request: Request) {
     wallet: typeof body?.wallet === 'string' ? body.wallet : undefined,
     piUid: typeof body?.piUid === 'string' ? body.piUid : undefined,
   })
+  await flushDispatchPersist()
   return NextResponse.json({ ok: true, driver })
 }

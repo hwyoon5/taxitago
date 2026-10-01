@@ -90,7 +90,8 @@ function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: nu
   if (ride.timedOutDriverIds.includes(driver.id)) return false
   const staleMs = now - Date.parse(driver.lastSeenAt)
   if (!driver.virtual && Number.isFinite(staleMs) && staleMs > DRIVER_STALE_MS) return false
-  return haversineKm({ lat: driver.lat, lng: driver.lng }, ride.pickup) <= MATCH_RADIUS_KM
+  if (driver.virtual) return haversineKm({ lat: driver.lat, lng: driver.lng }, ride.pickup) <= MATCH_RADIUS_KM
+  return Number.isFinite(haversineKm({ lat: driver.lat, lng: driver.lng }, ride.pickup))
 }
 
 function rankedCandidates(ride: RideRequestRecord) {

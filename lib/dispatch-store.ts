@@ -198,29 +198,40 @@ function writePersistNow() {
     }
     writeFileSync(persistFile, JSON.stringify(payload), 'utf8')
     if (useKv) {
-      void fetchKvState().then((remote) => {
-        let merged = payload
-        if (remote) {
-          const rideMap = new Map(payload.rides.map((ride) => [ride.id, ride]))
-          for (const ride of remote.rides ?? []) {
-            const local = rideMap.get(ride.id)
-            if (rideShouldReplace(local, ride)) rideMap.set(ride.id, ride)
+      return fetchKvState()
+        .then((remote) => {
+          let merged = payload
+          if (remote) {
+            const rideMap = new Map(payload.rides.map((ride) => [ride.id, ride]))
+            for (const ride of remote.rides ?? []) {
+              const local = rideMap.get(ride.id)
+              if (rideShouldReplace(local, ride)) rideMap.set(ride.id, ride)
+            }
+            const driverMap = new Map(payload.drivers.map((driver) => [driver.id, driver]))
+            for (const driver of remote.drivers ?? []) {
+              const local = driverMap.get(driver.id)
+              if (!local || Date.parse(driver.lastSeenAt || '') > Date.parse(local.lastSeenAt || '')) driverMap.set(driver.id, driver)
+            }
+            merged = { rides: [...rideMap.values()], drivers: [...driverMap.values()], seeded: payload.seeded || Boolean(remote.seeded) }
           }
-          const driverMap = new Map(payload.drivers.map((driver) => [driver.id, driver]))
-          for (const driver of remote.drivers ?? []) {
-            const local = driverMap.get(driver.id)
-            if (!local || Date.parse(driver.lastSeenAt || '') > Date.parse(local.lastSeenAt || '')) driverMap.set(driver.id, driver)
-          }
-          merged = { rides: [...rideMap.values()], drivers: [...driverMap.values()], seeded: payload.seeded || Boolean(remote.seeded) }
-        }
-        return kvCommand(['SET', dispatchKvKey, JSON.stringify(merged)])
-      }).catch((error) => {
-        console.error('[dispatch-store] kv persist failed', error instanceof Error ? error.message : 'write error')
-      })
+          return kvCommand(['SET', dispatchKvKey, JSON.stringify(merged)])
+        })
+        .then(() => undefined)
+        .catch((error) => {
+          console.error('[dispatch-store] kv persist failed', error instanceof Error ? error.message : 'write error')
+        })
     }
   } catch {
     undefined
   }
+}
+
+export async function flushDispatchPersist() {
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
+  await writePersistNow()
 }
 
 const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
