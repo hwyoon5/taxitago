@@ -87,7 +87,21 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (restored) result = respondToOffer(id, driverId, action)
   }
   if (!result.ride) return NextResponse.json({ error: result.error }, { status: 404 })
-  if (!result.ok) return NextResponse.json({ error: result.error, ride: toPublicRide(result.ride) }, { status: 409 })
+  if (!result.ok) {
+    const friendly =
+      result.error === 'not_your_offer'
+        ? '이미 만료되었거나 다른 기사에게 배정된 콜이에요.'
+        : result.error === 'already_assigned'
+          ? '이미 배정된 운행이에요.'
+          : result.error === 'cancelled'
+            ? '승객이 호출을 취소했어요.'
+            : result.error === 'completed'
+              ? '이미 완료된 운행이에요.'
+              : result.error === 'driver_unavailable'
+                ? '기사 온라인 상태를 확인해 주세요.'
+                : result.error
+    return NextResponse.json({ error: friendly, ride: toPublicRide(result.ride) }, { status: 409 })
+  }
   if (result.ride.assignedDriverId) await openRideComms(id).catch(() => null)
   return NextResponse.json({ ok: true, ride: toPublicRide(result.ride) })
 }

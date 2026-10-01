@@ -44,7 +44,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     driverId: typeof snapshot?.driverId === 'string' ? snapshot.driverId : null,
   })
   if (!result.ok || !result.ride) {
-    const error = result.error === 'not_boarded' ? '먼저 탑승을 확인해 주세요.' : result.error
+    const error =
+      result.error === 'not_boarded'
+        ? '먼저 탑승을 확인해 주세요.'
+        : result.error === 'cancelled'
+          ? '운행이 취소되었어요.'
+          : result.error === 'completed'
+            ? '이미 완료된 운행이에요.'
+            : result.error === 'forbidden'
+              ? '이 운행의 승객이 아니에요.'
+              : result.error
     return NextResponse.json({ error }, { status: result.error === 'not_found' ? 404 : 409 })
   }
   return NextResponse.json({ ok: true, ride: toPublicRide(result.ride) })

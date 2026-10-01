@@ -18,10 +18,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
     const current = getRide(id)
     if (!current) return NextResponse.json({ ok: true, missing: true, ride: null })
+    if (passengerId && current.passengerId !== passengerId) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+    }
     if (settleFee && current.status === 'assigned' && current.assignedDriverId) {
-      if (passengerId && current.passengerId !== passengerId) {
-        return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-      }
       try {
         await settlePassengerCancelFee(id)
       } catch (error) {

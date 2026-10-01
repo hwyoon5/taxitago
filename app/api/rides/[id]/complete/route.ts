@@ -60,7 +60,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         ? '승객이 탑승을 확인하고 목적지에 도착한 뒤에만 정산할 수 있어요.'
         : result.error === 'escrow_not_held'
           ? '승객 에스크로가 잠긴 뒤에 정산할 수 있어요.'
-          : result.error
+          : result.error === 'cancelled'
+            ? '승객이 운행을 취소했어요.'
+            : result.error === 'settling'
+              ? '정산이 진행 중이에요. 잠시 후 다시 눌러 주세요.'
+              : result.error
       const message = result.error === 'not_found' ? '완료할 운행을 찾지 못했어요.' : error
       return NextResponse.json(
         { error: message, escrow: toPublicEscrow(result.escrow) },

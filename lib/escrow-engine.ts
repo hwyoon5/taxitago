@@ -145,7 +145,16 @@ export async function releaseEscrow(
   if (ride.status === 'completed' || escrow?.status === 'released') {
     return { ok: true as const, escrow, receipt: getReceipt(rideId) }
   }
-  if (releasingRides.has(rideId)) return { ok: false as const, error: 'settling', escrow, receipt: null }
+  if (releasingRides.has(rideId)) {
+    for (let waited = 0; waited < 4000 && releasingRides.has(rideId); waited += 200) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    const settled = getEscrowByRide(rideId)
+    if (settled?.status === 'released' || getRide(rideId)?.status === 'completed') {
+      return { ok: true as const, escrow: settled, receipt: getReceipt(rideId) }
+    }
+    return { ok: false as const, error: 'settling', escrow: settled, receipt: null }
+  }
   if (ride.status !== 'assigned') return { ok: false as const, error: ride.status, escrow, receipt: null }
   if (!ride.readyToSettleAt) return { ok: false as const, error: 'passenger_not_ready', escrow, receipt: null }
   escrow = ensureSettlementEscrow(rideId, driverId, proof)

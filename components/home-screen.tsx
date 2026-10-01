@@ -2438,6 +2438,14 @@ function TaxiMatchingSheet({
         const txid = result.receipt?.payoutTxid || result.ride?.escrow?.payoutTxid || proof?.txid || `done-${ride.id.slice(0, 8)}`
         const paymentId = proof?.paymentId || result.receipt?.lockTxid || result.ride?.escrow?.lockTxid || txid
         openPayReceipt(paymentId, txid)
+        onAskReview({
+          rideId: ride.id,
+          raterId: passengerIdRef.current || localPassengerId(),
+          raterRole: 'passenger',
+          targetName: assigned?.name || '기사',
+          vehicle: assigned?.vehicle,
+          plate: assigned?.plate,
+        })
       })
       .catch((error) => {
         const timedOut = error instanceof Error && error.name === 'AbortError'
@@ -2468,6 +2476,9 @@ function TaxiMatchingSheet({
       }
       onNotice('운행이 완료되었습니다. 영수증을 확인하세요.')
       onClose()
+    }).catch(() => {
+      settledRef.current = false
+      onNotice('영수증을 불러오지 못했어요. 다시 눌러 주세요.')
     })
   }
 
@@ -3395,6 +3406,18 @@ function ServiceSheet({
               </button>
             ) : null}
             {ride ? (
+              dispatchRide?.status === 'completed' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAskReview(partner)
+                    onClose()
+                  }}
+                  className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white"
+                >
+                  운행 종료 · 기사 평가
+                </button>
+              ) : (
               <RideCompleteCancelBar
                 onCancel={() => setCancelConfirmOpen(true)}
                 hint={
@@ -3458,12 +3481,14 @@ function ServiceSheet({
                         .finally(() => window.clearTimeout(timeout))
                     }
                     onSettle(paid, place, `${service} 이용`, billed.estimate, result)
+                    onAskReview(partner)
                   }}
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
                 >
                   이용 완료
                 </PiCheckoutButton>
               </RideCompleteCancelBar>
+              )
             ) : (
               <>
                 <PiCheckoutButton
@@ -6587,9 +6612,21 @@ function DriverDashboard({
     const id = typeof ended === 'string' ? ended : ended.id
     endedRideIds.current.add(id)
     if (lastActiveRef.current?.id === id) lastActiveRef.current = null
+    if (localOfferRef.current?.ride.id === id) localOfferRef.current = null
     if (driverId) writeStoredDriverRide(driverId, null)
+    setIncoming((current) => (current?.id === id ? null : current))
     setActiveRide((current) => (current?.id === id ? null : current))
   }, [driverId])
+  const reviewAsked = useRef(new Set<string>())
+  const askPassengerReviewOnce = useCallback(
+    (rideId: string, raterId?: string) => {
+      const rater = raterId || driverId
+      if (!rater || reviewAsked.current.has(rideId)) return
+      reviewAsked.current.add(rideId)
+      onAskPassengerReview({ rideId, raterId: rater, raterRole: 'driver', targetName: '승객' })
+    },
+    [driverId, onAskPassengerReview],
+  )
 
   useEffect(() => {
     const profile = loadPartnerProfile()
@@ -6609,8 +6646,12 @@ function DriverDashboard({
       void fetchRideRequest(stored.id).then((latest) => {
         if (!latest) return
         if (latest.status !== 'assigned') {
-          if (latest.status === 'completed') noteActivity(`done:${stored.id}`, '운행 완료', rideRoute(stored))
-          else noteActivity(`cancel:${stored.id}`, '취소', rideRoute(stored))
+          if (latest.status === 'completed') {
+            noteActivity(`done:${stored.id}`, '운행 완료', rideRoute(stored))
+            askPassengerReviewOnce(stored.id, id)
+          } else {
+            noteActivity(`cancel:${stored.id}`, '취소', rideRoute(stored))
+          }
           endedRideIds.current.add(stored.id)
           lastActiveRef.current = null
           writeStoredDriverRide(id, null)
@@ -6716,8 +6757,12 @@ function DriverDashboard({
         return
       }
       if (incoming && incoming.status !== 'assigned') {
-        if (incoming.status === 'completed') noteActivity(`done:${incoming.id}`, '운행 완료', rideRoute(incoming))
-        else if (incoming.status === 'cancelled' || incoming.status === 'unmatched') noteActivity(`cancel:${incoming.id}`, '취소', rideRoute(incoming))
+        if (incoming.status === 'completed') {
+          noteActivity(`done:${incoming.id}`, '운행 완료', rideRoute(incoming))
+          askPassengerReviewOnce(incoming.id)
+        } else if (incoming.status === 'cancelled' || incoming.status === 'unmatched') {
+          noteActivity(`cancel:${incoming.id}`, '취소', rideRoute(incoming))
+        }
         dropEndedRide(incoming.id)
         return
       }
@@ -6740,7 +6785,10 @@ function DriverDashboard({
       void fetchRideRequest(previous.id).then((check) => {
         activeEndChecks.current.delete(previous.id)
         if (!check || (check.status !== 'completed' && check.status !== 'cancelled')) return
-        if (!activityKeys.current.has(`done:${previous.id}`) && !activityKeys.current.has(`cancel:${previous.id}`)) {
+        if (check.status === 'completed') {
+          noteActivity(`done:${previous.id}`, '운행 완료', rideRoute(previous))
+          askPassengerReviewOnce(previous.id)
+        } else {
           noteActivity(`cancel:${previous.id}`, '취소', rideRoute(previous))
         }
         dropEndedRide(previous.id)
@@ -6912,9 +6960,16 @@ function DriverDashboard({
     })
       .then((ride) => {
         if (action === 'accept') {
-          setActiveRide(ride)
-          noteActivity(`accept:${ride.id}`, '수락', rideRoute(ride))
-          onNotice('운행을 수락했어요. 승객 에스크로가 잠기면 운행 완료 시 자동 정산됩니다.')
+          if (ride.status === 'assigned') {
+            endedRideIds.current.delete(ride.id)
+            lastActiveRef.current = ride
+            writeStoredDriverRide(driverId, ride)
+            setActiveRide(ride)
+            noteActivity(`accept:${ride.id}`, '수락', rideRoute(ride))
+            onNotice('운행을 수락했어요. 승객 에스크로가 잠기면 운행 완료 시 자동 정산됩니다.')
+          } else {
+            onNotice('배차가 확정되지 않았어요. 잠시 후 다시 확인해 주세요.')
+          }
         } else {
           noteActivity(`reject:${incoming.id}`, '거절', rideRoute(incoming))
           onNotice('요청을 거절했어요. 다음 기사에게 콜이 넘어갑니다.')
@@ -6951,14 +7006,7 @@ function DriverDashboard({
         dropEndedRide(finished.id)
         setActiveRide(null)
         onNotice('운행 완료. 에스크로 Pi가 등록 지갑으로 정산되었습니다.')
-        if (finished) {
-          onAskPassengerReview({
-            rideId: finished.id,
-            raterId: driverId,
-            raterRole: 'driver',
-            targetName: '승객',
-          })
-        }
+        if (finished) askPassengerReviewOnce(finished.id)
         return fetchDriverEarnings(driverId)
       })
       .then((stats) => {
