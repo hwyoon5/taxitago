@@ -3388,12 +3388,57 @@ function ServiceSheet({
                 <PiCheckoutButton
                   amount={rideStage === 'moving' ? billed.actual : fare}
                   memo={`${service} ${(rideStage === 'moving' ? billed.actual : fare)} Pi`}
-                  metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
+                  metadata={{
+                    kind: 'escrow-lock',
+                    rideId: dispatchRide?.id || daeriRideIdRef.current,
+                    place,
+                    label: `${service} 이용`,
+                  }}
                   disabled={!dispatchRide?.readyToSettleAt}
                   className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
                   onPaid={(result) => {
                     if (!result.paymentId || !result.txid) return
                     const paid = rideStage === 'moving' ? billed.actual : fare
+                    const snapshot = dispatchRide
+                    const rideId = snapshot?.id || daeriRideIdRef.current
+                    const driverId = snapshot?.assignedDriver?.id
+                    daeriSheetRideId = ''
+                    if (rideId && driverId) {
+                      const proof = snapshot
+                        ? {
+                            ...snapshot,
+                            escrow: {
+                              status: 'held',
+                              amount: paid,
+                              lockTxid: result.txid,
+                              lockPaymentId: result.paymentId,
+                              payoutTxid: null,
+                              payoutWallet: null,
+                            } as PublicRide['escrow'],
+                          }
+                        : undefined
+                      const abort = new AbortController()
+                      const timeout = window.setTimeout(() => abort.abort(), 25000)
+                      const attempt = (): Promise<{ ride?: PublicRide }> =>
+                        completeRideTrip(rideId, driverId, proof, { signal: abort.signal })
+                      const retry = (left: number): Promise<{ ride?: PublicRide }> =>
+                        attempt().catch((error) =>
+                          left > 0
+                            ? new Promise<{ ride?: PublicRide }>((resolve) => window.setTimeout(resolve, 2000)).then(() =>
+                                retry(left - 1),
+                              )
+                            : Promise.reject(error),
+                        )
+                      void retry(2)
+                        .then((completed) => {
+                          if (completed.ride) setDispatchRide(completed.ride)
+                        })
+                        .catch((error) => {
+                          console.error('[daeri] ride complete failed', error)
+                          onNotice('결제는 완료되었어요. 운행 완료 처리는 기사 화면에서도 확인됩니다.')
+                        })
+                        .finally(() => window.clearTimeout(timeout))
+                    }
                     onSettle(paid, place, `${service} 이용`, billed.estimate, result)
                   }}
                   onFailed={(error) => onNotice(describePiUserMessage(error))}

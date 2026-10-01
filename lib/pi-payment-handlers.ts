@@ -2,6 +2,28 @@ import { NextResponse } from 'next/server'
 import { approvePiPayment, completePiPayment, describeError } from '@/lib/pi-platform'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { handleServicePaymentComplete } from '@/lib/service-settlement'
+import { ensureSettlementEscrow } from '@/lib/escrow-engine'
+import { getRide, hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { hydrateEscrowFromKv } from '@/lib/escrow-store'
+
+/** Lock the ride escrow as soon as a funding payment completes, so either side can settle later. */
+async function lockRideEscrowFromPayment(
+  paymentId: string,
+  txid: string,
+  metadata: Record<string, unknown> | null | undefined,
+) {
+  if (!metadata || metadata.kind !== 'escrow-lock') return
+  const rideId = typeof metadata.rideId === 'string' ? metadata.rideId.trim() : ''
+  if (!rideId) return
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
+  const ride = getRide(rideId)
+  if (!ride?.assignedDriverId) return
+  ensureSettlementEscrow(rideId, ride.assignedDriverId, {
+    status: 'held',
+    lockTxid: txid,
+    lockPaymentId: paymentId,
+  })
+}
 
 function errorStatus(message: string) {
   return message.includes('PI_API_KEY') ? 500 : 502
@@ -58,6 +80,9 @@ export async function handlePiComplete(request: Request) {
   try {
     const { payment, info } = await completePiPayment(paymentId, txid)
     console.log('[Pi] /api/pi/complete ok', { paymentId, txid })
+    await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
+      console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
+    })
     await handleServicePaymentComplete({
       paymentId,
       txid,
@@ -70,6 +95,7 @@ export async function handlePiComplete(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'complete failed'
     if (isPiSandboxEnv()) {
+      await lockRideEscrowFromPayment(paymentId, txid, fallbackMetadata).catch(() => null)
       await handleServicePaymentComplete({ paymentId, txid, amount: fallbackAmount, metadata: fallbackMetadata }).catch(
         () => null,
       )
