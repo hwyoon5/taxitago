@@ -113,6 +113,35 @@ function localPassengerId() {
   return readOrCreateLocalId(PASSENGER_ID_KEY, 'passenger')
 }
 
+const DRIVER_ACTIVE_KEY = 'taxitago-driver-active'
+const DRIVER_ACTIVE_MAX_AGE = 12 * 60 * 60 * 1000
+
+function readStoredDriverRide(driverId: string): PublicRide | null {
+  if (typeof window === 'undefined' || !driverId) return null
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(`${DRIVER_ACTIVE_KEY}:${driverId}`) || 'null') as
+      | { ride?: PublicRide; savedAt?: number }
+      | null
+    const ride = parsed?.ride
+    if (!ride?.id || ride.status !== 'assigned') return null
+    if (!Number.isFinite(parsed?.savedAt) || Date.now() - (parsed?.savedAt ?? 0) > DRIVER_ACTIVE_MAX_AGE) return null
+    return ride
+  } catch {
+    return null
+  }
+}
+
+function writeStoredDriverRide(driverId: string, ride: PublicRide | null) {
+  if (typeof window === 'undefined' || !driverId) return
+  try {
+    const key = `${DRIVER_ACTIVE_KEY}:${driverId}`
+    if (!ride || ride.status !== 'assigned') window.localStorage.removeItem(key)
+    else window.localStorage.setItem(key, JSON.stringify({ ride, savedAt: Date.now() }))
+  } catch {
+    undefined
+  }
+}
+
 const DRIVER_EARNINGS_CACHE = 'taxitago-driver-earnings'
 
 function readEarningsCache(driverId: string): DriverEarningsStats | null {
@@ -6284,8 +6313,15 @@ function DriverOfferWatcher({
 
   useEffect(() => {
     const profile = loadPartnerProfile()
-    setDriverId(localDriverId(profile?.uid))
+    const id = localDriverId(profile?.uid)
+    setDriverId(id)
+    const stored = readStoredDriverRide(id)
+    if (stored) setActiveRide(stored)
   }, [])
+
+  useEffect(() => {
+    if (driverId && activeRide) writeStoredDriverRide(driverId, activeRide)
+  }, [driverId, activeRide])
 
   useEffect(() => {
     if (!driverId) return
@@ -6409,8 +6445,9 @@ function DriverOfferWatcher({
       },
       { name: partner?.name, vehicle: fleet.vehicle, plate: fleet.plate },
     )
-      .then(() => {
+      .then((next) => {
         if (action === 'accept') {
+          writeStoredDriverRide(driverId, next)
           onActivityRef.current?.('콜 수락', `${incoming.pickup.address || '출발지'} → ${incoming.dest.label || incoming.dest.address || '목적지'}`)
           onOpenDesk()
         } else {
@@ -6557,7 +6594,28 @@ function DriverDashboard({
       setEarningsReady(true)
     }
     void fetchDriverEarnings(id).then((stats) => applyEarnings(id, stats))
+    const stored = readStoredDriverRide(id)
+    if (stored) {
+      lastActiveRef.current = stored
+      setActiveRide(stored)
+      void fetchRideRequest(stored.id).then((latest) => {
+        if (!latest) return
+        if (latest.status !== 'assigned') {
+          if (latest.status === 'completed') noteActivity(`done:${stored.id}`, '운행 완료', rideRoute(stored))
+          else noteActivity(`cancel:${stored.id}`, '취소', rideRoute(stored))
+          lastActiveRef.current = null
+          setActiveRide((current) => (current?.id === stored.id ? null : current))
+          return
+        }
+        setActiveRide((current) => (current?.id === stored.id ? latest : current))
+        lastActiveRef.current = latest
+      }).catch(() => undefined)
+    }
   }, [applyEarnings])
+
+  useEffect(() => {
+    if (driverId) writeStoredDriverRide(driverId, activeRide)
+  }, [driverId, activeRide])
 
   useEffect(() => {
     setLocalDelivery(deliveryJob ?? loadDeliveryJob())

@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
 import { getPublicRide } from '@/lib/dispatch-engine'
+import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   const ride = getPublicRide(id)
   if (!ride) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   return NextResponse.json({ ok: true, ride })
