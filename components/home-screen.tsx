@@ -7182,6 +7182,29 @@ function DriverDashboard({
           <p className="mt-2 text-xs font-bold text-[#047857]">
             {activeRide.readyToSettleAt ? '승객이 목적지 도착을 확인했어요. 정산할 수 있어요.' : activeRide.boardedAt ? '승객이 탑승을 확인했어요. 목적지 도착 확인을 기다리는 중이에요.' : '승객의 탑승 확인 전에는 정산할 수 없어요.'}
           </p>
+          {!activeRide.boardedAt ? (
+            <div className="mt-3">
+              <p className="mb-1 flex items-center gap-1.5 text-xs font-black text-[#047857]">
+                <MapPin className="h-3.5 w-3.5" />
+                승객 탑승 위치로 이동해 주세요
+              </p>
+              <TaxiLiveMap
+                kind="taxi"
+                phase="arriving"
+                routeLabel={`${activeRide.pickup.address || '출발지'} → ${activeRide.dest.label || activeRide.dest.address || '목적지'}`}
+                statusLabel="픽업지로 이동 중"
+                originLat={activeRide.pickup.lat}
+                originLng={activeRide.pickup.lng}
+                destLat={activeRide.dest.lat}
+                destLng={activeRide.dest.lng}
+                originLabel={activeRide.pickup.address || '승객 탑승 위치'}
+                destLabel={activeRide.dest.label || activeRide.dest.address || '목적지'}
+                vehicleLat={lat}
+                vehicleLng={lng}
+                className="mt-0 h-[min(58dvh,460px)]"
+              />
+            </div>
+          ) : null}
           <button
             type="button"
             disabled={busy}

@@ -1702,6 +1702,7 @@ export function TaxiLiveMap({
   vehicleLng,
   vehicleHeading,
   journeyLabel: _journeyLabel,
+  className,
 }: {
   phase: TaxiLivePhase
   routeLabel: string
@@ -1717,6 +1718,7 @@ export function TaxiLiveMap({
   vehicleLng?: number
   vehicleHeading?: number
   journeyLabel?: string
+  className?: string
 }) {
   const live = resolveLiveRidePoints({
     originLat,
@@ -1770,7 +1772,7 @@ export function TaxiLiveMap({
 
   if (!origin || !dest) {
     return (
-      <div className="relative mt-4 flex h-[268px] items-center justify-center overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0]">
+      <div className={`relative mt-4 flex items-center justify-center overflow-hidden rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0] ${className ?? 'h-[268px]'}`}>
         <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155] shadow-sm">실제 위치를 불러오는 중이에요</p>
       </div>
     )
@@ -1784,7 +1786,7 @@ export function TaxiLiveMap({
         taxi={isUsableCoord(taxi.lat, taxi.lng) ? taxi : { ...origin, angle: 0 }}
         origin={origin}
         dest={dest}
-        className="h-[268px]"
+        className={className ?? 'h-[268px]'}
       />
       <div className="pointer-events-none absolute right-16 top-3 z-[15]">
         <span className="whitespace-nowrap rounded-full bg-[#4A82B8] px-2.5 py-1 text-[10px] font-bold text-white shadow-[0_6px_14px_rgba(15,23,42,0.16)]">{statusLabel}</span>
