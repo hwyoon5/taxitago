@@ -13,13 +13,32 @@ export async function submitRideReview(input: {
   tags: string[]
   comment: string
 }) {
-  const res = await apiFetch(`/api/rides/${encodeURIComponent(input.rideId)}/reviews`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  const data = await readJson<{ review?: ReviewRecord; rating?: PublicRating; error?: string }>(res)
-  if (!res.ok) throw new Error(data.error === 'already_reviewed' ? '이미 이 운행을 평가했어요.' : data.error || '리뷰 저장에 실패했어요.')
+  const post = () =>
+    apiFetch(`/api/rides/${encodeURIComponent(input.rideId)}/reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+  let res = await post()
+  let data = await readJson<{ review?: ReviewRecord; rating?: PublicRating; error?: string }>(res)
+  if (!res.ok && data.error === 'not_found') {
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    res = await post()
+    data = await readJson<{ review?: ReviewRecord; rating?: PublicRating; error?: string }>(res)
+  }
+  if (!res.ok) {
+    const message =
+      data.error === 'already_reviewed'
+        ? '이미 이 운행을 평가했어요.'
+        : data.error === 'not_found'
+          ? '운행 정보를 아직 동기화하지 못했어요. 잠시 후 다시 시도해 주세요.'
+          : data.error === 'not_completed'
+            ? '운행이 아직 완료되지 않았어요.'
+            : data.error === 'forbidden'
+              ? '이 운행의 탑승자만 평가할 수 있어요.'
+              : data.error || '리뷰 저장에 실패했어요.'
+    throw new Error(message)
+  }
   return data
 }
 

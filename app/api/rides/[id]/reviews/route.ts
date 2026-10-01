@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
 import { rideReviews, submitRideReview } from '@/lib/review-engine'
 import type { RatingRole } from '@/lib/review-types'
 
@@ -7,11 +8,13 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
+  await hydrateDispatchFromKv()
   return NextResponse.json({ ok: true, reviews: rideReviews(id) })
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
+  await hydrateDispatchFromKv()
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const fromId = typeof body?.fromId === 'string' ? body.fromId.trim() : ''
   const fromRole = body?.fromRole === 'driver' || body?.fromRole === 'passenger' ? (body.fromRole as RatingRole) : null
