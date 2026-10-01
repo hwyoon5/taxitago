@@ -2372,6 +2372,7 @@ function TaxiMatchingSheet({
             kind: ride.kind,
           }
         : undefined,
+      localDriverId(loadPartnerProfile()?.uid),
     )
       .then((next) => {
         if (next.status !== 'assigned' && next.status !== 'completed') {
@@ -3278,7 +3279,7 @@ function ServiceSheet({
                     dest: dispatchRide.dest,
                     estimatedFare: dispatchRide.estimatedFare,
                     kind: dispatchRide.kind,
-                  })
+                  }, localDriverId(loadPartnerProfile()?.uid))
                     .then((next) => {
                       daeriAcceptedRef.current = true
                       setDispatchRide(next)

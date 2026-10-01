@@ -42,13 +42,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   if (action === 'device-accept') {
-    const result = confirmMatchOnDevice(id, {
-      passengerId: typeof body?.ride?.passengerId === 'string' ? body.ride.passengerId : undefined,
-      pickup: point(body?.ride?.pickup),
-      dest: point(body?.ride?.dest),
-      estimatedFare: typeof body?.ride?.estimatedFare === 'number' ? body.ride.estimatedFare : undefined,
-      kind: body?.ride?.kind === 'daeri' ? 'daeri' : 'taxi',
-    })
+    const result = confirmMatchOnDevice(
+      id,
+      {
+        passengerId: typeof body?.ride?.passengerId === 'string' ? body.ride.passengerId : undefined,
+        pickup: point(body?.ride?.pickup),
+        dest: point(body?.ride?.dest),
+        estimatedFare: typeof body?.ride?.estimatedFare === 'number' ? body.ride.estimatedFare : undefined,
+        kind: body?.ride?.kind === 'daeri' ? 'daeri' : 'taxi',
+      },
+      typeof body?.driverId === 'string' ? body.driverId.trim() : undefined,
+    )
     if (!result.ride) return NextResponse.json({ error: result.error }, { status: 404 })
     if (!result.ok) return NextResponse.json({ error: result.error, ride: toPublicRide(result.ride) }, { status: 409 })
     await openRideComms(id).catch(() => null)

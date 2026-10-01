@@ -322,13 +322,19 @@ export function markRideProgress(
       currentOffer: null,
       declinedDriverIds: [],
       timedOutDriverIds: [],
-      boardedAt: snapshot.boardedAt || (step === 'arrived' ? createdAt : null),
+      boardedAt: snapshot.boardedAt ?? null,
       createdAt,
       updatedAt: createdAt,
     })
   }
   if (!ride) return { ok: false as const, error: 'not_found', ride: null }
-  if ((ride.status === 'searching' || ride.status === 'offered') && snapshot?.driverId) {
+  // A snapshot may only confirm an assignment for the driver actually holding
+  // the offer — never let client data pick an arbitrary driver.
+  if (
+    (ride.status === 'searching' || ride.status === 'offered') &&
+    snapshot?.driverId &&
+    ride.currentOffer?.driverId === snapshot.driverId
+  ) {
     ride.assignedDriverId = snapshot.driverId
     ride.status = 'assigned'
   }
@@ -480,6 +486,7 @@ export function confirmMatchOnDevice(
     estimatedFare?: number
     kind?: RideRequestRecord['kind']
   },
+  deviceDriverId?: string,
 ) {
   ensureSeedDrivers()
   let ride = getRide(rideId)
@@ -514,9 +521,21 @@ export function confirmMatchOnDevice(
   }
   clearRideTimer(ride.id)
   clearVirtualAccept(ride.id)
-  const offeredId = ride.currentOffer?.driverId
-  let driver = offeredId ? getDriver(offeredId) : null
-  if (!driver) driver = rankedCandidates(ride)[0]?.driver ?? listDrivers()[0] ?? null
+  // The device-accept path simulates the driver logged in on this device.
+  // Never assign a virtual seed or an arbitrary driver while a real driver is
+  // eligible — keep the assigned identity synced with the logged-in driver.
+  const now = Date.now()
+  const ranked = rankedCandidates(ride)
+  const offered = ride.currentOffer?.driverId ? getDriver(ride.currentOffer.driverId) : null
+  const local = deviceDriverId ? getDriver(deviceDriverId) : null
+  const driver =
+    (local && !local.virtual && isDriverEligible(local, ride, now) ? local : null) ??
+    (offered && !offered.virtual && isDriverEligible(offered, ride, now) ? offered : null) ??
+    ranked.find((candidate) => !candidate.driver.virtual)?.driver ??
+    offered ??
+    ranked[0]?.driver ??
+    listDrivers().find((candidate) => candidate.virtual && candidate.status !== 'offline') ??
+    null
   if (!driver) return { ok: false as const, error: 'no_driver', ride }
   saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
   ride.currentOffer = {
@@ -573,7 +592,9 @@ export function ensureRideForCompletion(
   syncDispatchFromDisk()
   const existing = getRide(rideId)
   if (existing) return existing
-  if (!snapshot?.passengerId || !snapshot.pickup || !snapshot.dest || !snapshot.readyToSettleAt) return null
+  // Reconstruction requires the full lifecycle attestation — never fabricate a
+  // boarding/arrival the server never observed.
+  if (!snapshot?.passengerId || !snapshot.pickup || !snapshot.dest || !snapshot.boardedAt || !snapshot.readyToSettleAt) return null
   const createdAt = nowIso()
   const ride = saveRide({
     id: rideId,
@@ -587,7 +608,7 @@ export function ensureRideForCompletion(
     currentOffer: null,
     declinedDriverIds: [],
     timedOutDriverIds: [],
-    boardedAt: snapshot.boardedAt || createdAt,
+    boardedAt: snapshot.boardedAt,
     readyToSettleAt: snapshot.readyToSettleAt,
     createdAt,
     updatedAt: createdAt,
