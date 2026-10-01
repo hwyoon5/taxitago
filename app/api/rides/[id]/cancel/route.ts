@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { cancelRide, toPublicRide } from '@/lib/dispatch-engine'
 import { settlePassengerCancelFee } from '@/lib/escrow-engine'
-import { getRide, syncDispatchFromDisk } from '@/lib/dispatch-store'
+import { getRide, hydrateDispatchFromKv, syncDispatchFromDisk } from '@/lib/dispatch-store'
+import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { archiveRideComms } from '@/lib/comms-engine'
 
 export const runtime = 'nodejs'
@@ -14,6 +15,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const settleFee = body?.settleFee === true
   try {
     syncDispatchFromDisk()
+    await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
     const current = getRide(id)
     if (!current) return NextResponse.json({ ok: true, missing: true, ride: null })
     if (settleFee && current.status === 'assigned' && current.assignedDriverId) {

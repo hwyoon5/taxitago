@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { completeAssignedRide, ensureRideForCompletion, getPublicRide, toPublicRide } from '@/lib/dispatch-engine'
 import { releaseEscrow, toPublicEscrow } from '@/lib/escrow-engine'
 import { archiveRideComms } from '@/lib/comms-engine'
+import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,6 +37,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   } | null
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
   if (!driverId) return NextResponse.json({ error: 'driverId required' }, { status: 400 })
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   const snapshot = body?.ride
   ensureRideForCompletion(id, driverId, {
     passengerId: typeof snapshot?.passengerId === 'string' ? snapshot.passengerId : undefined,

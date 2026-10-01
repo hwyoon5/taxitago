@@ -47,8 +47,32 @@ async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
   return data.result ?? null
 }
 
+async function fetchKvState(): Promise<PersistShape | null> {
+  const raw = await kvCommand<string | null>(['GET', dispatchKvKey])
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as PersistShape
+  } catch {
+    return null
+  }
+}
+
 let kvPullAt = 0
 let kvPulling = false
+
+export async function hydrateDispatchFromKv() {
+  if (!useKv) {
+    warnEphemeral()
+    return
+  }
+  kvPullAt = Date.now()
+  try {
+    const parsed = await fetchKvState()
+    if (parsed) mergePersisted(db(), parsed)
+  } catch {
+    undefined
+  }
+}
 
 function mergePersisted(store: DispatchDb, parsed: PersistShape) {
   for (const ride of parsed.rides ?? []) {
@@ -82,13 +106,8 @@ function pullFromKv() {
   if (kvPulling || now - kvPullAt < 1500) return
   kvPullAt = now
   kvPulling = true
-  void kvCommand<string | null>(['GET', dispatchKvKey]).then((raw) => {
-    if (!raw) return
-    try {
-      mergePersisted(db(), JSON.parse(raw) as PersistShape)
-    } catch {
-      undefined
-    }
+  void fetchKvState().then((parsed) => {
+    if (parsed) mergePersisted(db(), parsed)
   }).catch(() => undefined).finally(() => {
     kvPulling = false
   })
@@ -163,7 +182,23 @@ function writePersistNow() {
     }
     writeFileSync(persistFile, JSON.stringify(payload), 'utf8')
     if (useKv) {
-      void kvCommand(['SET', dispatchKvKey, JSON.stringify(payload)]).catch((error) => {
+      void fetchKvState().then((remote) => {
+        let merged = payload
+        if (remote) {
+          const rideMap = new Map(payload.rides.map((ride) => [ride.id, ride]))
+          for (const ride of remote.rides ?? []) {
+            const local = rideMap.get(ride.id)
+            if (!local || Date.parse(ride.updatedAt || '') > Date.parse(local.updatedAt || '')) rideMap.set(ride.id, ride)
+          }
+          const driverMap = new Map(payload.drivers.map((driver) => [driver.id, driver]))
+          for (const driver of remote.drivers ?? []) {
+            const local = driverMap.get(driver.id)
+            if (!local || Date.parse(driver.lastSeenAt || '') > Date.parse(local.lastSeenAt || '')) driverMap.set(driver.id, driver)
+          }
+          merged = { rides: [...rideMap.values()], drivers: [...driverMap.values()], seeded: payload.seeded || Boolean(remote.seeded) }
+        }
+        return kvCommand(['SET', dispatchKvKey, JSON.stringify(merged)])
+      }).catch((error) => {
         console.error('[dispatch-store] kv persist failed', error instanceof Error ? error.message : 'write error')
       })
     }

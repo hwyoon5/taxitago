@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { confirmMatchOnDevice, rememberDriverVehicle, respondToOffer, restorePendingOffer, toPublicRide } from '@/lib/dispatch-engine'
 import { openRideComms } from '@/lib/comms-engine'
+import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,6 +27,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!action) {
     return NextResponse.json({ error: 'action required' }, { status: 400 })
   }
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   if (action === 'device-accept') {
     const point = (value: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown } | undefined) => {
       const lat = Number(value?.lat)

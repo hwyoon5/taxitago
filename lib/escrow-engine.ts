@@ -224,6 +224,8 @@ export async function releaseEscrow(
 
 /** Passenger in-trip cancel: pay the cancellation fee to the assigned driver and waive the rest. No driver action. */
 export async function settlePassengerCancelFee(rideId: string) {
+  syncDispatchFromDisk()
+  syncEscrowFromDisk()
   const ride = getRide(rideId)
   if (!ride) return { ok: false as const, error: 'not_found' }
   const driverId = ride.assignedDriverId
@@ -299,6 +301,7 @@ export async function settlePassengerCancelFee(rideId: string) {
 }
 
 export function refundEscrow(rideId: string) {
+  syncEscrowFromDisk()
   const escrow = getEscrowByRide(rideId)
   if (!escrow) return null
   if (escrow.status === 'released') return escrow

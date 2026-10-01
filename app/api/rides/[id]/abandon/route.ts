@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { abandonAssignedRide, toPublicRide } from '@/lib/dispatch-engine'
+import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,6 +11,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const body = (await request.json().catch(() => null)) as { driverId?: unknown } | null
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
   if (!driverId) return NextResponse.json({ error: 'driverId required' }, { status: 400 })
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   const result = abandonAssignedRide(id, driverId)
   if (!result.ok || !result.ride) {
     return NextResponse.json({ error: result.error }, { status: result.error === 'not_found' ? 404 : 409 })

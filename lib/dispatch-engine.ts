@@ -525,6 +525,7 @@ export function confirmMatchOnDevice(
 }
 
 export function getPublicRide(rideId: string) {
+  syncDispatchFromDisk()
   syncEscrowFromDisk()
   resumeAssignedTracking()
   const ride = getRide(rideId)
@@ -587,6 +588,7 @@ export function completeAssignedRide(rideId: string, driverId: string) {
   if (ride.assignedDriverId !== driverId) return ride
   ride.status = 'completed'
   stamp(ride)
+  publishDriverLive(driverId)
   stopLiveDriverMove(rideId)
   const driver = getDriver(driverId)
   if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })

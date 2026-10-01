@@ -18,6 +18,121 @@ type PersistShape = {
 
 const persistFile = path.join(process.cwd(), 'data', 'escrow.json')
 
+const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
+const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
+const useKv = Boolean(kvUrl && kvToken)
+const escrowKvKey = 'taxitago:escrow:state'
+
+let warnedEphemeral = false
+function warnEphemeral() {
+  if (warnedEphemeral || !process.env.VERCEL || useKv) return
+  warnedEphemeral = true
+  console.error('[escrow-store] no KV configured on Vercel — escrow state is NOT shared across instances (set KV_REST_API_URL/KV_REST_API_TOKEN)')
+}
+
+async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
+  const res = await fetch(kvUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
+  const data = (await res.json()) as { result?: T | null }
+  return data.result ?? null
+}
+
+async function fetchKvState(): Promise<PersistShape | null> {
+  const raw = await kvCommand<string | null>(['GET', escrowKvKey])
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as PersistShape
+  } catch {
+    return null
+  }
+}
+
+let kvPullAt = 0
+let kvPulling = false
+
+function mergePersisted(store: EscrowDb, parsed: PersistShape) {
+  for (const record of parsed.escrows ?? []) {
+    const current = store.escrows.get(record.id) ?? (store.byRide.get(record.rideId) ? store.escrows.get(store.byRide.get(record.rideId) || '') : null)
+    if (!current || !newer(current.updatedAt, record.updatedAt)) remember(store, record)
+  }
+  for (const receipt of parsed.receipts ?? []) {
+    const current = store.receipts.get(receipt.rideId)
+    if (!current || !newer(current.settledAt, receipt.settledAt)) store.receipts.set(receipt.rideId, receipt)
+  }
+  for (const entry of parsed.earnings ?? []) {
+    if (!store.earnings.some((item) => item.rideId === entry.rideId && item.status === entry.status)) {
+      store.earnings.unshift(entry)
+    }
+  }
+  store.earnings = store.earnings.slice(0, 400)
+}
+
+function pullFromKv() {
+  if (!useKv) {
+    warnEphemeral()
+    return
+  }
+  const now = Date.now()
+  if (kvPulling || now - kvPullAt < 1500) return
+  kvPullAt = now
+  kvPulling = true
+  void fetchKvState().then((parsed) => {
+    if (parsed) mergePersisted(db(), parsed)
+  }).catch(() => undefined).finally(() => {
+    kvPulling = false
+  })
+}
+
+export async function hydrateEscrowFromKv() {
+  if (!useKv) {
+    warnEphemeral()
+    return
+  }
+  kvPullAt = Date.now()
+  try {
+    const parsed = await fetchKvState()
+    if (parsed) mergePersisted(db(), parsed)
+  } catch {
+    undefined
+  }
+}
+
+function pushToKv(payload: PersistShape) {
+  void fetchKvState().then((remote) => {
+    let merged = payload
+    if (remote) {
+      const escrowMap = new Map((payload.escrows ?? []).map((record) => [record.id, record]))
+      for (const record of remote.escrows ?? []) {
+        const local = escrowMap.get(record.id)
+        if (!local || newer(record.updatedAt, local.updatedAt)) escrowMap.set(record.id, record)
+      }
+      const receiptMap = new Map((payload.receipts ?? []).map((receipt) => [receipt.rideId, receipt]))
+      for (const receipt of remote.receipts ?? []) {
+        const local = receiptMap.get(receipt.rideId)
+        if (!local || newer(receipt.settledAt, local.settledAt)) receiptMap.set(receipt.rideId, receipt)
+      }
+      const earningKeys = new Set((payload.earnings ?? []).map((entry) => `${entry.rideId}:${entry.status}`))
+      const earnings = [...(payload.earnings ?? [])]
+      for (const entry of remote.earnings ?? []) {
+        if (!earningKeys.has(`${entry.rideId}:${entry.status}`)) earnings.push(entry)
+      }
+      merged = {
+        escrows: [...escrowMap.values()],
+        receipts: [...receiptMap.values()],
+        earnings: earnings.sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 400),
+      }
+    }
+    return kvCommand(['SET', escrowKvKey, JSON.stringify(merged)])
+  }).catch((error) => {
+    console.error('[escrow-store] kv persist failed', error instanceof Error ? error.message : 'write error')
+  })
+}
+
 function db(): EscrowDb {
   const globalStore = globalThis as typeof globalThis & { __taxitagoEscrow?: EscrowDb }
   if (!globalStore.__taxitagoEscrow) {
@@ -63,36 +178,24 @@ function newer(left: string | null | undefined, right: string | null | undefined
 export function syncEscrowFromDisk() {
   const store = db()
   const parsed = readPersisted()
-  if (!parsed) return
-  for (const record of parsed.escrows ?? []) {
-    const current = store.escrows.get(record.id) ?? (store.byRide.get(record.rideId) ? store.escrows.get(store.byRide.get(record.rideId) || '') : null)
-    if (!current || !newer(current.updatedAt, record.updatedAt)) remember(store, record)
-  }
-  for (const receipt of parsed.receipts ?? []) {
-    const current = store.receipts.get(receipt.rideId)
-    if (!current || !newer(current.settledAt, receipt.settledAt)) store.receipts.set(receipt.rideId, receipt)
-  }
-  for (const entry of parsed.earnings ?? []) {
-    if (!store.earnings.some((item) => item.rideId === entry.rideId && item.status === entry.status)) {
-      store.earnings.unshift(entry)
-    }
-  }
-  store.earnings = store.earnings.slice(0, 400)
+  if (parsed) mergePersisted(store, parsed)
+  pullFromKv()
 }
 
 function persist() {
   const store = db()
+  const payload: PersistShape = {
+    escrows: [...store.escrows.values()],
+    receipts: [...store.receipts.values()],
+    earnings: store.earnings,
+  }
   try {
     mkdirSync(path.dirname(persistFile), { recursive: true })
-    const payload: PersistShape = {
-      escrows: [...store.escrows.values()],
-      receipts: [...store.receipts.values()],
-      earnings: store.earnings,
-    }
     writeFileSync(persistFile, JSON.stringify(payload), 'utf8')
   } catch {
     undefined
   }
+  if (useKv) pushToKv(payload)
 }
 
 export function saveEscrow(record: EscrowRecord) {

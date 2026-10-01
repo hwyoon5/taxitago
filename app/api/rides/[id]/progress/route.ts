@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { markRideProgress, toPublicRide } from '@/lib/dispatch-engine'
+import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,6 +22,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const passengerId = typeof body?.passengerId === 'string' ? body.passengerId.trim() : ''
   const step = body?.step === 'boarded' || body?.step === 'arrived' ? body.step : null
   if (!passengerId || !step) return NextResponse.json({ error: 'passengerId and step required' }, { status: 400 })
+  await hydrateDispatchFromKv()
   const point = (value: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown } | undefined) => {
     const lat = Number(value?.lat)
     const lng = Number(value?.lng)

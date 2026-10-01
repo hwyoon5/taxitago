@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getPublicRide } from '@/lib/dispatch-engine'
 import { lockEscrow, toPublicEscrow } from '@/lib/escrow-engine'
+import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,6 +14,7 @@ export async function POST(request: Request) {
   if (!rideId || !passengerId) {
     return NextResponse.json({ error: 'rideId and passengerId required' }, { status: 400 })
   }
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   const result = lockEscrow({
     rideId,
     passengerId,

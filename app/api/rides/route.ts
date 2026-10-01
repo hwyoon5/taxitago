@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { estimateTaxiFarePi, haversineKm } from '@/lib/dispatch-geo'
 import { createRideAndMatch, toPublicRide } from '@/lib/dispatch-engine'
-import { ensureSeedDrivers, listRides } from '@/lib/dispatch-store'
+import { ensureSeedDrivers, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { isUsableCoord } from '@/lib/ride-session'
 
 export const runtime = 'nodejs'
@@ -22,6 +22,7 @@ export async function GET(request: Request) {
   const actorId = url.searchParams.get('actorId')?.trim() || ''
   const role = url.searchParams.get('role')
   if (!actorId) return NextResponse.json({ error: 'actorId required' }, { status: 400 })
+  syncDispatchFromDisk()
   const rides = listRides()
     .filter((ride) => (role === 'driver' ? ride.assignedDriverId === actorId : ride.passengerId === actorId))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))

@@ -2205,15 +2205,28 @@ function TaxiMatchingSheet({
         onClose()
         return
       }
+      const setFresh = (incoming: PublicRide) =>
+        setRide((current) => {
+          if (!current || current.id !== incoming.id) return incoming
+          if (current.status === 'completed' && incoming.status !== 'completed') return current
+          const incomingLocked = incoming.escrow?.status === 'held' || incoming.escrow?.status === 'released'
+          const knownLocked = current.escrow?.status === 'held' || current.escrow?.status === 'released'
+          return {
+            ...incoming,
+            boardedAt: incoming.boardedAt ?? current.boardedAt ?? null,
+            readyToSettleAt: incoming.readyToSettleAt ?? current.readyToSettleAt ?? null,
+            escrow: knownLocked && !incomingLocked ? current.escrow : incoming.escrow,
+          }
+        })
       if (next.status === 'assigned' || next.status === 'completed') {
         if (!matchedRef.current) lockMatched(next)
-        else setRide(next)
+        else setFresh(next)
         if (next.readyToSettleAt) setPhase('moving')
         else if (next.boardedAt) setPhase('boarding')
         return
       }
       if (matchedRef.current) return
-      setRide(next)
+      setFresh(next)
       if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
