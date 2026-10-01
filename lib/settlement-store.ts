@@ -1,26 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
+import {
+  DEFAULT_RATES,
+  type CommissionRates,
+  type SettlementEntry,
+  type SettlementService,
+} from '@/lib/settlement-types'
 
-export type SettlementService = 'taxi' | 'daeri' | 'delivery'
-export type CommissionRates = Record<SettlementService, number>
-
-export type SettlementEntry = {
-  id: string
-  refId: string
-  service: SettlementService
-  driverId: string
-  driverName: string
-  memo: string
-  gross: number
-  rate: number
-  commission: number
-  net: number
-  status: 'pending' | 'settled'
-  settledAt: string
-  createdAt: string
-}
-
-export const DEFAULT_RATES: CommissionRates = { taxi: 10, daeri: 10, delivery: 10 }
+export { DEFAULT_RATES }
+export type { CommissionRates, SettlementEntry, SettlementService }
 
 type Db = { rates: CommissionRates; entries: SettlementEntry[] }
 

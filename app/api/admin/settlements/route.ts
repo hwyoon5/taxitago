@@ -7,16 +7,22 @@ import {
   markSettlementSettled,
   saveCommissionRates,
   settlementStorageBackend,
-  type CommissionRates,
-  type SettlementEntry,
-  type SettlementService,
 } from '@/lib/settlement-store'
+import type { CommissionRates, SettlementEntry, SettlementService } from '@/lib/settlement-types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const SERVICES: SettlementService[] = ['taxi', 'daeri', 'delivery']
-const SERVICE_LABEL: Record<SettlementService, string> = { taxi: '택시', daeri: '대리운전', delivery: '택배' }
+const SERVICES: SettlementService[] = ['taxi', 'daeri', 'delivery', 'bicycle', 'kickboard', 'ev', 'parking']
+const SERVICE_LABEL: Record<SettlementService, string> = {
+  taxi: '택시',
+  daeri: '대리운전',
+  delivery: '택배',
+  bicycle: '자전거',
+  kickboard: '킥보드',
+  ev: 'EV충전',
+  parking: '주차',
+}
 
 function summarize(entries: SettlementEntry[]) {
   const byService = Object.fromEntries(

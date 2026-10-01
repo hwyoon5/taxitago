@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
-import type { CommissionRates, SettlementEntry, SettlementService } from '@/lib/settlement-store'
+import { DEFAULT_RATES, type CommissionRates, type SettlementEntry, type SettlementService } from '@/lib/settlement-types'
 
 type ServiceSummary = { label: string; count: number; gross: number; commission: number; net: number }
 type Summary = {
@@ -15,19 +15,31 @@ type Summary = {
   byService: Record<SettlementService, ServiceSummary>
 }
 
-const SERVICES: SettlementService[] = ['taxi', 'daeri', 'delivery']
-const SERVICE_LABEL: Record<SettlementService, string> = { taxi: '택시', daeri: '대리운전', delivery: '택배' }
+const SERVICES: SettlementService[] = ['taxi', 'daeri', 'delivery', 'bicycle', 'kickboard', 'ev', 'parking']
+const SERVICE_LABEL: Record<SettlementService, string> = {
+  taxi: '택시',
+  daeri: '대리운전',
+  delivery: '택배',
+  bicycle: '자전거',
+  kickboard: '킥보드',
+  ev: 'EV충전',
+  parking: '주차',
+}
 const SERVICE_TONE: Record<SettlementService, string> = {
   taxi: 'bg-[#DBEAFE] text-[#1D4ED8]',
   daeri: 'bg-[#FEF3C7] text-[#B45309]',
   delivery: 'bg-[#DCFCE7] text-[#15803D]',
+  bicycle: 'bg-[#D1FAE5] text-[#047857]',
+  kickboard: 'bg-[#FFE4E6] text-[#BE123C]',
+  ev: 'bg-[#E0E7FF] text-[#4338CA]',
+  parking: 'bg-[#F1F5F9] text-[#475569]',
 }
 
 const pi = (value: number) => `${value.toFixed(2)} Pi`
 
 export default function AdminSettlements() {
-  const [rates, setRates] = useState<CommissionRates>({ taxi: 10, daeri: 10, delivery: 10 })
-  const [rateDraft, setRateDraft] = useState<CommissionRates>({ taxi: 10, daeri: 10, delivery: 10 })
+  const [rates, setRates] = useState<CommissionRates>({ ...DEFAULT_RATES })
+  const [rateDraft, setRateDraft] = useState<CommissionRates>({ ...DEFAULT_RATES })
   const [entries, setEntries] = useState<SettlementEntry[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [filter, setFilter] = useState<'all' | SettlementService>('all')
@@ -116,7 +128,7 @@ export default function AdminSettlements() {
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <p className="text-sm font-black">서비스별 플랫폼 수수료율</p>
         <p className="mt-0.5 text-xs font-bold text-[#64748B]">운행 완료(택배는 배정 수락) 시 결제액에서 자동 계산됩니다.</p>
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {SERVICES.map((service) => (
             <label key={service} className="rounded-xl border-2 border-[#E2E8F0] p-2.5">
               <span className="text-[11px] font-black text-[#475569]">{SERVICE_LABEL[service]}</span>
@@ -198,7 +210,7 @@ export default function AdminSettlements() {
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-black">정산 내역</p>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap justify-end gap-1">
             {(['all', ...SERVICES] as const).map((key) => (
               <button
                 key={key}
