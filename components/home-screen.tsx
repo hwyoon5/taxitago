@@ -6353,7 +6353,36 @@ function DriverDashboard({
       setIncoming(ride)
       setOfferKm(km)
     }
-    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; earnings?: DriverEarningsStats | null } | null, active?: PublicRide | null) => {
+    const mergeActiveRide = (incoming: PublicRide | null) => {
+      setActiveRide((current) => {
+        if (!incoming) return lastActiveRef.current ? current : null
+        if (!current || current.id !== incoming.id) return incoming
+        const incomingLocked = incoming.escrow?.status === 'held' || incoming.escrow?.status === 'released'
+        const knownLocked = current.escrow?.status === 'held' || current.escrow?.status === 'released'
+        return {
+          ...incoming,
+          boardedAt: incoming.boardedAt ?? current.boardedAt ?? null,
+          readyToSettleAt: incoming.readyToSettleAt ?? current.readyToSettleAt ?? null,
+          escrow: knownLocked && !incomingLocked ? current.escrow : incoming.escrow,
+        }
+      })
+    }
+    const reverifyEndedRide = (previous: PublicRide) => {
+      if (activeEndChecks.current.has(previous.id)) return
+      activeEndChecks.current.add(previous.id)
+      void fetchRideRequest(previous.id).then((check) => {
+        activeEndChecks.current.delete(previous.id)
+        if (!check || (check.status !== 'completed' && check.status !== 'cancelled')) return
+        if (!activityKeys.current.has(`done:${previous.id}`) && !activityKeys.current.has(`cancel:${previous.id}`)) {
+          noteActivity(`cancel:${previous.id}`, '취소', rideRoute(previous))
+        }
+        lastActiveRef.current = null
+        setActiveRide((current) => (current?.id === previous.id ? null : current))
+      }).catch(() => {
+        activeEndChecks.current.delete(previous.id)
+      })
+    }
+    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; earnings?: DriverEarningsStats | null; active?: PublicRide | null } | null, active?: PublicRide | null) => {
       const ride = pending?.ride ?? null
       if (pending?.earnings) applyEarnings(driverId, pending.earnings)
       if (!activityPrimed.current) {
@@ -6371,33 +6400,10 @@ function DriverDashboard({
           if (active.status === 'completed') noteActivity(`done:${active.id}`, '운행 완료', rideRoute(active))
           lastActiveRef.current = active
         } else if (active === null && lastActiveRef.current) {
-          const previous = lastActiveRef.current
-          if (!activeEndChecks.current.has(previous.id)) {
-            activeEndChecks.current.add(previous.id)
-            void fetchRideRequest(previous.id).then((check) => {
-              activeEndChecks.current.delete(previous.id)
-              if (!check || (check.status !== 'completed' && check.status !== 'cancelled')) return
-              if (!activityKeys.current.has(`done:${previous.id}`) && !activityKeys.current.has(`cancel:${previous.id}`)) {
-                noteActivity(`cancel:${previous.id}`, '취소', rideRoute(previous))
-              }
-              lastActiveRef.current = null
-              setActiveRide((current) => (current?.id === previous.id ? null : current))
-            }).catch(() => {
-              activeEndChecks.current.delete(previous.id)
-            })
-          }
+          reverifyEndedRide(lastActiveRef.current)
         }
       }
-      if (active !== undefined) {
-        setActiveRide((current) => {
-          if (!active) return lastActiveRef.current ? current : null
-          if (!current || current.id !== active.id) return active
-          const incomingLocked = active.escrow?.status === 'held' || active.escrow?.status === 'released'
-          const knownLocked = current.escrow?.status === 'held' || current.escrow?.status === 'released'
-          if (knownLocked && !incomingLocked) return { ...active, escrow: current.escrow }
-          return active
-        })
-      }
+      if (active !== undefined) mergeActiveRide(active)
       if (!online) {
         localOfferRef.current = null
         setIncoming(null)
@@ -6445,19 +6451,20 @@ function DriverDashboard({
       const request = ++offerRequest
       void fetchDriverOffer(driverId).then((pending) => {
         if (request !== offerRequest || pending === undefined) return
-        applyOffer(pending)
+        applyOffer(pending, pending.active)
       })
     }
     const refreshDesk = () => {
       pullOffer()
       void Promise.all([
-        streamReady.current ? Promise.resolve(undefined) : fetchDriverActiveRide(driverId),
+        fetchDriverActiveRide(driverId),
         fetchDriverEarnings(driverId),
         fetchUserRating(driverId, 'driver'),
         fetchSosInbox(driverId, 'driver'),
         fetchLostInbox(driverId, 'driver'),
       ]).then(([active, stats, rating, alerts, lost]) => {
-        if (active !== undefined) setActiveRide(active)
+        if (active) mergeActiveRide(active)
+        else if (lastActiveRef.current) reverifyEndedRide(lastActiveRef.current)
         applyEarnings(driverId, stats)
         if (rating) setDriverRating(rating.average.toFixed(2))
         setSosAlerts(alerts)

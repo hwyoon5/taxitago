@@ -23,6 +23,77 @@ type PersistShape = {
 const persistFile = path.join(process.cwd(), 'data', 'dispatch.json')
 let persistTimer: ReturnType<typeof setTimeout> | null = null
 
+const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
+const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
+const useKv = Boolean(kvUrl && kvToken)
+const dispatchKvKey = 'taxitago:dispatch:state'
+
+let warnedEphemeral = false
+function warnEphemeral() {
+  if (warnedEphemeral || !process.env.VERCEL || useKv) return
+  warnedEphemeral = true
+  console.error('[dispatch-store] no KV configured on Vercel — ride state is NOT shared across instances (set KV_REST_API_URL/KV_REST_API_TOKEN)')
+}
+
+async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
+  const res = await fetch(kvUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
+  const data = (await res.json()) as { result?: T | null }
+  return data.result ?? null
+}
+
+let kvPullAt = 0
+let kvPulling = false
+
+function mergePersisted(store: DispatchDb, parsed: PersistShape) {
+  for (const ride of parsed.rides ?? []) {
+    const current = store.rides.get(ride.id)
+    const incomingAt = Date.parse(ride.updatedAt || '')
+    const currentAt = Date.parse(current?.updatedAt || '')
+    if (!current || !(currentAt > incomingAt)) {
+      store.rides.set(ride.id, { ...ride, kind: ride.kind === 'daeri' ? 'daeri' : 'taxi' })
+    }
+  }
+  for (const driver of parsed.drivers ?? []) {
+    const current = store.drivers.get(driver.id)
+    const incomingAt = Date.parse(driver.lastSeenAt || '')
+    const currentAt = Date.parse(current?.lastSeenAt || '')
+    if (!current || !(currentAt > incomingAt)) {
+      store.drivers.set(driver.id, {
+        ...driver,
+        heading: Number.isFinite(driver.heading) ? driver.heading : 0,
+      })
+    }
+  }
+  store.seeded = store.seeded || Boolean(parsed.seeded)
+}
+
+function pullFromKv() {
+  if (!useKv) {
+    warnEphemeral()
+    return
+  }
+  const now = Date.now()
+  if (kvPulling || now - kvPullAt < 1500) return
+  kvPullAt = now
+  kvPulling = true
+  void kvCommand<string | null>(['GET', dispatchKvKey]).then((raw) => {
+    if (!raw) return
+    try {
+      mergePersisted(db(), JSON.parse(raw) as PersistShape)
+    } catch {
+      undefined
+    }
+  }).catch(() => undefined).finally(() => {
+    kvPulling = false
+  })
+}
+
 function db(): DispatchDb {
   const globalStore = globalThis as typeof globalThis & { __taxitagoDispatch?: DispatchDb }
   if (!globalStore.__taxitagoDispatch) {
@@ -44,30 +115,13 @@ function db(): DispatchDb {
 export function syncDispatchFromDisk() {
   const store = db()
   try {
-    if (!existsSync(persistFile)) return
-    const parsed = JSON.parse(readFileSync(persistFile, 'utf8')) as PersistShape
-    for (const ride of parsed.rides ?? []) {
-      const current = store.rides.get(ride.id)
-      const incomingAt = Date.parse(ride.updatedAt || '')
-      const currentAt = Date.parse(current?.updatedAt || '')
-      if (!current || !(currentAt > incomingAt)) {
-        store.rides.set(ride.id, { ...ride, kind: ride.kind === 'daeri' ? 'daeri' : 'taxi' })
-      }
-    }
-    for (const driver of parsed.drivers ?? []) {
-      const current = store.drivers.get(driver.id)
-      const incomingAt = Date.parse(driver.lastSeenAt || '')
-      const currentAt = Date.parse(current?.lastSeenAt || '')
-      if (!current || !(currentAt > incomingAt)) {
-        store.drivers.set(driver.id, {
-          ...driver,
-          heading: Number.isFinite(driver.heading) ? driver.heading : 0,
-        })
-      }
+    if (existsSync(persistFile)) {
+      mergePersisted(store, JSON.parse(readFileSync(persistFile, 'utf8')) as PersistShape)
     }
   } catch (error) {
     console.error('[dispatch] disk sync failed', error instanceof Error ? error.message : 'read error')
   }
+  pullFromKv()
 }
 
 function hydrateFromDisk(store: DispatchDb) {
@@ -108,6 +162,11 @@ function writePersistNow() {
       seeded: store.seeded,
     }
     writeFileSync(persistFile, JSON.stringify(payload), 'utf8')
+    if (useKv) {
+      void kvCommand(['SET', dispatchKvKey, JSON.stringify(payload)]).catch((error) => {
+        console.error('[dispatch-store] kv persist failed', error instanceof Error ? error.message : 'write error')
+      })
+    }
   } catch {
     undefined
   }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getDriverOffer } from '@/lib/dispatch-engine'
+import { getDriverActiveRide, getDriverOffer } from '@/lib/dispatch-engine'
 import { ensureSeedDrivers } from '@/lib/dispatch-store'
 
 export const runtime = 'nodejs'
@@ -14,5 +14,6 @@ export async function GET(request: Request) {
     ok: true,
     ride: pending?.ride ?? null,
     offer: pending?.offer ?? null,
+    active: getDriverActiveRide(driverId),
   })
 }
