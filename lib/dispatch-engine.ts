@@ -83,7 +83,8 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
 }
 
 function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: number) {
-  if (driver.status !== 'online') return false
+  if (driver.status === 'offline') return false
+  if (listRides().some((item) => item.assignedDriverId === driver.id && item.status === 'assigned')) return false
   if (ride.declinedDriverIds.includes(driver.id)) return false
   if (ride.timedOutDriverIds.includes(driver.id)) return false
   const staleMs = now - Date.parse(driver.lastSeenAt)
@@ -656,7 +657,9 @@ export function upsertDriverPresence(input: {
   wallet?: string
   piUid?: string
 }) {
+  syncDispatchFromDisk()
   const current = getDriver(input.id)
+  const hasAssignedRide = input.status !== 'offline' && listRides().some((ride) => ride.assignedDriverId === input.id && ride.status === 'assigned')
   const next: DriverRecord = {
     id: input.id,
     name: input.name?.trim() || current?.name || '파트너 기사',
@@ -669,7 +672,7 @@ export function upsertDriverPresence(input: {
       current && (current.lat !== input.lat || current.lng !== input.lng)
         ? headingDegrees(current, input)
         : current?.heading ?? 0,
-    status: input.status === 'offline' ? 'offline' : current?.status === 'busy' ? 'busy' : 'online',
+    status: input.status === 'offline' ? 'offline' : hasAssignedRide ? 'busy' : 'online',
     lastSeenAt: nowIso(),
     virtual: false,
     wallet: input.wallet?.trim() || current?.wallet,

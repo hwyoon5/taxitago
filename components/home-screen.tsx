@@ -2155,14 +2155,42 @@ function TaxiMatchingSheet({
       setRide(created)
       if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요.')
     }
+    const createNew = () => {
+      const pickup = live.origin ?? { lat: pickupLat, lng: pickupLng, address: pickupAddress }
+      const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
+      void createRideRequest({
+        passengerId: passengerIdRef.current,
+        kind: 'taxi',
+        pickupLat: pickup.lat,
+        pickupLng: pickup.lng,
+        pickupAddress: pickup.address,
+        destLat: drop.lat,
+        destLng: drop.lng,
+        destAddress: drop.address,
+        destLabel: dest,
+      })
+        .then((created) => {
+          attach(created)
+        })
+        .catch((error) => {
+          if (!cancelled) setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+        })
+    }
     if (taxiSheetRideId) {
       rideIdRef.current = taxiSheetRideId
       void fetchRideRequest(taxiSheetRideId).then((existing) => {
-        if (!existing) return
+        if (cancelled || !existing) return
+        if (existing.status === 'completed' || existing.status === 'cancelled') {
+          taxiSheetRideId = ''
+          rideIdRef.current = ''
+          writeStoredTaxi(null)
+          createNew()
+          return
+        }
         attach(existing)
-        if (existing.status === 'assigned' || existing.status === 'completed') {
+        if (existing.status === 'assigned') {
           lockMatched(existing)
-          if (existing.readyToSettleAt || existing.status === 'completed') setPhase('moving')
+          if (existing.readyToSettleAt) setPhase('moving')
           else if (existing.boardedAt) setPhase('boarding')
           else setPhase('arriving')
         }
@@ -2171,25 +2199,7 @@ function TaxiMatchingSheet({
         cancelled = true
       }
     }
-    const pickup = live.origin ?? { lat: pickupLat, lng: pickupLng, address: pickupAddress }
-    const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
-    void createRideRequest({
-      passengerId: passengerIdRef.current,
-      kind: 'taxi',
-      pickupLat: pickup.lat,
-      pickupLng: pickup.lng,
-      pickupAddress: pickup.address,
-      destLat: drop.lat,
-      destLng: drop.lng,
-      destAddress: drop.address,
-      destLabel: dest,
-    })
-      .then((created) => {
-        attach(created)
-      })
-      .catch((error) => {
-        if (!cancelled) setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
-      })
+    createNew()
     return () => {
       cancelled = true
     }
@@ -2219,6 +2229,10 @@ function TaxiMatchingSheet({
           }
         })
       if (next.status === 'assigned' || next.status === 'completed') {
+        if (next.status === 'completed') {
+          taxiSheetRideId = ''
+          writeStoredTaxi(null)
+        }
         if (!matchedRef.current) lockMatched(next)
         else setFresh(next)
         if (next.readyToSettleAt) setPhase('moving')
@@ -2980,31 +2994,41 @@ function ServiceSheet({
       setDispatchRide(created)
       if (created.status === 'unmatched') setDaeriMatchError('지금은 배차 가능한 기사가 없어요.')
     }
+    const createNew = () => {
+      void createRideRequest({
+        passengerId: daeriPassengerIdRef.current,
+        kind: 'daeri',
+        pickupLat: rideOriginLat,
+        pickupLng: rideOriginLng,
+        pickupAddress: daeriTrip?.pickup || pickupAddress,
+        destLat: rideDestLat ?? rideOriginLat,
+        destLng: rideDestLng ?? rideOriginLng,
+        destAddress: daeriTrip?.dest || destAddress,
+        destLabel: daeriTrip?.dest || destAddress,
+        estimatedFare: fare,
+      })
+        .then(attach)
+        .catch((error) => {
+          if (!cancelled) setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+        })
+    }
     if (daeriSheetRideId) {
       daeriRideIdRef.current = daeriSheetRideId
       void fetchRideRequest(daeriSheetRideId).then((existing) => {
-        if (existing) attach(existing)
+        if (cancelled || !existing) return
+        if (existing.status === 'completed' || existing.status === 'cancelled') {
+          daeriSheetRideId = ''
+          daeriRideIdRef.current = ''
+          createNew()
+          return
+        }
+        attach(existing)
       }).catch(() => undefined)
       return () => {
         cancelled = true
       }
     }
-    void createRideRequest({
-      passengerId: daeriPassengerIdRef.current,
-      kind: 'daeri',
-      pickupLat: rideOriginLat,
-      pickupLng: rideOriginLng,
-      pickupAddress: daeriTrip?.pickup || pickupAddress,
-      destLat: rideDestLat ?? rideOriginLat,
-      destLng: rideDestLng ?? rideOriginLng,
-      destAddress: daeriTrip?.dest || destAddress,
-      destLabel: daeriTrip?.dest || destAddress,
-      estimatedFare: fare,
-    })
-      .then(attach)
-      .catch((error) => {
-        if (!cancelled) setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
-      })
+    createNew()
     return () => {
       cancelled = true
     }
@@ -3019,6 +3043,7 @@ function ServiceSheet({
         onClose()
         return
       }
+      if (next.status === 'completed') daeriSheetRideId = ''
       if (!daeriAcceptedRef.current && (next.status === 'assigned' || next.status === 'completed')) return
       if (daeriAcceptedRef.current && next.status !== 'assigned' && next.status !== 'completed') return
       setDispatchRide(next)
@@ -7303,10 +7328,16 @@ export default function HomeScreen() {
       dest: { lat: place.lat, lng: place.lng, address: place.address, label: place.label },
     })
     if (taxiSheetRideId && activeTrip) {
-      setSelectedService('택시')
-      setTab('홈')
-      showNotice('진행 중인 택시 호출로 돌아갑니다.')
-      return
+      const existing = await fetchRideRequest(taxiSheetRideId)
+      if (!existing || (existing.status !== 'completed' && existing.status !== 'cancelled')) {
+        setSelectedService('택시')
+        setTab('홈')
+        showNotice('진행 중인 택시 호출로 돌아갑니다.')
+        return
+      }
+      taxiSheetRideId = ''
+      writeStoredTaxi(null)
+      setActiveTrip(null)
     }
     setPaymentDone(null)
     setReceiptRide(null)
@@ -7613,6 +7644,10 @@ export default function HomeScreen() {
             onKeep={rememberTaxi}
             onEnd={endTaxi}
             onClose={() => {
+              if (!taxiSheetRideId) {
+                writeStoredTaxi(null)
+                setActiveTrip(null)
+              }
               setSelectedService(null)
               setTab('홈')
             }}
