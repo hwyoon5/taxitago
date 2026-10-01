@@ -225,7 +225,7 @@ export function getReceipt(rideId: string) {
 
 export function addEarning(entry: DriverEarning) {
   const store = db()
-  store.earnings = [entry, ...store.earnings.filter((item) => item.rideId !== entry.rideId)].slice(0, 400)
+  store.earnings = [entry, ...store.earnings.filter((item) => !(item.rideId === entry.rideId && item.status === entry.status))].slice(0, 400)
   persist()
   return entry
 }

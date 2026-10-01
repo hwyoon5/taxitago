@@ -222,9 +222,9 @@ export function rideFromPushedOffer(payload: PushedDriverOffer | null | undefine
 export async function fetchDriverOffer(driverId: string) {
   try {
     const res = await apiFetch(`/api/drivers/offer?driverId=${encodeURIComponent(driverId)}`, { cache: 'no-store' })
-    const data = await readJson<{ ride?: PublicRide | null; offer?: { pickupDistanceKm: number; expiresAt: string } | null; active?: PublicRide | null }>(res)
+    const data = await readJson<{ ride?: PublicRide | null; offer?: { pickupDistanceKm: number; expiresAt: string } | null; active?: PublicRide | null; earnings?: DriverEarningsStats | null }>(res)
     if (!res.ok) return undefined
-    return { ride: data.ride ?? null, offer: data.offer ?? null, active: data.active ?? null }
+    return { ride: data.ride ?? null, offer: data.offer ?? null, active: data.active ?? null, earnings: data.earnings ?? null }
   } catch {
     return undefined
   }
