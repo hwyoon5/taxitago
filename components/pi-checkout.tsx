@@ -65,7 +65,7 @@ async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<v
   }
   if (!paymentId || !txid) return
   try {
-    await withTimeout(postPiApi('/api/pi/complete', { paymentId, txid }), PI_SERVER_TIMEOUT_MS, 'Pi 미완료 결제')
+    await postPiApiRetry('/api/pi/complete', { paymentId, txid })
   } catch (error) {
     logPi('warn', 'incomplete payment complete failed', error)
   }
@@ -240,6 +240,25 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
       },
     )
   })
+}
+
+function piApiLabel(path: '/api/pi/approve' | '/api/pi/complete') {
+  return path === '/api/pi/approve' ? 'Pi 결제 승인' : 'Pi 결제 완료'
+}
+
+/** Serverless cold starts and Pi API latency can push one call past the window — retry once. */
+async function postPiApiRetry(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, unknown>, retries = 1) {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await withTimeout(postPiApi(path, body), PI_SERVER_TIMEOUT_MS, piApiLabel(path))
+    } catch (error) {
+      lastError = error
+      logPi('warn', `${path} attempt ${attempt + 1} failed`, error)
+      if (attempt < retries) await new Promise((resolve) => window.setTimeout(resolve, 1200))
+    }
+  }
+  throw lastError
 }
 
 function initPi(pi: PiSdk) {
@@ -542,7 +561,7 @@ export async function startPiCheckout(options: {
             return Promise.resolve()
           }
           if (options.advanceOnApproval && approvedTxid) succeed({ paymentId, txid: approvedTxid })
-          return withTimeout(postPiApi('/api/pi/approve', { paymentId }), PI_SERVER_TIMEOUT_MS, 'Pi 결제 승인')
+          return postPiApiRetry('/api/pi/approve', { paymentId })
             .then((payload) => {
               if (options.advanceOnApproval) {
                 succeed({ paymentId, txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}` })
@@ -570,21 +589,16 @@ export async function startPiCheckout(options: {
             return Promise.resolve()
           }
           if (!txid) return Promise.resolve()
-          return withTimeout(
-            postPiApi('/api/pi/complete', { paymentId, txid, amount, metadata: payment.metadata }),
-            PI_SERVER_TIMEOUT_MS,
-            'Pi 결제 완료',
-          )
+          return postPiApiRetry('/api/pi/complete', { paymentId, txid, amount, metadata: payment.metadata })
             .then(() => {
               succeed({ paymentId, txid })
             })
             .catch((error) => {
               if (settled) return undefined
-              if (options.advanceOnApproval) {
-                succeed({ paymentId, txid })
-                return undefined
-              }
-              finishError('complete failed', error)
+              // txid exists → the blockchain transfer already settled. Treat the checkout as
+              // paid; the server finishes the payment via onIncompletePaymentFound recovery.
+              logPi('warn', 'complete failed after retry; treating as settled', { paymentId, txid, error })
+              succeed({ paymentId, txid })
               return undefined
             })
         },

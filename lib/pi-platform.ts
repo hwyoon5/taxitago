@@ -51,13 +51,15 @@ export function getPiPayment(paymentId: string) {
 }
 
 export async function approvePiPayment(paymentId: string) {
-  await getPiPayment(paymentId)
   return piPaymentsRequest(paymentId, 'POST', '/approve')
 }
 
 export async function completePiPayment(paymentId: string, txid: string) {
-  const info = (await getPiPayment(paymentId)) as { amount?: number; metadata?: Record<string, unknown> } | null
+  const infoPromise = getPiPayment(paymentId).catch(
+    () => null as { amount?: number; metadata?: Record<string, unknown> } | null,
+  )
   const payment = await piPaymentsRequest(paymentId, 'POST', '/complete', { txid })
+  const info = await infoPromise
   return { payment, info }
 }
 
