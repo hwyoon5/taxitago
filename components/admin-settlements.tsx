@@ -5,6 +5,7 @@ import { adminHeaders } from '@/lib/admin-key'
 import { DEFAULT_RATES, type CommissionRates, type SettlementEntry, type SettlementService } from '@/lib/settlement-types'
 import type { AuditEntry } from '@/lib/audit-store'
 import { DEFAULT_FARE_CONFIG, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
+import { buildSettlementCsv } from '@/lib/settlement-csv'
 
 type ServiceSummary = { label: string; count: number; gross: number; commission: number; net: number }
 type Summary = {
@@ -56,6 +57,7 @@ export default function AdminSettlements() {
   const [entries, setEntries] = useState<SettlementEntry[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [filter, setFilter] = useState<'all' | SettlementService>('all')
+  const [period, setPeriod] = useState<'all' | 'today' | 'd7' | 'd30'>('all')
   const [busy, setBusy] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [reconcileReason, setReconcileReason] = useState('')
@@ -216,7 +218,36 @@ export default function AdminSettlements() {
       .finally(() => setBusy(false))
   }
 
-  const visible = filter === 'all' ? entries : entries.filter((entry) => entry.service === filter)
+  const periodStart = () => {
+    if (period === 'all') return null
+    const now = new Date()
+    if (period === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    return new Date(now.getTime() - (period === 'd7' ? 7 : 30) * 86400000)
+  }
+  const start = periodStart()
+  const visible = entries.filter((entry) =>
+    (filter === 'all' || entry.service === filter) &&
+    (!start || new Date(entry.createdAt) >= start),
+  )
+
+  const exportCsv = () => {
+    if (!visible.length) {
+      setError('내려받을 정산 내역이 없습니다.')
+      return
+    }
+    const csv = buildSettlementCsv(visible, audit)
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+    anchor.href = url
+    anchor.download = `taxitago-settlements-${period}-${stamp}.csv`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    tell(`정산 내역 ${visible.length}건을 CSV로 내려받았습니다.`)
+  }
   const ratesDirty = SERVICES.some((service) => rateDraft[service] !== rates[service])
 
   return (
@@ -369,14 +400,23 @@ export default function AdminSettlements() {
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-black">정산 내역</p>
-          <button
-            type="button"
-            disabled={syncing}
-            onClick={reconcile}
-            className="rounded-full border-2 border-[#4C1FB8] bg-white px-3 py-1.5 text-[11px] font-black text-[#4C1FB8] disabled:opacity-50"
-          >
-            {syncing ? '동기화 중…' : '내역 동기화·보정'}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={reconcile}
+              className="rounded-full border-2 border-[#4C1FB8] bg-white px-3 py-1.5 text-[11px] font-black text-[#4C1FB8] disabled:opacity-50"
+            >
+              {syncing ? '동기화 중…' : '내역 동기화·보정'}
+            </button>
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="rounded-full bg-[#047857] px-3 py-1.5 text-[11px] font-black text-white"
+            >
+              엑셀(CSV) 다운로드
+            </button>
+          </div>
         </div>
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">장부 기준으로 기사 모드 수익 내역을 강제로 일치시킵니다.</p>
         <input
@@ -386,7 +426,20 @@ export default function AdminSettlements() {
           placeholder="동기화 사유 (선택)"
           className="mt-2 w-full rounded-lg border border-[#E2E8F0] px-2.5 py-1.5 text-[11px] font-bold outline-none focus:border-[#4C1FB8]"
         />
-        <div className="mt-2 flex flex-wrap justify-end gap-1">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
+          <div className="flex gap-1">
+            {([['today', '오늘'], ['d7', '7일'], ['d30', '30일'], ['all', '전체 기간']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setPeriod(key)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-black ${period === key ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1">
             {(['all', ...SERVICES] as const).map((key) => (
               <button
                 key={key}
@@ -398,6 +451,7 @@ export default function AdminSettlements() {
               </button>
             ))}
           </div>
+        </div>
         {error ? <p className="mt-2 text-xs font-black text-[#DC2626]">{error}</p> : null}
         <div className="mt-3 space-y-2">
           {visible.map((entry) => (
