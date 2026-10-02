@@ -46,6 +46,9 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  // Android Chrome: shrink the layout viewport when the keyboard opens so
+  // input fields inside bottom sheets stay reachable instead of covered.
+  interactiveWidget: 'resizes-content',
 }
 
 export default function RootLayout({

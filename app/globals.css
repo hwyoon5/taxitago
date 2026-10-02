@@ -516,3 +516,66 @@
 .fixed.inset-0.items-end > * {
   margin-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* ===== Cross-platform layout hardening (Android/iOS, system font scaling, notches) ===== */
+@layer base {
+  html {
+    /* Stop Android WebKit / iOS Safari from auto-inflating text when the
+       system font size is enlarged or the device rotates to landscape */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  html,
+  body {
+    width: 100%;
+    /* A single overflowing child must never scroll the whole page sideways.
+       `clip` keeps position:sticky working; `hidden` is the old-WebView fallback */
+    overflow-x: hidden;
+    overflow-x: clip;
+  }
+  body {
+    /* viewport-fit=cover: keep flow content clear of landscape notches */
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  /* Long ids, txids, addresses and enlarged system text wrap instead of
+     overflowing their card/button containers */
+  p, span, strong, em, small, b, i, a, button, label, li, dd, dt, legend, option,
+  h1, h2, h3, h4, h5, h6 {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  /* Flex/grid children may shrink below their content size so tracks wrap or
+     ellipsize instead of forcing the layout wider than the viewport */
+  [class*='flex'] > *,
+  [class*='grid'] > * {
+    min-width: 0;
+  }
+  /* Remove the double-tap zoom delay on every interactive element */
+  a, button, input, select, textarea, label, [role='button'], [role='tab'], [role='switch'] {
+    touch-action: manipulation;
+  }
+  /* Nested scroll areas (admin lists, chat, sheets) stay momentum-scrollable */
+  [class*='overflow-y-auto'],
+  [class*='overflow-auto'],
+  [class*='overflow-y-scroll'] {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Sheets and dialogs may exceed the viewport on small/landscape screens or
+   with large system fonts — cap them and let their content scroll inside */
+.fixed.inset-0.flex > *,
+.fixed.inset-x-0.flex > * {
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+/* Very short landscape viewports: dialogs sit at the top so nothing is cut */
+@media (orientation: landscape) and (max-height: 540px) {
+  .fixed.inset-0.items-center,
+  .fixed.inset-0.sm\:items-center {
+    align-items: flex-start;
+  }
+}
