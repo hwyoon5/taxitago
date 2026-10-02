@@ -1,23 +1,21 @@
+import { piRound } from '@/lib/pi-format'
+
 export type SettledRideFare = {
   estimate: number
   actual: number
   adjusted: boolean
 }
 
-function roundPi(value: number) {
-  return Math.round(value * 100) / 100
-}
-
 /** Deterministic live fare from the quoted estimate (traffic / distance / time). */
 export function settleRideFare(estimate: number, key: string): SettledRideFare {
-  const normalized = roundPi(estimate)
+  const normalized = piRound(estimate)
   let hash = 2166136261
   for (let i = 0; i < key.length; i += 1) {
     hash ^= key.charCodeAt(i)
     hash = Math.imul(hash, 16777619)
   }
   const bump = (((hash >>> 0) % 28) + 8) / 100
-  const actual = roundPi(normalized + bump)
+  const actual = piRound(normalized + bump)
   return { estimate: normalized, actual, adjusted: actual !== normalized }
 }
 
@@ -29,13 +27,16 @@ export type MidTripCancelSettlement = {
   feeRate: number
 }
 
+export type CancelFeePolicyInput = { rate?: number; min?: number }
+
 /** In-trip passenger cancel: driver keeps a cancellation fee; unused quoted fare is waived. */
-export function settleMidTripCancelFee(quotedFare: number): MidTripCancelSettlement {
-  const quoted = roundPi(Math.max(0, quotedFare))
-  const feeRate = 0.4
-  const cancelFee = roundPi(Math.min(quoted, Math.max(quoted > 0 ? 0.5 : 0, quoted * feeRate)))
-  const waived = roundPi(quoted - cancelFee)
-  return { quoted, cancelFee, waived, driverPayout: cancelFee, feeRate }
+export function settleMidTripCancelFee(quotedFare: number, policy?: CancelFeePolicyInput): MidTripCancelSettlement {
+  const quoted = piRound(Math.max(0, quotedFare))
+  const rate = Number.isFinite(policy?.rate) ? Math.min(1, Math.max(0, Number(policy!.rate))) : 0.4
+  const min = Number.isFinite(policy?.min) ? Math.max(0, Number(policy!.min)) : 0.5
+  const cancelFee = piRound(Math.min(quoted, Math.max(quoted > 0 ? min : 0, quoted * rate)))
+  const waived = piRound(quoted - cancelFee)
+  return { quoted, cancelFee, waived, driverPayout: cancelFee, feeRate: rate }
 }
 
 export function isRidePayLabel(label: string) {

@@ -1,4 +1,5 @@
-import { PAYMENT_POLICIES } from '@/lib/payment-policy'
+import { DEFAULT_FARE_CONFIG, type FareConfig } from '@/lib/fare-config'
+import { piRound } from '@/lib/pi-format'
 
 const EARTH_KM = 6371
 
@@ -20,10 +21,10 @@ export function haversineKm(
   return 2 * EARTH_KM * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
-export function estimateTaxiFarePi(distanceKm: number) {
-  const base = PAYMENT_POLICIES['택시'].defaultAmount
-  const quoted = base + Math.max(0, distanceKm) * 0.28
-  return Math.round(Math.max(base, quoted) * 100) / 100
+export function estimateTaxiFarePi(distanceKm: number, config: FareConfig = DEFAULT_FARE_CONFIG, kind: 'taxi' | 'daeri' = 'taxi') {
+  const rule = kind === 'daeri' ? config.daeri : config.taxi
+  const quoted = rule.base + Math.max(0, distanceKm) * rule.perKm + (Math.max(0, distanceKm) / 0.35) * rule.perMin
+  return piRound(Math.max(rule.base, quoted))
 }
 
 export function etaMinutesFromKm(distanceKm: number) {

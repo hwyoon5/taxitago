@@ -29,7 +29,8 @@ import {
   savePiIdentity,
   syncPartnerLink,
 } from '@/lib/partner-account'
-import { getPaymentPolicy } from '@/lib/payment-policy'
+import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
+import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
@@ -634,7 +635,7 @@ function saveRecentUse(item: RecentUse) {
 }
 
 function formatRecentFare(amount: number) {
-  return `${Number(amount.toFixed(2))} Pi`
+  return `${amount.toFixed(7)} Pi`
 }
 
 function receiptFromRecent(item: RecentUse): RideReceipt {
@@ -749,8 +750,8 @@ function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
     route: item.route,
     origin: item.origin,
     dest: item.dest,
-    fare: `${item.amount.toFixed(2)} Pi`,
-    estimatedFare: `${item.estimatedFare.toFixed(2)} Pi`,
+    fare: `${item.amount.toFixed(7)} Pi`,
+    estimatedFare: `${item.estimatedFare.toFixed(7)} Pi`,
     vehicle: '택시',
     date: new Date(item.settledAt).toLocaleString('ko-KR'),
     distance: '-',
@@ -765,9 +766,9 @@ function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
 
 function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
   const matched = SAMPLE_RIDES.find((ride) => ride.route === tx.place)
-  const estimatedFare = tx.estimated != null ? `${tx.estimated.toFixed(2)} Pi` : undefined
+  const estimatedFare = tx.estimated != null ? `${tx.estimated.toFixed(7)} Pi` : undefined
   if (matched) {
-    return { ...matched, fare: `${Math.abs(tx.amount).toFixed(2)} Pi`, estimatedFare, date: tx.at, vehicle: tx.label }
+    return { ...matched, fare: `${Math.abs(tx.amount).toFixed(7)} Pi`, estimatedFare, date: tx.at, vehicle: tx.label }
   }
   const isRoute = tx.place.includes('→')
   const [origin, dest] = isRoute ? tx.place.split(' → ') : [tx.place, '']
@@ -776,7 +777,7 @@ function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
     route: isRoute ? tx.place : `${tx.label}`,
     origin: origin.trim() || tx.label,
     dest: (dest || (rideLike ? '목적지' : 'Pi 월렛')).trim(),
-    fare: `${Math.abs(tx.amount).toFixed(2)} Pi`,
+    fare: `${Math.abs(tx.amount).toFixed(7)} Pi`,
     estimatedFare,
     vehicle: tx.label,
     date: tx.at,
@@ -1487,8 +1488,8 @@ function PiPayPanel({
           <span className="rounded-full bg-[#4C1FB8] px-2.5 py-1 text-[10px] font-black text-white">선택됨</span>
         </div>
         <div className="mt-3 flex items-end justify-between">
-          <p className="text-xs font-bold text-[#475569]">보유 잔액 {balance.toFixed(2)} Pi</p>
-          <p className="text-lg font-black text-[#4C1FB8]">{amount.toFixed(2)} Pi</p>
+          <p className="text-xs font-bold text-[#475569]">보유 잔액 {balance.toFixed(7)} Pi</p>
+          <p className="text-lg font-black text-[#4C1FB8]">{amount.toFixed(7)} Pi</p>
         </div>
         {!enough ? <p className="mt-2 text-xs font-black text-[#BE123C]">잔액이 부족합니다. 충전 후 결제해 주세요.</p> : null}
       </div>
@@ -1500,7 +1501,7 @@ function PiPayPanel({
           className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
           onPaid={() => onPay()}
         >
-          {`Pi로 ${amount.toFixed(2)} 결제하기`}
+          {`Pi로 ${amount.toFixed(7)} 결제하기`}
         </PiCheckoutButton>
       ) : (
         <button type="button" onClick={onPay} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
@@ -1539,17 +1540,17 @@ function InTripCancelConfirmModal({
           <p className="mt-2 text-[11px] font-bold leading-5 text-[#7F1D1D]">기사님의 이동 수고를 반영해 이용 요금의 일부가 위약금(취소 수수료)으로 기사에게 지급되고, 나머지는 청구되지 않습니다.</p>
           <div className="mt-3 flex items-center justify-between">
             <span className="text-xs font-medium text-[#64748B]">운행 요금</span>
-            <span className="text-sm font-bold text-[#64748B]">{quoted.toFixed(2)} Pi</span>
+            <span className="text-sm font-bold text-[#64748B]">{quoted.toFixed(7)} Pi</span>
           </div>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs font-bold text-[#BE123C]">취소 수수료 · 기사 지급</span>
-            <span className="text-lg font-black text-[#BE123C]">{cancelFee.toFixed(2)} Pi</span>
+            <span className="text-lg font-black text-[#BE123C]">{cancelFee.toFixed(7)} Pi</span>
           </div>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs font-medium text-[#64748B]">미청구 금액</span>
-            <span className="text-sm font-bold text-[#047857]">{waived.toFixed(2)} Pi</span>
+            <span className="text-sm font-bold text-[#047857]">{waived.toFixed(7)} Pi</span>
           </div>
-          <p className="mt-3 text-[11px] font-bold text-[#7F1D1D]">기사 지급 {driverPayout.toFixed(2)} Pi · 미청구 {waived.toFixed(2)} Pi</p>
+          <p className="mt-3 text-[11px] font-bold text-[#7F1D1D]">기사 지급 {driverPayout.toFixed(7)} Pi · 미청구 {waived.toFixed(7)} Pi</p>
         </div>
         <button type="button" disabled={settling} onClick={onConfirm} className="mt-5 w-full rounded-2xl bg-[#BE123C] py-3.5 font-black text-white disabled:opacity-60">
           {settling ? '정산 중…' : '취소 수수료 내고 이용 취소'}
@@ -1634,24 +1635,24 @@ function PaymentDoneModal({
             <>
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-xs font-medium text-[#64748B]">호출 시 예상 요금</span>
-                <span className="text-sm font-semibold text-[#64748B] line-through">{estimated.toFixed(2)} Pi</span>
+                <span className="text-sm font-semibold text-[#64748B] line-through">{estimated.toFixed(7)} Pi</span>
               </div>
               <div className="mt-2 flex items-center justify-between">
                 <span className="text-xs font-bold text-[#0F172A]">실제 이용 요금</span>
-                <span className="text-xl font-bold text-[#0F172A]">{amount.toFixed(2)} Pi</span>
+                <span className="text-xl font-bold text-[#0F172A]">{amount.toFixed(7)} Pi</span>
               </div>
               <div className="mt-3 rounded-2xl bg-white px-3 py-3">
                 <p className="text-[11px] font-semibold leading-5 text-[#334155]">실시간 주행 거리/시간에 따라 최종 요금이 산정되었습니다</p>
                 <div className="mt-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-[#4A82B8]">최종 청구 금액</span>
-                  <span className="text-lg font-bold text-[#4A82B8]">{amount.toFixed(2)} Pi</span>
+                  <span className="text-lg font-bold text-[#4A82B8]">{amount.toFixed(7)} Pi</span>
                 </div>
               </div>
             </>
           ) : (
             <div className="mt-3 flex items-center justify-between">
               <span className="text-xs font-medium text-[#64748B]">결제 금액</span>
-              <span className="text-xl font-bold text-[#0F172A]">{amount.toFixed(2)} Pi</span>
+              <span className="text-xl font-bold text-[#0F172A]">{amount.toFixed(7)} Pi</span>
             </div>
           )}
           <div className="mt-2 flex items-center justify-between">
@@ -1660,7 +1661,7 @@ function PaymentDoneModal({
           </div>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs font-medium text-[#64748B]">남은 잔액</span>
-            <span className="text-sm font-bold text-[#334155]">{remaining.toFixed(2)} Pi</span>
+            <span className="text-sm font-bold text-[#334155]">{remaining.toFixed(7)} Pi</span>
           </div>
         </div>
         <button type="button" onClick={onClose} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white">
@@ -2125,9 +2126,13 @@ function TaxiMatchingSheet({
   const [resolvedDest, setResolvedDest] = useState<RideCoords | null>(
     live.dest ? { lat: live.dest.lat, lng: live.dest.lng, address: live.dest.address } : null,
   )
-  const fare = ride?.estimatedFare ?? 2.34
+  const [fareCfg, setFareCfg] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
+  useEffect(() => {
+    void fetchFareConfig().then(setFareCfg).catch(() => undefined)
+  }, [])
+  const fare = ride?.estimatedFare ?? fareCfg.taxi.base
   const billed = settleRideFare(fare, ride?.id ?? route)
-  const cancelSettlement = settleMidTripCancelFee(phase === 'moving' ? billed.actual : fare)
+  const cancelSettlement = settleMidTripCancelFee(phase === 'moving' ? billed.actual : fare, { rate: fareCfg.cancel.rate / 100, min: fareCfg.cancel.min })
   const [accepting, setAccepting] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
@@ -2344,9 +2349,9 @@ function TaxiMatchingSheet({
       if (finished?.status === 'completed') {
         onNotice('운행이 이미 완료되어 취소되지 않았어요. 영수증으로 정산 내역을 확인해 주세요.')
       } else {
-        onActivity?.('이용 취소', `취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi · 미청구 ${cancelSettlement.waived.toFixed(2)} Pi`)
+        onActivity?.('이용 취소', `취소 수수료 ${cancelSettlement.cancelFee.toFixed(7)} Pi · 미청구 ${cancelSettlement.waived.toFixed(7)} Pi`)
         onNotice(
-          `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
+          `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(7)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(7)} Pi는 청구되지 않습니다.`,
         )
       }
     } catch (error) {
@@ -2535,7 +2540,7 @@ function TaxiMatchingSheet({
             <p className="text-xs font-black text-[#4C1FB8]">LIVE MATCHING</p>
             <h2 className="mt-2 text-2xl font-black text-[#0F172A]">기사님 매칭 대기 중</h2>
             <p className="mt-2 text-sm font-bold text-[#64748B]">{route}</p>
-            {ride ? <p className="mt-1 text-xs font-black text-[#4C1FB8]">예상 요금 {ride.estimatedFare.toFixed(2)} Pi</p> : null}
+            {ride ? <p className="mt-1 text-xs font-black text-[#4C1FB8]">예상 요금 {ride.estimatedFare.toFixed(7)} Pi</p> : null}
             {ride?.pendingOffer ? (
               <p className="mt-2 text-sm font-bold text-[#4C1FB8]">{ride.pendingOffer.driverName} 기사님에게 콜을 요청했어요. 수락을 기다리는 중입니다.</p>
             ) : (
@@ -2614,7 +2619,7 @@ function TaxiMatchingSheet({
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">{phase === 'moving' ? '실제 이용 요금' : '예상 요금'}</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{(phase === 'moving' ? billed.actual : fare).toFixed(2)} Pi</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{(phase === 'moving' ? billed.actual : fare).toFixed(7)} Pi</p>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -2674,7 +2679,7 @@ function TaxiMatchingSheet({
                 <p className="text-[11px] font-black text-[#4A82B8]">
                   {escrowStatus === 'held' ? '에스크로 보관 중' : escrowStatus === 'released' ? '기사 지갑 정산 완료' : '이용 완료 시 결제'}
                 </p>
-                <p className="mt-1 text-lg font-black text-[#0F172A]">{escrowAmount.toFixed(2)} Pi</p>
+                <p className="mt-1 text-lg font-black text-[#0F172A]">{escrowAmount.toFixed(7)} Pi</p>
                 <p className="mt-1 text-[11px] font-bold leading-5 text-[#64748B]">
                   {escrowStatus === 'held' || escrowStatus === 'released'
                     ? '기사님이 운행 완료를 승인하면 등록된 Pi 지갑으로 자동 이체됩니다.'
@@ -2957,7 +2962,12 @@ function ServiceSheet({
   const packageOption = getPackageSize(packageSize)
   const deliveryFare = estimateDeliveryFare(deliveryVehicle, packageSize)
   const listedPi = Number(selectedUsage?.rate.match(/(\d+(?:\.\d+)?)/)?.[1])
-  const fare = ride ? (daeriTrip?.fare ?? 2.1) : service === '주차' ? 2 : service === 'EV 충전' ? 4 : vehicle ? (Number.isFinite(listedPi) && listedPi > 0 ? listedPi : 0.3) : deliveryFare
+  const [daeriFareCfg, setDaeriFareCfg] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
+  useEffect(() => {
+    void fetchFareConfig().then(setDaeriFareCfg).catch(() => undefined)
+  }, [])
+  const policyBase = (key: FlatServiceId) => getPaymentPolicy(FLAT_SERVICE_LABEL[key])?.defaultAmount ?? daeriFareCfg.flatBase[key]
+  const fare = ride ? (daeriTrip?.fare ?? daeriFareCfg.daeri.base) : service === '주차' ? policyBase('parking') : service === 'EV 충전' ? policyBase('ev') : vehicle ? (Number.isFinite(listedPi) && listedPi > 0 ? listedPi : policyBase('bicycle')) : deliveryFare
   const settleTiming = service === '주차' ? parkingOption : paymentPolicy?.timing
   const rideOriginLat = daeriTrip?.pickupLat ?? pickupLat
   const rideOriginLng = daeriTrip?.pickupLng ?? pickupLng
@@ -2968,7 +2978,7 @@ function ServiceSheet({
     : selectedUsage?.name || `${pickupAddress || '현재 위치'} → ${service} 이용`
   const billed = ride ? settleRideFare(fare, `daeri:${place}`) : { estimate: fare, actual: fare, adjusted: false }
   const chargeAmount = ride ? billed.actual : fare
-  const cancelSettlement = settleMidTripCancelFee(billed.actual)
+  const cancelSettlement = settleMidTripCancelFee(billed.actual, { rate: daeriFareCfg.cancel.rate / 100, min: daeriFareCfg.cancel.min })
   const partner =
     ride
       ? {
@@ -3207,9 +3217,9 @@ function ServiceSheet({
       if (finished?.status === 'completed') {
         onNotice('운행이 이미 완료되어 취소되지 않았어요. 영수증으로 정산 내역을 확인해 주세요.')
       } else {
-        onActivity?.('이용 취소', `${service} · 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi`)
+        onActivity?.('이용 취소', `${service} · 취소 수수료 ${cancelSettlement.cancelFee.toFixed(7)} Pi`)
         onNotice(
-          `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(2)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(2)} Pi는 청구되지 않습니다.`,
+          `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(7)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(7)} Pi는 청구되지 않습니다.`,
         )
       }
     } catch (error) {
@@ -3428,7 +3438,7 @@ function ServiceSheet({
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">{ride && rideStage === 'moving' ? '실제 이용 요금' : '예상 요금'}</p>
-                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{(ride && rideStage === 'moving' ? billed.actual : fare).toFixed(2)} Pi</p>
+                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{(ride && rideStage === 'moving' ? billed.actual : fare).toFixed(7)} Pi</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">이용 상태</p>
@@ -3610,7 +3620,7 @@ function ServiceSheet({
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-bold text-[#8b8495]">예상 요금</p>
-                  <p className="text-lg font-black">{fare.toFixed(2)} Pi</p>
+                  <p className="text-lg font-black">{fare.toFixed(7)} Pi</p>
                 </div>
               </div>
             </div>
@@ -4699,8 +4709,8 @@ function receiptFromRideHistory(ride: PublicRide): RideReceipt {
     route: `${origin} → ${dest}`,
     origin,
     dest,
-    fare: `${paid.toFixed(2)} Pi`,
-    estimatedFare: `${ride.estimatedFare.toFixed(2)} Pi`,
+    fare: `${paid.toFixed(7)} Pi`,
+    estimatedFare: `${ride.estimatedFare.toFixed(7)} Pi`,
     vehicle: ride.kind === 'daeri' ? '대리' : '택시',
     date: new Date(ride.updatedAt).toLocaleString('ko-KR'),
     distance: '-',
@@ -4837,7 +4847,7 @@ function ActivityInbox({
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-black text-[#0F172A]">{entry.label}</p>
                     {entry.amount != null ? (
-                      <span className={`shrink-0 text-sm font-black tabular-nums ${entry.amount < 0 ? 'text-[#0F172A]' : 'text-[#047857]'}`}>{entry.amount > 0 ? '+' : ''}{entry.amount.toFixed(2)} Pi</span>
+                      <span className={`shrink-0 text-sm font-black tabular-nums ${entry.amount < 0 ? 'text-[#0F172A]' : 'text-[#047857]'}`}>{entry.amount > 0 ? '+' : ''}{entry.amount.toFixed(7)} Pi</span>
                     ) : null}
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-2">
@@ -5078,7 +5088,7 @@ function WalletModal({
 
   const setQuickAmount = (ratio: number) => {
     const value = Math.round(balance * ratio * 100) / 100
-    setAmount(value > 0 ? value.toFixed(2) : '0')
+    setAmount(value > 0 ? value.toFixed(7) : '0')
   }
 
   const requestWithdraw = () => {
@@ -5112,7 +5122,7 @@ function WalletModal({
         <section className="mt-5 rounded-[26px] bg-[#4C1FB8] p-5 text-white shadow-[0_16px_32px_rgba(76,31,184,0.35)]">
           <p className="text-xs font-bold text-[#E8DCFF]">사용 가능 잔액</p>
           <p className="mt-2 text-3xl font-black">
-            {balance.toFixed(2)} <span className="text-lg text-[#E8DCFF]">Pi</span>
+            {balance.toFixed(7)} <span className="text-lg text-[#E8DCFF]">Pi</span>
           </p>
           <p className="mt-2 text-xs font-bold text-[#E8DCFF]">
             {PI_SANDBOX ? '샌드박스 테스트 잔액으로 충전됩니다' : 'Pi Browser에서 충전하면 공식 결제 창이 열립니다'}
@@ -5224,7 +5234,7 @@ function WalletModal({
               </label>
               <div className="mt-4 flex items-end justify-between rounded-2xl bg-[#F8F5FF] px-4 py-3">
                 <span className="text-xs font-bold text-[#64748B]">신청 수량</span>
-                <strong className="text-lg font-black text-[#4C1FB8]">{chargeValid ? `${chargeAmount.toFixed(2)} Pi` : '—'}</strong>
+                <strong className="text-lg font-black text-[#4C1FB8]">{chargeValid ? `${chargeAmount.toFixed(7)} Pi` : '—'}</strong>
               </div>
               <button
                 type="button"
@@ -5245,7 +5255,7 @@ function WalletModal({
                     })
                 }}
               >
-                {chargeValid ? `${chargeAmount.toFixed(2)} Pi 충전 신청` : '충전 신청'}
+                {chargeValid ? `${chargeAmount.toFixed(7)} Pi 충전 신청` : '충전 신청'}
               </button>
             </section>
           </div>
@@ -5304,7 +5314,7 @@ function WalletModal({
                   </div>
                   <strong className={`shrink-0 whitespace-nowrap tabular-nums ${transaction.amount > 0 ? 'text-[#2d9a5e]' : 'text-[#4C1FB8]'}`}>
                     {transaction.amount > 0 ? '+' : ''}
-                    {transaction.amount.toFixed(2)} Pi
+                    {transaction.amount.toFixed(7)} Pi
                   </strong>
                 </div>
                 <p className="mt-3 text-xs font-black text-[#4C1FB8]">상세 영수증 보기 ›</p>
@@ -5321,7 +5331,7 @@ function WalletModal({
             </div>
             <h3 className="mt-4 text-xl font-black text-[#0F172A]">블록체인 네트워크 승인 대기</h3>
             <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">
-              {process.kind === 'charge' ? '충전' : '출금ㆍ환불'} {process.amount.toFixed(2)} Pi 트랜잭션을 Pi Network에서 확인하고 있습니다.
+              {process.kind === 'charge' ? '충전' : '출금ㆍ환불'} {process.amount.toFixed(7)} Pi 트랜잭션을 Pi Network에서 확인하고 있습니다.
             </p>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#EDE5FF]">
               <div className="h-full w-2/3 animate-pulse rounded-full bg-[#4C1FB8]" />
@@ -5337,7 +5347,7 @@ function WalletModal({
             </div>
             <h3 className="mt-4 text-xl font-black text-[#0F172A]">처리가 완료되었습니다</h3>
             <p className="mt-2 text-sm font-bold text-[#64748B]">
-              {process.kind === 'charge' ? '충전' : '출금ㆍ환불'} {process.amount.toFixed(2)} Pi가 월렛에 반영되었습니다.
+              {process.kind === 'charge' ? '충전' : '출금ㆍ환불'} {process.amount.toFixed(7)} Pi가 월렛에 반영되었습니다.
             </p>
             <button type="button" onClick={() => setProcess(null)} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
               확인
@@ -6584,7 +6594,7 @@ function DriverOfferWatcher({
           </p>
           <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
             <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
-            <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(2)} Pi</strong>
+            <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(7)} Pi</strong>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
@@ -6905,7 +6915,7 @@ function DriverDashboard({
         if (active) {
           noteActivity(`accept:${active.id}`, '수락', rideRoute(active))
           if (active.escrow?.status === 'held') noteActivity(`escrow:${active.id}`, '에스크로 잠금', `${rideRoute(active)} · 잠금 완료`)
-          if (active.escrow?.status === 'released') noteActivity(`settle:${active.id}`, '정산', `${rideRoute(active)} · ${(active.escrow.amount ?? active.estimatedFare).toFixed(2)} Pi`)
+          if (active.escrow?.status === 'released') noteActivity(`settle:${active.id}`, '정산', `${rideRoute(active)} · ${(active.escrow.amount ?? active.estimatedFare).toFixed(7)} Pi`)
           if (active.readyToSettleAt) noteActivity(`arrive:${active.id}`, '목적지 도착', rideRoute(active))
           if (active.status === 'completed') noteActivity(`done:${active.id}`, '운행 완료', rideRoute(active))
           lastActiveRef.current = active
@@ -7094,7 +7104,7 @@ function DriverDashboard({
       .then((result) => {
         if (result.receipt) {
           appendSettlementEntry(result.receipt.amount, `에스크로 정산 · ${result.receipt.route}`)
-          noteActivity(`settle:${activeRide.id}`, '정산', `${result.receipt.route} · ${result.receipt.amount.toFixed(2)} Pi · 정산됨`)
+          noteActivity(`settle:${activeRide.id}`, '정산', `${result.receipt.route} · ${result.receipt.amount.toFixed(7)} Pi · 정산됨`)
         }
         noteActivity(`done:${activeRide.id}`, '운행 완료', rideRoute(activeRide))
         const finished = activeRide
@@ -7199,7 +7209,7 @@ function DriverDashboard({
             {(activeRide.pickup.address || '출발지')} → {(activeRide.dest.label || activeRide.dest.address || '목적지')}
           </p>
           <p className="mt-1 text-sm font-semibold text-[#334155]">
-            에스크로 {activeRide.escrow?.amount?.toFixed(2) ?? activeRide.estimatedFare.toFixed(2)} Pi · {activeRide.escrow?.status === 'held' ? '잠금 완료' : activeRide.escrow?.status === 'released' ? '정산됨' : '승객 입금 대기'}
+            에스크로 {activeRide.escrow?.amount?.toFixed(7) ?? activeRide.estimatedFare.toFixed(7)} Pi · {activeRide.escrow?.status === 'held' ? '잠금 완료' : activeRide.escrow?.status === 'released' ? '정산됨' : '승객 입금 대기'}
           </p>
           <p className="mt-2 text-xs font-bold text-[#047857]">
             {activeRide.readyToSettleAt ? '승객이 목적지 도착을 확인했어요. 정산할 수 있어요.' : activeRide.boardedAt ? '승객이 탑승을 확인했어요. 목적지 도착 확인을 기다리는 중이에요.' : '승객의 탑승 확인 전에는 정산할 수 없어요.'}
@@ -7338,7 +7348,7 @@ function DriverDashboard({
           </p>
           <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
             <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
-            <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(2)} Pi</strong>
+            <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(7)} Pi</strong>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
@@ -7461,6 +7471,20 @@ function DriverDashboard({
 export default function HomeScreen() {
   const { t } = useLocale()
   const user = LOCAL_TEST_USER
+  // Load admin-configured fares/fees once — overrides policy defaults app-wide.
+  useEffect(() => {
+    void fetchFareConfig().then((cfg) => {
+      setPolicyBaseOverrides({
+        '택시': cfg.taxi.base,
+        '대리운전': cfg.daeri.base,
+        '택배': cfg.flatBase.delivery,
+        '자전거': cfg.flatBase.bicycle,
+        '킥보드': cfg.flatBase.kickboard,
+        'EV 충전': cfg.flatBase.ev,
+        '주차': cfg.flatBase.parking,
+      })
+    }).catch(() => undefined)
+  }, [])
   const [driverMode, setDriverMode] = useState(false)
   const [driverOnline, setDriverOnline] = useState(true)
   const [tab, setTab] = useState('홈')
@@ -7671,7 +7695,7 @@ export default function HomeScreen() {
     const at = formatPiTime()
     setWalletBalance(Math.max(0, remaining))
     setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
-    recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(2)} Pi · ${place}`)
+    recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(7)} Pi · ${place}`)
     setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated, paymentId: proof.paymentId, txid: proof.txid })
     if (!label.includes('취소')) {
       const from = origin.address.trim() || '현재 위치'
@@ -7742,13 +7766,13 @@ export default function HomeScreen() {
     const at = formatPiTime()
     setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
     setTransactions((items) => [{ label: 'Pi 충전', amount, detail: `Pi 월렛 · ${at}`, place: 'Pi 월렛', at }, ...items])
-    recordActivity('Pi 충전 완료', `+${amount.toFixed(2)} Pi`)
+    recordActivity('Pi 충전 완료', `+${amount.toFixed(7)} Pi`)
   }
   const withdrawWallet = (amount: number, dest: string) => {
     const at = formatPiTime()
     setWalletBalance((balance) => Math.max(0, Math.round((balance - amount) * 100) / 100))
     setTransactions((items) => [{ label: 'Pi 환불', amount: -amount, detail: `${dest.slice(0, 10)}… · ${at}`, place: dest || 'Pi 월렛', at }, ...items])
-    recordActivity('Pi 환불', `-${amount.toFixed(2)} Pi`)
+    recordActivity('Pi 환불', `-${amount.toFixed(7)} Pi`)
   }
   const rewardReview = () => {
     const amount = 0.1
@@ -7949,7 +7973,7 @@ export default function HomeScreen() {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button onClick={openWallet} className="rounded-full bg-[#E8F1FA] px-2.5 py-1.5 text-[11px] font-black text-[#4A82B8]">
-                {walletBalance.toFixed(2)} Pi
+                {walletBalance.toFixed(7)} Pi
               </button>
               <button onClick={() => setHeaderModal('activity')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label={t('home.activity')}>
                 <Bell className="h-4 w-4" />

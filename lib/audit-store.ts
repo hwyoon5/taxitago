@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 
-export type AuditKind = 'rates' | 'settle' | 'settle-all' | 'adjust' | 'reconcile'
+export type AuditKind = 'rates' | 'fare' | 'settle' | 'settle-all' | 'adjust' | 'reconcile'
 
 export type AuditEntry = {
   id: string

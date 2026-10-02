@@ -272,7 +272,7 @@ export default function MyPage({
           </button>
           <div className="mt-5 rounded-2xl bg-white/10 p-4 ring-1 ring-white/15">
             <p className="text-[11px] font-bold text-white/70">{linked ? '사용 가능 잔액' : 'Pi 계정 연동 필요'}</p>
-            <p className="mt-1 text-3xl font-black tracking-tight">{piBalance.toFixed(2)} <span className="text-lg font-black text-[#FDE68A]">Pi</span></p>
+            <p className="mt-1 text-3xl font-black tracking-tight">{piBalance.toFixed(7)} <span className="text-lg font-black text-[#FDE68A]">Pi</span></p>
             <button
               type="button"
               onClick={(event) => {
@@ -379,7 +379,7 @@ export default function MyPage({
                     </div>
                     {row.amount != null ? (
                       <span className={`shrink-0 text-sm font-black tabular-nums ${row.amount < 0 ? 'text-[#0F172A]' : 'text-[#047857]'}`}>
-                        {row.amount > 0 ? '+' : ''}{row.amount.toFixed(2)} Pi
+                        {row.amount > 0 ? '+' : ''}{row.amount.toFixed(7)} Pi
                       </span>
                     ) : null}
                   </div>
@@ -511,7 +511,7 @@ export default function MyPage({
                 </p>
                 <div className="mt-4 rounded-2xl bg-[#F8F5FF] p-4">
                   <p className="text-[11px] font-black text-[#64748B]">사용 가능 잔액</p>
-                  <p className="mt-1 text-2xl font-black text-[#4C1FB8]">{piBalance.toFixed(2)} Pi</p>
+                  <p className="mt-1 text-2xl font-black text-[#4C1FB8]">{piBalance.toFixed(7)} Pi</p>
                 </div>
                 <button
                   type="button"

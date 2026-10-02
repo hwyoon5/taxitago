@@ -26,5 +26,5 @@ export function estimateDeliveryFare(vehicle: DeliveryVehicle, size: PackageSize
 }
 
 export function formatDeliveryFare(amount: number) {
-  return Number.isInteger(amount * 10) ? amount.toFixed(1) : amount.toFixed(2)
+  return amount.toFixed(7)
 }

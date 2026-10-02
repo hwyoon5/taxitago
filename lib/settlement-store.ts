@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { piRound } from '@/lib/pi-format'
 import path from 'path'
 import {
   DEFAULT_RATES,
@@ -138,7 +139,7 @@ export async function recordSettlement(input: {
   if (existing) return existing
   const rates = await getCommissionRates()
   const rate = rates[input.service] ?? 0
-  const commission = Math.round(input.gross * rate) / 100
+  const commission = piRound(input.gross * rate / 100)
   const entry: SettlementEntry = {
     id: crypto.randomUUID(),
     refId: input.refId,
@@ -149,7 +150,7 @@ export async function recordSettlement(input: {
     gross: input.gross,
     rate,
     commission,
-    net: Math.round((input.gross - commission) * 100) / 100,
+    net: piRound(input.gross - commission),
     status: 'pending',
     settledAt: '',
     createdAt: new Date().toISOString(),
@@ -182,9 +183,9 @@ export async function updateSettlementEntry(id: string, patch: {
   if (!entry) return null
   if (patch.gross !== undefined) {
     if (!Number.isFinite(patch.gross) || patch.gross <= 0) return null
-    entry.gross = Math.round(patch.gross * 100) / 100
-    entry.commission = Math.round(entry.gross * entry.rate) / 100
-    entry.net = Math.round((entry.gross - entry.commission) * 100) / 100
+    entry.gross = piRound(patch.gross)
+    entry.commission = piRound(entry.gross * entry.rate / 100)
+    entry.net = piRound(entry.gross - entry.commission)
   }
   if (typeof patch.memo === 'string' && patch.memo.trim()) entry.memo = patch.memo.trim()
   if (typeof patch.driverId === 'string' && patch.driverId.trim()) entry.driverId = patch.driverId.trim()

@@ -11,6 +11,9 @@ import {
 } from '@/lib/settlement-store'
 import { addEarning, flushEscrowPersist, hydrateEscrowFromKv, listEarnings } from '@/lib/escrow-store'
 import { listAudit, recordAudit } from '@/lib/audit-store'
+import { piRound } from '@/lib/pi-format'
+import { getFareConfig, saveFareConfig } from '@/lib/fare-config-server'
+import type { FareConfig } from '@/lib/fare-config'
 import type { CommissionRates, SettlementEntry, SettlementService } from '@/lib/settlement-types'
 
 export const runtime = 'nodejs'
@@ -52,7 +55,7 @@ function summarize(entries: SettlementEntry[]) {
       pendingNet += entry.net
     }
   }
-  const round = (value: number) => Math.round(value * 100) / 100
+  const round = (value: number) => piRound(value)
   for (const service of SERVICES) {
     byService[service].gross = round(byService[service].gross)
     byService[service].commission = round(byService[service].commission)
@@ -73,8 +76,8 @@ export async function GET(request: Request) {
   if (!(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const [rates, entries, audit] = await Promise.all([getCommissionRates(), listSettlements(), listAudit()])
-  return NextResponse.json({ ok: true, rates, entries, summary: summarize(entries), storage: settlementStorageBackend(), audit })
+  const [rates, entries, audit, fare] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig()])
+  return NextResponse.json({ ok: true, rates, entries, summary: summarize(entries), storage: settlementStorageBackend(), audit, fare })
 }
 
 export async function PATCH(request: Request) {
@@ -91,9 +94,17 @@ export async function PATCH(request: Request) {
     driverId?: unknown
     driverName?: unknown
     reason?: unknown
+    fare?: unknown
   } | null
   const action = body?.action
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+
+  if (action === 'fare') {
+    const before = await getFareConfig()
+    const fare = await saveFareConfig((body?.fare ?? {}) as Partial<FareConfig>)
+    await recordAudit({ kind: 'fare', actor: 'admin', reason, before, after: fare }).catch(() => undefined)
+    return NextResponse.json({ ok: true, fare })
+  }
 
   if (action === 'rates') {
     const next = {} as CommissionRates

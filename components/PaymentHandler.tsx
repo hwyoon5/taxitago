@@ -254,7 +254,7 @@ export function PaymentHandler({
     }
     onContinue()
   }
-  const primaryLabel = needsQr ? 'QR 스캔하기' : needsPrepaid ? (enough ? `선결제 ${amount.toFixed(2)} Pi` : '잔액 충전하기') : continueLabel
+  const primaryLabel = needsQr ? 'QR 스캔하기' : needsPrepaid ? (enough ? `선결제 ${amount.toFixed(7)} Pi` : '잔액 충전하기') : continueLabel
 
   return (
     <div className="space-y-3">
@@ -301,8 +301,8 @@ export function PaymentHandler({
           <p className="text-xs font-bold text-[#4A82B8]">Pi 결제</p>
         </div>
         <div className="mt-2 flex items-end justify-between">
-          <p className="text-xs font-medium text-[#64748B]">보유 {balance.toFixed(2)} Pi</p>
-          <p className="text-lg font-bold text-[#0F172A]">{amount.toFixed(2)} Pi</p>
+          <p className="text-xs font-medium text-[#64748B]">보유 {balance.toFixed(7)} Pi</p>
+          <p className="text-lg font-bold text-[#0F172A]">{amount.toFixed(7)} Pi</p>
         </div>
         {timing === 'qr_auto' ? <p className="mt-2 text-xs font-semibold text-[#334155]">반납·이용 종료 후 자동결제됩니다.</p> : null}
         {timing === 'postpaid' ? <p className="mt-2 text-xs font-semibold text-[#334155]">도착·출차 후 후결제됩니다.</p> : null}

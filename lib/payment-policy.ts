@@ -1,3 +1,5 @@
+import { piRound } from '@/lib/pi-format'
+
 export type PaymentServiceId = '택시' | '주차' | '자전거' | '킥보드' | 'EV 충전' | '대리운전' | '택배'
 
 export type PaymentTiming = 'prepaid' | 'postpaid' | 'qr_auto'
@@ -136,9 +138,23 @@ export function resolvePaymentService(service: string): PaymentServiceId | null 
   return SERVICE_ALIASES[service] ?? null
 }
 
+// Admin-configured base amounts override the built-in defaults once loaded.
+const policyBaseOverrides = new Map<PaymentServiceId, number>()
+
+export function setPolicyBaseOverrides(overrides: Partial<Record<PaymentServiceId, number>>) {
+  for (const [service, amount] of Object.entries(overrides)) {
+    if (Number.isFinite(amount) && Number(amount) >= 0) {
+      policyBaseOverrides.set(service as PaymentServiceId, Number(amount))
+    }
+  }
+}
+
 export function getPaymentPolicy(service: string): PaymentPolicy | null {
   const id = resolvePaymentService(service)
-  return id ? PAYMENT_POLICIES[id] : null
+  if (!id) return null
+  const policy = PAYMENT_POLICIES[id]
+  const override = policyBaseOverrides.get(id)
+  return override === undefined ? policy : { ...policy, defaultAmount: override }
 }
 
 export function timingLabel(timing: PaymentTiming) {
@@ -151,10 +167,10 @@ export function estimateServiceAmount(service: string, extras?: { kwh?: number; 
   const policy = getPaymentPolicy(service)
   if (!policy) return 0
   if (policy.service === 'EV 충전') {
-    return Math.round(policy.defaultAmount * (extras?.kwh ?? 10) * 100) / 100
+    return piRound(policy.defaultAmount * (extras?.kwh ?? 10))
   }
   if (policy.service === '주차') {
-    return Math.round(policy.defaultAmount * (extras?.hours ?? 1) * 100) / 100
+    return piRound(policy.defaultAmount * (extras?.hours ?? 1))
   }
   return policy.defaultAmount
 }

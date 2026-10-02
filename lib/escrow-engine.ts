@@ -1,5 +1,7 @@
 import { getDriver, getRide, listRides, nowIso, saveDriver, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { settleMidTripCancelFee } from '@/lib/ride-fare'
+import { getFareConfig } from '@/lib/fare-config-server'
+import { piRound } from '@/lib/pi-format'
 import { getPartnerLink } from '@/lib/partner-ledger-server'
 import { listSettlements, recordSettlement } from '@/lib/settlement-store'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
@@ -241,7 +243,8 @@ export async function settlePassengerCancelFee(rideId: string) {
   if (!ride) return { ok: false as const, error: 'not_found' }
   const driverId = ride.assignedDriverId
   if (!driverId || ride.status !== 'assigned') return { ok: false as const, error: 'not_assigned' }
-  const settlement = settleMidTripCancelFee(ride.estimatedFare)
+  const fareConfig = await getFareConfig()
+  const settlement = settleMidTripCancelFee(ride.estimatedFare, { rate: fareConfig.cancel.rate / 100, min: fareConfig.cancel.min })
   const target = driverPayoutTarget(driverId)
   let payoutTxid = `cancel-fee-${rideId.slice(0, 10)}`
   if (settlement.cancelFee > 0 && !isPiSandboxEnv() && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
@@ -419,7 +422,7 @@ function rollup(entries: ReturnType<typeof listEarnings>, pick: (keys: ReturnTyp
     if (entry.status === 'completed') {
       current.count += 1
       current.done += 1
-      current.amount = Math.round((current.amount + entry.amount) * 100) / 100
+      current.amount = piRound(current.amount + entry.amount)
     } else {
       current.cancel += 1
     }
@@ -552,7 +555,7 @@ export async function driverEarningsStats(driverId: string, aliasIds: string[] =
       {
         period: '누적 합계',
         count: totalDone,
-        amount: Math.round(totalAmount * 100) / 100,
+        amount: piRound(totalAmount),
         trips: entries.length,
         done: totalDone,
         cancel: totalCancel,

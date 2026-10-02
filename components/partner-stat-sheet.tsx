@@ -101,7 +101,7 @@ export default function PartnerStatSheet({
                   >
                     <span className="font-normal text-slate-900">{row.period}</span>
                     <span className="font-normal text-slate-600">{row.count.toLocaleString()}건</span>
-                    <span className={`font-normal ${accent.amount}`}>{row.amount.toFixed(1)}</span>
+                    <span className={`font-normal ${accent.amount}`}>{row.amount.toFixed(7)}</span>
                     <span className="font-normal text-slate-800">{row.note}</span>
                   </button>
                 ))
@@ -126,7 +126,7 @@ export default function PartnerStatSheet({
                     <>
                       <span>합계</span>
                       <span>{rows.reduce((sum, row) => sum + row.count, 0).toLocaleString()}건</span>
-                      <span>{rows.reduce((sum, row) => sum + row.amount, 0).toFixed(1)}</span>
+                      <span>{rows.reduce((sum, row) => sum + row.amount, 0).toFixed(7)}</span>
                       <span>Pi</span>
                     </>
                   ) : (
@@ -157,7 +157,7 @@ export default function PartnerStatSheet({
               <div>
                 <p className={`text-sm font-semibold ${accent.ink}`}>{isRevenue ? '수익 세부 내역' : '운행 세부 내역'}</p>
                 <h3 className="mt-1 text-xl font-semibold leading-snug tracking-tight text-slate-900">{opened.period}</h3>
-                {opened.amount != null ? <p className={`mt-1 text-lg font-semibold ${accent.amount}`}>합계 {opened.amount.toFixed(1)} Pi</p> : null}
+                {opened.amount != null ? <p className={`mt-1 text-lg font-semibold ${accent.amount}`}>합계 {opened.amount.toFixed(7)} Pi</p> : null}
               </div>
               <button type="button" onClick={() => setOpened(null)} className="rounded-full bg-slate-100 p-2 text-slate-600" aria-label="세부 내역 닫기">
                 <X className="h-4 w-4" />
@@ -173,7 +173,7 @@ export default function PartnerStatSheet({
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>{item.status === 'completed' ? '정산됨' : '취소'}</span>
                   </div>
                   <p className="mt-1.5 text-base font-normal leading-snug text-slate-900">{item.route}</p>
-                  <p className={`mt-1 text-base font-semibold ${accent.amount}`}>{item.status === 'completed' || item.amount > 0 ? `+${item.amount.toFixed(2)} Pi` : '정산 없음'}</p>
+                  <p className={`mt-1 text-base font-semibold ${accent.amount}`}>{item.status === 'completed' || item.amount > 0 ? `+${item.amount.toFixed(7)} Pi` : '정산 없음'}</p>
                 </li>
               ))}
             </ul>

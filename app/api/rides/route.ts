@@ -4,6 +4,8 @@ import { createRideAndMatch, toPublicRide } from '@/lib/dispatch-engine'
 import { ensureSeedDrivers, flushDispatchPersist, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { isUsableCoord } from '@/lib/ride-session'
+import { getFareConfig } from '@/lib/fare-config-server'
+import { piRound } from '@/lib/pi-format'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -49,11 +51,11 @@ export async function POST(request: Request) {
       (ride.status === 'searching' || ride.status === 'offered' || ride.status === 'assigned'),
   )
   if (existing) return NextResponse.json({ ok: true, ride: toPublicRide(existing), deduped: true })
+  const kind = body?.kind === 'daeri' ? 'daeri' : 'taxi'
   const quoted =
     typeof body?.estimatedFare === 'number' && Number.isFinite(body.estimatedFare)
-      ? Math.round(body.estimatedFare * 100) / 100
-      : estimateTaxiFarePi(haversineKm(pickup, dest))
-  const kind = body?.kind === 'daeri' ? 'daeri' : 'taxi'
+      ? piRound(body.estimatedFare)
+      : estimateTaxiFarePi(haversineKm(pickup, dest), await getFareConfig(), kind)
   const ride = createRideAndMatch({
     id: crypto.randomUUID(),
     kind,

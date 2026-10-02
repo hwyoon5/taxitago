@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import { DEFAULT_RATES, type CommissionRates, type SettlementEntry, type SettlementService } from '@/lib/settlement-types'
 import type { AuditEntry } from '@/lib/audit-store'
+import { DEFAULT_FARE_CONFIG, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 
 type ServiceSummary = { label: string; count: number; gross: number; commission: number; net: number }
 type Summary = {
@@ -38,17 +39,20 @@ const SERVICE_TONE: Record<SettlementService, string> = {
 
 const AUDIT_LABEL: Record<string, string> = {
   rates: '수수료율 변경',
+  fare: '요금·수수료 설정',
   settle: '정산 처리',
   'settle-all': '일괄 정산',
   adjust: '수동 보정',
   reconcile: '내역 동기화',
 }
 
-const pi = (value: number) => `${value.toFixed(2)} Pi`
+const pi = (value: number) => `${value.toFixed(7)} Pi`
 
 export default function AdminSettlements() {
   const [rates, setRates] = useState<CommissionRates>({ ...DEFAULT_RATES })
   const [rateDraft, setRateDraft] = useState<CommissionRates>({ ...DEFAULT_RATES })
+  const [fare, setFare] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
+  const [fareDraft, setFareDraft] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
   const [entries, setEntries] = useState<SettlementEntry[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [filter, setFilter] = useState<'all' | SettlementService>('all')
@@ -72,7 +76,7 @@ export default function AdminSettlements() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { rates: CommissionRates; entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[] }
+        return data as { rates: CommissionRates; entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; fare?: FareConfig }
       })
       .then((data) => {
         setRates(data.rates)
@@ -80,6 +84,10 @@ export default function AdminSettlements() {
         setEntries(data.entries)
         setSummary(data.summary)
         setAudit(data.audit ?? [])
+        if (data.fare) {
+          setFare(data.fare)
+          setFareDraft(data.fare)
+        }
         setError('')
       })
       .catch(() => setError('정산 내역을 불러오지 못했습니다.'))
@@ -114,6 +122,42 @@ export default function AdminSettlements() {
       .catch(() => setError('수수료율 저장에 실패했습니다.'))
       .finally(() => setBusy(false))
   }
+
+  const saveFare = () => {
+    if (busy) return
+    setBusy(true)
+    void patch({ action: 'fare', fare: fareDraft })
+      .then(() => {
+        setFare(fareDraft)
+        tell('요금·수수료 설정을 저장했습니다. 이후 호출부터 적용됩니다.')
+        reload()
+      })
+      .catch(() => setError('요금 설정 저장에 실패했습니다.'))
+      .finally(() => setBusy(false))
+  }
+
+  const fareDirty = JSON.stringify(fareDraft) !== JSON.stringify(fare)
+
+  const ruleEditor = (label: string, key: 'taxi' | 'daeri') => (
+    <div className="rounded-xl border-2 border-[#E2E8F0] p-2.5">
+      <p className="text-[11px] font-black text-[#475569]">{label}</p>
+      <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+        {(['base', 'perKm', 'perMin'] as const).map((field) => (
+          <label key={field} className="block">
+            <span className="text-[10px] font-bold text-[#94A3B8]">{field === 'base' ? '기본' : field === 'perKm' ? 'km당' : '분당'}</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={fareDraft[key][field]}
+              onChange={(event) => setFareDraft((prev) => ({ ...prev, [key]: { ...prev[key], [field]: Number(event.target.value) } }))}
+              className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  )
 
   const settleEntry = (id: string) => {
     if (busy) return
@@ -206,6 +250,69 @@ export default function AdminSettlements() {
           className="mt-3 w-full rounded-xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white disabled:opacity-50"
         >
           수수료율 저장
+        </button>
+      </section>
+
+      <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
+        <p className="text-sm font-black">서비스 요금 · 취소 수수료</p>
+        <p className="mt-0.5 text-xs font-bold text-[#64748B]">택시·대리는 기본 요금 + (거리 × km당 요율) + (예상 시간 × 분당 요율)로 산정됩니다.</p>
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {ruleEditor('택시', 'taxi')}
+          {ruleEditor('대리운전', 'daeri')}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {(Object.keys(FLAT_SERVICE_LABEL) as FlatServiceId[]).map((key) => (
+            <label key={key} className="rounded-xl border-2 border-[#E2E8F0] p-2.5">
+              <span className="text-[11px] font-black text-[#475569]">{FLAT_SERVICE_LABEL[key]}</span>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={fareDraft.flatBase[key]}
+                onChange={(event) => setFareDraft((prev) => ({ ...prev, flatBase: { ...prev.flatBase, [key]: Number(event.target.value) } }))}
+                className="mt-1 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+              />
+            </label>
+          ))}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <label className="rounded-xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-2.5">
+            <span className="text-[11px] font-black text-[#B45309]">중도 취소 수수료율</span>
+            <div className="mt-1 flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={fareDraft.cancel.rate}
+                onChange={(event) => setFareDraft((prev) => ({ ...prev, cancel: { ...prev.cancel, rate: Number(event.target.value) } }))}
+                className="w-full rounded-lg border border-[#FDE68A] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#B45309]"
+              />
+              <span className="text-xs font-black text-[#B45309]">%</span>
+            </div>
+          </label>
+          <label className="rounded-xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-2.5">
+            <span className="text-[11px] font-black text-[#B45309]">취소 수수료 최소액</span>
+            <div className="mt-1 flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={fareDraft.cancel.min}
+                onChange={(event) => setFareDraft((prev) => ({ ...prev, cancel: { ...prev.cancel, min: Number(event.target.value) } }))}
+                className="w-full rounded-lg border border-[#FDE68A] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#B45309]"
+              />
+              <span className="text-xs font-black text-[#B45309]">Pi</span>
+            </div>
+          </label>
+        </div>
+        <button
+          type="button"
+          disabled={busy || !fareDirty}
+          onClick={saveFare}
+          className="mt-3 w-full rounded-xl bg-[#0F172A] py-2.5 text-xs font-black text-white disabled:opacity-50"
+        >
+          요금·수수료 설정 저장
         </button>
       </section>
 
