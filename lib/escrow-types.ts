@@ -20,6 +20,8 @@ export type EscrowRecord = {
   payoutTxid: string | null
   payoutWallet: string | null
   payoutUid: string | null
+  refundTxid?: string | null
+  refundAmount?: number | null
   heldAt: string | null
   releasedAt: string | null
   refundedAt: string | null

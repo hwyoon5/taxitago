@@ -10,6 +10,7 @@ import {
   updateSettlementEntry,
 } from '@/lib/settlement-store'
 import { addEarning, flushEscrowPersist, hydrateEscrowFromKv, listEarnings } from '@/lib/escrow-store'
+import { listAudit, recordAudit } from '@/lib/audit-store'
 import type { CommissionRates, SettlementEntry, SettlementService } from '@/lib/settlement-types'
 
 export const runtime = 'nodejs'
@@ -72,8 +73,8 @@ export async function GET(request: Request) {
   if (!(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const [rates, entries] = await Promise.all([getCommissionRates(), listSettlements()])
-  return NextResponse.json({ ok: true, rates, entries, summary: summarize(entries), storage: settlementStorageBackend() })
+  const [rates, entries, audit] = await Promise.all([getCommissionRates(), listSettlements(), listAudit()])
+  return NextResponse.json({ ok: true, rates, entries, summary: summarize(entries), storage: settlementStorageBackend(), audit })
 }
 
 export async function PATCH(request: Request) {
@@ -89,8 +90,10 @@ export async function PATCH(request: Request) {
     memo?: unknown
     driverId?: unknown
     driverName?: unknown
+    reason?: unknown
   } | null
   const action = body?.action
+  const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
 
   if (action === 'rates') {
     const next = {} as CommissionRates
@@ -98,7 +101,9 @@ export async function PATCH(request: Request) {
       const raw = Number(body?.rates?.[service])
       next[service] = Number.isFinite(raw) ? Math.min(50, Math.max(0, Math.round(raw * 10) / 10)) : 0
     }
+    const before = await getCommissionRates()
     const rates = await saveCommissionRates(next)
+    await recordAudit({ kind: 'rates', actor: 'admin', reason, before, after: rates }).catch(() => undefined)
     return NextResponse.json({ ok: true, rates })
   }
 
@@ -106,11 +111,13 @@ export async function PATCH(request: Request) {
     const id = typeof body?.id === 'string' ? body.id : ''
     const entry = await markSettlementSettled(id)
     if (!entry) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    await recordAudit({ kind: 'settle', actor: 'admin', entryId: entry.id, refId: entry.refId, reason, detail: `${entry.driverName || entry.driverId} · ${entry.gross}Pi`, after: { status: entry.status, settledAt: entry.settledAt } }).catch(() => undefined)
     return NextResponse.json({ ok: true, entry })
   }
 
   if (action === 'settle-all') {
     const count = await markAllSettlementsSettled()
+    await recordAudit({ kind: 'settle-all', actor: 'admin', reason, detail: `${count}건 일괄 정산` }).catch(() => undefined)
     return NextResponse.json({ ok: true, count })
   }
 
@@ -118,6 +125,7 @@ export async function PATCH(request: Request) {
   // into the driver earnings store so the driver dashboard matches the ledger.
   if (action === 'adjust') {
     const id = typeof body?.id === 'string' ? body.id.trim() : ''
+    const before = (await listSettlements()).find((row) => row.id === id) ?? null
     const gross = body?.gross === undefined ? undefined : Number(body.gross)
     const status = body?.status === 'pending' || body?.status === 'settled' ? body.status : undefined
     const entry = await updateSettlementEntry(id, {
@@ -131,6 +139,16 @@ export async function PATCH(request: Request) {
     await hydrateEscrowFromKv()
     const synced = syncEntryToEarning(entry)
     if (synced) await flushEscrowPersist()
+    await recordAudit({
+      kind: 'adjust',
+      actor: 'admin',
+      entryId: entry.id,
+      refId: entry.refId,
+      reason,
+      before: before ? { gross: before.gross, net: before.net, status: before.status, driverId: before.driverId, driverName: before.driverName, memo: before.memo } : null,
+      after: { gross: entry.gross, net: entry.net, status: entry.status, driverId: entry.driverId, driverName: entry.driverName, memo: entry.memo },
+      detail: synced ? '기사 수익 반영됨' : '기사 수익 변동 없음',
+    }).catch(() => undefined)
     return NextResponse.json({ ok: true, entry, synced })
   }
 
@@ -147,6 +165,7 @@ export async function PATCH(request: Request) {
       if (syncEntryToEarning(entry)) synced += 1
     }
     if (synced) await flushEscrowPersist()
+    await recordAudit({ kind: 'reconcile', actor: 'admin', reason, detail: onlyDriverId ? `${onlyDriverId} 기사 ${synced}건 동기화` : `전체 ${synced}건 동기화` }).catch(() => undefined)
     return NextResponse.json({ ok: true, synced })
   }
 

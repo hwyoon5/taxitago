@@ -65,6 +65,8 @@ export function openEscrowForRide(rideId: string) {
     payoutTxid: null,
     payoutWallet: driverPayoutTarget(ride.assignedDriverId).wallet,
     payoutUid: driverPayoutTarget(ride.assignedDriverId).uid,
+    refundTxid: null,
+    refundAmount: null,
     heldAt: null,
     releasedAt: null,
     refundedAt: null,
@@ -270,6 +272,12 @@ export async function settlePassengerCancelFee(rideId: string) {
     }
     stamp(escrow)
   }
+  // The locked fare covers more than the cancellation fee — return the waived
+  // remainder to the passenger so nothing is silently kept.
+  if (escrow && settlement.waived > 0 && !escrow.refundTxid) {
+    await payPassengerRefund(escrow, settlement.waived, '중도 취소 차액 환불')
+    stamp(escrow)
+  }
   const driver = getDriver(driverId)
   saveReceipt({
     rideId,
@@ -307,6 +315,58 @@ export async function settlePassengerCancelFee(rideId: string) {
     gross: settlement.cancelFee,
   }).catch(() => null)
   return { ok: true as const, settlement, payoutTxid }
+}
+
+function passengerRefundTarget(passengerId: string) {
+  const linked = getPartnerLink(passengerId)
+  const uid = linked?.uid || passengerId
+  const external = Boolean(uid) && !uid.startsWith('virtual-') && !uid.startsWith('driver-') && !uid.startsWith('passenger-') && !uid.startsWith('guest-')
+  return {
+    uid,
+    wallet: linked?.wallet || '',
+    external,
+  }
+}
+
+/** Send Pi back to the passenger for a refunded escrow amount. Idempotent via refundTxid. */
+async function payPassengerRefund(escrow: EscrowRecord, amount: number, memo: string) {
+  const target = passengerRefundTarget(escrow.passengerId)
+  let refundTxid = `refund-${escrow.id.slice(0, 10)}`
+  if (amount > 0 && !isPiSandboxEnv() && target.external) {
+    try {
+      const payment = await createA2UPayment({
+        amount,
+        memo,
+        uid: target.uid,
+        metadata: { kind: 'refund', rideId: escrow.rideId },
+      })
+      refundTxid = payment.transaction?.txid || payment.identifier || refundTxid
+    } catch (error) {
+      if (!isPiSandboxEnv()) throw error
+    }
+  }
+  escrow.refundTxid = refundTxid
+  escrow.refundAmount = amount
+}
+
+/**
+ * Called after a ride is cancelled/abandoned — returns the locked escrow to the
+ * passenger. Safe to call repeatedly: once refundTxid is written it no-ops.
+ */
+export async function processPassengerRefund(rideId: string) {
+  const escrow = getEscrowByRide(rideId)
+  if (!escrow || escrow.status !== 'refunded' || escrow.refundTxid) return null
+  // An escrow that never locked never moved real Pi — book the refund without paying out.
+  const amount = escrow.lockTxid ? (escrow.refundAmount ?? escrow.amount) : 0
+  if (!amount || amount <= 0) {
+    escrow.refundTxid = `refund-${escrow.id.slice(0, 10)}`
+    escrow.refundAmount = escrow.refundAmount ?? 0
+    stamp(escrow)
+    return escrow
+  }
+  await payPassengerRefund(escrow, amount, '호출 취소 환불')
+  stamp(escrow)
+  return escrow
 }
 
 export function refundEscrow(rideId: string) {

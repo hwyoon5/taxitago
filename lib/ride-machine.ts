@@ -16,7 +16,7 @@ import {
   hydrateEscrowFromKv,
   syncEscrowFromDisk,
 } from '@/lib/escrow-store'
-import { releaseEscrow, settlePassengerCancelFee, toPublicEscrow } from '@/lib/escrow-engine'
+import { processPassengerRefund, releaseEscrow, settlePassengerCancelFee, toPublicEscrow } from '@/lib/escrow-engine'
 import { archiveRideComms } from '@/lib/comms-engine'
 import type { PublicRide, RideRequestRecord } from '@/lib/dispatch-types'
 import type { PublicEscrow, SettlementReceipt } from '@/lib/escrow-types'
@@ -202,6 +202,10 @@ async function applyTransition(input: {
       const result = abandonAssignedRide(rideId, driverId)
       if (!result.ride) return fail(result.error)
       if (!result.ok) return fail(result.error, result.ride)
+      // Driver left — the passenger's locked escrow goes back in full.
+      await processPassengerRefund(rideId).catch((error) => {
+        console.error('[abandon] passenger refund failed', error instanceof Error ? error.message : 'error')
+      })
       return okRecord(result.ride)
     }
 
@@ -218,6 +222,11 @@ async function applyTransition(input: {
       }
       const ride = cancelRide(rideId, passengerId || undefined)
       if (!ride) return { ok: true, ride: null, escrow: null, receipt: null }
+      // Return whatever stayed locked to the passenger — no-op when the
+      // cancel-fee path already settled the escrow.
+      await processPassengerRefund(rideId).catch((error) => {
+        console.error('[cancel] passenger refund failed', error instanceof Error ? error.message : 'error')
+      })
       await archiveRideComms(rideId, 'cancelled').catch(() => undefined)
       return { ok: true, ride: toPublicRide(ride), escrow: toPublicEscrow(getEscrowByRide(rideId)), receipt: null }
     }

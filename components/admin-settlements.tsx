@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import { DEFAULT_RATES, type CommissionRates, type SettlementEntry, type SettlementService } from '@/lib/settlement-types'
+import type { AuditEntry } from '@/lib/audit-store'
 
 type ServiceSummary = { label: string; count: number; gross: number; commission: number; net: number }
 type Summary = {
@@ -35,6 +36,14 @@ const SERVICE_TONE: Record<SettlementService, string> = {
   parking: 'bg-[#F1F5F9] text-[#475569]',
 }
 
+const AUDIT_LABEL: Record<string, string> = {
+  rates: '수수료율 변경',
+  settle: '정산 처리',
+  'settle-all': '일괄 정산',
+  adjust: '수동 보정',
+  reconcile: '내역 동기화',
+}
+
 const pi = (value: number) => `${value.toFixed(2)} Pi`
 
 export default function AdminSettlements() {
@@ -45,8 +54,11 @@ export default function AdminSettlements() {
   const [filter, setFilter] = useState<'all' | SettlementService>('all')
   const [busy, setBusy] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [reconcileReason, setReconcileReason] = useState('')
+  const [audit, setAudit] = useState<AuditEntry[]>([])
+  const [showAudit, setShowAudit] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
-  const [draft, setDraft] = useState<{ gross: string; memo: string; driverId: string; driverName: string; status: 'pending' | 'settled' } | null>(null)
+  const [draft, setDraft] = useState<{ gross: string; memo: string; driverId: string; driverName: string; status: 'pending' | 'settled'; reason: string } | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -60,13 +72,14 @@ export default function AdminSettlements() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { rates: CommissionRates; entries: SettlementEntry[]; summary: Summary }
+        return data as { rates: CommissionRates; entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[] }
       })
       .then((data) => {
         setRates(data.rates)
         setRateDraft(data.rates)
         setEntries(data.entries)
         setSummary(data.summary)
+        setAudit(data.audit ?? [])
         setError('')
       })
       .catch(() => setError('정산 내역을 불러오지 못했습니다.'))
@@ -126,7 +139,7 @@ export default function AdminSettlements() {
   const reconcile = () => {
     if (syncing) return
     setSyncing(true)
-    void patch({ action: 'reconcile' })
+    void patch({ action: 'reconcile', reason: reconcileReason })
       .then((data: { synced?: number }) => {
         tell(data.synced ? `기사 수익 ${data.synced}건을 장부와 동기화했습니다.` : '장부와 기사 수익이 이미 일치합니다.')
         reload()
@@ -137,7 +150,7 @@ export default function AdminSettlements() {
 
   const openEditor = (entry: SettlementEntry) => {
     setEditing(entry.id)
-    setDraft({ gross: String(entry.gross), memo: entry.memo, driverId: entry.driverId, driverName: entry.driverName, status: entry.status })
+    setDraft({ gross: String(entry.gross), memo: entry.memo, driverId: entry.driverId, driverName: entry.driverName, status: entry.status, reason: '' })
   }
 
   const saveAdjust = () => {
@@ -148,7 +161,7 @@ export default function AdminSettlements() {
       return
     }
     setBusy(true)
-    void patch({ action: 'adjust', id: editing, gross, memo: draft.memo, driverId: draft.driverId, driverName: draft.driverName, status: draft.status })
+    void patch({ action: 'adjust', id: editing, gross, memo: draft.memo, driverId: draft.driverId, driverName: draft.driverName, status: draft.status, reason: draft.reason })
       .then(() => {
         setEditing(null)
         setDraft(null)
@@ -259,6 +272,13 @@ export default function AdminSettlements() {
           </button>
         </div>
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">장부 기준으로 기사 모드 수익 내역을 강제로 일치시킵니다.</p>
+        <input
+          type="text"
+          value={reconcileReason}
+          onChange={(event) => setReconcileReason(event.target.value)}
+          placeholder="동기화 사유 (선택)"
+          className="mt-2 w-full rounded-lg border border-[#E2E8F0] px-2.5 py-1.5 text-[11px] font-bold outline-none focus:border-[#4C1FB8]"
+        />
         <div className="mt-2 flex flex-wrap justify-end gap-1">
             {(['all', ...SERVICES] as const).map((key) => (
               <button
@@ -358,6 +378,16 @@ export default function AdminSettlements() {
                       className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
                     />
                   </label>
+                  <label className="block">
+                    <span className="text-[10px] font-black text-[#64748B]">조정 사유 (감사 로그에 기록)</span>
+                    <input
+                      type="text"
+                      value={draft.reason}
+                      onChange={(event) => setDraft({ ...draft, reason: event.target.value })}
+                      placeholder="예: 금액 오기재 정정, 기사 ID 불일치 보정"
+                      className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+                    />
+                  </label>
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -382,6 +412,34 @@ export default function AdminSettlements() {
           ))}
           {visible.length === 0 ? <p className="py-6 text-center text-xs font-bold text-[#94A3B8]">정산 내역이 없습니다.</p> : null}
         </div>
+      </section>
+
+      <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
+        <button type="button" onClick={() => setShowAudit((prev) => !prev)} className="flex w-full items-center justify-between">
+          <p className="text-sm font-black">조정·동기화 이력 <span className="text-[#94A3B8]">({audit.length})</span></p>
+          <span className="text-xs font-black text-[#4C1FB8]">{showAudit ? '접기' : '펼치기'}</span>
+        </button>
+        {showAudit ? (
+          <div className="mt-3 space-y-2">
+            {audit.map((log) => (
+              <div key={log.id} className="rounded-xl bg-[#F8FAFC] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="rounded-full bg-[#EDE9FE] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{AUDIT_LABEL[log.kind] || log.kind}</span>
+                  <span className="text-[10px] font-bold text-[#94A3B8]">{new Date(log.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                {log.detail ? <p className="mt-1 text-[11px] font-bold text-[#475569]">{log.detail}</p> : null}
+                {log.kind === 'adjust' && log.before && log.after ? (
+                  <p className="mt-1 text-[10px] font-bold text-[#64748B]">
+                    {pi(Number((log.before as { gross?: number }).gross ?? 0))} → <strong className="text-[#4C1FB8]">{pi(Number((log.after as { gross?: number }).gross ?? 0))}</strong>
+                    {' · '}상태 {String((log.before as { status?: string }).status ?? '')} → {String((log.after as { status?: string }).status ?? '')}
+                  </p>
+                ) : null}
+                {log.reason ? <p className="mt-1 text-[10px] font-bold text-[#B45309]">사유: {log.reason}</p> : null}
+              </div>
+            ))}
+            {audit.length === 0 ? <p className="py-4 text-center text-xs font-bold text-[#94A3B8]">기록된 조정 이력이 없습니다.</p> : null}
+          </div>
+        ) : null}
       </section>
       {notice ? <p className="text-center text-xs font-black text-[#047857]">{notice}</p> : null}
     </div>

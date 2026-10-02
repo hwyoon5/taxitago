@@ -123,7 +123,11 @@ export function subscribeDriverLive(driverId: string, onDispatch: (snapshot: Dri
 }
 
 export function subscribeRideLive(rideId: string, onRide: (ride: PublicRide) => void) {
-  const source = new EventSource(localEventSourceUrl(`api/rides/${encodeURIComponent(rideId)}/live`))
+  if (typeof window === 'undefined') return () => undefined
+  let source: EventSource | null = null
+  let closed = false
+  let retryMs = 1000
+  let retryTimer = 0
   const apply = (raw: string) => {
     try {
       const data = JSON.parse(raw) as { ride?: PublicRide }
@@ -132,9 +136,44 @@ export function subscribeRideLive(rideId: string, onRide: (ride: PublicRide) => 
       undefined
     }
   }
-  source.addEventListener('ride', (event) => apply((event as MessageEvent).data))
-  source.onmessage = (event) => apply(event.data)
-  return () => source.close()
+  const connect = () => {
+    if (closed) return
+    source?.close()
+    source = new EventSource(localEventSourceUrl(`api/rides/${encodeURIComponent(rideId)}/live`))
+    source.addEventListener('ride', (event) => {
+      retryMs = 1000
+      apply((event as MessageEvent).data)
+    })
+    source.onmessage = (event) => {
+      retryMs = 1000
+      apply(event.data)
+    }
+    source.onerror = () => {
+      source?.close()
+      source = null
+      if (closed) return
+      window.clearTimeout(retryTimer)
+      retryTimer = window.setTimeout(connect, retryMs)
+      retryMs = Math.min(retryMs * 2, 15000)
+    }
+  }
+  const wake = () => {
+    if (closed) return
+    if (!source || source.readyState === EventSource.CLOSED) {
+      retryMs = 1000
+      connect()
+    }
+  }
+  connect()
+  window.addEventListener('online', wake)
+  document.addEventListener('visibilitychange', wake)
+  return () => {
+    closed = true
+    window.clearTimeout(retryTimer)
+    window.removeEventListener('online', wake)
+    document.removeEventListener('visibilitychange', wake)
+    source?.close()
+  }
 }
 
 export async function cancelRideRequest(rideId: string, passengerId: string, options?: { settleFee?: boolean }) {

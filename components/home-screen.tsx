@@ -2279,14 +2279,19 @@ function TaxiMatchingSheet({
       if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
-    const timer = window.setInterval(() => {
+    const pull = () => {
       void fetchRideRequest(rideId).then((next) => {
         if (next) apply(next)
       }).catch(() => undefined)
-    }, 1500)
+    }
+    const timer = window.setInterval(pull, 1500)
+    window.addEventListener('online', pull)
+    document.addEventListener('visibilitychange', pull)
     return () => {
       unsubscribe()
       window.clearInterval(timer)
+      window.removeEventListener('online', pull)
+      document.removeEventListener('visibilitychange', pull)
     }
   }, [ride?.id])
 
@@ -3126,14 +3131,19 @@ function ServiceSheet({
       if (next.status === 'unmatched') setDaeriMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
-    const timer = window.setInterval(() => {
+    const pull = () => {
       void fetchRideRequest(rideId).then((next) => {
         if (next) apply(next)
       }).catch(() => undefined)
-    }, 1500)
+    }
+    const timer = window.setInterval(pull, 1500)
+    window.addEventListener('online', pull)
+    document.addEventListener('visibilitychange', pull)
     return () => {
       unsubscribe()
       window.clearInterval(timer)
+      window.removeEventListener('online', pull)
+      document.removeEventListener('visibilitychange', pull)
     }
   }, [dispatchRide?.id, ride])
 
