@@ -23,9 +23,9 @@ function TermsHeader({ title, onBack }: { title: string; onBack: () => void }) {
 
 export function TermsListView({ onBack, onOpen }: { onBack: () => void; onOpen: (id: string) => void }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#F5F6F8]">
+    <div className="flex min-h-full flex-col bg-[#F5F6F8]">
       <TermsHeader title="약관 및 정책" onBack={onBack} />
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))] [-webkit-overflow-scrolling:touch]">
+      <div className="pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))]">
         <p className="px-5 pb-2 pt-4 text-[12px] font-semibold leading-5 text-[#8B919A]">TaxiTago 서비스 이용과 개인정보 보호에 관한 안내입니다.</p>
         <div className="overflow-hidden bg-white">
           {legalTermList.map((item, index) => (
@@ -51,9 +51,9 @@ export function TermsListView({ onBack, onOpen }: { onBack: () => void; onOpen: 
 export function TermsDetailView({ id, onBack }: { id: string; onBack: () => void }) {
   const doc = getLegalTerm(id)
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#F5F6F8]">
+    <div className="flex min-h-full flex-col bg-[#F5F6F8]">
       <TermsHeader title={doc?.title || '약관 및 정책'} onBack={onBack} />
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-[calc(4rem+env(safe-area-inset-bottom,0px))] pt-4 [-webkit-overflow-scrolling:touch]">
+      <div className="px-5 pb-[calc(4rem+env(safe-area-inset-bottom,0px))] pt-4">
         {doc ? (
           <article className="rounded-2xl bg-white px-5 py-5">
             <p className="text-[12px] font-semibold text-[#8B919A]">{doc.subtitle}</p>

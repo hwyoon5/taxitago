@@ -577,12 +577,7 @@
 .fixed.inset-x-0.flex > :not([class*='overflow']) {
   overflow-y: auto;
 }
-/* 전체보기/더보기 허브 시트: dvh follows the visible viewport on iOS Safari
-   (dynamic toolbars) so the bottom of the sheet is never hidden */
-.fixed.inset-0.flex > .tt-hub-sheet {
-  max-height: 90vh;
-  max-height: 90dvh;
-}
+
 
 /* Very short landscape viewports: dialogs sit at the top so nothing is cut */
 @media (orientation: landscape) and (max-height: 540px) {

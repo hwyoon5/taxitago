@@ -22,7 +22,7 @@ const THEME_CAPTION: Record<ThemeMode, MessageKey> = {
 function PageFrame({ title, caption, onBack, children }: { title: string; caption: string; onBack: () => void; children: React.ReactNode }) {
   const { t } = useLocale()
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-col">
       <div className="flex items-start gap-3">
         <button type="button" onClick={onBack} className="mt-0.5 rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="뒤로가기">
           <ChevronLeft className="h-5 w-5" />
@@ -33,7 +33,7 @@ function PageFrame({ title, caption, onBack, children }: { title: string; captio
           <p className="mt-1 text-sm font-bold text-[#64748B]">{caption}</p>
         </div>
       </div>
-      <div className="mt-5 min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] [-webkit-overflow-scrolling:touch]">{children}</div>
+      <div className="mt-5 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]">{children}</div>
     </div>
   )
 }

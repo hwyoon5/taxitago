@@ -2782,10 +2782,15 @@ function MoreHubSheet({
   const { t } = useLocale()
   const [view, setView] = useState<MoreItemId | 'menu' | `notice:${string}` | `terms:${string}`>('menu')
   const [preparingOpen, setPreparingOpen] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [view])
   return (
-    <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={onClose}>
+    <div ref={scrollRef} className="fixed inset-0 z-[96] overflow-y-auto overscroll-y-contain bg-[#241d35]/45 [-webkit-overflow-scrolling:touch]" onClick={onClose}>
+      <div className="mx-auto flex min-h-full w-full max-w-md flex-col">
       <section
-        className={`tt-hub-sheet mx-auto flex w-full max-w-md flex-col overflow-hidden rounded-t-[32px] pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)] ${
+        className={`mt-auto w-full overflow-hidden rounded-t-[32px] pt-3 shadow-[0_-16px_40px_rgba(36,27,56,0.2)] ${
           view === 'terms' || view.startsWith('terms:') ? 'bg-[#F5F6F8] px-0 pb-0' : 'bg-white px-5 pb-8'
         }`}
         onClick={(event) => event.stopPropagation()}
@@ -2802,7 +2807,7 @@ function MoreHubSheet({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))] [-webkit-overflow-scrolling:touch]">
+            <div className="pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))]">
               <p className="mb-2 mt-4 text-xs font-black text-[#475569]">{t('more.mobility')}</p>
               <div className="rounded-[22px] bg-[#E2E8F0] p-3">
                 <div className="grid grid-cols-4 gap-x-2 gap-y-4">
@@ -2844,6 +2849,7 @@ function MoreHubSheet({
           <SettingsView onBack={() => setView('menu')} onNotice={onNotice} />
         )}
       </section>
+      </div>
       {preparingOpen ? <ServicePreparingModal onClose={() => setPreparingOpen(false)} /> : null}
     </div>
   )
