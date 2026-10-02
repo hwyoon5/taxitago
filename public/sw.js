@@ -29,6 +29,7 @@ self.addEventListener('push', (event) => {
       body: payload.body,
       tag: payload.tag,
       renotify: true,
+      vibrate: [450, 150, 450, 150, 700],
       data: notice,
     })
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })

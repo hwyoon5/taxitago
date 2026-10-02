@@ -60,6 +60,7 @@ import {
   subscribeRideLive,
 } from '@/lib/dispatch-client'
 import { enableDriverPush, showDriverOfferNotification } from '@/lib/driver-notify-client'
+import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, releaseDriverWakeLock } from '@/lib/driver-alert'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
@@ -6494,6 +6495,7 @@ function DriverOfferWatcher({
 
   useEffect(() => {
     if (!driverId) return
+    primeDriverAlertAudio()
     const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; active?: PublicRide | null } | null) => {
       const ride = pending?.ride ?? null
       const active = pending?.active && pending.active.status === 'assigned' ? pending.active : null
@@ -6512,6 +6514,7 @@ function DriverOfferWatcher({
       setOfferKm(pending?.offer?.pickupDistanceKm ?? ride.assignedDriver?.pickupDistanceKm ?? null)
       if (notifiedRef.current === ride.id) return
       notifiedRef.current = ride.id
+      alertDriverOffer(ride.id)
       onActivityRef.current?.('호출 접수', `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`)
       onNotice('새로운 콜 요청이 들어왔어요.')
       const body = `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
@@ -6836,6 +6839,23 @@ function DriverDashboard({
   }, [driverId, lat, lng, online, partner?.name, partner?.vehicle, partner?.plate, partner?.detail, partner?.wallet, partner?.uid])
 
   useEffect(() => {
+    primeDriverAlertAudio()
+    if (!online) {
+      void releaseDriverWakeLock()
+      return
+    }
+    const keepScreenOn = () => {
+      if (document.visibilityState === 'visible') void acquireDriverWakeLock()
+    }
+    keepScreenOn()
+    document.addEventListener('visibilitychange', keepScreenOn)
+    return () => {
+      document.removeEventListener('visibilitychange', keepScreenOn)
+      void releaseDriverWakeLock()
+    }
+  }, [online])
+
+  useEffect(() => {
     if (!driverId) return
     const streamReady = { current: false }
     const pushReady = { current: false }
@@ -6933,8 +6953,10 @@ function DriverDashboard({
       if (ride) {
         logOffer({ rideId: ride.id, source: 'server' })
         rememberOffer(ride, pending?.offer?.expiresAt || ride.offerExpiresAt, pending?.offer?.pickupDistanceKm ?? ride.assignedDriver?.pickupDistanceKm ?? null)
-        if (ride.id === notifiedOffer.current || pushReady.current) return
+        if (ride.id === notifiedOffer.current) return
         notifiedOffer.current = ride.id
+        alertDriverOffer(ride.id)
+        if (pushReady.current) return
         const body = `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
         void showDriverOfferNotification(ride.id, body)
         return
@@ -7161,7 +7183,11 @@ function DriverDashboard({
         <p className="mt-1 text-[10px] font-medium leading-tight text-[#CBD5E1]">근처 호출 요청을 실시간으로 확인하세요</p>
         <button
           onClick={() => {
-            if (!online && driverId) void enableDriverPush(driverId, true).catch(() => undefined)
+            primeDriverAlertAudio()
+            if (!online && driverId) {
+              void enableDriverPush(driverId, true).catch(() => undefined)
+              void acquireDriverWakeLock()
+            }
             onToggleOnline()
           }}
           className={`mt-2 flex w-full items-center justify-between rounded-xl px-3 py-2 text-left ${online ? 'bg-[#4A82B8]' : 'bg-white/10'}`}

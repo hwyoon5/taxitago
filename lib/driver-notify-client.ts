@@ -40,6 +40,7 @@ export async function showDriverOfferNotification(rideId: string, body: string) 
     body,
     tag: `taxitago-offer-${rideId}`,
     renotify: true,
+    vibrate: [450, 150, 450, 150, 700],
     data: { url: '/?driver=1' },
   }
   if (registration) await registration.showNotification('새로운 운행 요청', options)
