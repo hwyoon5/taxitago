@@ -30,6 +30,7 @@ import {
   syncPartnerLink,
 } from '@/lib/partner-account'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
+import { piCompact } from '@/lib/pi-format'
 import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
@@ -8005,7 +8006,7 @@ export default function HomeScreen() {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button onClick={openWallet} className="rounded-full bg-[#E8F1FA] px-2.5 py-1.5 text-[11px] font-black text-[#4A82B8]">
-                {walletBalance.toFixed(7)} Pi
+                {piCompact(walletBalance)} Pi
               </button>
               <button onClick={() => setHeaderModal('activity')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label={t('home.activity')}>
                 <Bell className="h-4 w-4" />

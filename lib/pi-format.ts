@@ -17,3 +17,8 @@ export function piText(value: number): string {
 export function piLabel(value: number): string {
   return `${piText(value)} Pi`
 }
+
+/** Compact 2-decimal text for space-constrained chrome (e.g. the header badge). */
+export function piCompact(value: number): string {
+  return piRound(value).toFixed(2)
+}
