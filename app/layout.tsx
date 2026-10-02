@@ -4,6 +4,7 @@ import { Geist_Mono, Noto_Sans_KR } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { resolveNaverMapClientId } from '@/lib/naver-maps'
 import { LocaleProvider } from '@/components/locale-provider'
+import ThemeManager from '@/components/theme-manager'
 import './globals.css'
 
 const notoSansKr = Noto_Sans_KR({
@@ -65,6 +66,11 @@ export default function RootLayout({
           }}
         />
         <meta name="color-scheme" content="light only" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var m=window.localStorage.getItem('taxitago.theme')||'light';var h=new Date().getHours();var dark=m==='dark'||(m==='auto'&&(h>=19||h<7));var root=document.documentElement;root.classList.toggle('dark',dark);var meta=document.querySelector('meta[name=color-scheme]');if(meta)meta.setAttribute('content',dark?'dark':'light only')}catch(e){}})();`,
+          }}
+        />
         <meta name="supported-color-schemes" content="light" />
         <meta name="theme-color" content="#F8FAFC" />
         {naverMapClientId ? <meta name="naver-map-client-id" content={naverMapClientId} /> : null}
@@ -78,7 +84,10 @@ export default function RootLayout({
         ) : null}
       </head>
       <body className={`${notoSansKr.className} bg-[#F8FAFC] font-medium text-[#0f172a] subpixel-antialiased`}>
-        <LocaleProvider>{children}</LocaleProvider>
+        <LocaleProvider>
+          <ThemeManager />
+          {children}
+        </LocaleProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

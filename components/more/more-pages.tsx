@@ -1,11 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Check, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Moon, Sun, Timer } from 'lucide-react'
 import { getNotice, notices } from '@/lib/notices'
 import SupportCenter from '@/components/support-center'
 import { useLocale } from '@/components/locale-provider'
-import type { AppLocale } from '@/lib/i18n'
+import type { AppLocale, MessageKey } from '@/lib/i18n'
+import { applyThemeMode, loadThemeMode, saveThemeMode, type ThemeMode } from '@/lib/theme'
+
+const THEME_LABEL: Record<ThemeMode, MessageKey> = {
+  light: 'settings.theme.light',
+  dark: 'settings.theme.dark',
+  auto: 'settings.theme.auto',
+}
+const THEME_CAPTION: Record<ThemeMode, MessageKey> = {
+  light: 'settings.theme.lightCaption',
+  dark: 'settings.theme.darkCaption',
+  auto: 'settings.theme.autoCaption',
+}
 
 function PageFrame({ title, caption, onBack, children }: { title: string; caption: string; onBack: () => void; children: React.ReactNode }) {
   const { t } = useLocale()
@@ -132,6 +144,16 @@ export function SettingsView({ onBack, onNotice }: { onBack: () => void; onNotic
   const [marketing, setMarketing] = useState(false)
   const [location, setLocation] = useState(true)
   const [languageOpen, setLanguageOpen] = useState(false)
+  const [theme, setTheme] = useState<ThemeMode>('light')
+  useEffect(() => {
+    setTheme(loadThemeMode())
+  }, [])
+  const applyTheme = (next: ThemeMode) => {
+    setTheme(next)
+    saveThemeMode(next)
+    applyThemeMode(next)
+    onNotice?.(t('settings.themeApplied', { name: t(THEME_LABEL[next]) }))
+  }
   const toggle = (label: string, value: boolean, setValue: (next: boolean) => void) => {
     setValue(!value)
     onNotice?.(t(value ? 'settings.toggleOff' : 'settings.toggleOn', { label }))
@@ -173,6 +195,34 @@ export function SettingsView({ onBack, onNotice }: { onBack: () => void; onNotic
         <Row label={t('settings.push')} caption={t('settings.pushCaption')} value={push} onToggle={() => toggle(t('settings.push'), push, setPush)} />
         <Row label={t('settings.marketing')} caption={t('settings.marketingCaption')} value={marketing} onToggle={() => toggle(t('settings.marketing'), marketing, setMarketing)} />
         <Row label={t('settings.location')} caption={t('settings.locationCaption')} value={location} onToggle={() => toggle(t('settings.location'), location, setLocation)} />
+        <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+          <strong className="block text-sm font-black text-[#0F172A]">{t('settings.theme')}</strong>
+          <span className="mt-1 block text-xs font-bold text-[#64748B]">{t('settings.themeCaption')}</span>
+          <div className="mt-3 space-y-1.5">
+            {([
+              { id: 'light', icon: Sun },
+              { id: 'dark', icon: Moon },
+              { id: 'auto', icon: Timer },
+            ] as const).map(({ id, icon: Icon }) => {
+              const selected = theme === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => applyTheme(id)}
+                  className={`flex w-full items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left transition ${selected ? 'border-[#4C1FB8] bg-[#F5F3FF]' : 'border-[#E2E8F0] bg-[#F8FAFC]'}`}
+                >
+                  <Icon className={`h-4 w-4 shrink-0 ${selected ? 'text-[#4C1FB8]' : 'text-[#94A3B8]'}`} />
+                  <span className="min-w-0 flex-1">
+                    <strong className="block text-xs font-black text-[#0F172A]">{t(THEME_LABEL[id])}</strong>
+                    <span className="block text-[10px] font-bold text-[#64748B]">{t(THEME_CAPTION[id])}</span>
+                  </span>
+                  {selected ? <Check className="h-4 w-4 shrink-0 text-[#4C1FB8]" strokeWidth={2.5} /> : null}
+                </button>
+              )
+            })}
+          </div>
+        </div>
       </div>
       {languageOpen ? (
         <div className="fixed inset-0 z-[120] flex items-end bg-[#1e1033]/45 sm:items-center sm:p-4" onClick={() => setLanguageOpen(false)}>
