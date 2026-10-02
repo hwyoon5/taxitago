@@ -565,11 +565,23 @@
 }
 
 /* Sheets and dialogs may exceed the viewport on small/landscape screens or
-   with large system fonts — cap them and let their content scroll inside */
+   with large system fonts — cap them and let their content scroll inside.
+   Elements that already manage their own overflow (e.g. overflow-hidden
+   sheets with an inner scroller) keep it so we never create double
+   scrollers that break touch scrolling on mobile. */
 .fixed.inset-0.flex > *,
 .fixed.inset-x-0.flex > * {
   max-height: 100%;
+}
+.fixed.inset-0.flex > :not([class*='overflow']),
+.fixed.inset-x-0.flex > :not([class*='overflow']) {
   overflow-y: auto;
+}
+/* 전체보기/더보기 허브 시트: dvh follows the visible viewport on iOS Safari
+   (dynamic toolbars) so the bottom of the sheet is never hidden */
+.fixed.inset-0.flex > .tt-hub-sheet {
+  max-height: 90vh;
+  max-height: 90dvh;
 }
 
 /* Very short landscape viewports: dialogs sit at the top so nothing is cut */

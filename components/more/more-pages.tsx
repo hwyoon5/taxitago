@@ -33,7 +33,7 @@ function PageFrame({ title, caption, onBack, children }: { title: string; captio
           <p className="mt-1 text-sm font-bold text-[#64748B]">{caption}</p>
         </div>
       </div>
-      <div className="mt-5 min-h-0 flex-1 overflow-y-auto pb-4">{children}</div>
+      <div className="mt-5 min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] [-webkit-overflow-scrolling:touch]">{children}</div>
     </div>
   )
 }
