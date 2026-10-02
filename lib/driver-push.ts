@@ -30,7 +30,7 @@ type PushDb = {
   subscriptions: Map<string, DriverPushSubscription[]>
 }
 
-const SUBJECT = (process.env.VAPID_SUBJECT || 'mailto:support@taxitago.co.kr').trim()
+const SUBJECT = (process.env.VAPID_SUBJECT || 'mailto:grace837100@gmail.com').trim()
 
 function db(): PushDb {
   const globalStore = globalThis as typeof globalThis & { __taxitagoDriverPush?: PushDb }

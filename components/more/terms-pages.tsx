@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { getLegalTerm, legalTermList } from '@/lib/legal-terms'
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 
 function TermsHeader({ title, onBack }: { title: string; onBack: () => void }) {
   return (
@@ -43,6 +44,12 @@ export function TermsListView({ onBack, onOpen }: { onBack: () => void; onOpen: 
             </button>
           ))}
         </div>
+        <p className="px-5 pt-4 text-center text-[11px] font-semibold leading-5 text-[#8B919A]">
+          문의{' '}
+          <a href={SUPPORT_MAILTO} className="break-all font-bold text-[#4A82B8]">
+            {SUPPORT_EMAIL}
+          </a>
+        </p>
       </div>
     </div>
   )
@@ -70,6 +77,12 @@ export function TermsDetailView({ id, onBack }: { id: string; onBack: () => void
         ) : (
           <p className="rounded-2xl bg-white px-5 py-8 text-center text-sm font-semibold text-[#8B919A]">약관 내용을 찾을 수 없습니다.</p>
         )}
+        <p className="pt-4 text-center text-[11px] font-semibold leading-5 text-[#8B919A]">
+          문의{' '}
+          <a href={SUPPORT_MAILTO} className="break-all font-bold text-[#4A82B8]">
+            {SUPPORT_EMAIL}
+          </a>
+        </p>
       </div>
     </div>
   )

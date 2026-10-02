@@ -14,6 +14,7 @@ import {
   setLostStatus,
   submitLostItem,
 } from '@/lib/support-client'
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import {
   LOST_ITEM_TYPES,
   LOST_STATUS_LABEL,
@@ -167,6 +168,10 @@ export default function SupportCenter({
           <Link href="/admin/support" className="block text-center text-[11px] font-black text-[#64748B]">관리자 문의함</Link>
         </div>
       ) : null}
+      <a href={SUPPORT_MAILTO} className="block rounded-2xl border-2 border-[#CBD5E1] bg-white p-3 text-center">
+        <span className="text-[11px] font-bold text-[#64748B]">대표 문의 이메일</span>
+        <span className="mt-0.5 block break-all text-sm font-black text-[#4A82B8]">{SUPPORT_EMAIL}</span>
+      </a>
       {openTicket ? (
         <TicketThread
           ticket={openTicket}

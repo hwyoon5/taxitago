@@ -7,6 +7,7 @@ import SupportCenter from '@/components/support-center'
 import { useLocale } from '@/components/locale-provider'
 import type { AppLocale, MessageKey } from '@/lib/i18n'
 import { applyThemeMode, loadThemeMode, saveThemeMode, type ThemeMode } from '@/lib/theme'
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 
 const THEME_LABEL: Record<ThemeMode, MessageKey> = {
   light: 'settings.theme.light',
@@ -33,7 +34,15 @@ function PageFrame({ title, caption, onBack, children }: { title: string; captio
           <p className="mt-1 text-sm font-bold text-[#64748B]">{caption}</p>
         </div>
       </div>
-      <div className="mt-5 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]">{children}</div>
+      <div className="mt-5 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]">
+        {children}
+        <p className="mt-6 text-center text-[11px] font-bold leading-5 text-[#64748B]">
+          대표 문의{' '}
+          <a href={SUPPORT_MAILTO} className="break-all font-black text-[#4A82B8]">
+            {SUPPORT_EMAIL}
+          </a>
+        </p>
+      </div>
     </div>
   )
 }
