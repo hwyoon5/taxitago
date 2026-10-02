@@ -11,6 +11,7 @@ import {
 } from '@/lib/settlement-store'
 import { addEarning, flushEscrowPersist, hydrateEscrowFromKv, listEarnings } from '@/lib/escrow-store'
 import { listAudit, recordAudit } from '@/lib/audit-store'
+import { getRide, hydrateDispatchFromKv, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { piRound } from '@/lib/pi-format'
 import { getFareConfig, saveFareConfig } from '@/lib/fare-config-server'
 import type { FareConfig } from '@/lib/fare-config'
@@ -77,7 +78,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const [rates, entries, audit, fare] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig()])
-  return NextResponse.json({ ok: true, rates, entries, summary: summarize(entries), storage: settlementStorageBackend(), audit, fare })
+  // Older ledger rows predate the passengerId column — resolve it from the
+  // ride record so exports still show the passenger for every ride:* ref.
+  await hydrateDispatchFromKv()
+  syncDispatchFromDisk()
+  const enriched = entries.map((entry) => {
+    if (entry.passengerId) return entry
+    const rideId = /^ride:([^:]+)/.exec(entry.refId)?.[1]
+    const passengerId = rideId ? getRide(rideId)?.passengerId : undefined
+    return passengerId ? { ...entry, passengerId } : entry
+  })
+  return NextResponse.json({ ok: true, rates, entries: enriched, summary: summarize(enriched), storage: settlementStorageBackend(), audit, fare })
 }
 
 export async function PATCH(request: Request) {

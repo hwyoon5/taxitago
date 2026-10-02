@@ -132,6 +132,7 @@ export async function recordSettlement(input: {
   driverName: string
   memo: string
   gross: number
+  passengerId?: string
 }): Promise<SettlementEntry | null> {
   if (!input.refId || !Number.isFinite(input.gross) || input.gross <= 0) return null
   const entries = await readEntries()
@@ -146,6 +147,7 @@ export async function recordSettlement(input: {
     service: input.service,
     driverId: input.driverId,
     driverName: input.driverName,
+    passengerId: input.passengerId || '',
     memo: input.memo,
     gross: input.gross,
     rate,

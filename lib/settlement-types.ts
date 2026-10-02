@@ -7,6 +7,7 @@ export type SettlementEntry = {
   service: SettlementService
   driverId: string
   driverName: string
+  passengerId?: string
   memo: string
   gross: number
   rate: number

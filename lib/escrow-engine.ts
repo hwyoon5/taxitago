@@ -226,6 +226,7 @@ export async function releaseEscrow(
     service: ride.kind === 'daeri' ? 'daeri' : 'taxi',
     driverId,
     driverName: target.name,
+    passengerId: ride.passengerId,
     memo: receipt.route,
     gross: escrow.amount,
   }).catch(() => null)
@@ -314,6 +315,7 @@ export async function settlePassengerCancelFee(rideId: string) {
     service: ride.kind === 'daeri' ? 'daeri' : 'taxi',
     driverId,
     driverName: target.name,
+    passengerId: ride.passengerId,
     memo: `취소 수수료 · ${routeLabel(ride)}`,
     gross: settlement.cancelFee,
   }).catch(() => null)
