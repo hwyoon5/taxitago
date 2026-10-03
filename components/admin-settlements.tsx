@@ -44,6 +44,7 @@ const AUDIT_LABEL: Record<string, string> = {
   'settle-all': '일괄 정산',
   adjust: '수동 보정',
   reconcile: '내역 동기화',
+  wallet: '지갑 주소 변경',
 }
 
 const pi = (value: number) => `${value.toFixed(7)} Pi`

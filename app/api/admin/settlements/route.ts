@@ -14,6 +14,7 @@ import { listAudit, recordAudit } from '@/lib/audit-store'
 import { getRide, hydrateDispatchFromKv, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { piRound } from '@/lib/pi-format'
 import { getFareConfig, saveFareConfig } from '@/lib/fare-config-server'
+import { getAdminWallet, saveAdminWallet } from '@/lib/admin-wallet'
 import type { FareConfig } from '@/lib/fare-config'
 import type { CommissionRates, SettlementEntry, SettlementService } from '@/lib/settlement-types'
 
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
   if (!(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const [rates, entries, audit, fare] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig()])
+  const [rates, entries, audit, fare, adminWallet] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig(), getAdminWallet()])
   // Older ledger rows predate the passengerId column — resolve it from the
   // ride record so exports still show the passenger for every ride:* ref.
   await hydrateDispatchFromKv()
@@ -88,7 +89,7 @@ export async function GET(request: Request) {
     const passengerId = rideId ? getRide(rideId)?.passengerId : undefined
     return passengerId ? { ...entry, passengerId } : entry
   })
-  return NextResponse.json({ ok: true, rates, entries: enriched, summary: summarize(enriched), storage: settlementStorageBackend(), audit, fare })
+  return NextResponse.json({ ok: true, rates, entries: enriched, summary: summarize(enriched), storage: settlementStorageBackend(), audit, fare, adminWallet })
 }
 
 export async function PATCH(request: Request) {
@@ -106,9 +107,17 @@ export async function PATCH(request: Request) {
     driverName?: unknown
     reason?: unknown
     fare?: unknown
+    wallet?: unknown
   } | null
   const action = body?.action
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+
+  if (action === 'wallet') {
+    const before = await getAdminWallet()
+    const adminWallet = await saveAdminWallet(body?.wallet)
+    await recordAudit({ kind: 'wallet', actor: 'admin', reason, before: { address: before }, after: { address: adminWallet } }).catch(() => undefined)
+    return NextResponse.json({ ok: true, adminWallet })
+  }
 
   if (action === 'fare') {
     const before = await getFareConfig()

@@ -17,6 +17,8 @@ const SERVICE_LABEL: Record<SettlementService, string> = {
 }
 
 export default function AdminFareSettings() {
+  const [wallet, setWallet] = useState('PI_DEMO_ADMIN_WALLET_999_TAXI_TAGO')
+  const [walletDraft, setWalletDraft] = useState('PI_DEMO_ADMIN_WALLET_999_TAXI_TAGO')
   const [rates, setRates] = useState<CommissionRates>({ ...DEFAULT_RATES })
   const [rateDraft, setRateDraft] = useState<CommissionRates>({ ...DEFAULT_RATES })
   const [fare, setFare] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
@@ -35,9 +37,13 @@ export default function AdminFareSettings() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { rates: CommissionRates; fare?: FareConfig }
+        return data as { rates: CommissionRates; fare?: FareConfig; adminWallet?: string }
       })
       .then((data) => {
+        if (typeof data.adminWallet === 'string' && data.adminWallet) {
+          setWallet(data.adminWallet)
+          setWalletDraft(data.adminWallet)
+        }
         setRates(data.rates)
         setRateDraft(data.rates)
         if (data.fare) {
@@ -63,6 +69,20 @@ export default function AdminFareSettings() {
       if (!res.ok) throw new Error(data?.error || 'failed')
       return data
     })
+
+  const saveWallet = () => {
+    if (busy) return
+    const address = walletDraft.trim()
+    if (!address) return
+    setBusy(true)
+    void patch({ action: 'wallet', wallet: address })
+      .then(() => {
+        setWallet(address)
+        tell('관리자 Pi 지갑 주소가 안전하게 저장되었습니다.')
+      })
+      .catch(() => setError('지갑 주소 저장에 실패했습니다.'))
+      .finally(() => setBusy(false))
+  }
 
   const saveRates = () => {
     if (busy) return
@@ -117,6 +137,28 @@ export default function AdminFareSettings() {
   return (
     <div className="mt-4 space-y-4">
       {error ? <p className="text-xs font-black text-[#DC2626]">{error}</p> : null}
+      <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
+        <p className="text-sm font-black">관리자 Pi 지갑 주소 설정</p>
+        <p className="mt-0.5 text-xs font-bold text-[#64748B]">플랫폼 수수료가 적립될 관리자(운영자)의 Pi 지갑 주소를 입력하세요. (현재는 데모용 지갑 주소가 기본 세팅되어 있습니다.)</p>
+        <input
+          type="text"
+          value={walletDraft}
+          onChange={(event) => setWalletDraft(event.target.value)}
+          placeholder="PI_DEMO_ADMIN_WALLET_999_TAXI_TAGO"
+          spellCheck={false}
+          autoComplete="off"
+          className="mt-3 w-full rounded-lg border border-[#CBD5E1] px-3 py-2 font-mono text-xs font-bold outline-none focus:border-[#4C1FB8]"
+        />
+        <button
+          type="button"
+          disabled={busy || !walletDraft.trim() || walletDraft.trim() === wallet}
+          onClick={saveWallet}
+          className="mt-3 w-full rounded-xl bg-[#047857] py-2.5 text-xs font-black text-white disabled:opacity-50"
+        >
+          지갑 주소 저장
+        </button>
+      </section>
+
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <p className="text-sm font-black">서비스별 플랫폼 수수료율</p>
         <p className="mt-0.5 text-xs font-bold text-[#64748B]">운행 완료(택배는 배정 수락) 시 결제액에서 자동 계산됩니다.</p>
