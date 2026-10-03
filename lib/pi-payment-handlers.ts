@@ -7,7 +7,7 @@ import { getRide, hydrateDispatchFromKv } from '@/lib/dispatch-store'
 import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 
 /** Lock the ride escrow as soon as a funding payment completes, so either side can settle later. */
-async function lockRideEscrowFromPayment(
+export async function lockRideEscrowFromPayment(
   paymentId: string,
   txid: string,
   metadata: Record<string, unknown> | null | undefined,

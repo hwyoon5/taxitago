@@ -39,7 +39,7 @@ function routeLabel(ride: NonNullable<ReturnType<typeof getRide>>) {
   return `${origin} → ${dest}`
 }
 
-function driverPayoutTarget(driverId: string) {
+export function driverPayoutTarget(driverId: string) {
   const linked = getPartnerLink(driverId)
   const driver = getDriver(driverId)
   return {
@@ -229,6 +229,7 @@ export async function releaseEscrow(
     passengerId: ride.passengerId,
     memo: receipt.route,
     gross: escrow.amount,
+    driverWallet: target.wallet,
   }).catch(() => null)
   return { ok: true as const, escrow, receipt }
   } finally {
@@ -318,6 +319,7 @@ export async function settlePassengerCancelFee(rideId: string) {
     passengerId: ride.passengerId,
     memo: `취소 수수료 · ${routeLabel(ride)}`,
     gross: settlement.cancelFee,
+    driverWallet: target.wallet,
   }).catch(() => null)
   return { ok: true as const, settlement, payoutTxid }
 }

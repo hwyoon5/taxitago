@@ -82,6 +82,7 @@ export default function RootLayout({
         {naverMapScript ? (
           <Script id="naver-maps-sdk" src={naverMapScript} strategy="beforeInteractive" referrerPolicy="origin" />
         ) : null}
+        <script src="https://sdk.minepi.com/pi-sdk.js" async defer data-pi-sdk="1" />
       </head>
       <body className={`${notoSansKr.className} bg-[#F8FAFC] font-medium text-[#0f172a] subpixel-antialiased`}>
         <LocaleProvider>

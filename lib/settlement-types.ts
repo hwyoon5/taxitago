@@ -9,6 +9,10 @@ export type SettlementEntry = {
   driverName: string
   passengerId?: string
   memo: string
+  /** Pi address the platform commission is distributed to. */
+  adminWallet?: string
+  /** Pi address the driver share (net) is distributed to. */
+  driverWallet?: string
   gross: number
   rate: number
   commission: number

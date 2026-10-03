@@ -7,6 +7,7 @@ import {
   type SettlementEntry,
   type SettlementService,
 } from '@/lib/settlement-types'
+import { getAdminWallet } from '@/lib/admin-wallet'
 
 export { DEFAULT_RATES }
 export type { CommissionRates, SettlementEntry, SettlementService }
@@ -133,12 +134,13 @@ export async function recordSettlement(input: {
   memo: string
   gross: number
   passengerId?: string
+  driverWallet?: string
 }): Promise<SettlementEntry | null> {
   if (!input.refId || !Number.isFinite(input.gross) || input.gross <= 0) return null
   const entries = await readEntries()
   const existing = entries.find((entry) => entry.refId === input.refId)
   if (existing) return existing
-  const rates = await getCommissionRates()
+  const [rates, adminWallet] = await Promise.all([getCommissionRates(), getAdminWallet()])
   const rate = rates[input.service] ?? 0
   const commission = piRound(input.gross * rate / 100)
   const entry: SettlementEntry = {
@@ -149,6 +151,8 @@ export async function recordSettlement(input: {
     driverName: input.driverName,
     passengerId: input.passengerId || '',
     memo: input.memo,
+    adminWallet,
+    driverWallet: input.driverWallet?.trim() || '',
     gross: input.gross,
     rate,
     commission,

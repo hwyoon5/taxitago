@@ -278,7 +278,7 @@ const PI_SDK_SRC = 'https://sdk.minepi.com/pi-sdk.js'
 function loadPiSdkScript() {
   if (typeof window === 'undefined') return Promise.reject(new Error('Pi SDK는 브라우저에서만 불러옵니다.'))
   if (typeof window.Pi?.init === 'function' && typeof window.Pi.createPayment === 'function') return Promise.resolve()
-  const found = document.querySelector<HTMLScriptElement>('script[data-pi-sdk="1"]')
+  const found = document.querySelector<HTMLScriptElement>('script[data-pi-sdk="1"], script[src*="pi-sdk.js"]')
   if (found) {
     if (found.dataset.loaded === '1') return Promise.resolve()
     return new Promise<void>((resolve, reject) => {
@@ -494,6 +494,46 @@ function readPaymentId(value: unknown) {
 
 const PI_SERVER_TIMEOUT_MS = 45000
 
+/**
+ * Testnet-only mock checkout for environments where window.Pi never loads
+ * (PC web, plain mobile browsers). Books the same server-side records a real
+ * completion would via /api/pi/mock-pay.
+ */
+async function mockPiCheckout(options: {
+  amount: number
+  memo: string
+  metadata?: Record<string, unknown>
+}): Promise<PiCheckoutResult> {
+  const amount = Math.round(options.amount * 1_000_000) / 1_000_000
+  logPi('warn', 'mock checkout (Pi SDK unavailable)', { amount, memo: options.memo })
+  const approved =
+    typeof window === 'undefined'
+      ? true
+      : window.confirm(
+          `[테스트넷 모의 결제]\n\n${options.memo}\n결제 금액: ${amount.toFixed(7)} Pi\n\nPi SDK를 찾지 못해 모의 결제로 진행합니다. 승인할까요?`,
+        )
+  if (!approved) throw new Error('결제가 취소되었습니다.')
+  const response = await apiFetch('/api/pi/mock-pay', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, memo: options.memo.slice(0, 25), metadata: options.metadata ?? {} }),
+  })
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: boolean
+    paymentId?: string
+    txid?: string
+    error?: string
+  } | null
+  if (!response.ok || payload?.ok !== true || !payload.paymentId) {
+    const message = payload?.error || `mock-pay failed (${response.status})`
+    logPi('error', 'mock checkout failed', { status: response.status, message })
+    throw new Error(message)
+  }
+  const result = { paymentId: payload.paymentId, txid: payload.txid || `approved-${payload.paymentId}` }
+  logPi('log', 'mock checkout settled', result)
+  return result
+}
+
 export async function startPiCheckout(options: {
   amount: number
   memo: string
@@ -506,7 +546,13 @@ export async function startPiCheckout(options: {
   const amount = Math.round(options.amount * 1_000_000) / 1_000_000
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
-  const pi = (await preparePiSdk()) ?? requirePiSdk()
+  let pi = await preparePiSdk()
+  if (!pi && PI_SANDBOX) {
+    const mocked = await mockPiCheckout(options)
+    options.onSettled?.(mocked)
+    return mocked
+  }
+  pi ??= requirePiSdk()
   await authenticatePi(pi)
 
   const label = checkoutLabel(options.metadata)

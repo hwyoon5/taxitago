@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { acceptDeliveryDispatch, publicDelivery } from '@/lib/delivery-dispatch'
 import { recordSettlement } from '@/lib/settlement-store'
+import { driverPayoutTarget } from '@/lib/escrow-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -31,6 +32,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     driverName: job.driverName || '기사',
     memo: `${job.packageLabel} · ${job.pickupAddress} → ${job.destAddress}`,
     gross: job.fare,
+    driverWallet: driverPayoutTarget(driverId).wallet,
   }).catch(() => null)
   return NextResponse.json({ ok: true, job: publicDelivery(job, driverId) })
 }

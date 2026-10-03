@@ -330,6 +330,11 @@ export default function AdminSettlements() {
                   </button>
                 </div>
               </div>
+              {(entry.driverWallet || entry.adminWallet) ? (
+                <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
+                  기사 지갑 → {entry.driverWallet || '미지정'} · 관리자 지갑 → {entry.adminWallet || '미지정'}
+                </p>
+              ) : null}
               {editing === entry.id && draft ? (
                 <div className="mt-2 space-y-2 rounded-xl bg-[#F8FAFC] p-3">
                   <div className="grid grid-cols-2 gap-2">
