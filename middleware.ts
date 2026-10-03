@@ -4,11 +4,9 @@ import type { NextRequest } from 'next/server'
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   if (pathname === '/validation-key.txt' || pathname === '/validation-key.txt/') {
-    const host = request.headers.get('host') || ''
-    const target = host.includes('test.taxitago.co.kr')
-      ? '/test-validation-key.txt'
-      : '/main-validation-key.txt'
-    return NextResponse.rewrite(new URL(target, request.url))
+    // TEMP: always serve the testnet key until Pi Portal testnet domain verification passes.
+    // Restore host-based routing (main vs test) afterwards.
+    return NextResponse.rewrite(new URL('/test-validation-key.txt', request.url))
   }
   if (pathname === '/api/geocode') {
     const url = request.nextUrl.clone()
