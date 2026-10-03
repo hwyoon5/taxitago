@@ -3,6 +3,13 @@ import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  if (pathname === '/validation-key.txt' || pathname === '/validation-key.txt/') {
+    const host = request.headers.get('host') || ''
+    const target = host.includes('test.taxitago.co.kr')
+      ? '/test-validation-key.txt'
+      : '/main-validation-key.txt'
+    return NextResponse.rewrite(new URL(target, request.url))
+  }
   if (pathname === '/api/geocode') {
     const url = request.nextUrl.clone()
     url.pathname = '/api/geocode/'
@@ -62,5 +69,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/geocode', '/api/pi/approve', '/api/pi/complete', '/api/escrow/lock', '/api/partner/link', '/api/drivers/active', '/api/drivers/earnings', '/api/deliveries', '/api/deliveries/:id', '/api/deliveries/:id/accept', '/api/rides/:id/cancel', '/api/rides/:id/progress', '/api/rides/:id/abandon', '/api/rides/:id/complete', '/api/naver-maps/upstream/:path*'],
+  matcher: ['/validation-key.txt', '/validation-key.txt/', '/api/geocode', '/api/pi/approve', '/api/pi/complete', '/api/escrow/lock', '/api/partner/link', '/api/drivers/active', '/api/drivers/earnings', '/api/deliveries', '/api/deliveries/:id', '/api/deliveries/:id/accept', '/api/rides/:id/cancel', '/api/rides/:id/progress', '/api/rides/:id/abandon', '/api/rides/:id/complete', '/api/naver-maps/upstream/:path*'],
 }
