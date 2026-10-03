@@ -1,5 +1,6 @@
 import type { SettlementEntry, SettlementService } from '@/lib/settlement-types'
 import type { AuditEntry } from '@/lib/audit-store'
+import type { DepositEntry } from '@/lib/deposit-store'
 
 const SERVICE_LABEL: Record<SettlementService, string> = {
   taxi: '택시',
@@ -18,6 +19,8 @@ const AUDIT_LABEL: Record<string, string> = {
   'settle-all': '일괄 정산',
   adjust: '수동 보정',
   reconcile: '내역 동기화',
+  wallet: '지갑 주소 변경',
+  deposit: '입금 기록',
 }
 
 const cell = (value: unknown) => {
@@ -49,7 +52,7 @@ function auditTrailFor(entry: SettlementEntry, audit: AuditEntry[]) {
  * Section 2: the raw audit log so global actions (rate changes, bulk settle)
  * are preserved even when they are not bound to one ledger row.
  */
-export function buildSettlementCsv(entries: SettlementEntry[], audit: AuditEntry[]) {
+export function buildSettlementCsv(entries: SettlementEntry[], audit: AuditEntry[], deposits: DepositEntry[] = []) {
   const lines: string[] = []
   lines.push(row(['정산 ID', '운행/결제 참조', '서비스', '승객 ID', '기사 ID', '기사명', '내용', '결제 금액(Pi)', '수수료율(%)', '플랫폼 수수료(Pi)', '기사 순지급(Pi)', '기사 지갑', '관리자 지갑', '정산 상태', '생성 일시', '정산 완료 일시', '조정 이력']))
   for (const entry of entries) {
@@ -71,6 +74,21 @@ export function buildSettlementCsv(entries: SettlementEntry[], audit: AuditEntry
       stamp(entry.createdAt),
       stamp(entry.settledAt),
       auditTrailFor(entry, audit),
+    ]))
+  }
+  lines.push('')
+  lines.push(row(['[입금 내역] 트랜잭션 ID', '보낸 지갑', '보낸 UID', '입금 지갑(플랫폼)', '금액(Pi)', '메모', '상태', '감지 일시', '기록 일시']))
+  for (const deposit of deposits) {
+    lines.push(row([
+      deposit.txid,
+      deposit.fromWallet,
+      deposit.fromUid || '',
+      deposit.toWallet,
+      pi(deposit.amount),
+      deposit.memo,
+      deposit.status === 'confirmed' ? '확정' : '대기',
+      stamp(deposit.seenAt),
+      stamp(deposit.createdAt),
     ]))
   }
   lines.push('')

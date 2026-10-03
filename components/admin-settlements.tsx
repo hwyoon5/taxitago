@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import { type SettlementEntry, type SettlementService } from '@/lib/settlement-types'
 import type { AuditEntry } from '@/lib/audit-store'
+import type { DepositEntry } from '@/lib/deposit-store'
 import { buildSettlementCsv } from '@/lib/settlement-csv'
 
 type ServiceSummary = { label: string; count: number; gross: number; commission: number; net: number }
@@ -45,6 +46,7 @@ const AUDIT_LABEL: Record<string, string> = {
   adjust: '수동 보정',
   reconcile: '내역 동기화',
   wallet: '지갑 주소 변경',
+  deposit: '입금 기록',
 }
 
 const pi = (value: number) => `${value.toFixed(7)} Pi`
@@ -58,6 +60,8 @@ export default function AdminSettlements() {
   const [syncing, setSyncing] = useState(false)
   const [reconcileReason, setReconcileReason] = useState('')
   const [audit, setAudit] = useState<AuditEntry[]>([])
+  const [deposits, setDeposits] = useState<DepositEntry[]>([])
+  const [depositTotal, setDepositTotal] = useState<{ count: number; total: number } | null>(null)
   const [showAudit, setShowAudit] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState<{ gross: string; memo: string; driverId: string; driverName: string; status: 'pending' | 'settled'; reason: string } | null>(null)
@@ -74,12 +78,14 @@ export default function AdminSettlements() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[] }
+        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number } }
       })
       .then((data) => {
         setEntries(data.entries)
         setSummary(data.summary)
         setAudit(data.audit ?? [])
+        setDeposits(data.deposits ?? [])
+        setDepositTotal(data.depositTotal ?? null)
         setError('')
       })
       .catch(() => setError('정산 내역을 불러오지 못했습니다.'))
@@ -176,7 +182,7 @@ export default function AdminSettlements() {
       setError('내려받을 정산 내역이 없습니다.')
       return
     }
-    const csv = buildSettlementCsv(visible, audit)
+    const csv = buildSettlementCsv(visible, audit, deposits)
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
@@ -210,6 +216,23 @@ export default function AdminSettlements() {
             <p className="text-[11px] font-black text-[#B45309]">정산 대기</p>
             <p className="mt-1 text-lg font-black text-[#B45309]">{summary.pendingCount}건</p>
             <p className="text-[10px] font-bold text-[#B45309]">{pi(summary.pendingNet)}</p>
+          </div>
+        </section>
+      ) : null}
+
+      {depositTotal && depositTotal.count > 0 ? (
+        <section className="rounded-2xl border-2 border-[#BFDBFE] bg-[#EFF6FF] p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-black text-[#1D4ED8]">플랫폼 지갑 입금 (테스트넷)</p>
+            <p className="text-[10px] font-bold text-[#1D4ED8]">{depositTotal.count}건</p>
+          </div>
+          <p className="mt-1 text-lg font-black text-[#1D4ED8]">{pi(depositTotal.total)}</p>
+          <div className="mt-2 space-y-1">
+            {deposits.slice(0, 5).map((deposit) => (
+              <p key={deposit.id} className="truncate text-[10px] font-bold text-[#3B82F6]">
+                {new Date(deposit.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · {deposit.amount.toFixed(7)} Pi · {deposit.fromWallet.slice(0, 12)}… → {deposit.toWallet.slice(0, 12)}…
+              </p>
+            ))}
           </div>
         </section>
       ) : null}

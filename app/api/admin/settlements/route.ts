@@ -15,6 +15,8 @@ import { getRide, hydrateDispatchFromKv, syncDispatchFromDisk } from '@/lib/disp
 import { piRound } from '@/lib/pi-format'
 import { getFareConfig, saveFareConfig } from '@/lib/fare-config-server'
 import { getAdminWallet, saveAdminWallet } from '@/lib/admin-wallet'
+import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
+import { depositTotals, listDeposits, recordDeposit } from '@/lib/deposit-store'
 import type { FareConfig } from '@/lib/fare-config'
 import type { CommissionRates, SettlementEntry, SettlementService } from '@/lib/settlement-types'
 
@@ -78,7 +80,7 @@ export async function GET(request: Request) {
   if (!(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const [rates, entries, audit, fare, adminWallet] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig(), getAdminWallet()])
+  const [rates, entries, audit, fare, adminWallet, deposits, depositTotal] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig(), getAdminWallet(), listDeposits(), depositTotals()])
   // Older ledger rows predate the passengerId column — resolve it from the
   // ride record so exports still show the passenger for every ride:* ref.
   await hydrateDispatchFromKv()
@@ -89,7 +91,7 @@ export async function GET(request: Request) {
     const passengerId = rideId ? getRide(rideId)?.passengerId : undefined
     return passengerId ? { ...entry, passengerId } : entry
   })
-  return NextResponse.json({ ok: true, rates, entries: enriched, summary: summarize(enriched), storage: settlementStorageBackend(), audit, fare, adminWallet })
+  return NextResponse.json({ ok: true, rates, entries: enriched, summary: summarize(enriched), storage: settlementStorageBackend(), audit, fare, adminWallet, deposits, depositTotal })
 }
 
 export async function PATCH(request: Request) {
@@ -108,15 +110,47 @@ export async function PATCH(request: Request) {
     reason?: unknown
     fare?: unknown
     wallet?: unknown
+    txid?: unknown
+    fromWallet?: unknown
+    fromUid?: unknown
+    amount?: unknown
   } | null
   const action = body?.action
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
 
   if (action === 'wallet') {
+    const address = typeof body?.wallet === 'string' ? body.wallet.trim() : ''
+    if (!isPiWalletAddress(address)) {
+      return NextResponse.json({ error: piWalletError(address) ?? 'Pi 지갑 주소 형식이 올바르지 않습니다.' }, { status: 400 })
+    }
     const before = await getAdminWallet()
-    const adminWallet = await saveAdminWallet(body?.wallet)
+    const adminWallet = await saveAdminWallet(address)
     await recordAudit({ kind: 'wallet', actor: 'admin', reason, before: { address: before }, after: { address: adminWallet } }).catch(() => undefined)
     return NextResponse.json({ ok: true, adminWallet })
+  }
+
+  // Record an inbound testnet deposit to the platform wallet. Idempotent by
+  // txid so webhooks/manual syncs can be replayed safely.
+  if (action === 'deposit') {
+    const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
+    const fromWallet = typeof body?.fromWallet === 'string' ? body.fromWallet.trim() : ''
+    const amount = Number(body?.amount)
+    if (!txid) return NextResponse.json({ error: 'txid가 필요합니다.' }, { status: 400 })
+    if (!fromWallet) return NextResponse.json({ error: '보낸 지갑 주소가 필요합니다.' }, { status: 400 })
+    if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: '입금 금액이 올바르지 않습니다.' }, { status: 400 })
+    const toWallet = await getAdminWallet()
+    const deposit = await recordDeposit({
+      txid,
+      fromWallet,
+      toWallet,
+      amount,
+      fromUid: typeof body?.fromUid === 'string' ? body.fromUid : undefined,
+      memo: typeof body?.memo === 'string' ? body.memo : undefined,
+      status: 'confirmed',
+    })
+    if (!deposit) return NextResponse.json({ error: '입금 기록에 실패했습니다.' }, { status: 400 })
+    await recordAudit({ kind: 'deposit', actor: 'admin', refId: `deposit:${txid}`, reason, detail: `${fromWallet} → ${toWallet} · ${piRound(amount)}Pi`, after: { txid, amount: deposit.amount } }).catch(() => undefined)
+    return NextResponse.json({ ok: true, deposit, depositTotal: await depositTotals() })
   }
 
   if (action === 'fare') {

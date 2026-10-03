@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
+import { isPiWalletAddress } from '@/lib/pi-wallet'
 
+/** Fallback shown until a real testnet address is configured (never a valid wallet). */
 export const DEFAULT_ADMIN_WALLET = 'PI_DEMO_ADMIN_WALLET_999_TAXI_TAGO'
 
 const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
@@ -53,6 +55,9 @@ export async function getAdminWallet(): Promise<string> {
 
 export async function saveAdminWallet(input: unknown): Promise<string> {
   const next = normalizeWallet(input)
+  // Only real testnet/mainnet addresses may be persisted — the demo
+  // placeholder can never be re-saved through this path.
+  if (!isPiWalletAddress(next)) throw new Error('invalid_wallet_address')
   globalStore.__taxitagoAdminWallet = next
   if (useKv) {
     await kvCommand(['SET', WALLET_KEY, next])

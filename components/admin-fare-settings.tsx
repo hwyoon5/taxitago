@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import { DEFAULT_RATES, type CommissionRates, type SettlementService } from '@/lib/settlement-types'
 import { DEFAULT_FARE_CONFIG, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
+import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
+import type { DepositEntry } from '@/lib/deposit-store'
 
 const SERVICES: SettlementService[] = ['taxi', 'daeri', 'delivery', 'bicycle', 'kickboard', 'ev', 'parking']
 const SERVICE_LABEL: Record<SettlementService, string> = {
@@ -23,6 +25,9 @@ export default function AdminFareSettings() {
   const [rateDraft, setRateDraft] = useState<CommissionRates>({ ...DEFAULT_RATES })
   const [fare, setFare] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
   const [fareDraft, setFareDraft] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
+  const [deposits, setDeposits] = useState<DepositEntry[]>([])
+  const [depositTotal, setDepositTotal] = useState<{ count: number; total: number } | null>(null)
+  const [depositDraft, setDepositDraft] = useState({ txid: '', fromWallet: '', amount: '', memo: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -37,9 +42,11 @@ export default function AdminFareSettings() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { rates: CommissionRates; fare?: FareConfig; adminWallet?: string }
+        return data as { rates: CommissionRates; fare?: FareConfig; adminWallet?: string; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number } }
       })
       .then((data) => {
+        setDeposits(data.deposits ?? [])
+        setDepositTotal(data.depositTotal ?? null)
         if (typeof data.adminWallet === 'string' && data.adminWallet) {
           setWallet(data.adminWallet)
           setWalletDraft(data.adminWallet)
@@ -73,14 +80,31 @@ export default function AdminFareSettings() {
   const saveWallet = () => {
     if (busy) return
     const address = walletDraft.trim()
-    if (!address) return
+    if (!isPiWalletAddress(address)) return
     setBusy(true)
     void patch({ action: 'wallet', wallet: address })
       .then(() => {
         setWallet(address)
         tell('관리자 Pi 지갑 주소가 안전하게 저장되었습니다.')
       })
-      .catch(() => setError('지갑 주소 저장에 실패했습니다.'))
+      .catch((err) => setError(err instanceof Error && err.message !== 'failed' ? err.message : '지갑 주소 저장에 실패했습니다.'))
+      .finally(() => setBusy(false))
+  }
+
+  const addDeposit = () => {
+    if (busy) return
+    const txid = depositDraft.txid.trim()
+    const fromWallet = depositDraft.fromWallet.trim()
+    const amount = Number(depositDraft.amount)
+    if (!txid || !fromWallet || !Number.isFinite(amount) || amount <= 0) return
+    setBusy(true)
+    void patch({ action: 'deposit', txid, fromWallet, amount, memo: depositDraft.memo.trim() })
+      .then(() => {
+        setDepositDraft({ txid: '', fromWallet: '', amount: '', memo: '' })
+        tell('테스트넷 입금이 장부에 기록되었습니다.')
+        reload()
+      })
+      .catch((err) => setError(err instanceof Error && err.message !== 'failed' ? err.message : '입금 기록에 실패했습니다.'))
       .finally(() => setBusy(false))
   }
 
@@ -139,24 +163,111 @@ export default function AdminFareSettings() {
       {error ? <p className="text-xs font-black text-[#DC2626]">{error}</p> : null}
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <p className="text-sm font-black">관리자 Pi 지갑 주소 설정</p>
-        <p className="mt-0.5 text-xs font-bold text-[#64748B]">플랫폼 수수료가 적립될 관리자(운영자)의 Pi 지갑 주소를 입력하세요. (현재는 데모용 지갑 주소가 기본 세팅되어 있습니다.)</p>
+        <p className="mt-0.5 text-xs font-bold text-[#64748B]">플랫폼 수수료가 적립될 관리자(운영자)의 Pi 테스트넷 입금 주소를 입력하세요. 주소는 <span className="font-black text-[#0F172A]">G로 시작하는 56자리</span> 대문자·숫자(Stellar 규격)여야 합니다. (현재는 데모용 주소가 기본 세팅되어 있습니다.)</p>
         <input
           type="text"
           value={walletDraft}
           onChange={(event) => setWalletDraft(event.target.value)}
-          placeholder="PI_DEMO_ADMIN_WALLET_999_TAXI_TAGO"
+          placeholder="G로 시작하는 56자리 테스트넷 주소"
           spellCheck={false}
           autoComplete="off"
           className="mt-3 w-full rounded-lg border border-[#CBD5E1] px-3 py-2 font-mono text-xs font-bold outline-none focus:border-[#4C1FB8]"
         />
+        {walletDraft.trim() && !isPiWalletAddress(walletDraft) ? (
+          <p className="mt-1.5 rounded-lg bg-[#FEF2F2] px-2.5 py-1.5 text-[11px] font-black text-[#DC2626]">
+            ⚠ {piWalletError(walletDraft) ?? 'Pi 지갑 주소 형식이 올바르지 않습니다.'}
+          </p>
+        ) : null}
+        {!isPiWalletAddress(wallet) ? (
+          <p className="mt-1.5 rounded-lg bg-[#FFFBEB] px-2.5 py-1.5 text-[11px] font-bold text-[#B45309]">
+            저장된 주소가 데모용 플레이스홀더입니다. 실제 테스트넷 입금 주소를 등록해 주세요.
+          </p>
+        ) : null}
         <button
           type="button"
-          disabled={busy || !walletDraft.trim() || walletDraft.trim() === wallet}
+          disabled={busy || !isPiWalletAddress(walletDraft) || walletDraft.trim() === wallet}
           onClick={saveWallet}
           className="mt-3 w-full rounded-xl bg-[#047857] py-2.5 text-xs font-black text-white disabled:opacity-50"
         >
           지갑 주소 저장
         </button>
+      </section>
+
+      <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-black">플랫폼 지갑 입금 내역</p>
+          {depositTotal ? (
+            <span className="rounded-full bg-[#DBEAFE] px-2.5 py-1 text-[10px] font-black text-[#1D4ED8]">
+              {depositTotal.count}건 · {depositTotal.total.toFixed(7)} Pi
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-0.5 text-xs font-bold text-[#64748B]">사용자 테스트넷 지갑 → 플랫폼 입금 주소로 들어온 전송 기록입니다. txid 기준 중복 없이 기록됩니다.</p>
+        {deposits.length ? (
+          <div className="mt-3 space-y-1.5">
+            {deposits.slice(0, 10).map((deposit) => (
+              <div key={deposit.id} className="rounded-xl bg-[#F8FAFC] px-3 py-2">
+                <div className="flex items-center justify-between gap-2 text-[11px] font-black">
+                  <span>{deposit.amount.toFixed(7)} Pi</span>
+                  <span className="text-[#94A3B8]">{new Date(deposit.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <p className="mt-0.5 truncate font-mono text-[10px] font-bold text-[#64748B]">
+                  {deposit.fromWallet.slice(0, 14)}… → {deposit.toWallet.slice(0, 14)}… · tx {deposit.txid.slice(0, 14)}…
+                </p>
+                {deposit.memo ? <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">{deposit.memo}</p> : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 rounded-xl bg-[#F8FAFC] px-3 py-2.5 text-center text-[11px] font-bold text-[#94A3B8]">아직 기록된 입금이 없습니다.</p>
+        )}
+        <div className="mt-3 space-y-1.5 rounded-xl border-2 border-dashed border-[#CBD5E1] p-3">
+          <p className="text-[10px] font-black text-[#475569]">테스트넷 입금 수동 동기화</p>
+          <input
+            type="text"
+            value={depositDraft.txid}
+            onChange={(event) => setDepositDraft((prev) => ({ ...prev, txid: event.target.value }))}
+            placeholder="트랜잭션 ID (txid)"
+            spellCheck={false}
+            autoComplete="off"
+            className="w-full rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 font-mono text-xs font-bold outline-none focus:border-[#4C1FB8]"
+          />
+          <div className="grid grid-cols-2 gap-1.5">
+            <input
+              type="text"
+              value={depositDraft.fromWallet}
+              onChange={(event) => setDepositDraft((prev) => ({ ...prev, fromWallet: event.target.value }))}
+              placeholder="보낸 지갑 주소"
+              spellCheck={false}
+              autoComplete="off"
+              className="rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 font-mono text-xs font-bold outline-none focus:border-[#4C1FB8]"
+            />
+            <input
+              type="number"
+              min={0}
+              step={0.0000001}
+              value={depositDraft.amount}
+              onChange={(event) => setDepositDraft((prev) => ({ ...prev, amount: event.target.value }))}
+              placeholder="금액 (Pi)"
+              className="rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#4C1FB8]"
+            />
+          </div>
+          <input
+            type="text"
+            value={depositDraft.memo}
+            onChange={(event) => setDepositDraft((prev) => ({ ...prev, memo: event.target.value }))}
+            placeholder="메모 (선택)"
+            className="w-full rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#4C1FB8]"
+          />
+          <button
+            type="button"
+            disabled={busy || !depositDraft.txid.trim() || !depositDraft.fromWallet.trim() || !(Number(depositDraft.amount) > 0)}
+            onClick={addDeposit}
+            className="w-full rounded-xl bg-[#1D4ED8] py-2 text-xs font-black text-white disabled:opacity-50"
+          >
+            입금 기록 추가
+          </button>
+        </div>
       </section>
 
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
