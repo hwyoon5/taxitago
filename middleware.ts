@@ -4,9 +4,12 @@ import type { NextRequest } from 'next/server'
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   if (pathname === '/validation-key.txt' || pathname === '/validation-key.txt/') {
-    // TEMP: always serve the testnet key until Pi Portal testnet domain verification passes.
-    // Restore host-based routing (main vs test) afterwards.
-    return NextResponse.rewrite(new URL('/test-validation-key.txt', request.url))
+    const host = (request.headers.get('host') || '').split(':')[0].toLowerCase()
+    const isTestnet =
+      host.includes('test.taxitago.co.kr') ||
+      request.nextUrl.searchParams.get('pi_network') === 'testnet'
+    const target = isTestnet ? '/test-validation-key.txt' : '/main-validation-key.txt'
+    return NextResponse.rewrite(new URL(target, request.url))
   }
   if (pathname === '/api/geocode') {
     const url = request.nextUrl.clone()
