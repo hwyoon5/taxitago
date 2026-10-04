@@ -10,6 +10,11 @@ export type PartnerLinkRecord = {
   plate?: string
   region?: string
   serviceType?: string
+  insuranceCompany?: string
+  insurancePolicyNo?: string
+  insuranceExpiresAt?: string
+  insuranceDocName?: string
+  insuranceDocAt?: string
   linkedAt: string
   updatedAt: string
 }

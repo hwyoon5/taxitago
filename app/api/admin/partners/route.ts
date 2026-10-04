@@ -28,6 +28,9 @@ export async function POST(request: Request) {
     detail?: unknown
     wallet?: unknown
     username?: unknown
+    insuranceCompany?: unknown
+    insurancePolicyNo?: unknown
+    insuranceExpiresAt?: unknown
   } | null
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
   const phone = typeof body?.phone === 'string' ? body.phone.trim() : ''
@@ -52,6 +55,9 @@ export async function POST(request: Request) {
     plate: text(body?.plate, previous?.plate) || '',
     region: text(body?.region, previous?.region) || '',
     serviceType,
+    insuranceCompany: text(body?.insuranceCompany, previous?.insuranceCompany) || '',
+    insurancePolicyNo: text(body?.insurancePolicyNo, previous?.insurancePolicyNo) || '',
+    insuranceExpiresAt: text(body?.insuranceExpiresAt, previous?.insuranceExpiresAt) || '',
     linkedAt: previous?.linkedAt || new Date().toISOString(),
   })
   return NextResponse.json({ ok: true, partner: record })

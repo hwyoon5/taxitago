@@ -16,6 +16,11 @@ export type PartnerProfile = PiIdentity & {
   serviceType?: string
   vehicle?: string
   plate?: string
+  insuranceCompany?: string
+  insurancePolicyNo?: string
+  insuranceExpiresAt?: string
+  insuranceDocName?: string
+  insuranceDocAt?: string
   linkedAt: string
 }
 
@@ -153,6 +158,11 @@ export async function syncPartnerLink(profile: PartnerProfile) {
         plate: profile.plate,
         region: profile.region,
         serviceType: profile.serviceType,
+        insuranceCompany: profile.insuranceCompany,
+        insurancePolicyNo: profile.insurancePolicyNo,
+        insuranceExpiresAt: profile.insuranceExpiresAt,
+        insuranceDocName: profile.insuranceDocName,
+        insuranceDocAt: profile.insuranceDocAt,
         linkedAt: profile.linkedAt,
       }),
     })
@@ -168,6 +178,11 @@ export type PartnerProfilePatch = {
   detail: string
   vehicle?: string
   plate?: string
+  insuranceCompany?: string
+  insurancePolicyNo?: string
+  insuranceExpiresAt?: string
+  insuranceDocName?: string
+  insuranceDocAt?: string
 }
 
 /**
@@ -185,6 +200,11 @@ export async function updatePartnerProfile(patch: PartnerProfilePatch): Promise<
     detail: patch.detail.trim(),
     vehicle: patch.vehicle?.trim() ?? current.vehicle,
     plate: patch.plate?.trim() ?? current.plate,
+    insuranceCompany: patch.insuranceCompany?.trim() ?? current.insuranceCompany,
+    insurancePolicyNo: patch.insurancePolicyNo?.trim() ?? current.insurancePolicyNo,
+    insuranceExpiresAt: patch.insuranceExpiresAt?.trim() ?? current.insuranceExpiresAt,
+    insuranceDocName: patch.insuranceDocName?.trim() ?? current.insuranceDocName,
+    insuranceDocAt: patch.insuranceDocAt?.trim() ?? current.insuranceDocAt,
   }
   savePartnerProfile(next)
   const fleet = partnerVehicle(next)
@@ -193,4 +213,18 @@ export async function updatePartnerProfile(patch: PartnerProfilePatch): Promise<
     updateDriverProfile({ driverId: next.uid, name: next.name, vehicle: fleet.vehicle, plate: fleet.plate }),
   ])
   return next
+}
+
+/** 보험증권 사본(이미지/PDF)을 data URL로 업로드한다. 서버가 파트너 레코드 메타데이터도 갱신한다. */
+export async function uploadInsuranceDoc(uid: string, doc: { name: string; mime: string; dataUrl: string }) {
+  const res = await apiFetch('/api/partner/insurance-doc/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid, name: doc.name, mime: doc.mime, dataUrl: doc.dataUrl }),
+  })
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; doc?: { name: string; uploadedAt: string }; error?: string } | null
+  if (!res.ok || !data?.ok || !data.doc) {
+    throw new Error(data?.error || '보험증권 업로드에 실패했습니다.')
+  }
+  return data.doc
 }

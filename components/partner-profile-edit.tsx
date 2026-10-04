@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
-import { partnerVehicle, updatePartnerProfile, type PartnerProfile } from '@/lib/partner-account'
+import { partnerVehicle, updatePartnerProfile, uploadInsuranceDoc, type PartnerProfile } from '@/lib/partner-account'
+
+const DOC_MAX_BYTES = 2.5 * 1024 * 1024
 
 /**
  * 최초 기사/파트너 등록 후 프로필·차량 정보를 수정하는 바텀시트.
@@ -28,6 +30,11 @@ export default function PartnerProfileEditModal({
   const [vehicleName, setVehicleName] = useState(isDriver ? initialFleet.vehicle : profile.detail)
   const [plateNumber, setPlateNumber] = useState(initialFleet.plate)
   const [region, setRegion] = useState(profile.region)
+  const [insuranceCompany, setInsuranceCompany] = useState(profile.insuranceCompany ?? '')
+  const [insurancePolicyNo, setInsurancePolicyNo] = useState(profile.insurancePolicyNo ?? '')
+  const [insuranceExpiresAt, setInsuranceExpiresAt] = useState(profile.insuranceExpiresAt ?? '')
+  const [docFile, setDocFile] = useState<{ name: string; mime: string; dataUrl: string } | null>(null)
+  const docInput = useRef<HTMLInputElement>(null)
   const [saving, setSaving] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
@@ -38,11 +45,47 @@ export default function PartnerProfileEditModal({
     phoneOk &&
     (isDriver ? !needsVehicle || Boolean(vehicleName.trim() && plateNumber.trim()) : Boolean(vehicleName.trim()))
 
+  const onDocFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
+      setError('보험증권은 이미지 또는 PDF 파일만 첨부할 수 있어요.')
+      return
+    }
+    if (file.size > DOC_MAX_BYTES) {
+      setError('파일이 너무 큽니다. 2.5MB 이하 파일을 올려 주세요.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setDocFile({ name: file.name, mime: file.type, dataUrl: reader.result })
+        setError('')
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
   const submit = async () => {
     if (!canSubmit || saving) return
+    const insuranceTouched = Boolean(insuranceCompany.trim() || insurancePolicyNo.trim() || insuranceExpiresAt.trim())
+    if (insuranceTouched && !(insuranceCompany.trim() && insurancePolicyNo.trim() && insuranceExpiresAt.trim())) {
+      setError('보험 정보를 입력하려면 보험사·증권번호·유효기간을 모두 채워 주세요.')
+      return
+    }
     setSaving(true)
     setError('')
+    let docNotice = ''
+    let docMeta: { insuranceDocName?: string; insuranceDocAt?: string } = {}
     try {
+      if (docFile) {
+        try {
+          const saved = await uploadInsuranceDoc(profile.uid, docFile)
+          docMeta = { insuranceDocName: saved.name, insuranceDocAt: saved.uploadedAt }
+        } catch {
+          docNotice = ' (보험증권 업로드는 실패했어요. 다시 시도해 주세요.)'
+        }
+      }
       const detail = isDriver
         ? needsVehicle
           ? `${vehicleName.trim()} · ${plateNumber.trim()}`
@@ -55,6 +98,10 @@ export default function PartnerProfileEditModal({
         detail,
         vehicle: needsVehicle ? vehicleName.trim() : '',
         plate: needsVehicle ? plateNumber.trim() : '',
+        insuranceCompany: insuranceCompany.trim(),
+        insurancePolicyNo: insurancePolicyNo.trim(),
+        insuranceExpiresAt: insuranceExpiresAt.trim(),
+        ...docMeta,
       })
       if (!next) {
         setError('저장할 프로필을 찾지 못했어요. 다시 로그인한 뒤 시도해 주세요.')
@@ -63,7 +110,7 @@ export default function PartnerProfileEditModal({
       onSaved?.(next)
       setSubmitted(true)
       window.setTimeout(() => {
-        onDone('정보가 수정되었어요. 배차·매칭 화면에도 새 차량 정보가 반영됩니다.')
+        onDone(`정보가 수정되었어요.${docNotice || ' 배차·매칭 화면에도 새 차량 정보가 반영됩니다.'}`)
         onClose()
       }, 1200)
     } catch {
@@ -142,6 +189,41 @@ export default function PartnerProfileEditModal({
               <span className="text-xs font-black text-[#334155]">활동 지역</span>
               <input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="서울" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
             </label>
+            <div className="mt-4 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
+              <p className="text-xs font-black text-[#334155]">운행 안전·법적 책임 보험 (선택)</p>
+              <p className="mt-1 text-[11px] font-bold text-[#8b8495]">입력 시 보험사·증권번호·유효기간을 모두 채워 주세요.</p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-[11px] font-black text-[#334155]">보험사</span>
+                  <input value={insuranceCompany} onChange={(event) => setInsuranceCompany(event.target.value)} placeholder="KB손해보험" className="mt-1.5 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-2.5 text-sm font-bold outline-none focus:border-[#4A82B8]" />
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-black text-[#334155]">보험 증권번호</span>
+                  <input value={insurancePolicyNo} onChange={(event) => setInsurancePolicyNo(event.target.value)} placeholder="증권번호 입력" className="mt-1.5 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-2.5 text-sm font-bold outline-none focus:border-[#4A82B8]" />
+                </label>
+              </div>
+              <label className="mt-3 block">
+                <span className="text-[11px] font-black text-[#334155]">보험 유효기간(만료일)</span>
+                <input type="date" value={insuranceExpiresAt} onChange={(event) => setInsuranceExpiresAt(event.target.value)} className="mt-1.5 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-2.5 text-sm font-bold outline-none focus:border-[#4A82B8]" />
+              </label>
+              <div className="mt-3">
+                <span className="text-[11px] font-black text-[#334155]">보험증권 사본 (이미지·PDF, 최대 2.5MB)</span>
+                <input ref={docInput} type="file" accept="image/*,application/pdf" className="hidden" onChange={onDocFile} />
+                <button
+                  type="button"
+                  onClick={() => docInput.current?.click()}
+                  className="mt-1.5 w-full rounded-2xl border-2 border-dashed border-[#4A82B8] bg-[#E8F1FA] px-4 py-3 text-left text-xs font-bold text-[#64748B]"
+                >
+                  {docFile ? (
+                    <span className="text-[#4A82B8]">첨부됨 · {docFile.name}</span>
+                  ) : profile.insuranceDocName ? (
+                    <span>등록된 서류: {profile.insuranceDocName} · 탭하여 교체</span>
+                  ) : (
+                    '보험증권 파일 선택'
+                  )}
+                </button>
+              </div>
+            </div>
             {error ? <p className="mt-3 text-sm font-bold text-[#B91C1C]">{error}</p> : null}
             <button type="button" onClick={() => void submit()} disabled={!canSubmit || saving} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(74,130,184,0.35)] disabled:cursor-not-allowed disabled:opacity-40">
               {saving ? '저장 중…' : '변경 사항 저장'}

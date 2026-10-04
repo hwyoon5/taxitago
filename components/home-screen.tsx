@@ -28,6 +28,7 @@ import {
   savePartnerProfile,
   savePiIdentity,
   syncPartnerLink,
+  uploadInsuranceDoc,
 } from '@/lib/partner-account'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { piCompact } from '@/lib/pi-format'
@@ -5546,8 +5547,14 @@ function PartnerSignupModal({
   const [plateNumber, setPlateNumber] = useState('')
   const [region, setRegion] = useState('서울')
   const [photo, setPhoto] = useState<string | null>(null)
+  const [insuranceCompany, setInsuranceCompany] = useState('')
+  const [insurancePolicyNo, setInsurancePolicyNo] = useState('')
+  const [insuranceExpiresAt, setInsuranceExpiresAt] = useState('')
+  const [insuranceDoc, setInsuranceDoc] = useState<{ name: string; mime: string; dataUrl: string } | null>(null)
+  const [formError, setFormError] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const photoInput = useRef<HTMLInputElement>(null)
+  const insuranceDocInput = useRef<HTMLInputElement>(null)
   const skipVehicle = role === '기사' && serviceType === '대리운전'
   const canSubmit = Boolean(session) && name.trim() && phone.trim() && (role === '기사' ? skipVehicle || (vehicleName.trim() && plateNumber.trim()) : vehicleName.trim())
 
@@ -5570,6 +5577,11 @@ function PartnerSignupModal({
 
   const submit = () => {
     if (!canSubmit || !session) return
+    const insuranceTouched = Boolean(insuranceCompany.trim() || insurancePolicyNo.trim() || insuranceExpiresAt.trim())
+    if (insuranceTouched && !(insuranceCompany.trim() && insurancePolicyNo.trim() && insuranceExpiresAt.trim())) {
+      setFormError('보험 정보를 입력하려면 보험사·증권번호·유효기간을 모두 채워 주세요.')
+      return
+    }
     const profile = {
       ...session,
       role,
@@ -5580,10 +5592,15 @@ function PartnerSignupModal({
       plate: role === '기사' && !skipVehicle ? plateNumber.trim() : '',
       region: region.trim() || '서울',
       serviceType: role === '기사' ? serviceType : facilityType,
+      insuranceCompany: insuranceCompany.trim(),
+      insurancePolicyNo: insurancePolicyNo.trim(),
+      insuranceExpiresAt: insuranceExpiresAt.trim(),
+      insuranceDocName: insuranceDoc?.name,
       linkedAt: new Date().toISOString(),
     }
     savePartnerProfile(profile)
     void syncPartnerLink(profile)
+    if (insuranceDoc) void uploadInsuranceDoc(session.uid, insuranceDoc).catch(() => undefined)
     setSubmitted(true)
     onRegistered(role, session)
     window.setTimeout(() => {
@@ -5596,6 +5613,26 @@ function PartnerSignupModal({
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => setPhoto(typeof reader.result === 'string' ? reader.result : null)
+    reader.readAsDataURL(file)
+  }
+  const onInsuranceDoc = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
+      setFormError('보험증권은 이미지 또는 PDF 파일만 첨부할 수 있어요.')
+      return
+    }
+    if (file.size > 2.5 * 1024 * 1024) {
+      setFormError('파일이 너무 큽니다. 2.5MB 이하 파일을 올려 주세요.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setInsuranceDoc({ name: file.name, mime: file.type, dataUrl: reader.result })
+        setFormError('')
+      }
+    }
     reader.readAsDataURL(file)
   }
   return (
@@ -5762,6 +5799,36 @@ function PartnerSignupModal({
               <span className="text-xs font-black text-[#334155]">활동 지역</span>
               <input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="서울" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
             </label>
+            <div className="mt-4 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
+              <p className="text-xs font-black text-[#334155]">운행 안전·법적 책임 보험 (선택)</p>
+              <p className="mt-1 text-[11px] font-bold text-[#8b8495]">입력 시 보험사·증권번호·유효기간을 모두 채워 주세요.</p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-[11px] font-black text-[#334155]">보험사</span>
+                  <input value={insuranceCompany} onChange={(event) => setInsuranceCompany(event.target.value)} placeholder="KB손해보험" className="mt-1.5 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-2.5 text-sm font-bold outline-none focus:border-[#4A82B8]" />
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-black text-[#334155]">보험 증권번호</span>
+                  <input value={insurancePolicyNo} onChange={(event) => setInsurancePolicyNo(event.target.value)} placeholder="증권번호 입력" className="mt-1.5 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-2.5 text-sm font-bold outline-none focus:border-[#4A82B8]" />
+                </label>
+              </div>
+              <label className="mt-3 block">
+                <span className="text-[11px] font-black text-[#334155]">보험 유효기간(만료일)</span>
+                <input type="date" value={insuranceExpiresAt} onChange={(event) => setInsuranceExpiresAt(event.target.value)} className="mt-1.5 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-2.5 text-sm font-bold outline-none focus:border-[#4A82B8]" />
+              </label>
+              <div className="mt-3">
+                <span className="text-[11px] font-black text-[#334155]">보험증권 사본 (이미지·PDF, 최대 2.5MB)</span>
+                <input ref={insuranceDocInput} type="file" accept="image/*,application/pdf" className="hidden" onChange={onInsuranceDoc} />
+                <button
+                  type="button"
+                  onClick={() => insuranceDocInput.current?.click()}
+                  className="mt-1.5 w-full rounded-2xl border-2 border-dashed border-[#4A82B8] bg-[#E8F1FA] px-4 py-3 text-left text-xs font-bold text-[#64748B]"
+                >
+                  {insuranceDoc ? <span className="text-[#4A82B8]">첨부됨 · {insuranceDoc.name}</span> : '보험증권 파일 선택'}
+                </button>
+              </div>
+            </div>
+            {formError ? <p className="mt-3 text-sm font-bold text-[#B91C1C]">{formError}</p> : null}
             <button type="button" onClick={submit} disabled={!canSubmit} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(74,130,184,0.35)] disabled:cursor-not-allowed disabled:opacity-40">
               파이 계정으로 등록 완료
             </button>

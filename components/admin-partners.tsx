@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
 import { adminHeaders } from '@/lib/admin-key'
 import type { PartnerLinkRecord } from '@/lib/partner-ledger-server'
@@ -16,6 +16,10 @@ type FormState = {
   region: string
   wallet: string
   detail: string
+  insuranceCompany: string
+  insurancePolicyNo: string
+  insuranceExpiresAt: string
+  insuranceDocName: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -29,7 +33,13 @@ const EMPTY_FORM: FormState = {
   region: '',
   wallet: '',
   detail: '',
+  insuranceCompany: '',
+  insurancePolicyNo: '',
+  insuranceExpiresAt: '',
+  insuranceDocName: '',
 }
+
+const DOC_MAX_BYTES = 2.5 * 1024 * 1024
 
 const SERVICE_TYPES = ['택시', '대리운전', '택배']
 const PAGE_SIZE = 20
@@ -38,6 +48,12 @@ function formatDate(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function insuranceExpired(value?: string) {
+  if (!value) return false
+  const date = new Date(value)
+  return !Number.isNaN(date.getTime()) && date.getTime() < Date.now()
 }
 
 export default function AdminPartners() {
@@ -51,6 +67,8 @@ export default function AdminPartners() {
   const [roleFilter, setRoleFilter] = useState<'all' | '기사' | '파트너'>('all')
   const [serviceFilter, setServiceFilter] = useState<'all' | string>('all')
   const [page, setPage] = useState(1)
+  const [docFile, setDocFile] = useState<{ name: string; mime: string; dataUrl: string } | null>(null)
+  const docInput = useRef<HTMLInputElement>(null)
 
   const reload = () => {
     void apiFetch('/api/admin/partners', { cache: 'no-store', headers: adminHeaders() })
@@ -88,8 +106,34 @@ export default function AdminPartners() {
     window.setTimeout(() => setNotice(''), 2200)
   }
 
+  const onDocFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
+      setError('보험증권은 이미지 또는 PDF 파일만 첨부할 수 있습니다.')
+      return
+    }
+    if (file.size > DOC_MAX_BYTES) {
+      setError('파일이 너무 큽니다. 2.5MB 이하 파일을 올려 주세요.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setDocFile({ name: file.name, mime: file.type, dataUrl: reader.result })
+        setError('')
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
   const submit = () => {
     if (busy || !form.name.trim() || !form.phone.trim()) return
+    const insuranceTouched = Boolean(form.insuranceCompany.trim() || form.insurancePolicyNo.trim() || form.insuranceExpiresAt.trim())
+    if (insuranceTouched && !(form.insuranceCompany.trim() && form.insurancePolicyNo.trim() && form.insuranceExpiresAt.trim())) {
+      setError('보험 정보를 입력하려면 보험사·증권번호·유효기간을 모두 채워 주세요.')
+      return
+    }
     setBusy(true)
     setError('')
     void apiFetch('/api/admin/partners', {
@@ -102,12 +146,28 @@ export default function AdminPartners() {
         if (!res.ok || !data?.partner) throw new Error(data?.error || '등록 실패')
         return data.partner
       })
+      .then(async (partner) => {
+        if (docFile) {
+          const res = await apiFetch('/api/partner/insurance-doc/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+            body: JSON.stringify({ uid: partner.uid, name: docFile.name, mime: docFile.mime, dataUrl: docFile.dataUrl }),
+          })
+          const data = (await res.json().catch(() => null)) as { error?: string } | null
+          if (!res.ok) throw new Error(data?.error || '보험증권 업로드 실패')
+        }
+      })
       .then(() => {
         setForm(EMPTY_FORM)
+        setDocFile(null)
+        if (docInput.current) docInput.current.value = ''
         tell(form.uid ? '정보를 수정했습니다.' : '기사/파트너를 등록했습니다.')
         reload()
       })
-      .catch((reason) => setError(reason instanceof Error && reason.message === 'unauthorized' ? '관리자 인증이 필요합니다.' : '등록에 실패했습니다.'))
+      .catch((reason) => {
+        const message = reason instanceof Error ? reason.message : ''
+        setError(message === 'unauthorized' ? '관리자 인증이 필요합니다.' : message && message !== '등록 실패' ? message : '등록에 실패했습니다.')
+      })
       .finally(() => setBusy(false))
   }
 
@@ -123,7 +183,13 @@ export default function AdminPartners() {
       region: row.region || '',
       wallet: row.wallet || '',
       detail: row.detail || '',
+      insuranceCompany: row.insuranceCompany || '',
+      insurancePolicyNo: row.insurancePolicyNo || '',
+      insuranceExpiresAt: row.insuranceExpiresAt || '',
+      insuranceDocName: row.insuranceDocName || '',
     })
+    setDocFile(null)
+    if (docInput.current) docInput.current.value = ''
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -185,6 +251,52 @@ export default function AdminPartners() {
             <label className={label}>비고</label>
             <input value={form.detail} onChange={(e) => setForm((f) => ({ ...f, detail: e.target.value }))} placeholder="자격증, 계약 정보 등" className={input} />
           </div>
+          <div className="col-span-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-black text-[#4C1FB8]">운행 안전·법적 책임 보험 (선택)</p>
+              {form.uid && (form.insuranceCompany || form.insurancePolicyNo || form.insuranceExpiresAt) ? (
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, insuranceCompany: '', insurancePolicyNo: '', insuranceExpiresAt: '' }))}
+                  className="text-[10px] font-black text-[#94A3B8]"
+                >
+                  보험 정보 삭제
+                </button>
+              ) : null}
+            </div>
+            <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">대리운전 기사·파트너의 보험 가입 상태를 기록합니다. 입력 시 세 항목을 모두 채워야 합니다.</p>
+            <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div>
+                <label className={label}>보험사</label>
+                <input value={form.insuranceCompany} onChange={(e) => setForm((f) => ({ ...f, insuranceCompany: e.target.value }))} placeholder="KB손해보험" className={input} />
+              </div>
+              <div>
+                <label className={label}>보험 증권번호</label>
+                <input value={form.insurancePolicyNo} onChange={(e) => setForm((f) => ({ ...f, insurancePolicyNo: e.target.value }))} placeholder="증권번호 입력" className={input} />
+              </div>
+              <div className="col-span-2 sm:col-span-1">
+                <label className={label}>보험 유효기간(만료일)</label>
+                <input type="date" value={form.insuranceExpiresAt} onChange={(e) => setForm((f) => ({ ...f, insuranceExpiresAt: e.target.value }))} className={input} />
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className={label}>보험증권 사본 (이미지·PDF, 최대 2.5MB)</label>
+              <input ref={docInput} type="file" accept="image/*,application/pdf" className="hidden" onChange={onDocFile} />
+              <button
+                type="button"
+                onClick={() => docInput.current?.click()}
+                className="w-full rounded-xl border-2 border-dashed border-[#D8CCF5] bg-white px-3 py-2.5 text-left text-xs font-bold text-[#64748B]"
+              >
+                {docFile ? (
+                  <span className="text-[#4C1FB8]">첨부됨 · {docFile.name}</span>
+                ) : form.uid && form.insuranceDocName ? (
+                  <span>등록된 서류: {form.insuranceDocName} · 탭하여 교체</span>
+                ) : (
+                  '보험증권 파일 선택'
+                )}
+              </button>
+            </div>
+          </div>
         </div>
         <button
           type="button"
@@ -238,6 +350,7 @@ export default function AdminPartners() {
                   <th className="px-2 py-2">전화번호</th>
                   <th className="px-2 py-2">차량</th>
                   <th className="px-2 py-2">지역</th>
+                  <th className="px-2 py-2">보험</th>
                   <th className="px-2 py-2">등록일</th>
                   <th className="px-2 py-2"></th>
                 </tr>
@@ -257,6 +370,30 @@ export default function AdminPartners() {
                       {row.plate ? <span className="block text-[10px] text-[#64748B]">{row.plate}</span> : null}
                     </td>
                     <td className="px-2 py-2.5 font-bold">{row.region || '-'}</td>
+                    <td className="px-2 py-2.5 font-bold">
+                      {row.insuranceCompany ? (
+                        <>
+                          {row.insuranceCompany}
+                          <span className={`block text-[10px] ${insuranceExpired(row.insuranceExpiresAt) ? 'font-black text-[#DC2626]' : 'text-[#64748B]'}`}>
+                            {row.insuranceExpiresAt
+                              ? `${insuranceExpired(row.insuranceExpiresAt) ? '만료 ' : ''}~${formatDate(row.insuranceExpiresAt)}`
+                              : '만료일 미입력'}
+                          </span>
+                          {row.insuranceDocName ? (
+                            <a
+                              href={`/api/partner/insurance-doc/?uid=${encodeURIComponent(row.uid)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block text-[10px] font-black text-[#4C1FB8] underline"
+                            >
+                              증권 보기
+                            </a>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="text-[#94A3B8]">미등록</span>
+                      )}
+                    </td>
                     <td className="px-2 py-2.5 font-bold text-[#64748B]">{formatDate(row.linkedAt)}</td>
                     <td className="px-2 py-2.5">
                       <button type="button" onClick={() => editRow(row)} className="rounded-lg border border-[#D8CCF5] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">

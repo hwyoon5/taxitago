@@ -17,6 +17,11 @@ export async function POST(request: Request) {
     plate?: unknown
     region?: unknown
     serviceType?: unknown
+    insuranceCompany?: unknown
+    insurancePolicyNo?: unknown
+    insuranceExpiresAt?: unknown
+    insuranceDocName?: unknown
+    insuranceDocAt?: unknown
     linkedAt?: unknown
   } | null
   const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
@@ -39,6 +44,11 @@ export async function POST(request: Request) {
     plate: text(body?.plate, previous?.plate),
     region: text(body?.region, previous?.region),
     serviceType: text(body?.serviceType, previous?.serviceType),
+    insuranceCompany: text(body?.insuranceCompany, previous?.insuranceCompany),
+    insurancePolicyNo: text(body?.insurancePolicyNo, previous?.insurancePolicyNo),
+    insuranceExpiresAt: text(body?.insuranceExpiresAt, previous?.insuranceExpiresAt),
+    insuranceDocName: text(body?.insuranceDocName, previous?.insuranceDocName),
+    insuranceDocAt: text(body?.insuranceDocAt, previous?.insuranceDocAt),
     linkedAt: typeof body?.linkedAt === 'string' ? body.linkedAt : previous?.linkedAt || new Date().toISOString(),
   })
   return NextResponse.json({ ok: true, profile: record })
