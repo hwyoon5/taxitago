@@ -25,6 +25,7 @@ export type RideRequestRecord = {
   kind: RideKind
   passengerId: string
   pickup: GeoPoint
+  waypoints?: GeoPoint[]
   dest: GeoPoint
   estimatedFare: number
   status: RideStatus
@@ -93,6 +94,7 @@ export type PublicRide = {
   kind: RideKind
   passengerId: string
   pickup: GeoPoint
+  waypoints?: GeoPoint[]
   dest: GeoPoint
   estimatedFare: number
   status: RideStatus

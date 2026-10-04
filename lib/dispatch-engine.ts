@@ -47,6 +47,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
     id: ride.id,
     passengerId: ride.passengerId,
     pickup: ride.pickup,
+    waypoints: ride.waypoints ?? [],
     dest: ride.dest,
     estimatedFare: ride.estimatedFare,
     status: ride.status,
@@ -244,6 +245,7 @@ export function createRideAndMatch(input: {
   kind?: RideRequestRecord['kind']
   passengerId: string
   pickup: RideRequestRecord['pickup']
+  waypoints?: RideRequestRecord['waypoints']
   dest: RideRequestRecord['dest']
   estimatedFare: number
 }) {
@@ -251,6 +253,7 @@ export function createRideAndMatch(input: {
   const ride = saveRide({
     ...input,
     kind: input.kind === 'daeri' ? 'daeri' : 'taxi',
+    waypoints: input.waypoints ?? [],
     status: 'searching',
     assignedDriverId: null,
     currentOffer: null,

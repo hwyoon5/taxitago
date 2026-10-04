@@ -13,6 +13,7 @@ export async function createRideRequest(input: {
   pickupLat: number
   pickupLng: number
   pickupAddress?: string
+  waypoints?: { lat: number; lng: number; address?: string; label?: string }[]
   destLat: number
   destLng: number
   destAddress?: string

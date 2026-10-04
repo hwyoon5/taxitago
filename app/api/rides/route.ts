@@ -52,15 +52,24 @@ export async function POST(request: Request) {
   )
   if (existing) return NextResponse.json({ ok: true, ride: toPublicRide(existing), deduped: true })
   const kind = body?.kind === 'daeri' ? 'daeri' : 'taxi'
+  const waypoints = (Array.isArray(body?.waypoints) ? (body.waypoints as Record<string, unknown>[]) : [])
+    .slice(0, 2)
+    .map((wp) => asPoint(wp?.lat, wp?.lng, { address: wp?.address, label: wp?.label }))
+    .filter((wp): wp is NonNullable<typeof wp> => wp !== null)
+  // 경유지가 있으면 출발지→경유지→…→목적지 각 구간의 직선거리 합계로 요금을 산정한다.
+  // 지도 API 경로 거리로 교체할 때도 legs 배열 구조는 그대로 재사용할 수 있다.
+  const legs = [pickup, ...waypoints, dest]
+  const distanceKm = legs.slice(1).reduce((sum, point, index) => sum + haversineKm(legs[index], point), 0)
   const quoted =
     typeof body?.estimatedFare === 'number' && Number.isFinite(body.estimatedFare)
       ? piRound(body.estimatedFare)
-      : estimateTaxiFarePi(haversineKm(pickup, dest), await getFareConfig(), kind)
+      : estimateTaxiFarePi(distanceKm, await getFareConfig(), kind)
   const ride = createRideAndMatch({
     id: crypto.randomUUID(),
     kind,
     passengerId,
     pickup,
+    waypoints,
     dest,
     estimatedFare: quoted,
   })
