@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import { isPiWalletAddress } from '@/lib/pi-wallet'
 import { type SettlementEntry, type SettlementService } from '@/lib/settlement-types'
+import AdminWithdraw from '@/components/admin-withdraw'
 import type { AuditEntry } from '@/lib/audit-store'
 import type { DepositEntry } from '@/lib/deposit-store'
 import { buildSettlementCsv } from '@/lib/settlement-csv'
@@ -48,6 +49,7 @@ const AUDIT_LABEL: Record<string, string> = {
   reconcile: '내역 동기화',
   wallet: '지갑 주소 변경',
   deposit: '입금 기록',
+  withdraw: '수수료 출금',
 }
 
 const pi = (value: number) => `${value.toFixed(7)} Pi`
@@ -348,6 +350,8 @@ export default function AdminSettlements() {
           </button>
         </form>
       </section>
+
+      <AdminWithdraw adminWallet={adminWallet} onChanged={reload} />
 
       {summary ? (
         <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
