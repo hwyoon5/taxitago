@@ -30,3 +30,6 @@ next-env.d.ts
 
 # dispatch persistence
 data/dispatch.json
+
+# Windows reserved device name (accidental shell redirects)
+nul

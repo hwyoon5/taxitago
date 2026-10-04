@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
+import { isPiWalletAddress } from '@/lib/pi-wallet'
 import { type SettlementEntry, type SettlementService } from '@/lib/settlement-types'
 import type { AuditEntry } from '@/lib/audit-store'
 import type { DepositEntry } from '@/lib/deposit-store'
@@ -62,6 +63,9 @@ export default function AdminSettlements() {
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [deposits, setDeposits] = useState<DepositEntry[]>([])
   const [depositTotal, setDepositTotal] = useState<{ count: number; total: number } | null>(null)
+  const [adminWallet, setAdminWallet] = useState('')
+  const [depositBusy, setDepositBusy] = useState(false)
+  const [depositForm, setDepositForm] = useState({ txid: '', fromWallet: '', amount: '', memo: '' })
   const [showAudit, setShowAudit] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState<{ gross: string; memo: string; driverId: string; driverName: string; status: 'pending' | 'settled'; reason: string } | null>(null)
@@ -78,7 +82,7 @@ export default function AdminSettlements() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number } }
+        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number }; adminWallet?: string }
       })
       .then((data) => {
         setEntries(data.entries)
@@ -86,6 +90,7 @@ export default function AdminSettlements() {
         setAudit(data.audit ?? [])
         setDeposits(data.deposits ?? [])
         setDepositTotal(data.depositTotal ?? null)
+        setAdminWallet(typeof data.adminWallet === 'string' ? data.adminWallet : '')
         setError('')
       })
       .catch(() => setError('정산 내역을 불러오지 못했습니다.'))
@@ -165,6 +170,36 @@ export default function AdminSettlements() {
       .finally(() => setBusy(false))
   }
 
+  const submitDeposit = (event: FormEvent) => {
+    event.preventDefault()
+    if (depositBusy) return
+    const txid = depositForm.txid.trim()
+    const fromWallet = depositForm.fromWallet.trim()
+    const amount = Number(depositForm.amount)
+    if (!txid) {
+      setError('트랜잭션 ID를 입력해 주세요.')
+      return
+    }
+    if (!isPiWalletAddress(fromWallet)) {
+      setError('보낸 지갑 주소가 올바르지 않습니다. (G로 시작하는 56자리)')
+      return
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError('입금 금액이 올바르지 않습니다.')
+      return
+    }
+    setDepositBusy(true)
+    void patch({ action: 'deposit', txid, fromWallet, amount, memo: depositForm.memo })
+      .then(() => {
+        setDepositForm({ txid: '', fromWallet: '', amount: '', memo: '' })
+        setError('')
+        tell('입금 기록을 추가했습니다.')
+        reload()
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : '입금 기록에 실패했습니다.'))
+      .finally(() => setDepositBusy(false))
+  }
+
   const periodStart = () => {
     if (period === 'all') return null
     const now = new Date()
@@ -236,6 +271,83 @@ export default function AdminSettlements() {
           </div>
         </section>
       ) : null}
+
+      <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-black">테스트넷 입금 수동 동기화</p>
+        </div>
+        <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
+          테스트넷 전송 건을 입금 장부에 수동으로 기록합니다. 동일한 txid는 중복 등록되지 않습니다.
+          {isPiWalletAddress(adminWallet) ? ` 입금 지갑: ${adminWallet.slice(0, 12)}…` : ' 지갑 주소 설정 탭에서 관리자 지갑을 먼저 등록해 주세요.'}
+        </p>
+
+        <form onSubmit={submitDeposit} className="mt-3 space-y-2">
+          <label className="block">
+            <span className="text-[10px] font-black text-[#64748B]">트랜잭션 ID (txid)</span>
+            <input
+              type="text"
+              required
+              value={depositForm.txid}
+              onChange={(event) => setDepositForm((form) => ({ ...form, txid: event.target.value }))}
+              placeholder="트랜잭션 ID 입력"
+              className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+            />
+          </label>
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-black text-[#64748B]">보낸 지갑 주소</span>
+              <button
+                type="button"
+                disabled={!isPiWalletAddress(adminWallet)}
+                onClick={() => setDepositForm((form) => ({ ...form, fromWallet: adminWallet }))}
+                className="rounded-full bg-[#4C1FB8] px-3 py-1 text-[10px] font-black text-white disabled:opacity-40"
+              >
+                내 관리자 주소 자동 입력
+              </button>
+            </div>
+            <input
+              type="text"
+              required
+              value={depositForm.fromWallet}
+              onChange={(event) => setDepositForm((form) => ({ ...form, fromWallet: event.target.value }))}
+              placeholder="G로 시작하는 56자리 주소"
+              className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-[10px] font-black text-[#64748B]">금액 (Pi)</span>
+              <input
+                type="number"
+                required
+                min={0}
+                step={0.0000001}
+                value={depositForm.amount}
+                onChange={(event) => setDepositForm((form) => ({ ...form, amount: event.target.value }))}
+                placeholder="12.5"
+                className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-black text-[#64748B]">메모 (선택)</span>
+              <input
+                type="text"
+                value={depositForm.memo}
+                onChange={(event) => setDepositForm((form) => ({ ...form, memo: event.target.value }))}
+                placeholder="메모 입력"
+                className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+              />
+            </label>
+          </div>
+          <button
+            type="submit"
+            disabled={depositBusy}
+            className="w-full rounded-xl bg-[#047857] py-2 text-xs font-black text-white disabled:opacity-50"
+          >
+            {depositBusy ? '기록 중…' : '입금 기록 추가'}
+          </button>
+        </form>
+      </section>
 
       {summary ? (
         <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
