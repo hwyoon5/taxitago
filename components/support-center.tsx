@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createTicket,
   fetchLostInbox,
@@ -51,11 +51,14 @@ export default function SupportCenter({
   actorRole,
   onNotice,
   prefillLost,
+  openLostId,
 }: {
   actorId: string
   actorRole: Exclude<SupportActor, 'admin'>
   onNotice?: (message: string) => void
   prefillLost?: LostPrefill | null
+  /** 전달된 분실물 ID가 목록에 나타나면 분실물 탭과 채팅 스레드를 자동으로 연다. */
+  openLostId?: string | null
 }) {
   const [tab, setTab] = useState<Tab>(prefillLost ? 'lost' : 'ask')
   const [tickets, setTickets] = useState<SupportTicket[]>([])
@@ -92,6 +95,17 @@ export default function SupportCenter({
       window.removeEventListener('focus', reload)
     }
   }, [actorId, actorRole])
+
+  // 카드 터치로 지정된 분실물 건 — 목록에 로드되는 즉시 채팅 스레드를 연다.
+  const openedLostRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!openLostId || openedLostRef.current === openLostId) return
+    const found = lost.find((row) => row.id === openLostId)
+    if (!found) return
+    openedLostRef.current = openLostId
+    setTab('lost')
+    setOpenLost(found)
+  }, [openLostId, lost])
 
   const applyTicketUpdate = useCallback((ticket: SupportTicket) => {
     setTickets((items) => items.map((item) => (item.id === ticket.id ? ticket : item)))

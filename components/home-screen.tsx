@@ -64,6 +64,7 @@ import {
 } from '@/lib/dispatch-client'
 import { enableDriverPush, showDriverOfferNotification } from '@/lib/driver-notify-client'
 import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, releaseDriverWakeLock, stopDriverOfferAlarm } from '@/lib/driver-alert'
+import { playCommsAlert } from '@/lib/alert-sound'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
@@ -7190,6 +7191,8 @@ function DriverDashboard({
   const [openDeliveries, setOpenDeliveries] = useState<PublicDelivery[]>([])
   const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([])
   const [lostItems, setLostItems] = useState<LostItem[]>([])
+  const [lostFocus, setLostFocus] = useState<string | null>(null)
+  const [freshLostIds, setFreshLostIds] = useState<string[]>([])
   const [partner, setPartner] = useState<ReturnType<typeof loadPartnerProfile>>(null)
   const [profileEditOpen, setProfileEditOpen] = useState(false)
   const [driverId, setDriverId] = useState('')
@@ -7206,6 +7209,7 @@ function DriverDashboard({
   const endedRideIds = useRef(new Set<string>())
   const activityPrimed = useRef(false)
   const deliverySeen = useRef<string | null>(null)
+  const lostSeenRef = useRef<Set<string> | null>(null)
   const noteActivity = useCallback((key: string, label: string, detail: string) => {
     if (!key || activityKeys.current.has(key)) return
     activityKeys.current.add(key)
@@ -7589,6 +7593,15 @@ function DriverDashboard({
         if (rating) setDriverRating(rating.average.toFixed(2))
         setSosAlerts(alerts)
         setLostItems(lost)
+        // 새로 접수된 분실물 건은 기사가 다른 화면을 보고 있어도 알림음으로 알린다.
+        const ids = new Set(lost.map((row) => row.id))
+        const arrived = lostSeenRef.current ? lost.filter((row) => !lostSeenRef.current!.has(row.id)) : []
+        lostSeenRef.current = ids
+        if (arrived.length) {
+          playCommsAlert('call')
+          setFreshLostIds((prev) => [...new Set([...prev, ...arrived.map((row) => row.id)])])
+          noteActivity(`lost:${arrived[0].id}`, '분실물 접수', `${arrived[0].itemType} · ${arrived[0].route}`)
+        }
         setLocalDelivery(deliveryJob ?? loadDeliveryJob())
       }).catch(() => undefined)
     }
@@ -7963,9 +7976,22 @@ function DriverDashboard({
         </section>
       ) : null}
       {lostItems[0] ? (
-        <button type="button" onClick={() => setDeskOpen(true)} className="mt-4 w-full rounded-[26px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4 text-left">
-          <p className="text-xs font-black text-[#4C1FB8]">분실물 문의 {lostItems.length}건</p>
+        <button
+          type="button"
+          onClick={() => {
+            setLostFocus(lostItems[0].id)
+            setFreshLostIds([])
+            setDeskOpen(true)
+          }}
+          className={`mt-4 w-full rounded-[26px] border-2 p-4 text-left ${freshLostIds.length ? 'border-[#FCA5A5] bg-[#FEF2F2]' : 'border-[#E0D4FF] bg-[#F8F5FF]'}`}
+        >
+          <p className="flex items-center gap-1.5 text-xs font-black text-[#4C1FB8]">
+            <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black text-white ${freshLostIds.length ? 'bg-[#DC2626]' : 'bg-[#4C1FB8]'}`}>{lostItems.length}</span>
+            분실물 문의 {lostItems.length}건
+            {freshLostIds.length ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">신규</span> : null}
+          </p>
           <p className="mt-1 text-sm font-black text-[#0F172A]">{lostItems[0].itemType} · {lostItems[0].route}</p>
+          <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">터치하면 채팅이 바로 열립니다</p>
         </button>
       ) : null}
       {partner?.serviceType === '택배' && openDeliveries[0] ? (
@@ -8136,13 +8162,13 @@ function DriverDashboard({
         <DeliveryChatSheet job={activeDelivery} peer={deliveryChatPeer} onClose={() => setDeliveryChatPeer(null)} />
       ) : null}
       {deskOpen ? (
-        <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={() => setDeskOpen(false)}>
+        <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={() => { setDeskOpen(false); setLostFocus(null) }}>
           <section className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 py-5" onClick={(event) => event.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-xl font-black">기사 고객지원</h2>
-              <button type="button" onClick={() => setDeskOpen(false)} className="text-sm font-black text-[#64748B]">닫기</button>
+              <button type="button" onClick={() => { setDeskOpen(false); setLostFocus(null) }} className="text-sm font-black text-[#64748B]">닫기</button>
             </div>
-            {driverId ? <SupportCenter actorId={driverId} actorRole="driver" onNotice={onNotice} /> : null}
+            {driverId ? <SupportCenter actorId={driverId} actorRole="driver" onNotice={onNotice} openLostId={lostFocus} /> : null}
           </section>
         </div>
       ) : null}
