@@ -393,6 +393,7 @@ function parseDrivingPathPayload(data: unknown): DrivingPathPoint[] {
 export async function fetchDrivingPath(
   origin: DrivingPathPoint,
   dest: DrivingPathPoint,
+  waypoints: DrivingPathPoint[] = [],
   signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({
@@ -401,6 +402,8 @@ export async function fetchDrivingPath(
     destLat: String(dest.lat),
     destLng: String(dest.lng),
   })
+  const via = waypoints.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)).slice(0, 5)
+  if (via.length) params.set('waypoints', via.map((point) => `${point.lat},${point.lng}`).join('|'))
   const query = params.toString()
   const urls = [`/api/directions/?${query}`, `/api/directions?${query}`]
   for (const url of urls) {

@@ -2157,10 +2157,13 @@ function TaxiMatchingSheet({
     destAddress,
     destLabel: dest,
   })
-  const waypointSource: { address?: string; label?: string }[] =
+  const waypointSource: { lat?: number; lng?: number; address?: string; label?: string }[] =
     ride?.waypoints?.length ? ride.waypoints : (waypoints ?? [])
   const waypointLabels = waypointSource.map((wp) => wp.address || wp.label || '경유지')
   const route = rideRouteLabel(live.origin?.address || pickupAddress, dest, live.dest?.address || destAddress, waypointLabels)
+  const mapWaypoints = waypointSource
+    .filter((wp): wp is { lat: number; lng: number; address?: string; label?: string } => Number.isFinite(wp.lat) && Number.isFinite(wp.lng))
+    .map((wp) => ({ lat: wp.lat, lng: wp.lng }))
   const [resolvedDest, setResolvedDest] = useState<RideCoords | null>(
     live.dest ? { lat: live.dest.lat, lng: live.dest.lng, address: live.dest.address } : null,
   )
@@ -2607,6 +2610,7 @@ function TaxiMatchingSheet({
                   destLng={destLng}
                   originLabel={live.origin?.address || pickupAddress}
                   destLabel={resolvedDest?.address || live.dest?.address || dest}
+                  waypoints={mapWaypoints}
                   {...liveVehicleFromRide(ride)}
                 />
               </MatchingMapBoundary>
@@ -2636,6 +2640,7 @@ function TaxiMatchingSheet({
               destLng={destLng}
               originLabel={live.origin?.address || pickupAddress}
               destLabel={resolvedDest?.address || live.dest?.address || dest}
+              waypoints={mapWaypoints}
               {...liveVehicleFromRide(ride)}
             />
             <div className="mt-4 rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
@@ -3019,7 +3024,7 @@ function ServiceSheet({
     void fetchFareConfig().then(setDaeriFareCfg).catch(() => undefined)
   }, [])
   const policyBase = (key: FlatServiceId) => getPaymentPolicy(FLAT_SERVICE_LABEL[key])?.defaultAmount ?? daeriFareCfg.flatBase[key]
-  const fare = ride ? (daeriTrip?.fare ?? daeriFareCfg.daeri.base) : service === '주차' ? policyBase('parking') : service === 'EV 충전' ? policyBase('ev') : vehicle ? (Number.isFinite(listedPi) && listedPi > 0 ? listedPi : policyBase('bicycle')) : deliveryFare
+  const fare = ride ? (dispatchRide?.estimatedFare ?? daeriTrip?.fare ?? daeriFareCfg.daeri.base) : service === '주차' ? policyBase('parking') : service === 'EV 충전' ? policyBase('ev') : vehicle ? (Number.isFinite(listedPi) && listedPi > 0 ? listedPi : policyBase('bicycle')) : deliveryFare
   const settleTiming = service === '주차' ? parkingOption : paymentPolicy?.timing
   const rideOriginLat = daeriTrip?.pickupLat ?? pickupLat
   const rideOriginLng = daeriTrip?.pickupLng ?? pickupLng
@@ -3137,7 +3142,7 @@ function ServiceSheet({
       destLng: rideDestLng ?? rideOriginLng,
       destAddress: daeriTrip?.dest || destAddress,
       destLabel: daeriTrip?.dest || destAddress,
-      estimatedFare: fare,
+      estimatedFare: daeriTrip?.fare ?? daeriFareCfg.daeri.base,
     })
 
   useEffect(() => {
@@ -3334,6 +3339,7 @@ function ServiceSheet({
                 destLng={rideDestLng}
                 originLabel={daeriTrip?.pickup || pickupAddress}
                 destLabel={daeriTrip?.dest || destAddress}
+                waypoints={dispatchRide?.waypoints ?? daeriTrip?.waypoints ?? []}
                 {...liveVehicleFromRide(dispatchRide)}
               />
             ) : null}
@@ -3473,6 +3479,7 @@ function ServiceSheet({
                 destLng={rideDestLng}
                 originLabel={daeriTrip?.pickup || pickupAddress}
                 destLabel={daeriTrip?.dest || destAddress}
+                waypoints={dispatchRide?.waypoints ?? daeriTrip?.waypoints ?? []}
                 {...liveVehicleFromRide(dispatchRide)}
               />
             ) : null}
@@ -7596,6 +7603,7 @@ function DriverDashboard({
                 destLng={activeRide.dest.lng}
                 originLabel={activeRide.pickup.address || '승객 탑승 위치'}
                 destLabel={activeRide.dest.label || activeRide.dest.address || '목적지'}
+                waypoints={activeRide.waypoints ?? []}
                 vehicleLat={lat}
                 vehicleLng={lng}
                 className="mt-0 h-[min(58dvh,460px)]"

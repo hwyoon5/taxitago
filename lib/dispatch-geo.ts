@@ -27,6 +27,71 @@ export function estimateTaxiFarePi(distanceKm: number, config: FareConfig = DEFA
   return piRound(Math.max(rule.base, quoted))
 }
 
+// 경유지가 직행 경로 위에 놓여 있어도 지오코딩·도로 스냅 오차로 수십~수백 m의
+// 거리 차이가 생긴다. 이 값 이하의 우회는 "경로 위"로 보고 추가 요금을 붙이지 않는다.
+export const WAYPOINT_ON_ROUTE_EPSILON_KM = 0.3
+
+export type GeoCoord = { lat: number; lng: number }
+
+export function routeChainKm(points: GeoCoord[]) {
+  return points.slice(1).reduce((sum, point, index) => sum + haversineKm(points[index], point), 0)
+}
+
+export type WaypointDetour = {
+  waypoint: GeoCoord
+  detourKm: number
+  onDirectRoute: boolean
+}
+
+export type WaypointRouteQuote = {
+  directKm: number
+  routeKm: number
+  detourKm: number
+  chargeableDetourKm: number
+  chargeableKm: number
+  detours: WaypointDetour[]
+}
+
+// 각 경유지의 우회량을 이웃 지점 간 직선(이전 지점→다음 지점) 대비로 판별한다.
+// 순서가 있는 경유지 체인이라 앞 경유지가 반영된 기준 구간으로 뒤 경유지를 잰다.
+export function waypointRouteQuote(
+  origin: GeoCoord,
+  dest: GeoCoord,
+  waypoints: GeoCoord[],
+  epsilonKm = WAYPOINT_ON_ROUTE_EPSILON_KM,
+): WaypointRouteQuote {
+  const chain = [origin, ...waypoints, dest]
+  const directKm = haversineKm(origin, dest)
+  const routeKm = routeChainKm(chain)
+  const detourKm = Math.max(0, routeKm - directKm)
+  const detours: WaypointDetour[] = waypoints.map((waypoint, index) => {
+    const prev = chain[index]
+    const next = chain[index + 2]
+    const delta = Math.max(0, haversineKm(prev, waypoint) + haversineKm(waypoint, next) - haversineKm(prev, next))
+    return { waypoint, detourKm: delta, onDirectRoute: delta <= epsilonKm }
+  })
+  const chargeableDetourKm = Math.min(
+    detourKm,
+    detours.reduce((sum, detour) => sum + (detour.onDirectRoute ? 0 : detour.detourKm), 0),
+  )
+  return {
+    directKm,
+    routeKm,
+    detourKm,
+    chargeableDetourKm,
+    chargeableKm: directKm + chargeableDetourKm,
+    detours,
+  }
+}
+
+// 우회 거리에 비례하는 추가 요금(기본요금 제외, 거리 + 시간 요금만).
+// estimateTaxiFarePi와 동일한 요율을 쓰되 base는 빼서 "우회분만" 과금한다.
+export function waypointSurchargePi(detourKm: number, config: FareConfig = DEFAULT_FARE_CONFIG, kind: 'taxi' | 'daeri' = 'taxi') {
+  const rule = kind === 'daeri' ? config.daeri : config.taxi
+  const extra = Math.max(0, detourKm) * rule.perKm + (Math.max(0, detourKm) / 0.35) * rule.perMin
+  return piRound(Math.max(0, extra))
+}
+
 export function etaMinutesFromKm(distanceKm: number) {
   return Math.max(2, Math.round(distanceKm / 0.35))
 }

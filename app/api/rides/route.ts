@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { estimateTaxiFarePi, haversineKm } from '@/lib/dispatch-geo'
+import { estimateTaxiFarePi, waypointRouteQuote, waypointSurchargePi } from '@/lib/dispatch-geo'
 import { createRideAndMatch, toPublicRide } from '@/lib/dispatch-engine'
 import { ensureSeedDrivers, flushDispatchPersist, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { hydrateEscrowFromKv } from '@/lib/escrow-store'
@@ -56,14 +56,14 @@ export async function POST(request: Request) {
     .slice(0, 2)
     .map((wp) => asPoint(wp?.lat, wp?.lng, { address: wp?.address, label: wp?.label }))
     .filter((wp): wp is NonNullable<typeof wp> => wp !== null)
-  // 경유지가 있으면 출발지→경유지→…→목적지 각 구간의 직선거리 합계로 요금을 산정한다.
-  // 지도 API 경로 거리로 교체할 때도 legs 배열 구조는 그대로 재사용할 수 있다.
-  const legs = [pickup, ...waypoints, dest]
-  const distanceKm = legs.slice(1).reduce((sum, point, index) => sum + haversineKm(legs[index], point), 0)
+  // 경유지별 우회량을 판별한다: 직행 경로 위(우회 <= epsilon)의 경유지는 추가 요금 0,
+  // 우회 경유지는 추가되는 거리·시간에 비례해 surcharge를 붙인다.
+  const fareQuote = waypointRouteQuote(pickup, dest, waypoints)
+  const config = await getFareConfig()
   const quoted =
     typeof body?.estimatedFare === 'number' && Number.isFinite(body.estimatedFare)
-      ? piRound(body.estimatedFare)
-      : estimateTaxiFarePi(distanceKm, await getFareConfig(), kind)
+      ? piRound(Math.max(0, body.estimatedFare) + waypointSurchargePi(fareQuote.chargeableDetourKm, config, kind))
+      : estimateTaxiFarePi(fareQuote.chargeableKm, config, kind)
   const ride = createRideAndMatch({
     id: crypto.randomUUID(),
     kind,

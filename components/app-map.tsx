@@ -23,6 +23,7 @@ import {
 } from '@/lib/naver-maps'
 
 import { resolveLiveRidePoints, isUsableCoord } from '@/lib/ride-session'
+import { haversineKm } from '@/lib/dispatch-geo'
 import { ADDRESS_LOADING, createLiveAddressLookup, fetchDrivingPath, requestAddressLookup } from '@/lib/geocode-client'
 import { watchMapSettle, createSettleDebounce } from '@/lib/watch-map-settle'
 
@@ -359,16 +360,35 @@ export function resolveRideDestination(origin: RidePoint, destLat?: number, dest
   return { lat: destLat as number, lng: destLng as number }
 }
 
-function vehicleOnRide(phase: TaxiLivePhase, origin: RidePoint, dest: RidePoint, t: number) {
+function vehicleOnRide(phase: TaxiLivePhase, origin: RidePoint, dest: RidePoint, t: number, via: RidePoint[] = []) {
   const progress = Math.min(1, Math.max(0, t))
-  if (phase === 'boarding') return { ...origin, angle: headingAngle(origin, dest) }
+  if (phase === 'boarding') return { ...origin, angle: headingAngle(origin, via[0] ?? dest) }
   if (phase === 'arriving') {
     const start = lerpPoint(origin, dest, -0.18)
     const pos = lerpPoint(start, origin, progress)
     return { ...pos, angle: headingAngle(start, origin) }
   }
-  const pos = lerpPoint(origin, dest, progress)
-  return { ...pos, angle: headingAngle(origin, dest) }
+  // 이동 중 차량은 출발지→경유지→목적지 체인을 구간 거리 비율로 따라간다.
+  const chain = [origin, ...via, dest]
+  const legs: { from: RidePoint; to: RidePoint; km: number }[] = []
+  let totalKm = 0
+  for (let index = 1; index < chain.length; index += 1) {
+    const km = haversineKm(chain[index - 1], chain[index])
+    legs.push({ from: chain[index - 1], to: chain[index], km })
+    totalKm += km
+  }
+  if (!totalKm || !legs.length) return { ...origin, angle: headingAngle(origin, dest) }
+  let target = totalKm * progress
+  for (const leg of legs) {
+    if (target > leg.km && leg !== legs[legs.length - 1]) {
+      target -= leg.km
+      continue
+    }
+    const ratio = leg.km > 0 ? Math.min(1, target / leg.km) : 1
+    const pos = lerpPoint(leg.from, leg.to, ratio)
+    return { ...pos, angle: headingAngle(leg.from, leg.to) }
+  }
+  return { ...dest, angle: headingAngle(chain[chain.length - 2] ?? origin, dest) }
 }
 
 function fitRideBounds(sdk: NaverMapsSdk, map: NaverMapInstance, origin: RidePoint, dest: RidePoint, path?: RidePoint[]) {
@@ -1277,6 +1297,7 @@ function LiveFallbackOverlay({
   taxi,
   origin,
   dest,
+  waypoints,
   path,
   zoom,
   size,
@@ -1287,6 +1308,7 @@ function LiveFallbackOverlay({
   taxi: RidePoint & { angle: number }
   origin: RidePoint
   dest: RidePoint
+  waypoints?: RidePoint[]
   path: RidePoint[]
   zoom: number
   size: { width: number; height: number }
@@ -1323,6 +1345,14 @@ function LiveFallbackOverlay({
       <span className="absolute rounded-full bg-[#1D4ED8] px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-white shadow-sm" style={{ left: end.left, top: end.top, transform: 'translate(-50%, -145%)' }}>
         도착
       </span>
+      {(waypoints ?? []).map((point, index) => {
+        const px = toPx(point)
+        return (
+          <span key={`via-${index}`} className="absolute rounded-full bg-[#EA580C] px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-white shadow-sm" style={{ left: px.left, top: px.top, transform: 'translate(-50%, -145%)' }}>
+            경유{index + 1}
+          </span>
+        )
+      })}
       <span className="absolute" style={{ left: mover.left, top: mover.top, transform: `translate(-50%, -50%) rotate(${walker ? 0 : taxi.angle}deg)` }}>
         <MarkerIcon className="h-7 w-7 text-[#0F172A] drop-shadow-[0_1px_1px_rgba(255,255,255,0.95)]" strokeWidth={2.35} />
       </span>
@@ -1335,6 +1365,7 @@ function NaverLiveRideMap({
   taxi,
   origin,
   dest,
+  waypoints,
   className,
 }: {
   phase: TaxiLivePhase;
@@ -1342,6 +1373,7 @@ function NaverLiveRideMap({
   taxi: RidePoint & { angle: number };
   origin: RidePoint;
   dest: RidePoint;
+  waypoints?: RidePoint[];
   className?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -1353,21 +1385,31 @@ function NaverLiveRideMap({
   const lineRef = useRef<NaverPolyline | null>(null)
   const startPinRef = useRef<MapHtmlPin | null>(null)
   const endPinRef = useRef<MapHtmlPin | null>(null)
+  const viaPinsRef = useRef<MapHtmlPin[]>([])
   const walker = kind === 'daeri' && phase !== 'moving'
+  const via = (waypoints ?? []).filter((point) => isUsableCoord(point.lat, point.lng))
+  const viaKey = via.map((point) => `${point.lat.toFixed(5)},${point.lng.toFixed(5)}`).join('|')
   const originRef = useRef(origin)
   const destRef = useRef(dest)
+  const viaRef = useRef(via)
   const phaseRef = useRef(phase)
-  const routePathRef = useRef<RidePoint[]>([origin, dest])
+  const routePathRef = useRef<RidePoint[]>([origin, ...via, dest])
   originRef.current = origin
   destRef.current = dest
+  viaRef.current = via
   phaseRef.current = phase
-  const mid = lerpPoint(origin, dest, 0.5)
+  const chainLats = [origin, ...via, dest].map((point) => point.lat)
+  const chainLngs = [origin, ...via, dest].map((point) => point.lng)
+  const mid = {
+    lat: (Math.min(...chainLats) + Math.max(...chainLats)) / 2,
+    lng: (Math.min(...chainLngs) + Math.max(...chainLngs)) / 2,
+  }
   const [mode, setMode] = useState<'loading' | 'naver' | 'fallback'>(hasNaverMapClientId() ? 'loading' : 'fallback')
   const [zoom, setZoom] = useState(15)
   const [loadNotice, setLoadNotice] = useState<string | undefined>()
   const [loadHint, setLoadHint] = useState('지도를 불러오는 중이에요')
   const [loadAttempt, setLoadAttempt] = useState(0)
-  const [routePath, setRoutePath] = useState<RidePoint[]>([origin, dest])
+  const [routePath, setRoutePath] = useState<RidePoint[]>([origin, ...via, dest])
 
   const keepSolidStroke = () => {
     applySolidPolylineStyle(lineRef.current, canvasRef.current, mapRef.current)
@@ -1400,6 +1442,10 @@ function NaverLiveRideMap({
     forceRideCamera(sdk, map, originRef.current, destRef.current, phaseRef.current === 'moving' ? 'dest' : 'route', routePathRef.current)
     startPinRef.current?.setPosition(originRef.current.lat, originRef.current.lng)
     endPinRef.current?.setPosition(destRef.current.lat, destRef.current.lng)
+    viaPinsRef.current.forEach((pin, index) => {
+      const point = viaRef.current[index]
+      if (point) pin.setPosition(point.lat, point.lng)
+    })
     applyPolyline(sdk)
     keepSolidStroke()
   }
@@ -1427,7 +1473,10 @@ function NaverLiveRideMap({
 
   useEffect(() => {
     const controller = new AbortController()
-    void fetchDrivingPath(origin, dest, controller.signal)
+    const chain = [origin, ...viaRef.current, dest]
+    routePathRef.current = chain
+    setRoutePath(chain)
+    void fetchDrivingPath(origin, dest, viaRef.current, controller.signal)
       .then((path) => {
         if (controller.signal.aborted || path.length < 3) return
         routePathRef.current = path
@@ -1441,7 +1490,7 @@ function NaverLiveRideMap({
       })
       .catch(() => undefined)
     return () => controller.abort()
-  }, [origin.lat, origin.lng, dest.lat, dest.lng])
+  }, [origin.lat, origin.lng, dest.lat, dest.lng, viaKey])
 
   useEffect(() => {
     if (!isUsableCoord(origin.lat, origin.lng) || !isUsableCoord(dest.lat, dest.lng)) {
@@ -1474,7 +1523,7 @@ function NaverLiveRideMap({
       const sdk = await waitForNaverSdk(2500)
       if (cancelled || !canvasRef.current) return
       const roadPath = await Promise.race([
-        fetchDrivingPath(origin, dest).catch(() => [] as RidePoint[]),
+        fetchDrivingPath(origin, dest, viaRef.current).catch(() => [] as RidePoint[]),
         new Promise<RidePoint[]>((resolve) => window.setTimeout(() => resolve([]), 2500)),
       ])
       if (cancelled || !canvasRef.current) return
@@ -1531,7 +1580,7 @@ function NaverLiveRideMap({
         return
       }
       if (routePathRef.current.length < 3) {
-        void fetchDrivingPath(origin, dest)
+        void fetchDrivingPath(origin, dest, viaRef.current)
           .then((path) => {
             if (cancelled || path.length < 3 || !mapRef.current) return
             routePathRef.current = path
@@ -1552,6 +1601,12 @@ function NaverLiveRideMap({
       endLabel.textContent = '도착'
       startPinRef.current = createHtmlOverlay(maps, map, startLabel, origin.lat, origin.lng, 'translate(-50%, -120%)')
       endPinRef.current = createHtmlOverlay(maps, map, endLabel, dest.lat, dest.lng, 'translate(-50%, -120%)')
+      viaPinsRef.current = viaRef.current.map((point, index) => {
+        const label = document.createElement('div')
+        label.style.cssText = 'white-space:nowrap;writing-mode:horizontal-tb;width:max-content;border-radius:9999px;background:#EA580C;color:#fff;padding:3px 8px;font-size:10px;font-weight:800;letter-spacing:0.02em;box-shadow:0 4px 10px rgba(234,88,12,0.28)'
+        label.textContent = `경유${index + 1}`
+        return createHtmlOverlay(maps, map, label, point.lat, point.lng, 'translate(-50%, -120%)')
+      })
       const mover = document.createElement('div')
       mover.style.willChange = 'transform'
       mover.innerHTML = markerHtml(walker)
@@ -1563,6 +1618,10 @@ function NaverLiveRideMap({
         forceRideCamera(maps, map, origin, dest, phase === 'moving' ? 'dest' : 'route', routePathRef.current)
         startPinRef.current?.setPosition(origin.lat, origin.lng)
         endPinRef.current?.setPosition(dest.lat, dest.lng)
+        viaPinsRef.current.forEach((pin, index) => {
+          const point = viaRef.current[index]
+          if (point) pin.setPosition(point.lat, point.lng)
+        })
         applyPolyline(maps)
         applySolidPolylineStyle(lineRef.current, canvasRef.current, map)
         if (phase === 'moving') {
@@ -1594,6 +1653,8 @@ function NaverLiveRideMap({
       startPinRef.current = null
       endPinRef.current?.setMap(null)
       endPinRef.current = null
+      viaPinsRef.current.forEach((pin) => pin.setMap(null))
+      viaPinsRef.current = []
       moverRef.current?.setMap(null)
       moverRef.current = null
       lineRef.current?.setMap(null)
@@ -1601,7 +1662,7 @@ function NaverLiveRideMap({
       mapRef.current?.destroy?.()
       mapRef.current = null
     }
-  }, [kind, origin.lat, origin.lng, dest.lat, dest.lng, loadAttempt])
+  }, [kind, origin.lat, origin.lng, dest.lat, dest.lng, viaKey, loadAttempt])
 
   useEffect(() => {
     const marker = moverRef.current
@@ -1646,6 +1707,7 @@ function NaverLiveRideMap({
               taxi={taxi}
               origin={origin}
               dest={dest}
+              waypoints={via}
               path={routePath}
               zoom={zoom}
               size={{ width: frame.width, height: frame.height }}
@@ -1698,6 +1760,7 @@ export function TaxiLiveMap({
   destLng,
   originLabel,
   destLabel,
+  waypoints,
   vehicleLat,
   vehicleLng,
   vehicleHeading,
@@ -1714,6 +1777,7 @@ export function TaxiLiveMap({
   destLng?: number
   originLabel?: string
   destLabel?: string
+  waypoints?: RidePoint[]
   vehicleLat?: number
   vehicleLng?: number
   vehicleHeading?: number
@@ -1734,12 +1798,16 @@ export function TaxiLiveMap({
 
   const origin = live.origin ? { lat: live.origin.lat, lng: live.origin.lng } : null;
   const dest = live.dest ? { lat: live.dest.lat, lng: live.dest.lng } : null;
+  const via = (waypoints ?? []).filter((point) => isUsableCoord(point.lat, point.lng))
+  const viaKey = via.map((point) => `${point.lat.toFixed(5)},${point.lng.toFixed(5)}`).join('|')
+  const viaRef = useRef(via)
+  viaRef.current = via
   console.log("👉 파싱된 origin:", origin, "dest:", dest);
    const [taxi, setTaxi] = useState(() => {
     if (isUsableCoord(vehicleLat, vehicleLng)) {
       return { lat: vehicleLat as number, lng: vehicleLng as number, angle: vehicleHeading ?? 0 }
     }
-    return origin && dest ? vehicleOnRide(phase, origin, dest, phase === 'boarding' ? 1 : 0) : { lat: 0, lng: 0, angle: 0 }
+    return origin && dest ? vehicleOnRide(phase, origin, dest, phase === 'boarding' ? 1 : 0, via) : { lat: 0, lng: 0, angle: 0 }
   })
 
   useEffect(() => {
@@ -1755,7 +1823,7 @@ export function TaxiLiveMap({
     if (isUsableCoord(vehicleLat, vehicleLng)) return
     if (!origin || !dest) return
     if (phase === 'boarding') {
-      setTaxi(vehicleOnRide(phase, origin, dest, 1))
+      setTaxi(vehicleOnRide(phase, origin, dest, 1, viaRef.current))
       return
     }
     const duration = phase === 'moving' ? 24000 : 16000
@@ -1763,12 +1831,12 @@ export function TaxiLiveMap({
     const started = performance.now()
     const tick = (now: number) => {
       const elapsed = (now - started) % duration
-      setTaxi(vehicleOnRide(phase, origin, dest, elapsed / duration))
+      setTaxi(vehicleOnRide(phase, origin, dest, elapsed / duration, viaRef.current))
       frame = window.requestAnimationFrame(tick)
     }
     frame = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frame)
-  }, [phase, origin?.lat, origin?.lng, dest?.lat, dest?.lng, vehicleLat, vehicleLng])
+  }, [phase, origin?.lat, origin?.lng, dest?.lat, dest?.lng, viaKey, vehicleLat, vehicleLng])
 
   if (!origin || !dest) {
     return (
@@ -1786,6 +1854,7 @@ export function TaxiLiveMap({
         taxi={isUsableCoord(taxi.lat, taxi.lng) ? taxi : { ...origin, angle: 0 }}
         origin={origin}
         dest={dest}
+        waypoints={via}
         className={className ?? 'h-[268px]'}
       />
       <div className="pointer-events-none absolute right-16 top-3 z-[15]">
