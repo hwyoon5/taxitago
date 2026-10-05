@@ -28,8 +28,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# dispatch persistence
+# local state persistence (never ship dev state to production)
 data/dispatch.json
+data/escrow.json
+data/support.json
 
 # Windows reserved device name (accidental shell redirects)
 nul
