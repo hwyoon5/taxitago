@@ -66,6 +66,7 @@ import { enableDriverPush, showDriverOfferNotification } from '@/lib/driver-noti
 import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, releaseDriverWakeLock, stopDriverOfferAlarm } from '@/lib/driver-alert'
 import { playCommsAlert } from '@/lib/alert-sound'
 import DriverLostWatcher from '@/components/driver-lost-watcher'
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
@@ -4587,7 +4588,12 @@ const HOME_PARTNER_BANNERS: {
   },
 ]
 
+/** 이벤트 · 혜택 카드와 동일한 크기/비율 — 광고/파트너 카드 전부 이 클래스를 공유한다. */
+const PARTNER_CARD_BASE =
+  'relative flex min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start flex-col overflow-hidden rounded-[22px] p-4 text-left'
+
 function HomePartnerBanners() {
+  const [adInfoOpen, setAdInfoOpen] = useState(false)
   return (
     <section className="mt-3" aria-label="광고 / 파트너 배너">
       <div className="flex items-end justify-between px-0.5">
@@ -4604,7 +4610,7 @@ function HomePartnerBanners() {
             onClick={(event) => {
               if (!banner.href) event.preventDefault()
             }}
-            className={`relative flex min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start flex-col overflow-hidden rounded-[22px] border-2 border-[#DDD6FE] bg-gradient-to-br from-[#F8F5FF] via-white to-[#EDE5FF] p-4 text-left text-[#0F172A] shadow-[0_12px_24px_rgba(76,31,184,0.12)] transition ${banner.href ? 'cursor-pointer hover:border-[#4C1FB8] hover:shadow-[0_14px_28px_rgba(76,31,184,0.22)] active:scale-[0.98]' : 'cursor-default'}`}
+            className={`${PARTNER_CARD_BASE} border-2 border-[#DDD6FE] bg-gradient-to-br from-[#F8F5FF] via-white to-[#EDE5FF] text-[#0F172A] shadow-[0_12px_24px_rgba(76,31,184,0.12)] transition ${banner.href ? 'cursor-pointer hover:border-[#4C1FB8] hover:shadow-[0_14px_28px_rgba(76,31,184,0.22)] active:scale-[0.98]' : 'cursor-default'}`}
             aria-label={`${banner.name} ${banner.subtitle}`}
           >
             <img src={banner.logoSrc} alt="BaroOnda 쇼핑 카트와 파이 로고" className="h-12 w-auto max-w-full object-contain object-left" />
@@ -4616,8 +4622,59 @@ function HomePartnerBanners() {
             </span>
           </a>
         ))}
+        <button
+          type="button"
+          onClick={() => setAdInfoOpen(true)}
+          className={`${PARTNER_CARD_BASE} cursor-pointer items-center justify-center border-2 border-dashed border-[#C4B5FD] bg-white/70 text-center transition hover:border-[#4C1FB8] hover:bg-[#F8F5FF] active:scale-[0.98]`}
+          aria-label="광고 등록 안내"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EDE9FE]">
+            <Sparkles className="h-4 w-4 text-[#4C1FB8]" />
+          </span>
+          <p className="mt-2 text-[13px] font-black leading-snug text-[#4C1FB8]">여기는 당신의 광고를<br />올리는 곳입니다</p>
+          <span className="mt-2 inline-flex items-center gap-0.5 text-[11px] font-black text-[#64748B]">
+            광고 등록 안내
+            <ChevronRight className="h-3.5 w-3.5" />
+          </span>
+        </button>
       </div>
+      {adInfoOpen ? <AdInquiryModal onClose={() => setAdInfoOpen(false)} /> : null}
     </section>
+  )
+}
+
+function AdInquiryModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[130] flex items-end justify-center bg-[#241d35]/50 sm:items-center sm:p-4" onClick={onClose}>
+      <section className="w-full max-w-md rounded-t-[28px] bg-white p-5 sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs font-black text-[#4C1FB8]">광고 / 파트너 배너</p>
+            <h3 className="mt-1 text-lg font-black">이 자리에 광고를 등록하는 방법</h3>
+          </div>
+          <button type="button" onClick={onClose} className="text-sm font-black text-[#64748B]" aria-label="닫기">닫기</button>
+        </div>
+        <ol className="mt-4 space-y-3">
+          {[
+            { step: '1', text: '홍보할 서비스명 · 배너 이미지 · 연결할 링크를 준비해 주세요.' },
+            { step: '2', text: '아래 문의 이메일로 광고 신청을 보내 주세요. 제목에 [광고등록]을 붙여 주시면 빠르게 처리됩니다.' },
+            { step: '3', text: '담당자 검토·심사 후 이 영역에 광고 배너가 노출됩니다.' },
+          ].map((row) => (
+            <li key={row.step} className="flex items-start gap-2.5">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#4C1FB8] text-[11px] font-black text-white">{row.step}</span>
+              <p className="text-[13px] font-bold leading-5 text-[#334155]">{row.text}</p>
+            </li>
+          ))}
+        </ol>
+        <a
+          href={`${SUPPORT_MAILTO}?subject=${encodeURIComponent('[광고등록] TaxiTago 배너 광고 문의')}`}
+          className="mt-4 block rounded-2xl bg-[#4C1FB8] py-3 text-center text-sm font-black text-white"
+        >
+          이메일로 광고 신청하기
+        </a>
+        <p className="mt-2 break-all text-center text-[10px] font-bold text-[#94A3B8]">{SUPPORT_EMAIL}</p>
+      </section>
+    </div>
   )
 }
 
