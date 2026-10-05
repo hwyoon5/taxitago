@@ -5,6 +5,7 @@ import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import { getAdminWallet, saveAdminWallet } from '@/lib/admin-wallet'
 import { ADMIN_WALLET_SECRET_ENV, adminWalletSecret } from '@/lib/admin-wallet-secret'
 import { recordAudit } from '@/lib/audit-store'
+import { recordWalletTx } from '@/lib/wallet-history'
 import { piRound } from '@/lib/pi-format'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 
@@ -123,12 +124,18 @@ export async function POST(request: Request) {
     const fee = Math.max(baseFee || 0, MIN_FEE_STROOPS)
     const feePi = fee / 1e7
     if (Number.isFinite(balance) && balance < amount + feePi) {
-      return NextResponse.json(
-        {
-          error: `관리자 지갑 잔액이 부족합니다. 잔액 ${balance.toFixed(7)} Pi < 필요 ${(amount + feePi).toFixed(7)} Pi (수수료 포함)`,
-        },
-        { status: 400 },
-      )
+      const message = `관리자 지갑 잔액이 부족합니다. 잔액 ${balance.toFixed(7)} Pi < 필요 ${(amount + feePi).toFixed(7)} Pi (수수료 포함)`
+      await recordWalletTx({
+        kind: 'withdraw',
+        fromWallet: keypair.publicKey(),
+        toWallet: recipient,
+        amount,
+        memo: reason || memoText,
+        status: 'failed',
+        error: message,
+        network: sandbox ? 'testnet' : 'mainnet',
+      }).catch(() => undefined)
+      return NextResponse.json({ error: message }, { status: 400 })
     }
     const builder = new TransactionBuilder(account, { fee: String(fee), networkPassphrase: passphrase })
       .addOperation(
@@ -139,6 +146,16 @@ export async function POST(request: Request) {
     const transaction = builder.build()
     transaction.sign(keypair)
     const result = await server.submitTransaction(transaction, { skipMemoRequiredCheck: true })
+    await recordWalletTx({
+      kind: 'withdraw',
+      txid: result.hash,
+      fromWallet: keypair.publicKey(),
+      toWallet: recipient,
+      amount,
+      memo: reason || memoText,
+      status: 'confirmed',
+      network: sandbox ? 'testnet' : 'mainnet',
+    }).catch(() => undefined)
     await recordAudit({
       kind: 'withdraw',
       actor: 'admin',
@@ -156,6 +173,17 @@ export async function POST(request: Request) {
       network: sandbox ? 'testnet' : 'mainnet',
     })
   } catch (error) {
-    return NextResponse.json({ error: horizonError(error) }, { status: 502 })
+    const message = horizonError(error)
+    await recordWalletTx({
+      kind: 'withdraw',
+      fromWallet: keypair.publicKey(),
+      toWallet: recipient,
+      amount,
+      memo: reason || memoText,
+      status: 'failed',
+      error: message,
+      network: sandbox ? 'testnet' : 'mainnet',
+    }).catch(() => undefined)
+    return NextResponse.json({ error: message }, { status: 502 })
   }
 }

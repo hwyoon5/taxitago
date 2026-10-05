@@ -17,6 +17,8 @@ import { getFareConfig, saveFareConfig } from '@/lib/fare-config-server'
 import { getAdminWallet, saveAdminWallet } from '@/lib/admin-wallet'
 import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import { depositTotals, listDeposits, recordDeposit } from '@/lib/deposit-store'
+import { listWalletTxs, recordWalletTx, walletTxTotals } from '@/lib/wallet-history'
+import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import type { FareConfig } from '@/lib/fare-config'
 import type { CommissionRates, SettlementEntry, SettlementService } from '@/lib/settlement-types'
 
@@ -80,18 +82,41 @@ export async function GET(request: Request) {
   if (!(await isAdminRequest(request))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const [rates, entries, audit, fare, adminWallet, deposits, depositTotal] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig(), getAdminWallet(), listDeposits(), depositTotals()])
+  const [rates, entries, audit, fare, adminWallet, deposits, depositTotal, history, historyTotals] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig(), getAdminWallet(), listDeposits(), depositTotals(), listWalletTxs(), walletTxTotals()])
   // Older ledger rows predate the passengerId column — resolve it from the
   // ride record so exports still show the passenger for every ride:* ref.
   await hydrateDispatchFromKv()
   syncDispatchFromDisk()
+  // Backfill: 입금 장부에만 있고 통합 입·출금 내역에 없는 과거 기록을 병합한다.
+  // recordWalletTx는 (kind, txid) 멱등이라 중복 기록되지 않는다.
+  const knownTx = new Set(history.map((entry) => `${entry.kind}:${entry.txid}`))
+  const missing = deposits.filter((deposit) => deposit.txid && !knownTx.has(`deposit:${deposit.txid}`))
+  if (missing.length) {
+    for (const deposit of missing) {
+      await recordWalletTx({
+        kind: 'deposit',
+        txid: deposit.txid,
+        fromWallet: deposit.fromWallet,
+        toWallet: deposit.toWallet,
+        amount: deposit.amount,
+        memo: deposit.memo,
+        status: deposit.status === 'pending' ? 'pending' : 'confirmed',
+        network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
+      }).catch(() => undefined)
+    }
+    const [refreshed, refreshedTotals] = await Promise.all([listWalletTxs(), walletTxTotals()])
+    history.length = 0
+    history.push(...refreshed)
+    historyTotals.deposit = refreshedTotals.deposit
+    historyTotals.withdraw = refreshedTotals.withdraw
+  }
   const enriched = entries.map((entry) => {
     if (entry.passengerId) return entry
     const rideId = /^ride:([^:]+)/.exec(entry.refId)?.[1]
     const passengerId = rideId ? getRide(rideId)?.passengerId : undefined
     return passengerId ? { ...entry, passengerId } : entry
   })
-  return NextResponse.json({ ok: true, rates, entries: enriched, summary: summarize(enriched), storage: settlementStorageBackend(), audit, fare, adminWallet, deposits, depositTotal })
+  return NextResponse.json({ ok: true, rates, entries: enriched, summary: summarize(enriched), storage: settlementStorageBackend(), audit, fare, adminWallet, deposits, depositTotal, history, historyTotals })
 }
 
 export async function PATCH(request: Request) {
@@ -149,6 +174,16 @@ export async function PATCH(request: Request) {
       status: 'confirmed',
     })
     if (!deposit) return NextResponse.json({ error: '입금 기록에 실패했습니다.' }, { status: 400 })
+    await recordWalletTx({
+      kind: 'deposit',
+      txid: deposit.txid,
+      fromWallet: deposit.fromWallet,
+      toWallet: deposit.toWallet,
+      amount: deposit.amount,
+      memo: deposit.memo || reason,
+      status: 'confirmed',
+      network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
+    }).catch(() => undefined)
     await recordAudit({ kind: 'deposit', actor: 'admin', refId: `deposit:${txid}`, reason, detail: `${fromWallet} → ${toWallet} · ${piRound(amount)}Pi`, after: { txid, amount: deposit.amount } }).catch(() => undefined)
     return NextResponse.json({ ok: true, deposit, depositTotal: await depositTotals() })
   }

@@ -5,8 +5,10 @@ import { adminHeaders } from '@/lib/admin-key'
 import { isPiWalletAddress } from '@/lib/pi-wallet'
 import { type SettlementEntry, type SettlementService } from '@/lib/settlement-types'
 import AdminWithdraw from '@/components/admin-withdraw'
+import AdminWalletHistory from '@/components/admin-wallet-history'
 import type { AuditEntry } from '@/lib/audit-store'
 import type { DepositEntry } from '@/lib/deposit-store'
+import type { WalletTxEntry } from '@/lib/wallet-history'
 import { buildSettlementCsv } from '@/lib/settlement-csv'
 
 type ServiceSummary = { label: string; count: number; gross: number; commission: number; net: number }
@@ -65,6 +67,8 @@ export default function AdminSettlements() {
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [deposits, setDeposits] = useState<DepositEntry[]>([])
   const [depositTotal, setDepositTotal] = useState<{ count: number; total: number } | null>(null)
+  const [history, setHistory] = useState<WalletTxEntry[]>([])
+  const [historyTotals, setHistoryTotals] = useState<{ deposit: { count: number; total: number }; withdraw: { count: number; total: number } } | null>(null)
   const [adminWallet, setAdminWallet] = useState('')
   const [depositBusy, setDepositBusy] = useState(false)
   const [depositForm, setDepositForm] = useState({ txid: '', fromWallet: '', amount: '', memo: '' })
@@ -84,7 +88,7 @@ export default function AdminSettlements() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number }; adminWallet?: string }
+        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number }; history?: WalletTxEntry[]; historyTotals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number } }; adminWallet?: string }
       })
       .then((data) => {
         setEntries(data.entries)
@@ -92,6 +96,8 @@ export default function AdminSettlements() {
         setAudit(data.audit ?? [])
         setDeposits(data.deposits ?? [])
         setDepositTotal(data.depositTotal ?? null)
+        setHistory(data.history ?? [])
+        setHistoryTotals(data.historyTotals ?? null)
         setAdminWallet(typeof data.adminWallet === 'string' ? data.adminWallet : '')
         setError('')
       })
@@ -352,6 +358,8 @@ export default function AdminSettlements() {
       </section>
 
       <AdminWithdraw adminWallet={adminWallet} onChanged={reload} />
+
+      <AdminWalletHistory entries={history} totals={historyTotals} />
 
       {summary ? (
         <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
