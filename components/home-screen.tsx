@@ -682,7 +682,7 @@ function receiptFromRecent(item: RecentUse): RideReceipt {
   }
 }
 
-type ActivityEntry = { id: string; at: string; label: string; detail: string }
+type ActivityEntry = { id: string; at: string; ts?: number; label: string; detail: string }
 
 function loadActivities(): ActivityEntry[] {
   if (typeof window === 'undefined') return []
@@ -700,7 +700,7 @@ function saveActivities(items: ActivityEntry[]) {
 
 type FavoritePlace = { id: string; name: string; address: string }
 type RecentPlace = { id: string; name: string; address: string }
-type PiTransaction = { label: string; amount: number; detail: string; place: string; at: string; estimated?: number }
+type PiTransaction = { label: string; amount: number; detail: string; place: string; at: string; ts?: number; estimated?: number }
 type RideReceipt = {
   rideId?: string
   route: string
@@ -1831,7 +1831,7 @@ function DestinationSheet({
   onNotice: (message: string) => void
   balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
-  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }) => void
+  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string) => void
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
@@ -2111,6 +2111,7 @@ function TaxiMatchingSheet({
   onAskReview,
   onReceipt,
   onActivity,
+  onRideSettled,
   onKeep,
   onEnd,
 }: {
@@ -2126,11 +2127,12 @@ function TaxiMatchingSheet({
   onNotice: (message: string) => void
   balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
-  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }) => void
+  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string) => void
   onNeedCharge: () => void
   onAskReview: (target: RideReviewTarget) => void
   onReceipt: (ride: RideReceipt) => void
   onActivity?: (label: string, detail: string) => void
+  onRideSettled?: (rideId: string, receipt: SettlementReceipt) => void
   onKeep?: () => void
   onEnd?: () => void
 }) {
@@ -2184,6 +2186,23 @@ function TaxiMatchingSheet({
   const [cancelSettling, setCancelSettling] = useState(false)
   const settledRef = useRef(false)
   const payingRef = useRef(false)
+  // 서버에서 먼저 완료된 운행의 정산 내역을 홈 '최근 이용'/활동 기록과 동기화한다.
+  const settledSyncedRef = useRef('')
+  const syncCompleted = useCallback(
+    (rideId: string) => {
+      if (!onRideSettled || !rideId || settledSyncedRef.current === rideId) return
+      settledSyncedRef.current = rideId
+      void fetchRideReceipt(rideId)
+        .then((receipt) => {
+          if (receipt) onRideSettled(rideId, receipt)
+          else settledSyncedRef.current = ''
+        })
+        .catch(() => {
+          settledSyncedRef.current = ''
+        })
+    },
+    [onRideSettled],
+  )
   const assigned = ride?.assignedDriver
   const driver = {
     name: assigned?.name || '배정 대기',
@@ -2266,6 +2285,7 @@ function TaxiMatchingSheet({
       void fetchRideRequest(taxiSheetRideId).then((existing) => {
         if (cancelled || !existing) return
         if (existing.status === 'completed' || existing.status === 'cancelled') {
+          if (existing.status === 'completed') syncCompleted(existing.id)
           taxiSheetRideId = ''
           rideIdRef.current = ''
           writeStoredTaxi(null)
@@ -2314,6 +2334,7 @@ function TaxiMatchingSheet({
         taxiSheetRideId = ''
         writeStoredTaxi(null)
         setFresh(next)
+        syncCompleted(next.id)
         return
       }
       if (next.status === 'assigned') {
@@ -2470,7 +2491,7 @@ function TaxiMatchingSheet({
     const openPayReceipt = (paymentId: string, txid: string) => {
       if (settledRef.current) return
       settledRef.current = true
-      onSettle(amount, route, '택시 결제', billed.estimate, { paymentId, txid })
+      onSettle(amount, route, '택시 결제', billed.estimate, { paymentId, txid }, ride?.id)
     }
     const releasePayLock = () => {
       payingRef.current = false
@@ -2561,6 +2582,7 @@ function TaxiMatchingSheet({
     settledRef.current = true
     void fetchRideReceipt(ride.id).then((receipt) => {
       if (receipt) {
+        onRideSettled?.(ride.id, receipt)
         onReceipt(receiptFromSettlement(receipt))
         onAskReview({
           rideId: ride.id,
@@ -2931,6 +2953,7 @@ function ServiceSheet({
   onRequireRoute,
   onDeliveryCreated,
   onActivity,
+  onRideSettled,
 }: {
   service: string
   pickupLat: number
@@ -2943,7 +2966,7 @@ function ServiceSheet({
   onNotice: (message: string) => void
   balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
-  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }) => void
+  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string) => void
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
@@ -2952,6 +2975,7 @@ function ServiceSheet({
   onRequireRoute?: (kind: RouteGap) => void
   onDeliveryCreated?: (job: DeliveryJob) => void
   onActivity?: (label: string, detail: string) => void
+  onRideSettled?: (rideId: string, receipt: SettlementReceipt) => void
 }) {
   const { t } = useLocale()
   const IS_TEST_MODE = true
@@ -2986,6 +3010,23 @@ function ServiceSheet({
   const [deviceFormOpen, setDeviceFormOpen] = useState(false)
   const finishedRef = useRef(false)
   const rentalSerialRef = useRef('')
+  // 서버에서 먼저 완료된 운행의 정산 내역을 홈 '최근 이용'/활동 기록과 동기화한다.
+  const daeriSettledSyncedRef = useRef('')
+  const syncDaeriCompleted = useCallback(
+    (rideId: string) => {
+      if (!onRideSettled || !rideId || daeriSettledSyncedRef.current === rideId) return
+      daeriSettledSyncedRef.current = rideId
+      void fetchRideReceipt(rideId)
+        .then((receipt) => {
+          if (receipt) onRideSettled(rideId, receipt)
+          else daeriSettledSyncedRef.current = ''
+        })
+        .catch(() => {
+          daeriSettledSyncedRef.current = ''
+        })
+    },
+    [onRideSettled],
+  )
   const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
   const vehicle = service === '자전거' || service === '킥보드'
@@ -3173,6 +3214,7 @@ function ServiceSheet({
       void fetchRideRequest(daeriSheetRideId).then((existing) => {
         if (cancelled || !existing) return
         if (existing.status === 'completed' || existing.status === 'cancelled') {
+          if (existing.status === 'completed') syncDaeriCompleted(existing.id)
           daeriSheetRideId = ''
           daeriRideIdRef.current = ''
           createNew()
@@ -3199,7 +3241,10 @@ function ServiceSheet({
         onClose()
         return
       }
-      if (next.status === 'completed') daeriSheetRideId = ''
+      if (next.status === 'completed') {
+        daeriSheetRideId = ''
+        syncDaeriCompleted(next.id)
+      }
       if ((next.status === 'assigned' || next.status === 'completed') && !daeriAcceptedRef.current) {
         daeriAcceptedRef.current = true
         setPhase('assigned')
@@ -3461,7 +3506,7 @@ function ServiceSheet({
               onPaid={(result) => {
                 if (!result.paymentId || !result.txid) return
                 if (vehicle) releaseRental()
-                onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined, result)
+                onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined, result, dispatchRide?.id || daeriRideIdRef.current || undefined)
               }}
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
@@ -3576,6 +3621,7 @@ function ServiceSheet({
                 <button
                   type="button"
                   onClick={() => {
+                    if (dispatchRide?.id) syncDaeriCompleted(dispatchRide.id)
                     onAskReview(partner)
                     onClose()
                   }}
@@ -3646,7 +3692,7 @@ function ServiceSheet({
                         })
                         .finally(() => window.clearTimeout(timeout))
                     }
-                    onSettle(paid, place, `${service} 이용`, billed.estimate, result)
+                    onSettle(paid, place, `${service} 이용`, billed.estimate, result, rideId)
                     onAskReview(partner)
                   }}
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
@@ -5052,11 +5098,11 @@ function ActivityInbox({
   const kindClass = (kind: Notice['kind']) =>
     kind === '이벤트' ? 'bg-[#FEF3C7] text-[#B45309]' : kind === '업데이트' ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-[#EDE5FF] text-[#4C1FB8]'
   const localEntries = [
-    ...transactions.map((tx, index) => ({ id: `tx-${index}`, label: tx.label, detail: tx.detail || tx.place, amount: tx.amount, at: tx.at })),
+    ...transactions.map((tx, index) => ({ id: `tx-${index}`, label: tx.label, detail: tx.detail || tx.place, amount: tx.amount, at: tx.at, ts: tx.ts ?? 0 })),
     ...activities
       .filter((entry) => !PAYMENT_ACTIVITY_LABELS.has(entry.label))
-      .map((entry) => ({ id: entry.id, label: entry.label, detail: entry.detail, amount: null as number | null, at: entry.at })),
-  ]
+      .map((entry) => ({ id: entry.id, label: entry.label, detail: entry.detail, amount: null as number | null, at: entry.at, ts: entry.ts ?? 0 })),
+  ].sort((a, b) => b.ts - a.ts)
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 pb-8 [-webkit-overflow-scrolling:touch]">
@@ -7964,6 +8010,8 @@ export default function HomeScreen() {
   const [readNoticeIds, setReadNoticeIds] = useState<string[]>([])
   const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number; estimated?: number; paymentId: string; txid: string } | null>(null)
   const settledPaymentIds = useRef(new Set<string>())
+  // 서버/기사 측에서 먼저 완료된 운행도 '최근 이용'·활동 기록에 한 번만 반영한다.
+  const settledRideIds = useRef(new Set<string>())
   const [driverReview, setDriverReview] = useState<{ name: string; vehicle: string; plate: string; kind?: 'driver' | 'service' } | null>(null)
   const [rideReview, setRideReview] = useState<RideReviewTarget | null>(null)
   const [supportDesk, setSupportDesk] = useState<LostPrefill | null | true>(null)
@@ -7981,7 +8029,7 @@ export default function HomeScreen() {
     window.setTimeout(() => setNotice(''), 2200)
   }
   const recordActivity = (label: string, detail: string) => {
-    const entry: ActivityEntry = { id: crypto.randomUUID(), at: formatPiTime(), label, detail }
+    const entry: ActivityEntry = { id: crypto.randomUUID(), at: formatPiTime(), ts: Date.now(), label, detail }
     setActivities((items) => {
       const next = [entry, ...items].slice(0, 40)
       saveActivities(next)
@@ -8125,6 +8173,7 @@ export default function HomeScreen() {
     label: string,
     estimated: number | undefined,
     proof: { paymentId: string; txid: string },
+    rideId?: string,
   ) => {
     if (!proof.paymentId || !proof.txid) {
       console.error('[Pi] blocked local receipt without Pi payment proof')
@@ -8133,10 +8182,12 @@ export default function HomeScreen() {
     }
     if (settledPaymentIds.current.has(proof.paymentId)) return
     settledPaymentIds.current.add(proof.paymentId)
+    if (rideId) settledRideIds.current.add(rideId)
     const remaining = Math.round((walletBalance - amount) * 100) / 100
     const at = formatPiTime()
+    const ts = Date.now()
     setWalletBalance(Math.max(0, remaining))
-    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, estimated }, ...items])
+    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated }, ...items])
     recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(7)} Pi · ${place}`)
     setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated, paymentId: proof.paymentId, txid: proof.txid })
     if (!label.includes('취소')) {
@@ -8156,6 +8207,32 @@ export default function HomeScreen() {
       saveRecentUse(next)
       setRecentUse(next)
     }
+  }
+  // 기사가 먼저 정산했거나 앱을 다시 연 뒤 완료가 확인된 운행도 홈 '최근 이용'과
+  // 활동 기록/지갑 내역에 동기화한다. 수동 결제 경로와 rideId 중복 방지를 공유한다.
+  const noteCompletedRide = (rideId: string, receipt: SettlementReceipt, label: string) => {
+    const key = rideId || receipt.rideId || receipt.payoutTxid || receipt.lockTxid
+    if (key && settledRideIds.current.has(key)) return
+    if ((receipt.payoutTxid && settledPaymentIds.current.has(receipt.payoutTxid)) || (receipt.lockTxid && settledPaymentIds.current.has(receipt.lockTxid))) return
+    if (key) settledRideIds.current.add(key)
+    const amount = receipt.amount
+    if (!(amount > 0)) return
+    const at = formatPiTime()
+    const ts = Date.now()
+    const place = receipt.route
+    setWalletBalance((balance) => Math.max(0, Math.round((balance - amount) * 100) / 100))
+    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated: receipt.estimatedFare }, ...items])
+    recordActivity('운행 완료', `${place} · ${amount.toFixed(7)} Pi · 정산 완료`)
+    const next: RecentUse = {
+      route: place,
+      fare: amount,
+      service: label.replace(/\s*(이용|결제)$/, '').trim() || label,
+      at,
+      paymentId: receipt.lockTxid || key || `pay-${ts}`,
+      txid: receipt.payoutTxid || receipt.lockTxid || `done-${ts}`,
+    }
+    saveRecentUse(next)
+    setRecentUse(next)
   }
   useEffect(() => {
     const stored = readStoredTaxi()
@@ -8207,20 +8284,20 @@ export default function HomeScreen() {
   const depositWallet = (amount: number) => {
     const at = formatPiTime()
     setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
-    setTransactions((items) => [{ label: 'Pi 충전', amount, detail: `Pi 월렛 · ${at}`, place: 'Pi 월렛', at }, ...items])
+    setTransactions((items) => [{ label: 'Pi 충전', amount, detail: `Pi 월렛 · ${at}`, place: 'Pi 월렛', at, ts: Date.now() }, ...items])
     recordActivity('Pi 충전 완료', `+${amount.toFixed(7)} Pi`)
   }
   const withdrawWallet = (amount: number, dest: string) => {
     const at = formatPiTime()
     setWalletBalance((balance) => Math.max(0, Math.round((balance - amount) * 100) / 100))
-    setTransactions((items) => [{ label: 'Pi 환불', amount: -amount, detail: `${dest.slice(0, 10)}… · ${at}`, place: dest || 'Pi 월렛', at }, ...items])
+    setTransactions((items) => [{ label: 'Pi 환불', amount: -amount, detail: `${dest.slice(0, 10)}… · ${at}`, place: dest || 'Pi 월렛', at, ts: Date.now() }, ...items])
     recordActivity('Pi 환불', `-${amount.toFixed(7)} Pi`)
   }
   const rewardReview = () => {
     const amount = 0.1
     const at = formatPiTime()
     setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
-    setTransactions((items) => [{ label: '리뷰 적립', amount, detail: `기사 평가 · ${at}`, place: '리뷰 감사 포인트', at }, ...items])
+    setTransactions((items) => [{ label: '리뷰 적립', amount, detail: `기사 평가 · ${at}`, place: '리뷰 감사 포인트', at, ts: Date.now() }, ...items])
     showNotice('평가 감사합니다. 0.1 Pi가 적립되었습니다.')
   }
   const openService = (value: string) => {
@@ -8657,6 +8734,7 @@ export default function HomeScreen() {
             onAskReview={setRideReview}
             onReceipt={setReceiptRide}
             onActivity={recordActivity}
+            onRideSettled={(id, receipt) => noteCompletedRide(id, receipt, '택시 결제')}
           />
           </div>
         ) : null}
@@ -8686,6 +8764,7 @@ export default function HomeScreen() {
             onRequireRoute={setRouteAlert}
             onDeliveryCreated={setDeliveryJob}
             onActivity={recordActivity}
+            onRideSettled={(id, receipt) => noteCompletedRide(id, receipt, `${selectedService} 이용`)}
           />
         )}
         {supportDesk ? (
