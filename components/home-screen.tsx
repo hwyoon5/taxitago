@@ -224,6 +224,20 @@ function rideRouteLabel(pickupAddress: string, destLabel: string, destAddress?: 
   return `${origin} → ${[...stops, dest].join(' → ')}`
 }
 
+type RideStopPoints = {
+  pickup: { address?: string; label?: string }
+  waypoints?: { address?: string; label?: string }[]
+  dest: { address?: string; label?: string }
+}
+
+/** Server ride (PublicRide) → ordered stops: 출발지 → 경유지… → 목적지. */
+function rideStops(ride: RideStopPoints) {
+  const origin = ride.pickup.address || ride.pickup.label || '출발지'
+  const via = (ride.waypoints ?? []).map((point) => point.label || point.address || '경유지').filter(Boolean)
+  const dest = ride.dest.label || ride.dest.address || '목적지'
+  return { origin, via, dest, chain: [origin, ...via, dest].join(' → ') }
+}
+
 type RouteGap = 'pickup' | 'dest' | 'both'
 
 function isUsablePickupAddress(value?: string | null) {
@@ -6815,10 +6829,9 @@ function DriverOfferWatcher({
       if (notifiedRef.current === ride.id) return
       notifiedRef.current = ride.id
       alertDriverOffer(ride.id)
-      onActivityRef.current?.('호출 접수', `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`)
+      onActivityRef.current?.('호출 접수', rideStops(ride).chain)
       onNotice('새로운 콜 요청이 들어왔어요.')
-      const body = `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
-      void showDriverOfferNotification(ride.id, body)
+      void showDriverOfferNotification(ride.id, rideStops(ride).chain)
     }
     let requestSeq = 0
     const pull = () => {
@@ -6865,6 +6878,7 @@ function DriverOfferWatcher({
       {
         passengerId: incoming.passengerId,
         pickup: incoming.pickup,
+        waypoints: incoming.waypoints,
         dest: incoming.dest,
         estimatedFare: incoming.estimatedFare,
         kind: incoming.kind,
@@ -6874,7 +6888,7 @@ function DriverOfferWatcher({
       .then((next) => {
         if (action === 'accept') {
           writeStoredDriverRide(driverId, next)
-          onActivityRef.current?.('콜 수락', `${incoming.pickup.address || '출발지'} → ${incoming.dest.label || incoming.dest.address || '목적지'}`)
+          onActivityRef.current?.('콜 수락', rideStops(incoming).chain)
           onOpenDesk()
         } else {
           setIncoming(null)
@@ -6892,9 +6906,13 @@ function DriverOfferWatcher({
             <p className="text-xs font-bold text-[#4A82B8]">새로운 운행 요청</p>
             <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
           </div>
-          <p className="mt-3 text-lg font-bold text-[#0F172A]">
-            {(incoming.pickup.address || incoming.pickup.label || '출발지')} → {(incoming.dest.label || incoming.dest.address || '목적지')}
-          </p>
+          <p className="mt-3 text-lg font-bold leading-6 text-[#0F172A]">{rideStops(incoming).chain}</p>
+          {rideStops(incoming).via.length ? (
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-[#EA580C]">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              경유지 {rideStops(incoming).via.join(' · ')}
+            </p>
+          ) : null}
           <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
             <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
             <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(7)} Pi</strong>
@@ -6929,7 +6947,7 @@ function DriverOfferWatcher({
         >
           <p className="text-xs font-bold text-[#4A82B8]">진행 중인 운행</p>
           <p className="mt-1 text-sm font-bold text-[#0F172A]">
-            {(activeRide.pickup.address || '출발지')} → {(activeRide.dest.label || activeRide.dest.address || '목적지')}
+            {rideStops(activeRide).chain}
             {activeRide.readyToSettleAt ? ' · 정산 가능' : activeRide.boardedAt ? ' · 승객 탑승' : ''}
           </p>
         </button>
@@ -7010,8 +7028,7 @@ function DriverDashboard({
     activityKeys.current.add(key)
     onActivityRef.current?.(label, detail)
   }, [])
-  const rideRoute = (ride: { pickup: { address?: string; label?: string }; dest: { address?: string; label?: string } }) =>
-    `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
+  const rideRoute = (ride: RideStopPoints) => rideStops(ride).chain
   const dropEndedRide = useCallback((ended: PublicRide | string) => {
     const id = typeof ended === 'string' ? ended : ended.id
     endedRideIds.current.add(id)
@@ -7276,8 +7293,7 @@ function DriverDashboard({
         notifiedOffer.current = ride.id
         alertDriverOffer(ride.id)
         if (pushReady.current) return
-        const body = `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`
-        void showDriverOfferNotification(ride.id, body)
+        void showDriverOfferNotification(ride.id, rideStops(ride).chain)
         return
       }
       const held = localOfferRef.current
@@ -7550,9 +7566,13 @@ function DriverDashboard({
       {activeRide ? (
         <section className="mt-4 rounded-[26px] border-2 border-[#86EFAC] bg-[#F0FDF4] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
           <p className="text-xs font-bold text-[#047857]">배차된 운행</p>
-          <p className="mt-2 text-lg font-bold text-[#0F172A]">
-            {(activeRide.pickup.address || '출발지')} → {(activeRide.dest.label || activeRide.dest.address || '목적지')}
-          </p>
+          <p className="mt-2 text-lg font-bold leading-6 text-[#0F172A]">{rideStops(activeRide).chain}</p>
+          {rideStops(activeRide).via.length ? (
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-[#EA580C]">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              경유지 {rideStops(activeRide).via.join(' · ')}
+            </p>
+          ) : null}
           <p className="mt-1 text-sm font-semibold text-[#334155]">
             에스크로 {activeRide.escrow?.amount?.toFixed(7) ?? activeRide.estimatedFare.toFixed(7)} Pi · {activeRide.escrow?.status === 'held' ? '잠금 완료' : activeRide.escrow?.status === 'released' ? '정산됨' : '승객 입금 대기'}
           </p>
@@ -7568,7 +7588,7 @@ function DriverDashboard({
               <TaxiLiveMap
                 kind="taxi"
                 phase="arriving"
-                routeLabel={`${activeRide.pickup.address || '출발지'} → ${activeRide.dest.label || activeRide.dest.address || '목적지'}`}
+                routeLabel={rideStops(activeRide).chain}
                 statusLabel="픽업지로 이동 중"
                 originLat={activeRide.pickup.lat}
                 originLng={activeRide.pickup.lng}
@@ -7688,9 +7708,13 @@ function DriverDashboard({
             <p className="text-xs font-bold text-[#4A82B8]">새로운 운행 요청</p>
             <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
           </div>
-          <p className="mt-3 text-lg font-bold text-[#0F172A]">
-            {(incoming.pickup.address || incoming.pickup.label || '출발지')} → {(incoming.dest.label || incoming.dest.address || '목적지')}
-          </p>
+          <p className="mt-3 text-lg font-bold leading-6 text-[#0F172A]">{rideStops(incoming).chain}</p>
+          {rideStops(incoming).via.length ? (
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-[#EA580C]">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              경유지 {rideStops(incoming).via.join(' · ')}
+            </p>
+          ) : null}
           <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
             <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
             <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(7)} Pi</strong>

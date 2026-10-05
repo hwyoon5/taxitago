@@ -19,6 +19,7 @@ type PushPayload = {
     passengerId: string
     kind?: 'taxi' | 'daeri'
     pickup: { lat: number; lng: number; address?: string; label?: string }
+    waypoints?: { lat: number; lng: number; address?: string; label?: string }[]
     dest: { lat: number; lng: number; address?: string; label?: string }
     estimatedFare: number
   }

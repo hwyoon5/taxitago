@@ -144,12 +144,13 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
   stamp(ride)
   scheduleOfferWatch(ride)
   publishDriverLive(driver.id)
+  const via = (ride.waypoints ?? []).map((point) => point.label || point.address || '경유지')
   const pickup = ride.pickup.address || ride.pickup.label || '출발지'
   const dest = ride.dest.label || ride.dest.address || '목적지'
   console.log('[dispatch] offered ride', { rideId: ride.id, driverId: driver.id })
   void sendDriverPush(driver.id, {
     title: '새로운 운행 요청',
-    body: `${pickup} → ${dest}`,
+    body: [pickup, ...via, dest].join(' → '),
     tag: `taxitago-offer-${ride.id}`,
     url: '/?driver=1',
     rideId: ride.id,
@@ -160,6 +161,7 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
       passengerId: ride.passengerId,
       kind: ride.kind === 'daeri' ? 'daeri' : 'taxi',
       pickup: ride.pickup,
+      waypoints: ride.waypoints,
       dest: ride.dest,
       estimatedFare: ride.estimatedFare,
     },
