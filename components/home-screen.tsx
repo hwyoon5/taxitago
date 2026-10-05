@@ -71,6 +71,7 @@ import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
 import RideChat from '@/components/ride-chat'
+import RideCommsAlerts from '@/components/ride-comms-alerts'
 import RideReviewModal, { type RideReviewTarget } from '@/components/ride-review'
 import RideSosButton from '@/components/ride-sos'
 import SupportCenter, { type LostPrefill } from '@/components/support-center'
@@ -2832,6 +2833,16 @@ function TaxiMatchingSheet({
           onClose={() => setChatOpen(false)}
         />
       ) : null}
+      <RideCommsAlerts
+        rideId={ride?.status === 'assigned' ? ride.id : null}
+        actorId={passengerIdRef.current || localPassengerId()}
+        role="passenger"
+        peerName={`${driver.name} 기사님`}
+        chatOpen={chatOpen}
+        callOpen={callOpen}
+        onOpenChat={() => setChatOpen(true)}
+        onOpenCall={() => setCallOpen(true)}
+      />
       {cancelConfirmOpen && !showMatching && ride?.status !== 'completed' ? (
         <InTripCancelConfirmModal
           quoted={cancelSettlement.quoted}
@@ -4001,6 +4012,16 @@ function ServiceSheet({
           <DriverChatModal driverName={partner.name} onClose={() => setChatOpen(false)} />
         )
       ) : null}
+      <RideCommsAlerts
+        rideId={ride && dispatchRide?.status === 'assigned' ? contactRideId : null}
+        actorId={daeriPassengerIdRef.current || localPassengerId()}
+        role="passenger"
+        peerName={`${partner.name} 기사님`}
+        chatOpen={chatOpen}
+        callOpen={callOpen}
+        onOpenChat={() => setChatOpen(true)}
+        onOpenCall={() => setCallOpen(true)}
+      />
       {deviceFormOpen && vehicle ? (
         <MobilityDeviceFormModal
           initialKind={service === '킥보드' ? '퀵보드' : '자전거'}
@@ -7933,6 +7954,22 @@ function DriverDashboard({
           onClose={() => setChatOpen(false)}
         />
       ) : null}
+      <RideCommsAlerts
+        rideId={activeRide?.status === 'assigned' ? activeRide.id : null}
+        actorId={activeRide?.assignedDriver?.id || driverId}
+        role="driver"
+        peerName="승객"
+        chatOpen={chatOpen}
+        callOpen={callOpen}
+        onOpenChat={() => {
+          setNavOpen(false)
+          setChatOpen(true)
+        }}
+        onOpenCall={() => {
+          setNavOpen(false)
+          setCallOpen(true)
+        }}
+      />
       {deliveryChatPeer && activeDelivery ? (
         <DeliveryChatSheet job={activeDelivery} peer={deliveryChatPeer} onClose={() => setDeliveryChatPeer(null)} />
       ) : null}
