@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { Account, Asset, Horizon, Keypair, Memo, Operation, TransactionBuilder } from '@stellar/stellar-sdk'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
-import { getAdminWallet } from '@/lib/admin-wallet'
+import { getAdminWallet, saveAdminWallet } from '@/lib/admin-wallet'
+import { ADMIN_WALLET_SECRET_ENV, adminWalletSecret } from '@/lib/admin-wallet-secret'
 import { recordAudit } from '@/lib/audit-store'
 import { piRound } from '@/lib/pi-format'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
@@ -77,10 +78,10 @@ export async function POST(request: Request) {
   }
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
 
-  const secret = (process.env.ADMIN_WALLET_SECRET_PHRASE || '').trim()
+  const secret = adminWalletSecret()
   if (!secret) {
     return NextResponse.json(
-      { error: 'ADMIN_WALLET_SECRET_PHRASE 환경 변수가 설정되지 않았습니다.' },
+      { error: `${ADMIN_WALLET_SECRET_ENV} 환경 변수가 설정되지 않았습니다.` },
       { status: 500 },
     )
   }
@@ -102,6 +103,11 @@ export async function POST(request: Request) {
       { error: '비밀 키가 등록된 관리자 지갑 주소와 일치하지 않습니다.' },
       { status: 409 },
     )
+  }
+  // 아직 데모 플레이스홀더만 등록되어 있다면 시드에서 파생된 공개 주소를
+  // 관리자 지갑으로 자동 등록해 추가 설정 없이 바로 출금할 수 있게 한다.
+  if (!isPiWalletAddress(adminWallet)) {
+    await saveAdminWallet(keypair.publicKey()).catch(() => undefined)
   }
 
   const sandbox = isPiSandboxEnv()
