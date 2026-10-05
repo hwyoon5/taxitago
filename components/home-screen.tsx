@@ -65,6 +65,7 @@ import {
 import { enableDriverPush, showDriverOfferNotification } from '@/lib/driver-notify-client'
 import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, releaseDriverWakeLock, stopDriverOfferAlarm } from '@/lib/driver-alert'
 import { playCommsAlert } from '@/lib/alert-sound'
+import DriverLostWatcher from '@/components/driver-lost-watcher'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
@@ -7151,6 +7152,8 @@ function DriverDashboard({
   onAskPassengerReview,
   onActivity,
   deliveryJob,
+  openLostId,
+  onLostOpened,
 }: {
   online: boolean
   lat: number
@@ -7162,6 +7165,9 @@ function DriverDashboard({
   onAskPassengerReview: (target: RideReviewTarget) => void
   onActivity?: (label: string, detail: string) => void
   deliveryJob?: DeliveryJob | null
+  /** 홈·다른 탭의 분실물 배너에서 넘어온 건 — 받으면 고객지원 데스크를 해당 채팅으로 연다. */
+  openLostId?: string | null
+  onLostOpened?: () => void
 }) {
   const [incoming, setIncoming] = useState<PublicRide | null>(null)
   const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
@@ -7218,6 +7224,15 @@ function DriverDashboard({
   const rideRoute = (ride: RideStopPoints) => rideStops(ride).chain
   // 다른 운행으로 바뀌거나 종료되면 내비게이션 뷰도 함께 닫는다.
   useEffect(() => setNavOpen(false), [activeRide?.id])
+
+  // 다른 탭의 분실물 알림 배너에서 진입 — 데스크를 열고 해당 건 채팅으로 바로 이동한다.
+  useEffect(() => {
+    if (!openLostId) return
+    setLostFocus(openLostId)
+    setFreshLostIds([])
+    setDeskOpen(true)
+    onLostOpened?.()
+  }, [openLostId, onLostOpened])
 
   // 콜 알림음은 기사가 화면 어디든 인터랙션하는 순간 즉시 멈춘다.
   useEffect(() => {
@@ -8195,6 +8210,7 @@ export default function HomeScreen() {
   }, [])
   const [driverMode, setDriverMode] = useState(false)
   const [driverOnline, setDriverOnline] = useState(true)
+  const [driverLostOpen, setDriverLostOpen] = useState<string | null>(null)
   const [tab, setTab] = useState('홈')
   const [destination, setDestination] = useState('')
   const [destPlace, setDestPlace] = useState<RidePlace | null>(null)
@@ -8765,9 +8781,19 @@ export default function HomeScreen() {
             onActivity={recordActivity}
           />
         ) : null}
+        {(isDriverRegistered || isPartnerRegistered) && tab !== '기사/파트너' ? (
+          <DriverLostWatcher
+            driverId={localDriverId(loadPartnerProfile()?.uid)}
+            onOpen={(id) => {
+              setDriverLostOpen(id)
+              setDriverMode(true)
+              setTab('기사/파트너')
+            }}
+          />
+        ) : null}
         {tab === '기사/파트너' ? (
           isDriverRegistered || isPartnerRegistered ? (
-            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} />
+            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} openLostId={driverLostOpen} onLostOpened={() => setDriverLostOpen(null)} />
           ) : (
             <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
           )
