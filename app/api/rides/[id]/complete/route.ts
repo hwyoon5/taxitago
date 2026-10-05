@@ -20,6 +20,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       readyToSettleAt?: unknown
       escrow?: { status?: unknown; lockTxid?: unknown; lockPaymentId?: unknown }
     }
+    actualKm?: unknown
   } | null
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
   if (!driverId) return NextResponse.json({ error: 'driverId required' }, { status: 400 })
@@ -37,6 +38,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             lockPaymentId: typeof escrowProof.lockPaymentId === 'string' ? escrowProof.lockPaymentId : null,
           }
         : undefined,
+      actualKm:
+        typeof body?.actualKm === 'number' && Number.isFinite(body.actualKm) && body.actualKm > 0 && body.actualKm < 500
+          ? body.actualKm
+          : undefined,
     })
     if (!result.ok) {
       return NextResponse.json(

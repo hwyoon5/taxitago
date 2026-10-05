@@ -37,6 +37,8 @@ export type RideRequestRecord = {
   timedOutDriverIds: string[]
   boardedAt?: string | null
   readyToSettleAt?: string | null
+  /** 탑승 이후 실제 주행 거리(km) — 기사 presence/앱 오도미터 누적값, 정산 시 실측 요금 기준. */
+  actualKm?: number | null
   createdAt: string
   updatedAt: string
 }
@@ -107,6 +109,8 @@ export type PublicRide = {
   escrow: PublicEscrow | null
   boardedAt: string | null
   readyToSettleAt: string | null
+  /** 탑승 이후 실제 주행 거리(km) — 정산 시 실측 요금 산출에 사용. */
+  actualKm?: number | null
   createdAt: string
   updatedAt: string
 }

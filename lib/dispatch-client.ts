@@ -402,12 +402,12 @@ export async function completeRideTrip(
   rideId: string,
   driverId: string,
   ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'expectedMinutes' | 'kind' | 'boardedAt' | 'readyToSettleAt' | 'escrow'>,
-  init?: { signal?: AbortSignal },
+  init?: { signal?: AbortSignal; actualKm?: number },
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/complete/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ driverId, ride }),
+    body: JSON.stringify({ driverId, ride, actualKm: init?.actualKm }),
     signal: init?.signal,
   })
   const data = await readJson<{ ride?: PublicRide; receipt?: SettlementReceipt; error?: string }>(res).catch(() => null)

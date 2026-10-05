@@ -78,6 +78,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
       : null,
     escrow: toPublicEscrow(getEscrowByRide(ride.id)),
     boardedAt: ride.boardedAt ?? null,
+    actualKm: ride.actualKm ?? null,
     readyToSettleAt: ride.readyToSettleAt ?? null,
     createdAt: ride.createdAt,
     updatedAt: ride.updatedAt,
@@ -730,13 +731,24 @@ export function upsertDriverPresence(input: {
   const current = getDriver(input.id)
   // Count rides assigned to alias identities (e.g. a device-generated id used
   // before partner login) so a busy driver is never offered a second ride.
-  const hasAssignedRide =
-    input.status !== 'offline' &&
-    listRides().some(
-      (ride) =>
-        (ride.assignedDriverId === input.id || (!!input.altDriverId && ride.assignedDriverId === input.altDriverId)) &&
-        ride.status === 'assigned',
-    )
+  const assignedRide =
+    input.status !== 'offline'
+      ? listRides().find(
+          (ride) =>
+            (ride.assignedDriverId === input.id || (!!input.altDriverId && ride.assignedDriverId === input.altDriverId)) &&
+            ride.status === 'assigned',
+        )
+      : undefined
+  const hasAssignedRide = !!assignedRide
+  // 서버 측 주행 거리계 — presence 비트마다 탑승 이후 실제 이동 거리를 누적한다.
+  // 최대 3km/비트를 넘는 점프는 GPS 튐으로 보고 버린다(20s 비트 기준 ~540km/h).
+  if (assignedRide?.boardedAt && current && Number.isFinite(current.lat) && Number.isFinite(input.lat)) {
+    const deltaKm = haversineKm(current, input)
+    if (deltaKm > 0.002 && deltaKm < 3) {
+      assignedRide.actualKm = (assignedRide.actualKm ?? 0) + deltaKm
+      saveRide(assignedRide)
+    }
+  }
   const next: DriverRecord = {
     id: input.id,
     name: input.name?.trim() || current?.name || '파트너 기사',

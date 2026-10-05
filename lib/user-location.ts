@@ -158,17 +158,39 @@ export async function geocodeAddress(query: string): Promise<GeoPoint | null> {
   return null
 }
 
-export async function resolveRidePlace(query: string, _contextAddress = ''): Promise<RidePlace | null> {
+// "~동"·"~구" 같은 행정구역명만 입력된 쿼리인지 판별한다. 이런 쿼리는
+// 전국에 동명 지역이 많아 출발지의 시/군/구 맥락을 붙여야 올바른 지역이 잡힌다.
+function isRegionQuery(value: string) {
+  return /^[가-힣0-9\s]{2,12}(특별자치시|특별자치도|광역시|특별시|시|군|구|동|읍|면|리)$/.test(value.trim())
+}
+
+// "부산광역시 해운대구 우동 123-4" 같은 주소에서 "부산광역시 해운대구"만 추출한다.
+function regionContextFrom(address: string) {
+  const tokens = address.trim().split(/\s+/).filter(Boolean)
+  const picked = tokens.filter((token) => /(특별자치시|특별자치도|광역시|특별시|자치시|시|군|구|도)$/.test(token))
+  return picked.slice(0, 2).join(' ')
+}
+
+export async function resolveRidePlace(query: string, contextAddress = ''): Promise<RidePlace | null> {
   const q = query.trim()
   if (!q || NICKNAME_DESTS.has(q)) return null
-  try {
-    const places = await searchPlacesFromApi(q)
-    const preferred = places[0]
-    if (preferred) {
-      return { label: preferred.name || q, address: preferred.address, lat: preferred.lat, lng: preferred.lng }
+  const context = regionContextFrom(contextAddress)
+  const attempts =
+    context && !q.includes(context)
+      ? isRegionQuery(q)
+        ? [`${context} ${q}`, q]
+        : [q, `${context} ${q}`]
+      : [q]
+  for (const attempt of attempts) {
+    try {
+      const places = await searchPlacesFromApi(attempt)
+      const preferred = places[0]
+      if (preferred) {
+        return { label: preferred.name || q, address: preferred.address, lat: preferred.lat, lng: preferred.lng }
+      }
+    } catch {
+      undefined
     }
-  } catch {
-    undefined
   }
   const known = lookupSuggestedPlace(q)
   if (known && known.name.replace(/\s+/g, '') === q.replace(/\s+/g, '') && Number.isFinite(known.lat) && Number.isFinite(known.lng)) {

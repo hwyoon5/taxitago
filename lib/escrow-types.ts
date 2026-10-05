@@ -46,6 +46,8 @@ export type SettlementReceipt = {
   trafficDelayMinutes?: number
   /** 길찾기 API 기준 예상 소요 시간(분). */
   expectedMinutes?: number
+  /** GPS 실측 주행 거리(km) — 실측 기반으로 최종 요금이 재산정된 경우에만 세팅. */
+  actualKm?: number
   lockTxid: string
   payoutTxid: string
   payoutWallet: string

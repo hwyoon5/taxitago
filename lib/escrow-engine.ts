@@ -1,5 +1,5 @@
 import { getDriver, getRide, listRides, nowIso, saveDriver, syncDispatchFromDisk } from '@/lib/dispatch-store'
-import { etaMinutesFromKm, trafficDelayMinutes, trafficDelaySurchargePi, waypointRouteQuote } from '@/lib/dispatch-geo'
+import { estimateTaxiFarePi, etaMinutesFromKm, trafficDelayMinutes, trafficDelaySurchargePi, waypointRouteQuote } from '@/lib/dispatch-geo'
 import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { getFareConfig } from '@/lib/fare-config-server'
 import { piRound } from '@/lib/pi-format'
@@ -144,6 +144,7 @@ export async function releaseEscrow(
   rideId: string,
   driverId: string,
   proof?: { status?: string | null; lockTxid?: string | null; lockPaymentId?: string | null },
+  actualKm?: number,
 ) {
   syncDispatchFromDisk()
   syncEscrowFromDisk()
@@ -178,17 +179,29 @@ export async function releaseEscrow(
   // 운행 시간(boardedAt → readyToSettleAt)이 TRAFFIC_DELAY_FREE_MINUTES 이상
   // 늦어진 경우에만 초과분에 분당 시간 요금율을 곱해 더한다.
   const fareConfig = await getFareConfig()
-  const expectedMin =
+  const routeKm = waypointRouteQuote(ride.pickup, ride.dest, ride.waypoints ?? []).routeKm
+  // 실제 주행 거리 정산 — 대략 목적지(~동) 입력이어도 GPS 실측 거리로 최종 요금을
+  // 재산정한다. 기사 앱 오도미터(actualKm 인자)와 서버 presence 누적값 중 큰 쪽을
+  // 쓰되, 예상 경로의 최대 4배(+20km)를 넘는 값은 GPS 오류로 보고 예상 요금을 유지.
+  const measuredKm = Math.max(ride.actualKm ?? 0, actualKm ?? 0)
+  const measuredCap = Math.max(routeKm * 4, routeKm + 20, 15)
+  const validMeasured = measuredKm >= 0.3 && measuredKm <= measuredCap ? measuredKm : null
+  const rawExpectedMin =
     ride.expectedMinutes && ride.expectedMinutes > 0
       ? ride.expectedMinutes
-      : etaMinutesFromKm(waypointRouteQuote(ride.pickup, ride.dest, ride.waypoints ?? []).routeKm)
+      : etaMinutesFromKm(routeKm)
+  // 실측 거리 정산 시 기준 소요 시간도 실측 거리 비율만큼 스케일한다 — 목적지가
+  // 예상보다 멀어진 것이 '정체 지연'으로 잘못 과금되지 않게 하기 위함이다.
+  const expectedMin =
+    validMeasured != null && routeKm > 0.01 ? rawExpectedMin * (validMeasured / routeKm) : rawExpectedMin
   const actualMin =
     ride.boardedAt && ride.readyToSettleAt
       ? Math.max(0, (Date.parse(ride.readyToSettleAt) - Date.parse(ride.boardedAt)) / 60000)
       : 0
   const delayMin = trafficDelayMinutes(actualMin, expectedMin)
   const trafficSurcharge = trafficDelaySurchargePi(delayMin, fareConfig, ride.kind)
-  const settleAmount = piRound(escrow.amount + trafficSurcharge)
+  const baseAmount = validMeasured != null ? estimateTaxiFarePi(validMeasured, fareConfig, ride.kind) : escrow.amount
+  const settleAmount = piRound(baseAmount + trafficSurcharge)
 
   const target = driverPayoutTarget(driverId)
   let payoutTxid = `a2u-${escrow.id.slice(0, 10)}`
@@ -229,6 +242,7 @@ export async function releaseEscrow(
     trafficSurcharge,
     trafficDelayMinutes: Math.round(delayMin * 10) / 10,
     expectedMinutes: Math.round(expectedMin * 10) / 10,
+    actualKm: validMeasured != null ? Math.round(validMeasured * 100) / 100 : undefined,
     lockTxid: escrow.lockTxid || '',
     payoutTxid,
     payoutWallet: target.wallet,

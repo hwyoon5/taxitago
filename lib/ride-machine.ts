@@ -120,6 +120,7 @@ export async function transitionRide(input: {
   driverId?: string
   settleFee?: boolean
   proof?: RideEscrowProof
+  actualKm?: number
   snapshot?: {
     passengerId?: unknown
     pickup?: RidePointSnapshot
@@ -154,6 +155,7 @@ async function applyTransition(input: {
   driverId?: string
   settleFee?: boolean
   proof?: RideEscrowProof
+  actualKm?: number
   snapshot?: {
     passengerId?: unknown
     pickup?: RidePointSnapshot
@@ -251,7 +253,7 @@ async function applyTransition(input: {
     case 'complete': {
       if (!driverId) return fail('driver_required')
       ensureRideForCompletion(rideId, driverId, rideSnapshot)
-      const result = await releaseEscrow(rideId, driverId, input.proof)
+      const result = await releaseEscrow(rideId, driverId, input.proof, input.actualKm)
       if (!result.ok) return fail(result.error, getPublicRide(rideId))
       const finished = completeAssignedRide(rideId, driverId)
       await archiveRideComms(rideId, 'completed').catch(() => undefined)

@@ -38,6 +38,7 @@ import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, pu
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
+import { haversineKm } from '@/lib/dispatch-geo'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
 import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, setMobilityDeviceStatus } from '@/lib/mobility-devices'
 import {
@@ -785,8 +786,8 @@ function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
         : undefined,
     vehicle: '택시',
     date: new Date(item.settledAt).toLocaleString('ko-KR'),
-    distance: '-',
-    duration: '-',
+    distance: item.actualKm != null ? `실측 ${item.actualKm.toFixed(1)} km` : '-',
+    duration: item.expectedMinutes != null ? `약 ${Math.round(item.expectedMinutes)}분` : '-',
     driver: item.driverName,
     car: item.vehicle,
     plate: item.plate,
@@ -4323,6 +4324,7 @@ function DaeriCallSetupSheet({
               }
               void resolveRidePlace(destName, pickup).then((place) => {
                 if (place) finish(place)
+                else onRequireRoute?.('dest')
               })
             }}
             className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
@@ -7162,8 +7164,38 @@ function DriverDashboard({
     deliveryAlertRef.current = id
     alertDriverOffer(`delivery:${id}`)
   }, [openDeliveries])
+  // 실제 주행 거리 오도미터 — 승객 탑승 확인 이후 GPS 델타를 누적해 정산 시
+  // 실측 거리(Actual Travel Distance)로 서버에 함께 보낸다. localStorage에
+  // 저장해 폴링 리마운트나 새로고침 후에도 누적이 끊기지 않게 한다.
+  const odoRef = useRef({ rideId: '', km: 0, lat: 0, lng: 0, primed: false })
+  useEffect(() => {
+    const rideId = activeRide?.boardedAt ? activeRide.id : ''
+    const odo = odoRef.current
+    if (odo.rideId !== rideId) {
+      const stored = rideId ? Number(window.localStorage.getItem(`taxitago-odo:${rideId}`)) : 0
+      odoRef.current = { rideId, km: Number.isFinite(stored) && stored > 0 ? stored : 0, lat, lng, primed: false }
+      return
+    }
+    if (!rideId) return
+    if (!odo.primed) {
+      odo.lat = lat
+      odo.lng = lng
+      odo.primed = true
+      return
+    }
+    const delta = haversineKm({ lat: odo.lat, lng: odo.lng }, { lat, lng })
+    if (delta > 0.005 && delta < 0.5) odo.km += delta
+    odo.lat = lat
+    odo.lng = lng
+    try {
+      window.localStorage.setItem(`taxitago-odo:${rideId}`, odo.km.toFixed(4))
+    } catch {}
+  }, [lat, lng, activeRide?.id, activeRide?.boardedAt])
   const dropEndedRide = useCallback((ended: PublicRide | string) => {
     const id = typeof ended === 'string' ? ended : ended.id
+    try {
+      window.localStorage.removeItem(`taxitago-odo:${id}`)
+    } catch {}
     endedRideIds.current.add(id)
     if (lastActiveRef.current?.id === id) lastActiveRef.current = null
     if (localOfferRef.current?.ride.id === id) localOfferRef.current = null
@@ -7591,7 +7623,10 @@ function DriverDashboard({
       return
     }
     setBusy(true)
-    void completeRideTrip(activeRide.id, activeRide.assignedDriver?.id || driverId, activeRide)
+    const measuredKm = odoRef.current.rideId === activeRide.id && odoRef.current.km > 0.3
+      ? Math.round(odoRef.current.km * 100) / 100
+      : undefined
+    void completeRideTrip(activeRide.id, activeRide.assignedDriver?.id || driverId, activeRide, { actualKm: measuredKm })
       .then((result) => {
         if (result.receipt) {
           appendSettlementEntry(result.receipt.amount, `에스크로 정산 · ${result.receipt.route}`)
