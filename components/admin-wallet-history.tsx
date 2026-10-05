@@ -5,7 +5,7 @@ import type { WalletTxEntry, WalletTxKind } from '@/lib/wallet-history'
 
 type Props = {
   entries: WalletTxEntry[]
-  totals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number } } | null
+  totals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number } } | null
 }
 
 const KIND_LABEL: Record<WalletTxKind, string> = { deposit: '입금', withdraw: '출금' }
@@ -60,7 +60,7 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
       {totals ? (
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
           누적 입금 <strong className="text-[#1D4ED8]">{pi(totals.deposit.total)}</strong> ({totals.deposit.count}건) ·
-          누적 출금 <strong className="text-[#C2410C]">{pi(totals.withdraw.total)}</strong> ({totals.withdraw.count}건)
+          누적 출금 <strong className="text-[#C2410C]">{pi(totals.withdraw.total + totals.withdraw.fee)}</strong> ({totals.withdraw.count}건 · 수수료 {pi(totals.withdraw.fee)} 포함)
         </p>
       ) : (
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">수동 입금 기록과 관리자 지갑 출금 트랜잭션이 함께 기록됩니다.</p>
@@ -128,6 +128,7 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
                 <div className="mt-1.5 flex items-center justify-between gap-2">
                   <p className={`text-sm font-black ${entry.kind === 'deposit' ? 'text-[#1D4ED8]' : 'text-[#C2410C]'}`}>
                     {entry.kind === 'deposit' ? '+' : '-'}{pi(entry.amount)}
+                    {entry.fee > 0 ? <span className="ml-1 text-[10px] font-bold text-[#94A3B8]">+ 수수료 {pi(entry.fee)}</span> : null}
                   </p>
                   <span className="rounded-full bg-[#F1F5F9] px-2 py-0.5 text-[9px] font-black text-[#64748B]">
                     {entry.network === 'mainnet' ? '메인넷' : '테스트넷'}

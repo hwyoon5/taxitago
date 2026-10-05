@@ -17,6 +17,8 @@ export type WalletTxEntry = {
   status: WalletTxStatus
   /** 전송 실패 사유 (status === 'failed' 일 때). */
   error: string
+  /** 네트워크 수수료(Pi) — 확정된 출금 건에만 부과된다. */
+  fee: number
   network: 'testnet' | 'mainnet'
   createdAt: string
 }
@@ -101,6 +103,7 @@ export async function recordWalletTx(input: {
   memo?: string
   status?: WalletTxStatus
   error?: string
+  fee?: number
   network?: 'testnet' | 'mainnet'
 }): Promise<WalletTxEntry | null> {
   const amount = piRound(Number(input.amount))
@@ -127,6 +130,7 @@ export async function recordWalletTx(input: {
     memo: (input.memo ?? '').trim(),
     status: input.status ?? 'confirmed',
     error: (input.error ?? '').trim(),
+    fee: input.status === 'confirmed' || input.status === undefined ? piRound(Number(input.fee ?? 0) || 0) : 0,
     network: input.network ?? 'testnet',
     createdAt: new Date().toISOString(),
   }
@@ -146,6 +150,10 @@ export async function walletTxTotals() {
   const sum = (kind: WalletTxKind) => piRound(confirmed.filter((entry) => entry.kind === kind).reduce((total, entry) => total + entry.amount, 0))
   return {
     deposit: { count: confirmed.filter((entry) => entry.kind === 'deposit').length, total: sum('deposit') },
-    withdraw: { count: confirmed.filter((entry) => entry.kind === 'withdraw').length, total: sum('withdraw') },
+    withdraw: {
+      count: confirmed.filter((entry) => entry.kind === 'withdraw').length,
+      total: sum('withdraw'),
+      fee: piRound(confirmed.filter((entry) => entry.kind === 'withdraw').reduce((total, entry) => total + (entry.fee || 0), 0)),
+    },
   }
 }

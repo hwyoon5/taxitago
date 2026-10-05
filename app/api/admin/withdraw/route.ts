@@ -154,6 +154,7 @@ export async function POST(request: Request) {
       amount,
       memo: reason || memoText,
       status: 'confirmed',
+      fee: feePi,
       network: sandbox ? 'testnet' : 'mainnet',
     }).catch(() => undefined)
     await recordAudit({

@@ -68,7 +68,7 @@ export default function AdminSettlements() {
   const [deposits, setDeposits] = useState<DepositEntry[]>([])
   const [depositTotal, setDepositTotal] = useState<{ count: number; total: number } | null>(null)
   const [history, setHistory] = useState<WalletTxEntry[]>([])
-  const [historyTotals, setHistoryTotals] = useState<{ deposit: { count: number; total: number }; withdraw: { count: number; total: number } } | null>(null)
+  const [historyTotals, setHistoryTotals] = useState<{ deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number } } | null>(null)
   const [adminWallet, setAdminWallet] = useState('')
   const [depositBusy, setDepositBusy] = useState(false)
   const [depositForm, setDepositForm] = useState({ txid: '', fromWallet: '', amount: '', memo: '' })
@@ -88,7 +88,7 @@ export default function AdminSettlements() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number }; history?: WalletTxEntry[]; historyTotals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number } }; adminWallet?: string }
+        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number }; history?: WalletTxEntry[]; historyTotals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number } }; adminWallet?: string }
       })
       .then((data) => {
         setEntries(data.entries)
@@ -248,8 +248,14 @@ export default function AdminSettlements() {
             <p className="text-[10px] font-bold text-[#94A3B8]">{summary.count}건</p>
           </div>
           <div className="rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] p-3">
-            <p className="text-[11px] font-black text-[#4C1FB8]">총 수수료 수익</p>
-            <p className="mt-1 text-lg font-black text-[#4C1FB8]">{pi(summary.commission)}</p>
+            <p className="text-[11px] font-black text-[#4C1FB8]">총 수수료 수익 (출금 후 잔액)</p>
+            <p className="mt-1 text-lg font-black text-[#4C1FB8]">
+              {pi(Math.max(0, summary.commission - (historyTotals?.withdraw.total ?? 0) - (historyTotals?.withdraw.fee ?? 0)))}
+            </p>
+            <p className="text-[10px] font-bold text-[#94A3B8]">
+              누적 {pi(summary.commission)}
+              {historyTotals?.withdraw.count ? ` · 출금 ${pi(historyTotals.withdraw.total + historyTotals.withdraw.fee)}` : ''}
+            </p>
           </div>
           <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3">
             <p className="text-[11px] font-black text-[#64748B]">기사 정산액(순지급)</p>
