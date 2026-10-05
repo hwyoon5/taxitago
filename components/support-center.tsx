@@ -13,7 +13,10 @@ import {
   sendTicketMessage,
   setLostStatus,
   submitLostItem,
+  type PhotoUpload,
 } from '@/lib/support-client'
+import PhotoPicker from '@/components/photo-picker'
+import AttachmentGallery from '@/components/photo-gallery'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import {
   LOST_ITEM_TYPES,
@@ -206,6 +209,7 @@ function TicketForm({
   const [category, setCategory] = useState<TicketCategory>('general')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [photos, setPhotos] = useState<PhotoUpload[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const categories: TicketCategory[] = ['fare_dispute', 'general', 'payment', 'safety', 'lost']
@@ -237,16 +241,18 @@ function TicketForm({
         placeholder="문의 내용을 입력해 주세요"
         className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]"
       />
+      <PhotoPicker photos={photos} onChange={setPhotos} />
       <button
         type="button"
         disabled={busy || !body.trim()}
         onClick={() => {
           setBusy(true)
           setError('')
-          void createTicket({ userId: actorId, userRole: actorRole, category, subject, body })
+          void createTicket({ userId: actorId, userRole: actorRole, category, subject, body, photos })
             .then((ticket) => {
               setBody('')
               setSubject('')
+              setPhotos([])
               onCreated(ticket)
             })
             .catch((reason) => setError(reason instanceof Error && reason.message ? `접수에 실패했습니다 (${reason.message}). 잠시 후 다시 시도해 주세요.` : '접수에 실패했습니다. 잠시 후 다시 시도해 주세요.'))
@@ -325,6 +331,7 @@ function TicketThread({
           </button>
         </div>
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
+          <AttachmentGallery entityId={ticket.id} photoCount={ticket.photoCount} />
           {ticket.messages.map((message) => (
             <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
               <p className="text-[10px] font-black">{message.fromRole === 'admin' ? (message.auto ? '자동 답변' : '고객지원 답변') : '나'}</p>
@@ -372,6 +379,7 @@ function LostForm({
   const [kind, setKind] = useState<LostKind>(actorRole === 'driver' ? 'found' : 'lost')
   const [itemType, setItemType] = useState<LostItemType>('휴대폰')
   const [description, setDescription] = useState('')
+  const [photos, setPhotos] = useState<PhotoUpload[]>([])
   const [occurredAt, setOccurredAt] = useState(() => new Date().toISOString().slice(0, 16))
   const [rideKey, setRideKey] = useState(prefill?.rideId || prefill?.route || '')
   const [busy, setBusy] = useState(false)
@@ -412,6 +420,7 @@ function LostForm({
         <input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} className="mt-1 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-2.5 text-sm font-bold" />
       </label>
       <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="색깔, 브랜드, 좌석 위치 등" className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold" />
+      <PhotoPicker photos={photos} onChange={setPhotos} />
       <button
         type="button"
         disabled={busy}
@@ -429,8 +438,12 @@ function LostForm({
             driverName: selected?.driverName,
             plate: selected?.plate,
             vehicle: selected?.vehicle,
+            photos,
           })
-            .then(onCreated)
+            .then((item) => {
+              setPhotos([])
+              onCreated(item)
+            })
             .catch(() => undefined)
             .finally(() => setBusy(false))
         }}
@@ -497,6 +510,7 @@ function LostThread({
           <button type="button" onClick={onClose} className="text-sm font-black text-[#64748B]">닫기</button>
         </div>
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
+          <AttachmentGallery entityId={item.id} photoCount={item.photoCount} />
           {item.messages.length ? item.messages.map((message) => (
             <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : message.fromId === actorId ? 'bg-[#4C1FB8] text-white' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
               <p className="text-[10px] font-black">{message.fromRole === 'admin' ? '고객지원 답변' : message.fromId === actorId ? '나' : role === 'driver' ? '승객' : '기사님'}</p>

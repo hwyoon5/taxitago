@@ -1,6 +1,7 @@
 import { getDriver, getRide, listRides, nowIso } from '@/lib/dispatch-store'
 import { getPartnerLink } from '@/lib/partner-ledger-server'
 import { autoReplyFor } from '@/lib/support-auto'
+import { saveAttachments, type AttachmentInput } from '@/lib/attachment-store'
 import { getLostItem, getSos, getTicket, listLostItems, listSos, listTickets, saveLostItem, saveSos, saveTicket } from '@/lib/support-store'
 import type {
   LostItem,
@@ -136,6 +137,7 @@ export async function fileLostItem(input: {
   driverName?: string
   plate?: string
   vehicle?: string
+  photos?: AttachmentInput[]
 }) {
   const ride = input.rideId ? getRide(input.rideId) : null
   if (input.rideId && ride && !actorOnRide(ride, input.reporterId, input.reporterRole)) {
@@ -163,6 +165,10 @@ export async function fileLostItem(input: {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   })
+  if (input.photos?.length) {
+    const saved = await saveAttachments(item.id, input.photos)
+    if (saved.length) return { ok: true as const, item: await saveLostItem({ ...item, photoCount: saved.length }) }
+  }
   return { ok: true as const, item }
 }
 
@@ -235,6 +241,7 @@ export async function createSupportTicket(input: {
   subject?: string
   body: string
   rideId?: string
+  photos?: AttachmentInput[]
 }) {
   const body = input.body.trim().slice(0, 800)
   if (!body) return { ok: false as const, error: 'empty', ticket: null as SupportTicket | null }
@@ -277,6 +284,10 @@ export async function createSupportTicket(input: {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   })
+  if (input.photos?.length) {
+    const photos = await saveAttachments(saved.id, input.photos)
+    if (photos.length) return { ok: true as const, ticket: await saveTicket({ ...saved, photoCount: photos.length }) }
+  }
   return { ok: true as const, ticket: saved }
 }
 

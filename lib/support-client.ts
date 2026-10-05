@@ -72,6 +72,15 @@ export async function fetchLostRides(userId: string, role: Exclude<SupportActor,
   return data.rides ?? []
 }
 
+export type PhotoUpload = { name: string; mime: string; dataUrl: string }
+
+export async function fetchAttachments(entityId: string) {
+  const res = await apiFetch(`/api/support/attachments?id=${encodeURIComponent(entityId)}`, { cache: 'no-store' })
+  const data = await readJson<{ photos?: { id: string; name: string; mime: string; dataUrl: string; uploadedAt: string }[] }>(res)
+  if (!res.ok) return []
+  return data.photos ?? []
+}
+
 export async function submitLostItem(input: {
   kind: LostKind
   itemType: LostItemType
@@ -84,6 +93,7 @@ export async function submitLostItem(input: {
   driverName?: string
   plate?: string
   vehicle?: string
+  photos?: PhotoUpload[]
 }) {
   const res = await apiFetch('/api/lost-items', {
     method: 'POST',
@@ -138,6 +148,7 @@ export async function createTicket(input: {
   subject?: string
   body: string
   rideId?: string
+  photos?: PhotoUpload[]
 }) {
   const res = await apiFetch('/api/support/tickets', {
     method: 'POST',

@@ -3,6 +3,7 @@ import { createSupportTicket, ticketInbox } from '@/lib/support-engine'
 import { supportStorageBackend } from '@/lib/support-store'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { notifySupportInbox } from '@/lib/admin-notify'
+import { sanitizeAttachments } from '@/lib/attachment-store'
 import type { SupportActor, TicketCategory } from '@/lib/support-types'
 
 export const runtime = 'nodejs'
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
     subject: typeof body?.subject === 'string' ? body.subject : undefined,
     body: text,
     rideId: typeof body?.rideId === 'string' ? body.rideId : undefined,
+    photos: sanitizeAttachments(body?.photos),
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
   const ticket = result.ticket

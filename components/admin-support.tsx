@@ -7,6 +7,7 @@ import { getAdminKey } from '@/lib/admin-key'
 import AdminPartners from '@/components/admin-partners'
 import AdminSettlements from '@/components/admin-settlements'
 import AdminFareSettings from '@/components/admin-fare-settings'
+import AttachmentGallery from '@/components/photo-gallery'
 import {
   editTicketReply,
   fetchAdminInbox,
@@ -412,6 +413,7 @@ export default function AdminSupportDesk() {
                 {roleBadge(ticket.reporter?.label ?? (ticket.userRole === 'driver' ? '기사' : '이용자(승객)'))}
                 {reporterLine(ticket.reporter, ticket.userId)}
               </p>
+              <AttachmentGallery entityId={ticket.id} photoCount={ticket.photoCount} />
               <select
                 value={ticket.status}
                 onChange={(event) => {
@@ -451,6 +453,7 @@ export default function AdminSupportDesk() {
                 {roleBadge(item.reporter?.label ?? (item.reporterRole === 'driver' ? '기사' : '이용자(승객)'))}
                 {reporterLine(item.reporter, item.reporterId)}
               </p>
+              <AttachmentGallery entityId={item.id} photoCount={item.photoCount} />
               <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
                 {item.messages.map((message) => (
                   <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : 'bg-[#F1F5F9]'}`}>

@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { fileLostItem, lostInbox } from '@/lib/support-engine'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { notifySupportInbox } from '@/lib/admin-notify'
+import { sanitizeAttachments } from '@/lib/attachment-store'
 import type { LostItemType, LostKind, SupportActor } from '@/lib/support-types'
 import { LOST_ITEM_TYPES } from '@/lib/support-types'
 
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
     driverName: typeof body?.driverName === 'string' ? body.driverName : undefined,
     plate: typeof body?.plate === 'string' ? body.plate : undefined,
     vehicle: typeof body?.vehicle === 'string' ? body.vehicle : undefined,
+    photos: sanitizeAttachments(body?.photos),
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.error === 'forbidden' ? 403 : 400 })
   const item = result.item

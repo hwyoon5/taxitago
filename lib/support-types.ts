@@ -59,6 +59,8 @@ export type LostItem = {
   vehicle: string
   status: LostStatus
   messages: LostMessage[]
+  /** 첨부 사진 수 — 실제 이미지는 taxitago:attach:{id} 에 따로 저장된다. */
+  photoCount?: number
   createdAt: string
   updatedAt: string
 }
@@ -88,6 +90,8 @@ export type SupportTicket = {
   status: TicketStatus
   reporter?: ReporterInfo
   messages: TicketMessage[]
+  /** 첨부 사진 수 — 실제 이미지는 taxitago:attach:{id} 에 따로 저장된다. */
+  photoCount?: number
   autoResolved?: boolean
   needsReview?: boolean
   createdAt: string
