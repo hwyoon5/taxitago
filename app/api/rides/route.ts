@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { estimateTaxiFarePi, waypointRouteQuote, waypointSurchargePi } from '@/lib/dispatch-geo'
+import { estimateTaxiFarePi, etaMinutesFromKm, waypointRouteQuote, waypointSurchargePi } from '@/lib/dispatch-geo'
+import { drivingRouteSummaryOnServer } from '@/lib/server-directions'
 import { createRideAndMatch, toPublicRide } from '@/lib/dispatch-engine'
 import { ensureSeedDrivers, flushDispatchPersist, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { hydrateEscrowFromKv } from '@/lib/escrow-store'
@@ -64,6 +65,16 @@ export async function POST(request: Request) {
     typeof body?.estimatedFare === 'number' && Number.isFinite(body.estimatedFare)
       ? piRound(Math.max(0, body.estimatedFare) + waypointSurchargePi(fareQuote.chargeableDetourKm, config, kind))
       : estimateTaxiFarePi(fareQuote.chargeableKm, config, kind)
+  // 기본 예상 소요 시간(분): 길찾기 API duration 우선, 실패 시 거리 기반 ETA.
+  // 정체 추가 요금은 정산 시 실제 운행 시간과 이 기준치를 비교해 산정한다.
+  const routeSummary = await Promise.race([
+    drivingRouteSummaryOnServer(pickup, dest, waypoints),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 6500)),
+  ]).catch(() => null)
+  const expectedMinutes =
+    routeSummary && Number.isFinite(routeSummary.durationMin)
+      ? (routeSummary.durationMin as number)
+      : etaMinutesFromKm(fareQuote.routeKm)
   const ride = createRideAndMatch({
     id: crypto.randomUUID(),
     kind,
@@ -72,6 +83,7 @@ export async function POST(request: Request) {
     waypoints,
     dest,
     estimatedFare: quoted,
+    expectedMinutes,
   })
   // Flush before responding so the pending offer is visible to other
   // serverless instances (the driver's offer poll) immediately.

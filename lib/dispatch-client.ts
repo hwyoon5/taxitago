@@ -306,7 +306,7 @@ export async function respondToRideOffer(
   rideId: string,
   driverId: string,
   action: 'accept' | 'reject',
-  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'kind'>,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'expectedMinutes' | 'kind'>,
   driver?: { name?: string; vehicle?: string; plate?: string },
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
@@ -321,7 +321,7 @@ export async function respondToRideOffer(
 
 export async function acceptRideOnDevice(
   rideId: string,
-  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'kind'>,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'expectedMinutes' | 'kind'>,
   driverId?: string,
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond/`, {
@@ -370,6 +370,7 @@ export async function markRideProgress(
             waypoints: ride.waypoints,
             dest: ride.dest,
             estimatedFare: ride.estimatedFare,
+            expectedMinutes: ride.expectedMinutes,
             kind: ride.kind,
             boardedAt: ride.boardedAt,
             readyToSettleAt: ride.readyToSettleAt,
@@ -400,7 +401,7 @@ export async function abandonDriverRide(rideId: string, driverId: string) {
 export async function completeRideTrip(
   rideId: string,
   driverId: string,
-  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'kind' | 'boardedAt' | 'readyToSettleAt' | 'escrow'>,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'expectedMinutes' | 'kind' | 'boardedAt' | 'readyToSettleAt' | 'escrow'>,
   init?: { signal?: AbortSignal },
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/complete/`, {

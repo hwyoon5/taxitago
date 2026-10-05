@@ -112,9 +112,29 @@ function parseNaverDrivingPath(payload: unknown): RoutePoint[] {
   return picked.length >= 2 ? picked : []
 }
 
-async function drivingPathNaver(origin: RoutePoint, dest: RoutePoint, via: RoutePoint[] = []): Promise<RoutePoint[]> {
+export type DrivingRouteSummary = { path: RoutePoint[]; durationMin: number | null }
+
+const EMPTY_ROUTE: DrivingRouteSummary = { path: [], durationMin: null }
+
+// Naver Directions 응답의 route.<option>[0].summary.duration(ms)에서 예상 소요 시간을 읽는다.
+function parseNaverDurationMin(payload: unknown): number | null {
+  if (!payload || typeof payload !== 'object') return null
+  const root = payload as { route?: Record<string, unknown>; result?: { route?: Record<string, unknown> } }
+  const route = root.route || root.result?.route
+  if (!route) return null
+  for (const value of Object.values(route)) {
+    const legs = Array.isArray(value) ? value : value ? [value] : []
+    for (const leg of legs) {
+      const ms = Number((leg as { summary?: { duration?: unknown } })?.summary?.duration)
+      if (Number.isFinite(ms) && ms > 0) return ms / 60000
+    }
+  }
+  return null
+}
+
+async function drivingRouteNaver(origin: RoutePoint, dest: RoutePoint, via: RoutePoint[] = []): Promise<DrivingRouteSummary> {
   const { keyId, headers } = naverGatewayHeaders()
-  if (!keyId || !headers) return []
+  if (!keyId || !headers) return EMPTY_ROUTE
   const start = `${origin.lng},${origin.lat}`
   const goal = `${dest.lng},${dest.lat}`
   // Naver Directions: waypoints는 "lng,lat|lng,lat" 형식 (direction-15는 최대 5개).
@@ -138,17 +158,18 @@ async function drivingPathNaver(origin: RoutePoint, dest: RoutePoint, via: Route
           signal: AbortSignal.timeout(8000),
         })
         if (!response.ok) continue
-        const points = parseNaverDrivingPath(await response.json())
-        if (points.length >= 3) return points
+        const payload = await response.json()
+        const points = parseNaverDrivingPath(payload)
+        if (points.length >= 3) return { path: points, durationMin: parseNaverDurationMin(payload) }
       } catch {
         continue
       }
     }
   }
-  return []
+  return EMPTY_ROUTE
 }
 
-async function drivingPathOsrm(origin: RoutePoint, dest: RoutePoint, via: RoutePoint[] = []): Promise<RoutePoint[]> {
+async function drivingRouteOsrm(origin: RoutePoint, dest: RoutePoint, via: RoutePoint[] = []): Promise<DrivingRouteSummary> {
   try {
     const chain = [origin, ...via, dest].map((point) => `${point.lng},${point.lat}`).join(';')
     const response = await fetch(
@@ -159,13 +180,15 @@ async function drivingPathOsrm(origin: RoutePoint, dest: RoutePoint, via: RouteP
         signal: AbortSignal.timeout(10000),
       },
     )
-    if (!response.ok) return []
-    const payload = (await response.json()) as { routes?: Array<{ geometry?: { coordinates?: unknown[] } }> }
+    if (!response.ok) return EMPTY_ROUTE
+    const payload = (await response.json()) as { routes?: Array<{ geometry?: { coordinates?: unknown[] }; duration?: unknown }> }
     const coords = payload.routes?.[0]?.geometry?.coordinates
-    if (!Array.isArray(coords)) return []
-    return coords.map(parseLngLatPair).filter((item): item is RoutePoint => Boolean(item))
+    if (!Array.isArray(coords)) return EMPTY_ROUTE
+    const path = coords.map(parseLngLatPair).filter((item): item is RoutePoint => Boolean(item))
+    const seconds = Number(payload.routes?.[0]?.duration)
+    return { path, durationMin: Number.isFinite(seconds) && seconds > 0 ? seconds / 60 : null }
   } catch {
-    return []
+    return EMPTY_ROUTE
   }
 }
 
@@ -181,39 +204,51 @@ function pathCoversWaypoints(path: RoutePoint[], via: RoutePoint[]) {
   )
 }
 
-// 경유지 포함 단일 경로 요청이 실패하면 구간별 경로를 이어 붙인다.
-async function drivingPathLegsOnServer(chain: RoutePoint[]): Promise<RoutePoint[]> {
+// 경유지 포함 단일 경로 요청이 실패하면 구간별 경로를 이어 붙인다. 소요 시간은 구간별 합계.
+async function drivingRouteLegsOnServer(chain: RoutePoint[]): Promise<DrivingRouteSummary> {
   const stitched: RoutePoint[] = []
+  let durationMin = 0
+  let hasDuration = false
   for (let index = 1; index < chain.length; index += 1) {
-    const leg = await drivingPathOnServer(chain[index - 1], chain[index])
-    if (leg.length < 2) return []
+    const leg = await drivingRouteSummaryOnServer(chain[index - 1], chain[index])
+    if (leg.path.length < 2) return EMPTY_ROUTE
     const first = stitched[stitched.length - 1]
-    const join = leg[0]
-    stitched.push(...(first && Math.abs(first.lat - join.lat) < 1e-6 && Math.abs(first.lng - join.lng) < 1e-6 ? leg.slice(1) : leg))
+    const join = leg.path[0]
+    stitched.push(...(first && Math.abs(first.lat - join.lat) < 1e-6 && Math.abs(first.lng - join.lng) < 1e-6 ? leg.path.slice(1) : leg.path))
+    if (leg.durationMin != null) {
+      durationMin += leg.durationMin
+      hasDuration = true
+    }
   }
-  return stitched
+  return { path: stitched, durationMin: hasDuration ? durationMin : null }
+}
+
+export async function drivingRouteSummaryOnServer(
+  origin: RoutePoint,
+  dest: RoutePoint,
+  waypoints: RoutePoint[] = [],
+): Promise<DrivingRouteSummary> {
+  if (!validRoutePoint(origin) || !validRoutePoint(dest)) return EMPTY_ROUTE
+  const via = waypoints.filter(validRoutePoint).slice(0, 5)
+  try {
+    const naver = await drivingRouteNaver(origin, dest, via)
+    if (naver.path.length >= 3 && pathCoversWaypoints(naver.path, via)) return naver
+    const osrm = await drivingRouteOsrm(origin, dest, via)
+    if (osrm.path.length >= 3 && pathCoversWaypoints(osrm.path, via)) return osrm
+    if (!via.length) return naver.path.length >= 2 ? naver : osrm
+    // 경유지가 있는데 2점 직선 결과만 나오면 경유지를 무시한 경로이므로 구간 결합을 시도한다.
+    return await drivingRouteLegsOnServer([origin, ...via, dest])
+  } catch {
+    try {
+      const osrm = await drivingRouteOsrm(origin, dest, via)
+      if (osrm.path.length >= 2) return osrm
+    } catch {
+      return EMPTY_ROUTE
+    }
+    return via.length ? drivingRouteLegsOnServer([origin, ...via, dest]) : EMPTY_ROUTE
+  }
 }
 
 export async function drivingPathOnServer(origin: RoutePoint, dest: RoutePoint, waypoints: RoutePoint[] = []) {
-  if (!validRoutePoint(origin) || !validRoutePoint(dest)) {
-    return [] as RoutePoint[]
-  }
-  const via = waypoints.filter(validRoutePoint).slice(0, 5)
-  try {
-    const naver = await drivingPathNaver(origin, dest, via)
-    if (naver.length >= 3 && pathCoversWaypoints(naver, via)) return naver
-    const osrm = await drivingPathOsrm(origin, dest, via)
-    if (osrm.length >= 3 && pathCoversWaypoints(osrm, via)) return osrm
-    if (!via.length) return naver.length >= 2 ? naver : osrm
-    // 경유지가 있는데 2점 직선 결과만 나오면 경유지를 무시한 경로이므로 구간 결합을 시도한다.
-    return await drivingPathLegsOnServer([origin, ...via, dest])
-  } catch {
-    try {
-      const osrm = await drivingPathOsrm(origin, dest, via)
-      if (osrm.length >= 2) return osrm
-    } catch {
-      return []
-    }
-    return via.length ? drivingPathLegsOnServer([origin, ...via, dest]) : []
-  }
+  return (await drivingRouteSummaryOnServer(origin, dest, waypoints)).path
 }

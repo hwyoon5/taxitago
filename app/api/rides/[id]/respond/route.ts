@@ -43,6 +43,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       waypoints?: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }[]
       dest?: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }
       estimatedFare?: unknown
+      expectedMinutes?: unknown
       kind?: unknown
     }
   } | null
@@ -60,6 +61,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         waypoints: points(body?.ride?.waypoints),
         dest: point(body?.ride?.dest),
         estimatedFare: typeof body?.ride?.estimatedFare === 'number' ? body.ride.estimatedFare : undefined,
+        expectedMinutes: typeof body?.ride?.expectedMinutes === 'number' ? body.ride.expectedMinutes : undefined,
         kind: body?.ride?.kind === 'daeri' ? 'daeri' : 'taxi',
       },
       typeof body?.driverId === 'string' ? body.driverId.trim() : undefined,
@@ -91,6 +93,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           waypoints: body.ride.waypoints,
           dest: body.ride.dest,
           estimatedFare: body.ride.estimatedFare,
+          expectedMinutes: body.ride.expectedMinutes,
           kind: body.ride.kind,
         }
       : undefined,

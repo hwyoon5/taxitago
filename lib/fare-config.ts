@@ -4,6 +4,8 @@ export type FareRule = {
   base: number
   perKm: number
   perMin: number
+  /** 정체 지연 초과분(10분 기준 초과)에 적용하는 분당 추가 요금율(Pi/분). */
+  congestionPerMin: number
 }
 
 export type FlatServiceId = 'delivery' | 'bicycle' | 'kickboard' | 'ev' | 'parking'
@@ -21,8 +23,8 @@ export type FareConfig = {
 }
 
 export const DEFAULT_FARE_CONFIG: FareConfig = {
-  taxi: { base: 2.1, perKm: 0.28, perMin: 0 },
-  daeri: { base: 2.1, perKm: 0.28, perMin: 0 },
+  taxi: { base: 2.1, perKm: 0.28, perMin: 0, congestionPerMin: 0.02 },
+  daeri: { base: 2.1, perKm: 0.28, perMin: 0, congestionPerMin: 0.02 },
   flatBase: { delivery: 1.2, bicycle: 0.3, kickboard: 0.3, ev: 0.4, parking: 2 },
   cancel: { rate: 40, min: 0.5 },
 }
@@ -41,6 +43,7 @@ export function normalizeFareConfig(input: Partial<FareConfig> | null | undefine
     base: Math.max(0, num(value?.base, fallback.base)),
     perKm: Math.max(0, num(value?.perKm, fallback.perKm)),
     perMin: Math.max(0, num(value?.perMin, fallback.perMin)),
+    congestionPerMin: Math.max(0, num(value?.congestionPerMin, fallback.congestionPerMin)),
   })
   const flat = {} as Record<FlatServiceId, number>
   for (const key of Object.keys(DEFAULT_FARE_CONFIG.flatBase) as FlatServiceId[]) {

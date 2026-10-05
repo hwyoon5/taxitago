@@ -709,6 +709,7 @@ type RideReceipt = {
   dest: string
   fare: string
   estimatedFare?: string
+  trafficSurcharge?: string
   vehicle: string
   date: string
   distance: string
@@ -777,6 +778,10 @@ function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
     dest: item.dest,
     fare: `${item.amount.toFixed(7)} Pi`,
     estimatedFare: `${item.estimatedFare.toFixed(7)} Pi`,
+    trafficSurcharge:
+      item.trafficSurcharge && item.trafficSurcharge > 0
+        ? `+${item.trafficSurcharge.toFixed(7)} Pi${item.trafficDelayMinutes ? ` (예상 대비 +${item.trafficDelayMinutes}분 지연)` : ''}`
+        : undefined,
     vehicle: '택시',
     date: new Date(item.settledAt).toLocaleString('ko-KR'),
     distance: '-',
@@ -4822,6 +4827,9 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
           <p className="mt-1 text-3xl font-black">{ride.fare}</p>
           {ride.estimatedFare && ride.estimatedFare !== ride.fare ? (
             <p className="mt-2 text-xs font-bold leading-5 text-white/85">실시간 주행 거리/시간에 따라 최종 요금이 산정되었습니다 · 예상 {ride.estimatedFare}</p>
+          ) : null}
+          {ride.trafficSurcharge ? (
+            <p className="mt-1 text-[11px] font-bold text-[#FDE68A]">정체 지연 추가 요금 {ride.trafficSurcharge}</p>
           ) : null}
           <p className="mt-2 text-xs font-black text-[#E8DCFF]">결제 수단 · {ride.method}</p>
         </div>

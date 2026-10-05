@@ -50,6 +50,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
     waypoints: ride.waypoints ?? [],
     dest: ride.dest,
     estimatedFare: ride.estimatedFare,
+    expectedMinutes: ride.expectedMinutes ?? null,
     status: ride.status,
     offerExpiresAt: ride.currentOffer?.decision === 'pending' ? ride.currentOffer.expiresAt : null,
     pendingOffer:
@@ -250,6 +251,7 @@ export function createRideAndMatch(input: {
   waypoints?: RideRequestRecord['waypoints']
   dest: RideRequestRecord['dest']
   estimatedFare: number
+  expectedMinutes?: number | null
 }) {
   const createdAt = nowIso()
   const ride = saveRide({
@@ -307,6 +309,7 @@ export function markRideProgress(
     waypoints?: RideRequestRecord['waypoints']
     dest?: RideRequestRecord['dest']
     estimatedFare?: number
+    expectedMinutes?: number | null
     kind?: RideRequestRecord['kind']
     boardedAt?: string | null
     driverId?: string | null
@@ -324,6 +327,7 @@ export function markRideProgress(
       waypoints: snapshot.waypoints?.slice(0, 2),
       dest: snapshot.dest,
       estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
+      expectedMinutes: Number.isFinite(snapshot.expectedMinutes) ? Number(snapshot.expectedMinutes) : null,
       status: 'assigned',
       assignedDriverId: snapshot.driverId || null,
       currentOffer: null,
@@ -381,6 +385,7 @@ export function restorePendingOffer(
     waypoints?: RideRequestRecord['waypoints']
     dest?: RideRequestRecord['dest']
     estimatedFare?: number
+    expectedMinutes?: number | null
     kind?: RideRequestRecord['kind']
   },
 ) {
@@ -398,6 +403,7 @@ export function restorePendingOffer(
       waypoints: snapshot.waypoints?.slice(0, 2),
       dest: snapshot.dest,
       estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
+      expectedMinutes: Number.isFinite(snapshot.expectedMinutes) ? Number(snapshot.expectedMinutes) : null,
       status: 'searching',
       assignedDriverId: null,
       currentOffer: null,
@@ -496,6 +502,7 @@ export function confirmMatchOnDevice(
     waypoints?: RideRequestRecord['waypoints']
     dest?: RideRequestRecord['dest']
     estimatedFare?: number
+    expectedMinutes?: number | null
     kind?: RideRequestRecord['kind']
   },
   deviceDriverId?: string,
@@ -512,6 +519,7 @@ export function confirmMatchOnDevice(
       waypoints: snapshot.waypoints?.slice(0, 2),
       dest: snapshot.dest,
       estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
+      expectedMinutes: Number.isFinite(snapshot.expectedMinutes) ? Number(snapshot.expectedMinutes) : null,
       status: 'searching',
       assignedDriverId: null,
       currentOffer: null,
@@ -603,6 +611,7 @@ export function ensureRideForCompletion(
     waypoints?: RideRequestRecord['waypoints']
     dest?: RideRequestRecord['dest']
     estimatedFare?: number
+    expectedMinutes?: number | null
     kind?: RideRequestRecord['kind']
     boardedAt?: string | null
     readyToSettleAt?: string | null
@@ -626,6 +635,7 @@ export function ensureRideForCompletion(
     waypoints: snapshot.waypoints?.slice(0, 2),
     dest: snapshot.dest,
     estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
+    expectedMinutes: Number.isFinite(snapshot.expectedMinutes) ? Number(snapshot.expectedMinutes) : null,
     status: 'assigned',
     assignedDriverId: driverId,
     currentOffer: null,

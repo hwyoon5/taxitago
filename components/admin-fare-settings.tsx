@@ -140,10 +140,10 @@ export default function AdminFareSettings() {
   const ruleEditor = (label: string, key: 'taxi' | 'daeri') => (
     <div className="rounded-xl border-2 border-[#E2E8F0] p-2.5">
       <p className="text-[11px] font-black text-[#475569]">{label}</p>
-      <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-        {(['base', 'perKm', 'perMin'] as const).map((field) => (
+      <div className="mt-1.5 grid grid-cols-4 gap-1.5">
+        {(['base', 'perKm', 'perMin', 'congestionPerMin'] as const).map((field) => (
           <label key={field} className="block">
-            <span className="text-[10px] font-bold text-[#94A3B8]">{field === 'base' ? '기본' : field === 'perKm' ? 'km당' : '분당'}</span>
+            <span className="text-[10px] font-bold text-[#94A3B8]">{field === 'base' ? '기본' : field === 'perKm' ? 'km당' : field === 'perMin' ? '분당' : '정체/분'}</span>
             <input
               type="number"
               min={0}

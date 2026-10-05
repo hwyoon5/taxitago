@@ -14,6 +14,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       waypoints?: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }[]
       dest?: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }
       estimatedFare?: unknown
+      expectedMinutes?: unknown
       kind?: unknown
       boardedAt?: unknown
       readyToSettleAt?: unknown

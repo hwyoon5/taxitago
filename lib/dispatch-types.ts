@@ -28,6 +28,8 @@ export type RideRequestRecord = {
   waypoints?: GeoPoint[]
   dest: GeoPoint
   estimatedFare: number
+  /** 길찾기 API 기준 예상 소요 시간(분) — 정체 추가 요금의 지연 판별 기준. */
+  expectedMinutes?: number | null
   status: RideStatus
   assignedDriverId: string | null
   currentOffer: RideOfferRecord | null
@@ -97,6 +99,7 @@ export type PublicRide = {
   waypoints?: GeoPoint[]
   dest: GeoPoint
   estimatedFare: number
+  expectedMinutes?: number | null
   status: RideStatus
   offerExpiresAt: string | null
   pendingOffer: { driverId: string; driverName: string } | null

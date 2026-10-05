@@ -40,6 +40,12 @@ export type SettlementReceipt = {
   dest: string
   amount: number
   estimatedFare: number
+  /** 정체 추가 요금(Pi) — 실제 운행 시간이 예상보다 기준치 이상 늦을 때만 산정. */
+  trafficSurcharge?: number
+  /** 예상 대비 지연 시간(분, 0 이상). */
+  trafficDelayMinutes?: number
+  /** 길찾기 API 기준 예상 소요 시간(분). */
+  expectedMinutes?: number
   lockTxid: string
   payoutTxid: string
   payoutWallet: string

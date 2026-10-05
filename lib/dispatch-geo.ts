@@ -92,6 +92,20 @@ export function waypointSurchargePi(detourKm: number, config: FareConfig = DEFAU
   return piRound(Math.max(0, extra))
 }
 
+// 정체 추가 요금: 길찾기 API의 기본 예상 소요 시간 대비 실제 운행이 이 값(분) 이상
+// 늦어졌을 때만, 초과분에 대해 분당 시간 요금율(perMin)을 적용한다.
+export const TRAFFIC_DELAY_FREE_MINUTES = 10
+
+export function trafficDelayMinutes(actualMinutes: number, expectedMinutes: number) {
+  return Math.max(0, Math.max(0, actualMinutes) - Math.max(0, expectedMinutes))
+}
+
+export function trafficDelaySurchargePi(delayMinutes: number, config: FareConfig = DEFAULT_FARE_CONFIG, kind: 'taxi' | 'daeri' = 'taxi') {
+  const rule = kind === 'daeri' ? config.daeri : config.taxi
+  const billable = Math.max(0, delayMinutes - TRAFFIC_DELAY_FREE_MINUTES)
+  return piRound(billable * rule.congestionPerMin)
+}
+
 export function etaMinutesFromKm(distanceKm: number) {
   return Math.max(2, Math.round(distanceKm / 0.35))
 }

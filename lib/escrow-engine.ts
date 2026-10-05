@@ -1,4 +1,5 @@
 import { getDriver, getRide, listRides, nowIso, saveDriver, syncDispatchFromDisk } from '@/lib/dispatch-store'
+import { etaMinutesFromKm, trafficDelayMinutes, trafficDelaySurchargePi, waypointRouteQuote } from '@/lib/dispatch-geo'
 import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { getFareConfig } from '@/lib/fare-config-server'
 import { piRound } from '@/lib/pi-format'
@@ -173,12 +174,28 @@ export async function releaseEscrow(
   releasingRides.add(rideId)
 
   try {
+  // 정체 추가 요금: 길찾기 API 기준 예상 소요 시간(expectedMinutes) 대비 실제
+  // 운행 시간(boardedAt → readyToSettleAt)이 TRAFFIC_DELAY_FREE_MINUTES 이상
+  // 늦어진 경우에만 초과분에 분당 시간 요금율을 곱해 더한다.
+  const fareConfig = await getFareConfig()
+  const expectedMin =
+    ride.expectedMinutes && ride.expectedMinutes > 0
+      ? ride.expectedMinutes
+      : etaMinutesFromKm(waypointRouteQuote(ride.pickup, ride.dest, ride.waypoints ?? []).routeKm)
+  const actualMin =
+    ride.boardedAt && ride.readyToSettleAt
+      ? Math.max(0, (Date.parse(ride.readyToSettleAt) - Date.parse(ride.boardedAt)) / 60000)
+      : 0
+  const delayMin = trafficDelayMinutes(actualMin, expectedMin)
+  const trafficSurcharge = trafficDelaySurchargePi(delayMin, fareConfig, ride.kind)
+  const settleAmount = piRound(escrow.amount + trafficSurcharge)
+
   const target = driverPayoutTarget(driverId)
   let payoutTxid = `a2u-${escrow.id.slice(0, 10)}`
   if (!isPiSandboxEnv() && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
     try {
       const payment = await createA2UPayment({
-        amount: escrow.amount,
+        amount: settleAmount,
         memo: '택시 정산',
         uid: target.uid,
         metadata: { kind: 'escrow-release', rideId, escrowId: escrow.id },
@@ -190,6 +207,7 @@ export async function releaseEscrow(
   }
 
   escrow.status = 'released'
+  escrow.amount = settleAmount
   escrow.payoutWallet = target.wallet
   escrow.payoutUid = target.uid
   escrow.payoutTxid = payoutTxid
@@ -206,8 +224,11 @@ export async function releaseEscrow(
     origin: ride.pickup.address || ride.pickup.label || '출발지',
     waypoints: waypointLabels(ride),
     dest: ride.dest.label || ride.dest.address || '목적지',
-    amount: escrow.amount,
+    amount: settleAmount,
     estimatedFare: ride.estimatedFare,
+    trafficSurcharge,
+    trafficDelayMinutes: Math.round(delayMin * 10) / 10,
+    expectedMinutes: Math.round(expectedMin * 10) / 10,
     lockTxid: escrow.lockTxid || '',
     payoutTxid,
     payoutWallet: target.wallet,
