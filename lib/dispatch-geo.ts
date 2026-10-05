@@ -1,5 +1,6 @@
 import { DEFAULT_FARE_CONFIG, type FareConfig } from '@/lib/fare-config'
 import { piRound } from '@/lib/pi-format'
+import { inferRegion, regionDisplayName } from '@/lib/region-destinations'
 
 const EARTH_KM = 6371
 
@@ -32,6 +33,26 @@ export function estimateTaxiFarePi(distanceKm: number, config: FareConfig = DEFA
 export const WAYPOINT_ON_ROUTE_EPSILON_KM = 0.3
 
 export type GeoCoord = { lat: number; lng: number }
+
+// 통상 권역 기준 — 출발지→목적지 직선거리가 이 값 이상이거나 시/도 단위
+// 권역(광역시·도)이 다르면 장거리 콜로 판별해 이용자 확인을 요청한다.
+export const LONG_DISTANCE_CALL_KM = 25
+
+export function longDistanceCheck(
+  origin: GeoCoord & { address?: string },
+  dest: GeoCoord & { address?: string },
+): { far: boolean; km: number; regionExit: boolean; destRegion: string } {
+  const km = haversineKm(origin, dest)
+  const originRegion = inferRegion(origin.address ?? '', origin.lat, origin.lng)
+  const destRegion = inferRegion(dest.address ?? '', dest.lat, dest.lng)
+  const regionExit = !!originRegion && !!destRegion && originRegion !== destRegion
+  return {
+    far: km >= LONG_DISTANCE_CALL_KM || regionExit,
+    km,
+    regionExit,
+    destRegion: destRegion ? regionDisplayName(destRegion) : '',
+  }
+}
 
 export function routeChainKm(points: GeoCoord[]) {
   return points.slice(1).reduce((sum, point, index) => sum + haversineKm(points[index], point), 0)

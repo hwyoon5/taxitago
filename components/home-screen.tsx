@@ -38,7 +38,7 @@ import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, pu
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
-import { haversineKm } from '@/lib/dispatch-geo'
+import { haversineKm, longDistanceCheck } from '@/lib/dispatch-geo'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
 import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, setMobilityDeviceStatus } from '@/lib/mobility-devices'
 import {
@@ -273,6 +273,61 @@ function RouteRequiredModal({ onConfirm }: { onConfirm: () => void }) {
         <button type="button" onClick={onConfirm} className="mt-6 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white">
           확인
         </button>
+      </section>
+    </div>
+  )
+}
+
+function LongDistanceConfirmModal({
+  km,
+  regionExit,
+  destRegion,
+  onEdit,
+  onConfirm,
+}: {
+  km: number
+  regionExit: boolean
+  destRegion: string
+  onEdit: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-[125] flex items-center justify-center bg-[#1e1033]/50 p-5">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="long-distance-title"
+        className="w-full max-w-sm rounded-[28px] bg-white px-5 py-6 text-center shadow-[0_20px_48px_rgba(30,16,51,0.28)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#FFF7ED] text-[#EA580C]">
+          <Navigation className="h-7 w-7" />
+        </div>
+        <h2 id="long-distance-title" className="mt-4 text-lg font-black leading-7 text-[#0F172A]">
+          장거리 콜을 확인해 주세요
+        </h2>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">
+          목적지 거리가 너무 멀리 있습니다. 목적지를 다시 한번 확인해 주세요.
+        </p>
+        <p className="mt-2 text-xs font-black text-[#EA580C]">
+          직선거리 약 {km.toFixed(1)}km{regionExit && destRegion ? ` · ${destRegion} 권역` : ''}
+        </p>
+        <div className="mt-6 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded-2xl border-2 border-[#E0D4FF] bg-white py-3.5 text-sm font-black text-[#4C1FB8]"
+          >
+            목적지 수정하기
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white"
+          >
+            그대로 호출하기
+          </button>
+        </div>
       </section>
     </div>
   )
@@ -4068,6 +4123,7 @@ function DaeriCallSetupSheet({
     setWpRecents(readRecentPlaces())
   }, [])
   const [pickupPoint, setPickupPoint] = useState<RideCoords>({ lat: originLat, lng: originLng })
+  const [longDist, setLongDist] = useState<{ point: RideCoords; destName: string; km: number; regionExit: boolean; destRegion: string } | null>(null)
   const [dest, setDest] = useState(destination.trim() || '')
   const [plan, setPlan] = useState<'착한요금' | '빠른배정'>('착한요금')
   const [mapPicker, setMapPicker] = useState(false)
@@ -4126,6 +4182,37 @@ function DaeriCallSetupSheet({
     }
     if (sheetOpen && delta > 48) setSheetOpen(false)
     else if (!sheetOpen && delta < -48) setSheetOpen(true)
+  }
+  const proceedCall = (point: RideCoords, destName: string) => {
+    // 경유지 입력 텍스트를 좌표로 변환한다. 좌표 확인에 실패한 경유지는 제외한다.
+    const waypointTexts = waypoints.map((item) => item.trim()).filter(Boolean).slice(0, MAX_WAYPOINTS)
+    void Promise.all(
+      waypointTexts.map(
+        async (text) =>
+          waypointPlaces.current.get(text) ?? coordsFromPlaceQuery(text) ?? (await resolveRidePlace(text, pickup)),
+      ),
+    ).then((resolved) => {
+      onCall({
+        pickup: pickup.trim(),
+        dest: destName,
+        plan: selected.id,
+        fare: selected.fare,
+        pickupLat: pickupPoint.lat,
+        pickupLng: pickupPoint.lng,
+        waypoints: resolved.filter((wp): wp is NonNullable<typeof wp> => wp !== null),
+        destLat: point.lat,
+        destLng: point.lng,
+      })
+    })
+  }
+  const finishCall = (point: RideCoords, destName: string) => {
+    // 장거리 콜(직선 25km+ 또는 타 시/도 권역)이면 이용자 확인을 먼저 받는다.
+    const flag = longDistanceCheck({ lat: pickupPoint.lat, lng: pickupPoint.lng, address: pickup }, point)
+    if (flag.far) {
+      setLongDist({ point, destName, ...flag })
+      return
+    }
+    proceedCall(point, destName)
   }
   return (
     <div className="fixed inset-0 z-[52] bg-[#1e1033]/40">
@@ -4296,34 +4383,12 @@ function DaeriCallSetupSheet({
                 (Number.isFinite(destLat) && Number.isFinite(destLng)
                   ? { lat: destLat as number, lng: destLng as number }
                   : null)
-              const finish = (point: RideCoords) => {
-                // 경유지 입력 텍스트를 좌표로 변환한다. 좌표 확인에 실패한 경유지는 제외한다.
-                const waypointTexts = waypoints.map((item) => item.trim()).filter(Boolean).slice(0, MAX_WAYPOINTS)
-                void Promise.all(
-                  waypointTexts.map(
-                    async (text) =>
-                      waypointPlaces.current.get(text) ?? coordsFromPlaceQuery(text) ?? (await resolveRidePlace(text, pickup)),
-                  ),
-                ).then((resolved) => {
-                  onCall({
-                    pickup: pickup.trim(),
-                    dest: destName,
-                    plan: selected.id,
-                    fare: selected.fare,
-                    pickupLat: pickupPoint.lat,
-                    pickupLng: pickupPoint.lng,
-                    waypoints: resolved.filter((wp): wp is NonNullable<typeof wp> => wp !== null),
-                    destLat: point.lat,
-                    destLng: point.lng,
-                  })
-                })
-              }
               if (known) {
-                finish(known)
+                finishCall(known, destName)
                 return
               }
               void resolveRidePlace(destName, pickup).then((place) => {
-                if (place) finish(place)
+                if (place) finishCall(place, destName)
                 else onRequireRoute?.('dest')
               })
             }}
@@ -4332,6 +4397,19 @@ function DaeriCallSetupSheet({
             대리 호출하기
           </button>
         </section>
+        {longDist ? (
+          <LongDistanceConfirmModal
+            km={longDist.km}
+            regionExit={longDist.regionExit}
+            destRegion={longDist.destRegion}
+            onEdit={() => setLongDist(null)}
+            onConfirm={() => {
+              const pending = longDist
+              setLongDist(null)
+              proceedCall(pending.point, pending.destName)
+            }}
+          />
+        ) : null}
         {waypointSearchIndex !== null ? (
           <DestinationSearchModal
             destination={waypoints[waypointSearchIndex] ?? ''}
@@ -8102,6 +8180,7 @@ export default function HomeScreen() {
   const [deliveryJob, setDeliveryJob] = useState<DeliveryJob | null>(null)
   const [routeAlert, setRouteAlert] = useState<RouteGap | null>(null)
   const [destSearchTick, setDestSearchTick] = useState(0)
+  const [longDistCall, setLongDistCall] = useState<{ km: number; regionExit: boolean; destRegion: string } | null>(null)
   const [notice, setNotice] = useState('')
   const [walletBalance, setWalletBalance] = useState(18.4)
   const [walletOpen, setWalletOpen] = useState(false)
@@ -8463,7 +8542,7 @@ export default function HomeScreen() {
       writeRideSession({ dest: place })
     })
   }
-  const startTaxiCall = async () => {
+  const startTaxiCall = async (skipLongCheck = false) => {
     const gap = routeGap(origin.address, destination)
     if (gap) {
       setRouteAlert(gap)
@@ -8479,6 +8558,17 @@ export default function HomeScreen() {
     if (!place) {
       showNotice('목적지 위치를 확인하지 못했어요. 추천 장소나 주소를 다시 선택해 주세요.')
       return
+    }
+    // 장거리 콜(직선 25km+ 또는 타 시/도 권역)이면 이용자 확인을 먼저 받는다.
+    if (!skipLongCheck) {
+      const flag = longDistanceCheck(
+        { lat: origin.lat, lng: origin.lng, address: origin.address },
+        { lat: place.lat, lng: place.lng, address: place.address || place.label },
+      )
+      if (flag.far) {
+        setLongDistCall(flag)
+        return
+      }
     }
     // 경유지 입력 텍스트를 좌표로 변환한다. 좌표를 찾지 못한 경유지는 제외하고,
     // 실제 거리·요금 보정은 서버에서 origin→waypoints→dest 구간 합산으로 처리한다.
@@ -8942,6 +9032,21 @@ export default function HomeScreen() {
               setTab('홈')
               if (kind === 'pickup' || kind === 'both') openPickupMap()
               else setDestSearchTick((value) => value + 1)
+            }}
+          />
+        ) : null}
+        {longDistCall ? (
+          <LongDistanceConfirmModal
+            km={longDistCall.km}
+            regionExit={longDistCall.regionExit}
+            destRegion={longDistCall.destRegion}
+            onEdit={() => {
+              setLongDistCall(null)
+              setDestSearchTick((value) => value + 1)
+            }}
+            onConfirm={() => {
+              setLongDistCall(null)
+              void startTaxiCall(true)
             }}
           />
         ) : null}
