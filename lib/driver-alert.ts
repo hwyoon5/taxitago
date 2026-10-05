@@ -35,7 +35,7 @@ export function primeDriverAlertAudio() {
   }
 }
 
-function tone(ctx: AudioContext, freq: number, start: number, duration: number, gain: number) {
+function tone(ctx: AudioContext, out: AudioNode, freq: number, start: number, duration: number, gain: number) {
   const osc = ctx.createOscillator()
   const amp = ctx.createGain()
   osc.type = 'square'
@@ -44,18 +44,19 @@ function tone(ctx: AudioContext, freq: number, start: number, duration: number, 
   amp.gain.linearRampToValueAtTime(gain, start + 0.015)
   amp.gain.exponentialRampToValueAtTime(0.0001, start + duration)
   osc.connect(amp)
-  amp.connect(ctx.destination)
+  amp.connect(out)
   osc.start(start)
   osc.stop(start + duration + 0.05)
 }
 
 // Dispatch ring: high-low two-tone, 4 cycles, ~2.4s total.
-function playWebAudioAlarm(ctx: AudioContext) {
+function playWebAudioAlarm(ctx: AudioContext, out?: AudioNode) {
+  const dest = out || ctx.destination
   const now = ctx.currentTime + 0.03
   let cursor = now
   for (let cycle = 0; cycle < 4; cycle += 1) {
-    tone(ctx, 1568, cursor, 0.16, 0.22)
-    tone(ctx, 1174.66, cursor + 0.17, 0.16, 0.22)
+    tone(ctx, dest, 1568, cursor, 0.16, 0.22)
+    tone(ctx, dest, 1174.66, cursor + 0.17, 0.16, 0.22)
     cursor += 0.42
   }
 }
@@ -129,6 +130,102 @@ export function playDriverOfferAlarm() {
   }).catch(() => playFallbackAlarm())
 }
 
+// Looping offer alarm — all loop tones run through offerLoopBus so a stop can
+// mute in-flight oscillators instantly instead of waiting out the envelope.
+let offerLoopTimer: number | null = null
+let offerLoopGuard: number | null = null
+let offerLoopBus: GainNode | null = null
+
+export function stopDriverOfferAlarm() {
+  if (offerLoopTimer != null) {
+    window.clearInterval(offerLoopTimer)
+    offerLoopTimer = null
+  }
+  if (offerLoopGuard != null) {
+    window.clearTimeout(offerLoopGuard)
+    offerLoopGuard = null
+  }
+  const bus = offerLoopBus
+  offerLoopBus = null
+  if (bus) {
+    try {
+      bus.gain.cancelScheduledValues(audioContext?.currentTime ?? 0)
+      bus.gain.setTargetAtTime(0.0001, audioContext?.currentTime ?? 0, 0.02)
+    } catch {
+      undefined
+    }
+    window.setTimeout(() => {
+      try {
+        bus.disconnect()
+      } catch {
+        undefined
+      }
+    }, 120)
+  }
+  if (fallbackAudio) {
+    try {
+      fallbackAudio.pause()
+      fallbackAudio.currentTime = 0
+    } catch {
+      undefined
+    }
+    fallbackAudio.loop = false
+  }
+  // 명시적으로 끈 뒤 같은 오퍼가 다시 살아나면 재알림을 허용한다.
+  lastAlertKey = ''
+}
+
+function startOfferAlarmLoop() {
+  stopDriverOfferAlarm()
+  const ctx = getContext()
+  if (ctx) {
+    resumeContext()
+    const bus = ctx.createGain()
+    bus.connect(ctx.destination)
+    offerLoopBus = bus
+  } else {
+    try {
+      if (!fallbackAudio) fallbackAudio = new Audio(buildFallbackWavUri())
+      fallbackAudio.loop = true
+      fallbackAudio.currentTime = 0
+      void fallbackAudio.play().catch(() => undefined)
+    } catch {
+      undefined
+    }
+  }
+  const playOnce = () => {
+    const c = getContext()
+    if (!c || !offerLoopBus) return
+    resumeContext()
+    if (c.state === 'running') {
+      try {
+        fallbackAudio?.pause()
+      } catch {
+        undefined
+      }
+      playWebAudioAlarm(c, offerLoopBus)
+      return
+    }
+    void c.resume().then(() => {
+      if (c.state === 'running' && offerLoopBus) playWebAudioAlarm(c, offerLoopBus)
+    }).catch(() => {
+      // Web Audio가 잠긴 환경 — HTMLAudio 폴백으로 반복 재생.
+      try {
+        if (!fallbackAudio) fallbackAudio = new Audio(buildFallbackWavUri())
+        fallbackAudio.loop = true
+        fallbackAudio.currentTime = 0
+        void fallbackAudio.play().catch(() => undefined)
+      } catch {
+        undefined
+      }
+    })
+  }
+  playOnce()
+  offerLoopTimer = window.setInterval(playOnce, 2800)
+  // 오퍼 만료·UI 종료 경로를 놓쳐도 무한 반복되지 않게 하는 안전 상한.
+  offerLoopGuard = window.setTimeout(() => stopDriverOfferAlarm(), 120000)
+}
+
 export function vibrateDriverOffer() {
   if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return
   try {
@@ -139,13 +236,15 @@ export function vibrateDriverOffer() {
 }
 
 // Deduped across watcher + dashboard so the same offer never rings twice.
+// The alarm now loops until stopDriverOfferAlarm() (user interaction, offer
+// cleared/expired, or the safety cap) — 기사가 확인할 때까지 울리는 콜 벨.
 export function alertDriverOffer(rideId: string) {
   const now = Date.now()
   const key = `offer:${rideId}`
   if (key === lastAlertKey && now - lastAlertAt < 60000) return
-  lastAlertKey = key
   lastAlertAt = now
-  playDriverOfferAlarm()
+  startOfferAlarmLoop()
+  lastAlertKey = key
   vibrateDriverOffer()
 }
 

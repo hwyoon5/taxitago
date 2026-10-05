@@ -62,7 +62,7 @@ import {
   subscribeRideLive,
 } from '@/lib/dispatch-client'
 import { enableDriverPush, showDriverOfferNotification } from '@/lib/driver-notify-client'
-import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, releaseDriverWakeLock } from '@/lib/driver-alert'
+import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, releaseDriverWakeLock, stopDriverOfferAlarm } from '@/lib/driver-alert'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
@@ -6838,6 +6838,25 @@ function DriverOfferWatcher({
     if (stored) setActiveRide(stored)
   }, [])
 
+  // 콜 알림음은 기사가 화면 어디든 인터랙션하는 순간 즉시 멈춘다.
+  useEffect(() => {
+    const stop = () => stopDriverOfferAlarm()
+    window.addEventListener('pointerdown', stop, true)
+    window.addEventListener('touchstart', stop, true)
+    window.addEventListener('keydown', stop, true)
+    return () => {
+      window.removeEventListener('pointerdown', stop, true)
+      window.removeEventListener('touchstart', stop, true)
+      window.removeEventListener('keydown', stop, true)
+      stopDriverOfferAlarm()
+    }
+  }, [])
+
+  // 오퍼가 사라지면(수락/거절/만료) 반복 알림음도 함께 정지.
+  useEffect(() => {
+    if (!incoming) stopDriverOfferAlarm()
+  }, [incoming])
+
   useEffect(() => {
     if (driverId && activeRide) writeStoredDriverRide(driverId, activeRide)
   }, [driverId, activeRide])
@@ -6950,6 +6969,7 @@ function DriverOfferWatcher({
 
   const respond = (action: 'accept' | 'reject') => {
     if (!incoming || busy) return
+    stopDriverOfferAlarm()
     const partner = loadPartnerProfile()
     const fleet = partnerVehicle(partner)
     setBusy(true)
@@ -7114,6 +7134,34 @@ function DriverDashboard({
   const rideRoute = (ride: RideStopPoints) => rideStops(ride).chain
   // 다른 운행으로 바뀌거나 종료되면 내비게이션 뷰도 함께 닫는다.
   useEffect(() => setNavOpen(false), [activeRide?.id])
+
+  // 콜 알림음은 기사가 화면 어디든 인터랙션하는 순간 즉시 멈춘다.
+  useEffect(() => {
+    const stop = () => stopDriverOfferAlarm()
+    window.addEventListener('pointerdown', stop, true)
+    window.addEventListener('touchstart', stop, true)
+    window.addEventListener('keydown', stop, true)
+    return () => {
+      window.removeEventListener('pointerdown', stop, true)
+      window.removeEventListener('touchstart', stop, true)
+      window.removeEventListener('keydown', stop, true)
+      stopDriverOfferAlarm()
+    }
+  }, [])
+
+  // 대기 중인 콜(택시/대리 오퍼, 택배 오픈 콜)이 모두 사라지면 반복 알림음 정지.
+  useEffect(() => {
+    if (!incoming && !openDeliveries.length) stopDriverOfferAlarm()
+  }, [incoming, openDeliveries])
+
+  // 택배 파트너의 새 오픈 콜도 동일한 반복 알림음으로 알린다.
+  const deliveryAlertRef = useRef('')
+  useEffect(() => {
+    const id = openDeliveries[0]?.id
+    if (!id || deliveryAlertRef.current === id) return
+    deliveryAlertRef.current = id
+    alertDriverOffer(`delivery:${id}`)
+  }, [openDeliveries])
   const dropEndedRide = useCallback((ended: PublicRide | string) => {
     const id = typeof ended === 'string' ? ended : ended.id
     endedRideIds.current.add(id)
@@ -7497,6 +7545,7 @@ function DriverDashboard({
 
   const respond = (action: 'accept' | 'reject') => {
     if (!incoming || busy || !driverId) return
+    stopDriverOfferAlarm()
     setBusy(true)
     localOfferRef.current = null
     const fleet = partnerVehicle(partner)
