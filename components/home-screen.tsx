@@ -4580,9 +4580,9 @@ const HOME_PARTNER_BANNERS: {
   {
     id: 'baroonda',
     name: 'BaroOnda',
-    subtitle: '파트너 서비스 안내는 준비 중이에요',
-    cta: '자세히 보기',
-    href: null,
+    subtitle: 'Pi 생태계 파트너 스토어로 이동합니다',
+    cta: '스토어 방문하기',
+    href: 'https://apppistorekoreay8282.pinet.com',
     logoSrc: '/ads/baroonda-logo.svg?v=cart-pi',
   },
 ]
@@ -4599,10 +4599,12 @@ function HomePartnerBanners() {
           <a
             key={banner.id}
             href={banner.href ?? undefined}
+            target={banner.href ? '_blank' : undefined}
+            rel={banner.href ? 'noopener noreferrer' : undefined}
             onClick={(event) => {
               if (!banner.href) event.preventDefault()
             }}
-            className="relative flex min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start flex-col overflow-hidden rounded-[22px] border-2 border-[#DDD6FE] bg-gradient-to-br from-[#F8F5FF] via-white to-[#EDE5FF] p-4 text-left text-[#0F172A] shadow-[0_12px_24px_rgba(76,31,184,0.12)]"
+            className={`relative flex min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start flex-col overflow-hidden rounded-[22px] border-2 border-[#DDD6FE] bg-gradient-to-br from-[#F8F5FF] via-white to-[#EDE5FF] p-4 text-left text-[#0F172A] shadow-[0_12px_24px_rgba(76,31,184,0.12)] transition ${banner.href ? 'cursor-pointer hover:border-[#4C1FB8] hover:shadow-[0_14px_28px_rgba(76,31,184,0.22)] active:scale-[0.98]' : 'cursor-default'}`}
             aria-label={`${banner.name} ${banner.subtitle}`}
           >
             <img src={banner.logoSrc} alt="BaroOnda 쇼핑 카트와 파이 로고" className="h-12 w-auto max-w-full object-contain object-left" />
