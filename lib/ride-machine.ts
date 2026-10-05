@@ -46,6 +46,7 @@ export type RidePointSnapshot = { lat?: unknown; lng?: unknown; address?: unknow
 export type RideSnapshotInput = {
   passengerId?: string
   pickup?: { lat: number; lng: number; address?: string; label?: string }
+  waypoints?: { lat: number; lng: number; address?: string; label?: string }[]
   dest?: { lat: number; lng: number; address?: string; label?: string }
   estimatedFare?: number
   kind?: 'taxi' | 'daeri'
@@ -89,6 +90,15 @@ function toPoint(value: RidePointSnapshot | undefined) {
   }
 }
 
+function toPoints(value: RidePointSnapshot[] | undefined) {
+  if (!Array.isArray(value)) return undefined
+  const points = value
+    .slice(0, 2)
+    .map((item) => toPoint(item))
+    .filter((item): item is NonNullable<typeof item> => item != null)
+  return points.length ? points : undefined
+}
+
 /** The ride a passenger is currently engaged in — searching, offered, or assigned. */
 export function getPassengerActiveRide(passengerId: string) {
   syncDispatchFromDisk()
@@ -112,6 +122,7 @@ export async function transitionRide(input: {
   snapshot?: {
     passengerId?: unknown
     pickup?: RidePointSnapshot
+    waypoints?: RidePointSnapshot[]
     dest?: RidePointSnapshot
     estimatedFare?: unknown
     kind?: unknown
@@ -144,6 +155,7 @@ async function applyTransition(input: {
   snapshot?: {
     passengerId?: unknown
     pickup?: RidePointSnapshot
+    waypoints?: RidePointSnapshot[]
     dest?: RidePointSnapshot
     estimatedFare?: unknown
     kind?: unknown
@@ -160,6 +172,7 @@ async function applyTransition(input: {
     ? {
         passengerId: typeof snapshot.passengerId === 'string' ? snapshot.passengerId : undefined,
         pickup: toPoint(snapshot.pickup),
+        waypoints: toPoints(snapshot.waypoints),
         dest: toPoint(snapshot.dest),
         estimatedFare: typeof snapshot.estimatedFare === 'number' ? snapshot.estimatedFare : undefined,
         kind: snapshot.kind === 'daeri' ? ('daeri' as const) : undefined,

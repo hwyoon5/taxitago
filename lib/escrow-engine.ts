@@ -33,10 +33,14 @@ export function toPublicEscrow(record: EscrowRecord | null): PublicEscrow | null
   }
 }
 
+function waypointLabels(ride: NonNullable<ReturnType<typeof getRide>>) {
+  return (ride.waypoints ?? []).map((point) => point.label || point.address || '경유지').filter(Boolean)
+}
+
 function routeLabel(ride: NonNullable<ReturnType<typeof getRide>>) {
   const origin = ride.pickup.address || ride.pickup.label || '출발지'
   const dest = ride.dest.label || ride.dest.address || '목적지'
-  return `${origin} → ${dest}`
+  return [origin, ...waypointLabels(ride), dest].join(' → ')
 }
 
 export function driverPayoutTarget(driverId: string) {
@@ -200,6 +204,7 @@ export async function releaseEscrow(
     driverName: target.name,
     route: routeLabel(ride),
     origin: ride.pickup.address || ride.pickup.label || '출발지',
+    waypoints: waypointLabels(ride),
     dest: ride.dest.label || ride.dest.address || '목적지',
     amount: escrow.amount,
     estimatedFare: ride.estimatedFare,
@@ -291,6 +296,7 @@ export async function settlePassengerCancelFee(rideId: string) {
     driverName: target.name,
     route: routeLabel(ride),
     origin: ride.pickup.address || ride.pickup.label || '출발지',
+    waypoints: waypointLabels(ride),
     dest: ride.dest.label || ride.dest.address || '목적지',
     amount: settlement.cancelFee,
     estimatedFare: ride.estimatedFare,
@@ -454,7 +460,7 @@ function recordedEarnings(driverId: string): DriverEarning[] {
       driverId,
       rideId: ride.id,
       amount,
-      route: `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`,
+      route: routeLabel(ride),
       status,
       at: receipt?.settledAt || ride.updatedAt,
     })
@@ -509,7 +515,7 @@ export async function driverEarningsStats(driverId: string, aliasIds: string[] =
       driverId: earningDriverId,
       rideId: ride.id,
       amount,
-      route: `${ride.pickup.address || ride.pickup.label || '출발지'} → ${ride.dest.label || ride.dest.address || '목적지'}`,
+      route: routeLabel(ride),
       status,
       at: receipt?.settledAt || ride.updatedAt,
     })

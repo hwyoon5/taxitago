@@ -302,6 +302,7 @@ export function markRideProgress(
   step: 'boarded' | 'arrived',
   snapshot?: {
     pickup?: RideRequestRecord['pickup']
+    waypoints?: RideRequestRecord['waypoints']
     dest?: RideRequestRecord['dest']
     estimatedFare?: number
     kind?: RideRequestRecord['kind']
@@ -318,6 +319,7 @@ export function markRideProgress(
       kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
       passengerId,
       pickup: snapshot.pickup,
+      waypoints: snapshot.waypoints?.slice(0, 2),
       dest: snapshot.dest,
       estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
       status: 'assigned',
@@ -331,6 +333,8 @@ export function markRideProgress(
     })
   }
   if (!ride) return { ok: false as const, error: 'not_found', ride: null }
+  // A ride restored before the snapshot carried waypoints gets them back here.
+  if (!ride.waypoints?.length && snapshot?.waypoints?.length) ride.waypoints = snapshot.waypoints.slice(0, 2)
   // A snapshot may only confirm an assignment for the driver actually holding
   // the offer — never let client data pick an arbitrary driver.
   if (
@@ -372,6 +376,7 @@ export function restorePendingOffer(
   snapshot?: {
     passengerId?: string
     pickup?: RideRequestRecord['pickup']
+    waypoints?: RideRequestRecord['waypoints']
     dest?: RideRequestRecord['dest']
     estimatedFare?: number
     kind?: RideRequestRecord['kind']
@@ -388,6 +393,7 @@ export function restorePendingOffer(
       kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
       passengerId: snapshot.passengerId,
       pickup: snapshot.pickup,
+      waypoints: snapshot.waypoints?.slice(0, 2),
       dest: snapshot.dest,
       estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
       status: 'searching',
@@ -485,6 +491,7 @@ export function confirmMatchOnDevice(
   snapshot?: {
     passengerId?: string
     pickup?: RideRequestRecord['pickup']
+    waypoints?: RideRequestRecord['waypoints']
     dest?: RideRequestRecord['dest']
     estimatedFare?: number
     kind?: RideRequestRecord['kind']
@@ -500,6 +507,7 @@ export function confirmMatchOnDevice(
       kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
       passengerId: snapshot.passengerId,
       pickup: snapshot.pickup,
+      waypoints: snapshot.waypoints?.slice(0, 2),
       dest: snapshot.dest,
       estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
       status: 'searching',
@@ -512,6 +520,7 @@ export function confirmMatchOnDevice(
     })
   }
   if (!ride) return { ok: false as const, error: 'not_found', ride: null }
+  if (!ride.waypoints?.length && snapshot?.waypoints?.length) ride.waypoints = snapshot.waypoints.slice(0, 2)
   if (ride.status === 'assigned') return { ok: true as const, ride }
   if (ride.status === 'cancelled' || ride.status === 'completed') {
     return { ok: false as const, error: ride.status, ride }
@@ -589,6 +598,7 @@ export function ensureRideForCompletion(
   snapshot?: {
     passengerId?: string
     pickup?: RideRequestRecord['pickup']
+    waypoints?: RideRequestRecord['waypoints']
     dest?: RideRequestRecord['dest']
     estimatedFare?: number
     kind?: RideRequestRecord['kind']
@@ -598,7 +608,10 @@ export function ensureRideForCompletion(
 ) {
   syncDispatchFromDisk()
   const existing = getRide(rideId)
-  if (existing) return existing
+  if (existing) {
+    if (!existing.waypoints?.length && snapshot?.waypoints?.length) existing.waypoints = snapshot.waypoints.slice(0, 2)
+    return existing
+  }
   // Reconstruction requires the full lifecycle attestation — never fabricate a
   // boarding/arrival the server never observed.
   if (!snapshot?.passengerId || !snapshot.pickup || !snapshot.dest || !snapshot.boardedAt || !snapshot.readyToSettleAt) return null
@@ -608,6 +621,7 @@ export function ensureRideForCompletion(
     kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
     passengerId: snapshot.passengerId,
     pickup: snapshot.pickup,
+    waypoints: snapshot.waypoints?.slice(0, 2),
     dest: snapshot.dest,
     estimatedFare: Number.isFinite(snapshot.estimatedFare) ? Number(snapshot.estimatedFare) : 0,
     status: 'assigned',

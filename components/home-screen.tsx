@@ -1,6 +1,6 @@
 'use client'
 
-import { Component, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { translateService } from '@/lib/i18n'
@@ -646,12 +646,14 @@ function formatRecentFare(amount: number) {
 }
 
 function receiptFromRecent(item: RecentUse): RideReceipt {
-  const parts = item.route.split('→').map((part) => part.trim())
+  const parts = item.route.split('→').map((part) => part.trim()).filter(Boolean)
   const origin = parts[0] || item.route
-  const dest = parts.length > 1 ? parts.slice(1).join(' → ') : item.route
+  const dest = parts.length > 1 ? parts[parts.length - 1] : item.route
+  const waypoints = parts.length > 2 ? parts.slice(1, -1) : undefined
   return {
     route: item.route,
     origin,
+    waypoints,
     dest,
     fare: formatRecentFare(item.fare),
     vehicle: item.service,
@@ -689,6 +691,7 @@ type RideReceipt = {
   rideId?: string
   route: string
   origin: string
+  waypoints?: string[]
   dest: string
   fare: string
   estimatedFare?: string
@@ -756,6 +759,7 @@ function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
     rideId: item.rideId,
     route: item.route,
     origin: item.origin,
+    waypoints: item.waypoints,
     dest: item.dest,
     fare: `${item.amount.toFixed(7)} Pi`,
     estimatedFare: `${item.estimatedFare.toFixed(7)} Pi`,
@@ -778,11 +782,15 @@ function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
     return { ...matched, fare: `${Math.abs(tx.amount).toFixed(7)} Pi`, estimatedFare, date: tx.at, vehicle: tx.label }
   }
   const isRoute = tx.place.includes('→')
-  const [origin, dest] = isRoute ? tx.place.split(' → ') : [tx.place, '']
+  const parts = isRoute ? tx.place.split('→').map((part) => part.trim()).filter(Boolean) : [tx.place]
+  const origin = parts[0] ?? tx.place
+  const dest = parts.length > 1 ? parts[parts.length - 1] : ''
+  const waypoints = parts.length > 2 ? parts.slice(1, -1) : undefined
   const rideLike = isRoute || (tx.amount < 0 && /택시|대리|호출/.test(tx.label))
   return {
     route: isRoute ? tx.place : `${tx.label}`,
     origin: origin.trim() || tx.label,
+    waypoints,
     dest: (dest || (rideLike ? '목적지' : 'Pi 월렛')).trim(),
     fare: `${Math.abs(tx.amount).toFixed(7)} Pi`,
     estimatedFare,
@@ -1012,6 +1020,7 @@ function DestinationSearchModal({
   originLat,
   originLng,
   originAddress,
+  searchPlaceholder,
   onClose,
   onSelect,
   onAddFavorite,
@@ -1025,12 +1034,13 @@ function DestinationSearchModal({
   originLat?: number
   originLng?: number
   originAddress?: string
+  searchPlaceholder?: string
   onClose: () => void
   onSelect: (name: string, address?: string, coords?: RideCoords) => void
   onAddFavorite: () => void
   onRemoveFavorite: (id: string) => void
   onRemoveRecent: (id: string) => void
-  onOpenMap: () => void
+  onOpenMap?: () => void
 }) {
   const [query, setQuery] = useState('')
   const [destMapOpen, setDestMapOpen] = useState(false)
@@ -1111,7 +1121,7 @@ function DestinationSearchModal({
                   ref={inputRef}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="목적지를 검색해 주세요"
+                  placeholder={searchPlaceholder || '목적지를 검색해 주세요'}
                   className="w-full bg-transparent text-sm font-extrabold text-[#0F172A] outline-none placeholder:text-[#64748B]"
                   aria-label="목적지 검색"
                 />
@@ -1207,13 +1217,15 @@ function DestinationSearchModal({
                     <strong className="mt-3 block text-sm font-black text-[#4C1FB8]">지도에서 찾기</strong>
                     <span className="mt-1 block text-[11px] font-bold text-[#64748B]">핀을 옮겨 목적지 지정</span>
                   </button>
-                  <button type="button" onClick={onOpenMap} className="rounded-[22px] border-2 border-dashed border-[#94A3B8] bg-white p-4 text-left">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#F1F5F9] text-[#4C1FB8]">
-                      <LocateFixed className="h-5 w-5" />
-                    </span>
-                    <strong className="mt-3 block text-sm font-black text-[#0F172A]">내 위치</strong>
-                    <span className="mt-1 block text-[11px] font-bold text-[#64748B]">현재 위치 지도 보기</span>
-                  </button>
+                  {onOpenMap ? (
+                    <button type="button" onClick={onOpenMap} className="rounded-[22px] border-2 border-dashed border-[#94A3B8] bg-white p-4 text-left">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#F1F5F9] text-[#4C1FB8]">
+                        <LocateFixed className="h-5 w-5" />
+                      </span>
+                      <strong className="mt-3 block text-sm font-black text-[#0F172A]">내 위치</strong>
+                      <span className="mt-1 block text-[11px] font-bold text-[#64748B]">현재 위치 지도 보기</span>
+                    </button>
+                  ) : null}
                 </div>
               </section>
               <section className="mt-6">
@@ -3953,6 +3965,14 @@ function DaeriCallSetupSheet({
 }) {
   const [pickup, setPickup] = useState(originAddress)
   const [waypoints, setWaypoints] = useState<string[]>((initialWaypoints ?? []).slice(0, MAX_WAYPOINTS))
+  const waypointPlaces = useRef(new Map<string, RideCoords>())
+  const [waypointSearchIndex, setWaypointSearchIndex] = useState<number | null>(null)
+  const [wpFavorites, setWpFavorites] = useState<FavoritePlace[]>([])
+  const [wpRecents, setWpRecents] = useState<RecentPlace[]>([])
+  useEffect(() => {
+    setWpFavorites(readFavoritePlaces())
+    setWpRecents(readRecentPlaces())
+  }, [])
   const [pickupPoint, setPickupPoint] = useState<RideCoords>({ lat: originLat, lng: originLng })
   const [dest, setDest] = useState(destination.trim() || '')
   const [plan, setPlan] = useState<'착한요금' | '빠른배정'>('착한요금')
@@ -4114,6 +4134,14 @@ function DaeriCallSetupSheet({
                 />
                 <button
                   type="button"
+                  onClick={() => setWaypointSearchIndex(index)}
+                  aria-label={`경유지 ${index + 1} 검색`}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9] transition hover:bg-[#E0D4FF] active:scale-95"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => setWaypoints((list) => list.filter((_, i) => i !== index))}
                   aria-label={`경유지 ${index + 1} 삭제`}
                   className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#F1F5F9] text-[#64748B] transition hover:bg-[#E2E8F0] active:scale-95"
@@ -4178,7 +4206,10 @@ function DaeriCallSetupSheet({
                 // 경유지 입력 텍스트를 좌표로 변환한다. 좌표 확인에 실패한 경유지는 제외한다.
                 const waypointTexts = waypoints.map((item) => item.trim()).filter(Boolean).slice(0, MAX_WAYPOINTS)
                 void Promise.all(
-                  waypointTexts.map(async (text) => coordsFromPlaceQuery(text) ?? (await resolveRidePlace(text, pickup))),
+                  waypointTexts.map(
+                    async (text) =>
+                      waypointPlaces.current.get(text) ?? coordsFromPlaceQuery(text) ?? (await resolveRidePlace(text, pickup)),
+                  ),
                 ).then((resolved) => {
                   onCall({
                     pickup: pickup.trim(),
@@ -4206,6 +4237,41 @@ function DaeriCallSetupSheet({
             대리 호출하기
           </button>
         </section>
+        {waypointSearchIndex !== null ? (
+          <DestinationSearchModal
+            destination={waypoints[waypointSearchIndex] ?? ''}
+            favorites={wpFavorites}
+            recents={wpRecents}
+            originLat={pickupPoint.lat}
+            originLng={pickupPoint.lng}
+            originAddress={pickup}
+            searchPlaceholder="경유지를 검색해 주세요"
+            onClose={() => setWaypointSearchIndex(null)}
+            onSelect={(name, address, coords) => {
+              const index = waypointSearchIndex
+              const text = (address || name).trim()
+              if (text) {
+                setWaypoints((list) => list.map((item, i) => (i === index ? text : item)))
+                if (coords) waypointPlaces.current.set(text, coords)
+                const next = [{ id: `${Date.now()}`, name, address: text }, ...wpRecents.filter((place) => place.name !== name && place.address !== text)]
+                setWpRecents(next)
+                writeRecentPlaces(next)
+              }
+              setWaypointSearchIndex(null)
+            }}
+            onAddFavorite={() => undefined}
+            onRemoveFavorite={(id) => {
+              const next = wpFavorites.filter((place) => place.id !== id)
+              setWpFavorites(next)
+              writeFavoritePlaces(next)
+            }}
+            onRemoveRecent={(id) => {
+              const next = wpRecents.filter((place) => place.id !== id)
+              setWpRecents(next)
+              writeRecentPlaces(next)
+            }}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -4387,6 +4453,7 @@ function Home({
   pickupFromMap = false,
   waypoints = [],
   onWaypointsChange,
+  onWaypointPicked,
   onDestination,
   onService,
   onReceipt,
@@ -4402,6 +4469,7 @@ function Home({
   pickupFromMap?: boolean
   waypoints?: string[]
   onWaypointsChange?: (value: string[]) => void
+  onWaypointPicked?: (text: string, coords: RideCoords) => void
   onDestination: (value: string, coords?: RideCoords) => void
   onService: (value: string) => void
   onReceipt: (ride: RideReceipt) => void
@@ -4411,6 +4479,7 @@ function Home({
 }) {
   const { t } = useLocale()
   const [searchOpen, setSearchOpen] = useState(false)
+  const [waypointSearchIndex, setWaypointSearchIndex] = useState<number | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [favorites, setFavorites] = useState<FavoritePlace[]>([])
   const [recents, setRecents] = useState<RecentPlace[]>([])
@@ -4493,21 +4562,23 @@ function Home({
           </button>
           {waypoints.map((waypoint, index) => (
             <div key={index} className="mt-1 flex w-full items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 shadow-[0_3px_8px_rgba(15,23,42,0.05)]">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#FFF7ED] text-[#EA580C]">
-                <MapPin className="h-3.5 w-3.5" />
-              </span>
-              <span className="min-w-0 flex-1 py-0.5">
-                <span className="block text-[10px] font-bold leading-3 text-[#64748B]">경유지 {index + 1}</span>
-                <input
-                  value={waypoint}
-                  onChange={(event) =>
-                    onWaypointsChange?.(waypoints.map((item, i) => (i === index ? event.target.value : item)))
-                  }
-                  placeholder="경유할 곳의 주소를 입력해 주세요"
-                  aria-label={`경유지 ${index + 1}`}
-                  className="mt-0.5 block w-full truncate bg-transparent text-[13px] font-black leading-4 text-[#0F172A] outline-none placeholder:font-bold placeholder:text-[#94A3B8]"
-                />
-              </span>
+              <button
+                type="button"
+                onClick={() => setWaypointSearchIndex(index)}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                aria-label={`경유지 ${index + 1} 검색`}
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#FFF7ED] text-[#EA580C]">
+                  <MapPin className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0 flex-1 py-0.5">
+                  <span className="block text-[10px] font-bold leading-3 text-[#64748B]">경유지 {index + 1}</span>
+                  <span className={`mt-0.5 block truncate text-[13px] font-black leading-4 ${waypoint ? 'text-[#0F172A]' : 'font-bold text-[#94A3B8]'}`}>
+                    {waypoint || '경유할 곳을 검색해 주세요'}
+                  </span>
+                </span>
+                <Search className="h-3.5 w-3.5 shrink-0 text-[#94A3B8]" />
+              </button>
               <button
                 type="button"
                 onClick={() => onWaypointsChange?.(waypoints.filter((_, i) => i !== index))}
@@ -4521,7 +4592,10 @@ function Home({
           {onWaypointsChange && waypoints.length < MAX_WAYPOINTS ? (
             <button
               type="button"
-              onClick={() => onWaypointsChange([...waypoints, ''])}
+              onClick={() => {
+                onWaypointsChange([...waypoints, ''])
+                setWaypointSearchIndex(waypoints.length)
+              }}
               className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#C4B5FD] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#6D28D9] transition hover:bg-[#F8F5FF] active:scale-[0.99]"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -4619,6 +4693,31 @@ function Home({
           onOpenMap={onOpenMap}
         />
       ) : null}
+      {waypointSearchIndex !== null ? (
+        <DestinationSearchModal
+          destination={waypoints[waypointSearchIndex] ?? ''}
+          favorites={favorites}
+          recents={recents}
+          originLat={pickupLat}
+          originLng={pickupLng}
+          originAddress={pickup}
+          searchPlaceholder="경유지를 검색해 주세요"
+          onClose={() => setWaypointSearchIndex(null)}
+          onSelect={(name, address, coords) => {
+            const index = waypointSearchIndex
+            const text = (address || name).trim()
+            if (text) {
+              onWaypointsChange?.(waypoints.map((item, i) => (i === index ? text : item)))
+              if (coords) onWaypointPicked?.(text, coords)
+              rememberRecent(name, text)
+            }
+            setWaypointSearchIndex(null)
+          }}
+          onAddFavorite={() => setFormOpen(true)}
+          onRemoveFavorite={removeFavorite}
+          onRemoveRecent={removeRecent}
+        />
+      ) : null}
       {formOpen ? <FavoritePlaceModal onClose={() => setFormOpen(false)} onSave={addFavorite} /> : null}
     </main>
   )
@@ -4627,7 +4726,7 @@ function Home({
 function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideReceipt; onClose: () => void; onNotice: (message: string) => void; onLostItem?: (prefill: LostPrefill) => void }) {
   const shareReceipt = async () => {
     const title = '택시타고 영수증'
-    const text = `택시타고 영수증 ${ride.transactionId}\n${ride.origin} → ${ride.dest}\n결제 ${ride.fare} · ${ride.method}\n${ride.driver} 기사님 · ${ride.car} ${ride.plate}\n${ride.date}`
+    const text = `택시타고 영수증 ${ride.transactionId}\n${[ride.origin, ...(ride.waypoints ?? []), ride.dest].join(' → ')}\n결제 ${ride.fare} · ${ride.method}\n${ride.driver} 기사님 · ${ride.car} ${ride.plate}\n${ride.date}`
     const url = typeof window !== 'undefined' ? window.location.href : ''
     const copiedMessage = '링크가 클립보드에 복사되었습니다'
 
@@ -4710,6 +4809,12 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
           <div className="mt-3 flex min-w-0 items-start gap-3">
             <div className="flex shrink-0 flex-col items-center pt-1">
               <span className="h-2.5 w-2.5 rounded-full bg-[#4C1FB8]" />
+              {(ride.waypoints ?? []).map((_, index) => (
+                <Fragment key={index}>
+                  <span className="my-1 h-8 w-0.5 bg-[#C4B5FD]" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#EA580C]" />
+                </Fragment>
+              ))}
               <span className="my-1 h-8 w-0.5 bg-[#C4B5FD]" />
               <span className="h-2.5 w-2.5 rounded-full bg-[#0F172A]" />
             </div>
@@ -4718,6 +4823,16 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
               <p className="mt-0.5 break-all font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere] line-clamp-3" title={ride.origin}>
                 {ride.origin}
               </p>
+              {(ride.waypoints ?? []).map((waypoint, index) => (
+                <Fragment key={index}>
+                  <p className="mt-3 text-[11px] font-bold text-[#8b8495]">
+                    {(ride.waypoints?.length ?? 0) > 1 ? `경유지 ${index + 1}` : '경유지'}
+                  </p>
+                  <p className="mt-0.5 break-all font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere] line-clamp-3" title={waypoint}>
+                    {waypoint}
+                  </p>
+                </Fragment>
+              ))}
               <p className="mt-3 text-[11px] font-bold text-[#8b8495]">도착지</p>
               <p className="mt-0.5 break-all font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere] line-clamp-3" title={ride.dest}>
                 {ride.dest}
@@ -4820,12 +4935,14 @@ const INBOX_RIDE_STATUS: Record<string, string> = {
 
 function receiptFromRideHistory(ride: PublicRide): RideReceipt {
   const origin = ride.pickup.address || ride.pickup.label || '출발지'
+  const waypoints = (ride.waypoints ?? []).map((point) => point.label || point.address || '경유지').filter(Boolean)
   const dest = ride.dest.label || ride.dest.address || '목적지'
   const paid = ride.escrow?.amount ?? ride.estimatedFare
   return {
     rideId: ride.id,
-    route: `${origin} → ${dest}`,
+    route: [origin, ...waypoints, dest].join(' → '),
     origin,
+    waypoints: waypoints.length ? waypoints : undefined,
     dest,
     fare: `${paid.toFixed(7)} Pi`,
     estimatedFare: `${ride.estimatedFare.toFixed(7)} Pi`,
@@ -7764,6 +7881,8 @@ export default function HomeScreen() {
   // 경유지: 출발지와 목적지 사이에 들르는 장소(최대 2곳, 텍스트 주소).
   // 경로 데이터는 origin → waypoints[] → destination 순서로 관리한다.
   const [waypoints, setWaypoints] = useState<string[]>([])
+  // 검색/지도에서 고른 경유지 좌표를 텍스트 키로 보관 — 호출 시 재지오코딩 없이 재사용한다.
+  const waypointPlaces = useRef(new Map<string, RideCoords>())
 
   const showNotice = (message: string) => {
     setNotice(message)
@@ -8076,7 +8195,10 @@ export default function HomeScreen() {
     const waypointTexts = waypoints.map((item) => item.trim()).filter(Boolean).slice(0, MAX_WAYPOINTS)
     const waypointPoints = (
       await Promise.all(
-        waypointTexts.map(async (text) => coordsFromPlaceQuery(text) ?? (await resolveRidePlace(text, origin.address))),
+        waypointTexts.map(
+          async (text) =>
+            waypointPlaces.current.get(text) ?? coordsFromPlaceQuery(text) ?? (await resolveRidePlace(text, origin.address)),
+        ),
       )
     ).filter((wp): wp is NonNullable<typeof wp> => wp !== null)
     writeRideSession({
@@ -8253,6 +8375,7 @@ export default function HomeScreen() {
             pickupFromMap={pickup?.source === 'map'}
             waypoints={waypoints}
             onWaypointsChange={setWaypoints}
+            onWaypointPicked={(text, coords) => waypointPlaces.current.set(text, coords)}
             onDestination={selectDestination}
             onService={openService}
             onReceipt={setReceiptRide}

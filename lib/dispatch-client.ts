@@ -234,6 +234,7 @@ export type PushedDriverOffer = {
     passengerId?: string
     kind?: string
     pickup?: { lat?: number; lng?: number; address?: string; label?: string }
+    waypoints?: { lat?: number; lng?: number; address?: string; label?: string }[]
     dest?: { lat?: number; lng?: number; address?: string; label?: string }
     estimatedFare?: number
   }
@@ -258,11 +259,16 @@ export function rideFromPushedOffer(payload: PushedDriverOffer | null | undefine
   if (!id || !pickup || !dest) return null
   const expiresAt = payload?.expiresAt || new Date(Date.now() + 45_000).toISOString()
   if (Date.parse(expiresAt) <= Date.now()) return null
+  const waypoints = (Array.isArray(payload?.ride?.waypoints) ? payload.ride.waypoints : [])
+    .map((point) => pushedPoint(point))
+    .filter((point): point is NonNullable<typeof point> => point !== null)
+    .slice(0, 2)
   const ride: PublicRide = {
     id,
     passengerId: payload?.ride?.passengerId || '',
     kind: payload?.ride?.kind === 'daeri' ? 'daeri' : 'taxi',
     pickup,
+    waypoints,
     dest,
     estimatedFare: Number(payload?.ride?.estimatedFare) || 0,
     status: 'offered',
@@ -300,7 +306,7 @@ export async function respondToRideOffer(
   rideId: string,
   driverId: string,
   action: 'accept' | 'reject',
-  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind'>,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'kind'>,
   driver?: { name?: string; vehicle?: string; plate?: string },
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
@@ -315,7 +321,7 @@ export async function respondToRideOffer(
 
 export async function acceptRideOnDevice(
   rideId: string,
-  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind'>,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'kind'>,
   driverId?: string,
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond/`, {
@@ -361,6 +367,7 @@ export async function markRideProgress(
         ? {
             passengerId: ride.passengerId,
             pickup: ride.pickup,
+            waypoints: ride.waypoints,
             dest: ride.dest,
             estimatedFare: ride.estimatedFare,
             kind: ride.kind,
@@ -393,7 +400,7 @@ export async function abandonDriverRide(rideId: string, driverId: string) {
 export async function completeRideTrip(
   rideId: string,
   driverId: string,
-  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'dest' | 'estimatedFare' | 'kind' | 'boardedAt' | 'readyToSettleAt' | 'escrow'>,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'kind' | 'boardedAt' | 'readyToSettleAt' | 'escrow'>,
   init?: { signal?: AbortSignal },
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/complete/`, {

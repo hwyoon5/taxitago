@@ -36,6 +36,7 @@ export type SettlementReceipt = {
   driverName: string
   route: string
   origin: string
+  waypoints?: string[]
   dest: string
   amount: number
   estimatedFare: number

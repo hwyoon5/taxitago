@@ -20,6 +20,15 @@ function point(value: { lat?: unknown; lng?: unknown; address?: unknown; label?:
   }
 }
 
+function points(value: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }[] | undefined) {
+  if (!Array.isArray(value)) return undefined
+  const list = value
+    .slice(0, 2)
+    .map((item) => point(item))
+    .filter((item): item is NonNullable<typeof item> => item != null)
+  return list.length ? list : undefined
+}
+
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
   const body = (await request.json().catch(() => null)) as {
@@ -31,6 +40,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ride?: {
       passengerId?: unknown
       pickup?: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }
+      waypoints?: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }[]
       dest?: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }
       estimatedFare?: unknown
       kind?: unknown
@@ -47,6 +57,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       {
         passengerId: typeof body?.ride?.passengerId === 'string' ? body.ride.passengerId : undefined,
         pickup: point(body?.ride?.pickup),
+        waypoints: points(body?.ride?.waypoints),
         dest: point(body?.ride?.dest),
         estimatedFare: typeof body?.ride?.estimatedFare === 'number' ? body.ride.estimatedFare : undefined,
         kind: body?.ride?.kind === 'daeri' ? 'daeri' : 'taxi',
@@ -77,6 +88,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       ? {
           passengerId: body.ride.passengerId,
           pickup: body.ride.pickup,
+          waypoints: body.ride.waypoints,
           dest: body.ride.dest,
           estimatedFare: body.ride.estimatedFare,
           kind: body.ride.kind,
