@@ -17,13 +17,14 @@ export async function GET(request: Request) {
       const send = (event: string, data: unknown) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
       }
+      const ids = [driverId, ...aliasIds]
       const push = () => {
         void (async () => {
-          const pending = getDriverOffer(driverId)
+          const pending = ids.map((id) => getDriverOffer(id)).find(Boolean) ?? null
           send('dispatch', {
             ride: pending?.ride ?? null,
             offer: pending?.offer ?? null,
-            active: getDriverActiveRide(driverId),
+            active: ids.map((id) => getDriverActiveRide(id)).find(Boolean) ?? null,
             earnings: await driverEarningsStats(driverId, aliasIds),
           })
         })().catch(() => undefined)

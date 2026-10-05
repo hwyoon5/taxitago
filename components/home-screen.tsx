@@ -2443,8 +2443,15 @@ function TaxiMatchingSheet({
       setAccepting(false)
     }
     const driverId = ride?.assignedDriver?.id
-    if (!ride || !driverId) {
+    if (!ride) {
       openPayReceipt(`pay-${Date.now()}`, `done-${Date.now()}`)
+      return
+    }
+    if (!driverId) {
+      // 서버에 운행이 있는데 배정 기사가 확인되지 않은 상태에서 완료 처리를
+      // 건너뛰면 기사 화면은 'assigned' 카드에 영구히 갇힌다.
+      onNotice('배정된 기사 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.')
+      releasePayLock()
       return
     }
     const abort = new AbortController()
@@ -6927,10 +6934,19 @@ function DriverDashboard({
       setActiveRide(stored)
       void fetchRideRequest(stored.id).then((latest) => {
         if (!latest) return
-        if (latest.status !== 'assigned') {
+        // 같은 rideId라도 다른 기사에게 배정된 상태면 내 운행 카드가 아니다.
+        // 승객 화면의 assignedDriver와 세션이 갈라지는 것을 여기서 차단한다.
+        const assignedToOther = Boolean(
+          latest.assignedDriver?.id &&
+            latest.assignedDriver.id !== id &&
+            latest.assignedDriver.id !== driverAliasRef.current,
+        )
+        if (latest.status !== 'assigned' || assignedToOther) {
           if (latest.status === 'completed') {
             noteActivity(`done:${stored.id}`, '운행 완료', rideRoute(stored))
             askPassengerReviewOnce(stored.id, id)
+          } else if (assignedToOther) {
+            noteActivity(`reassigned:${stored.id}`, '다른 기사 배정', rideRoute(stored))
           } else {
             noteActivity(`cancel:${stored.id}`, '취소', rideRoute(stored))
           }
@@ -7085,10 +7101,20 @@ function DriverDashboard({
       activeEndChecks.current.add(previous.id)
       void fetchRideRequest(previous.id).then((check) => {
         activeEndChecks.current.delete(previous.id)
-        if (!check || (check.status !== 'completed' && check.status !== 'cancelled')) return
+        if (!check) return
+        // 다른 기사에게 배정이 넘어간 운행도 종료 처리해 카드를 내린다.
+        const assignedToOther = Boolean(
+          check.assignedDriver?.id &&
+            check.assignedDriver.id !== driverId &&
+            check.assignedDriver.id !== driverAliasRef.current,
+        )
+        if (check.status !== 'completed' && check.status !== 'cancelled' && !assignedToOther) return
         if (check.status === 'completed') {
           noteActivity(`done:${previous.id}`, '운행 완료', rideRoute(previous))
           askPassengerReviewOnce(previous.id)
+          onNotice('운행이 완료되었어요. 에스크로 정산이 기사 지갑으로 반영되었습니다.')
+        } else if (assignedToOther) {
+          noteActivity(`reassigned:${previous.id}`, '다른 기사 배정', rideRoute(previous))
         } else {
           noteActivity(`cancel:${previous.id}`, '취소', rideRoute(previous))
         }

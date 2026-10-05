@@ -525,6 +525,9 @@ export function confirmMatchOnDevice(
   clearRideTimer(ride.id)
   clearVirtualAccept(ride.id)
   // The device-accept path simulates the driver logged in on this device.
+  // The pending offer's driver wins first so both clients converge on the same
+  // driverId — reassigning to the local device driver while another driver's
+  // offer is live splits the two screens onto different identities.
   // Never assign a virtual seed or an arbitrary driver while a real driver is
   // eligible — keep the assigned identity synced with the logged-in driver.
   const now = Date.now()
@@ -532,8 +535,8 @@ export function confirmMatchOnDevice(
   const offered = ride.currentOffer?.driverId ? getDriver(ride.currentOffer.driverId) : null
   const local = deviceDriverId ? getDriver(deviceDriverId) : null
   const driver =
-    (local && !local.virtual && isDriverEligible(local, ride, now) ? local : null) ??
     (offered && !offered.virtual && isDriverEligible(offered, ride, now) ? offered : null) ??
+    (local && !local.virtual && isDriverEligible(local, ride, now) ? local : null) ??
     ranked.find((candidate) => !candidate.driver.virtual)?.driver ??
     offered ??
     ranked[0]?.driver ??
@@ -553,6 +556,7 @@ export function confirmMatchOnDevice(
   ride.assignedDriverId = driver.id
   ride.status = 'assigned'
   stamp(ride)
+  publishDriverLive(driver.id)
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
   openEscrowForRide(ride.id)
   void openRideComms(ride.id)
