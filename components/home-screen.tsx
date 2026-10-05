@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Navigation, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { translateService } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -7016,6 +7016,7 @@ function DriverDashboard({
   const [withdrawing, setWithdrawing] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
   const [deskOpen, setDeskOpen] = useState(false)
   const [deliveryChatPeer, setDeliveryChatPeer] = useState<DeliveryChatPeer | null>(null)
   const [localDelivery, setLocalDelivery] = useState<DeliveryJob | null>(null)
@@ -7044,6 +7045,8 @@ function DriverDashboard({
     onActivityRef.current?.(label, detail)
   }, [])
   const rideRoute = (ride: RideStopPoints) => rideStops(ride).chain
+  // 다른 운행으로 바뀌거나 종료되면 내비게이션 뷰도 함께 닫는다.
+  useEffect(() => setNavOpen(false), [activeRide?.id])
   const dropEndedRide = useCallback((ended: PublicRide | string) => {
     const id = typeof ended === 'string' ? ended : ended.id
     endedRideIds.current.add(id)
@@ -7594,6 +7597,14 @@ function DriverDashboard({
           <p className="mt-2 text-xs font-bold text-[#047857]">
             {activeRide.readyToSettleAt ? '승객이 목적지 도착을 확인했어요. 정산할 수 있어요.' : activeRide.boardedAt ? '승객이 탑승을 확인했어요. 목적지 도착 확인을 기다리는 중이에요.' : '승객의 탑승 확인 전에는 정산할 수 없어요.'}
           </p>
+          <button
+            type="button"
+            onClick={() => setNavOpen(true)}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl border-2 border-[#047857] bg-white py-3 text-sm font-black text-[#047857] shadow-sm transition active:scale-[0.98]"
+          >
+            <Navigation className="h-4 w-4" />
+            길안내 내비게이션
+          </button>
           {!activeRide.boardedAt ? (
             <div className="mt-3">
               <p className="mb-1 flex items-center gap-1.5 text-xs font-black text-[#047857]">
@@ -7655,6 +7666,47 @@ function DriverDashboard({
             />
           </div>
         </section>
+      ) : null}
+      {navOpen && activeRide ? (
+        <div className="fixed inset-0 z-[110] bg-[#0F172A]">
+          <TaxiLiveMap
+            bare
+            kind={activeRide.kind}
+            phase={activeRide.boardedAt ? 'moving' : 'arriving'}
+            routeLabel={rideStops(activeRide).chain}
+            statusLabel={activeRide.boardedAt ? '목적지 이동 중' : '픽업지 이동 중'}
+            originLat={activeRide.pickup.lat}
+            originLng={activeRide.pickup.lng}
+            destLat={activeRide.dest.lat}
+            destLng={activeRide.dest.lng}
+            originLabel={activeRide.pickup.address || '승객 탑승 위치'}
+            destLabel={activeRide.dest.label || activeRide.dest.address || '목적지'}
+            waypoints={activeRide.waypoints ?? []}
+            vehicleLat={lat}
+            vehicleLng={lng}
+            className="h-full"
+          />
+          <button
+            type="button"
+            onClick={() => setNavOpen(false)}
+            aria-label="돌아가기"
+            className="absolute left-3 top-3 z-30 flex items-center gap-1 rounded-full bg-white px-3.5 py-2 text-xs font-black text-[#0F172A] shadow-lg transition active:scale-95"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            돌아가기
+          </button>
+          <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 rounded-2xl bg-white/95 px-4 py-3 shadow-xl backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-black text-[#047857]">
+                  {activeRide.readyToSettleAt ? '도착 확인 완료 · 정산 대기' : activeRide.boardedAt ? '승객 탑승 완료 · 목적지로 안내' : '승객 탑승 위치로 안내'}
+                </p>
+                <p className="mt-0.5 truncate text-xs font-black text-[#0F172A]">{rideStops(activeRide).chain}</p>
+              </div>
+              <p className="shrink-0 text-sm font-black text-[#4C1FB8]">{(activeRide.escrow?.amount ?? activeRide.estimatedFare).toFixed(7)} Pi</p>
+            </div>
+          </div>
+        </div>
       ) : null}
       {(activeDelivery) ? (
         <section className="mt-4 rounded-[26px] border-2 border-[#86EFAC] bg-[#F0FDF4] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
