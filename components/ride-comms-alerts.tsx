@@ -71,7 +71,7 @@ export default function RideCommsAlerts({
           if (!callFlagRef.current && !openRef.current.call) {
             callFlagRef.current = true
             playCommsAlert('call')
-            setAlert({ kind: 'call', preview: call.peerVirtualNumber ? `안심번호 ${call.peerVirtualNumber}` : '안심번호 연결 중' })
+            setAlert({ kind: 'call', preview: '인앱 음성 통화 요청' })
           }
         } else {
           callFlagRef.current = false
@@ -99,7 +99,7 @@ export default function RideCommsAlerts({
             {isCall ? <Phone className="h-5 w-5" /> : <MessageCircle className="h-5 w-5" />}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-black text-[#4C1FB8]">{isCall ? '안심 통화 요청' : '새 메시지 도착'}</p>
+            <p className="text-xs font-black text-[#4C1FB8]">{isCall ? '인앱 음성 통화 요청' : '새 메시지 도착'}</p>
             <p className="mt-0.5 text-sm font-black text-[#0F172A]">{peerName}</p>
             <p className="mt-0.5 truncate text-xs font-bold text-[#64748B]">{alert.preview}</p>
           </div>

@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import { getDriver, getRide, nowIso } from '@/lib/dispatch-store'
 import { getChatRoom, getSafeCall, publishRide, saveChatRoom, saveSafeCall } from '@/lib/comms-store'
-import type { ChatMessage, ChatRoom, CommsRole, PublicChatRoom, PublicSafeCall, SafeCallSession } from '@/lib/comms-types'
+import type { CallSignal, CallSignalKind, ChatMessage, ChatRoom, CommsRole, PublicChatRoom, PublicSafeCall, SafeCallSession } from '@/lib/comms-types'
 
 function hashSecret(value: string) {
   return createHash('sha256').update(value).digest('hex')
@@ -60,6 +60,8 @@ export async function openRideComms(rideId: string) {
     driverVirtual: virtualNumber(`${rideId}:driver`, '7'),
     passengerPhoneHash: hashSecret(`passenger:${ride.passengerId}`),
     driverPhoneHash: hashSecret(`driver:${ride.assignedDriverId}`),
+    callerRole: null,
+    signals: [],
     startedAt: null,
     endedAt: null,
     releasedAt: null,
@@ -81,6 +83,8 @@ export async function archiveRideComms(rideId: string, reason: 'completed' | 'ca
     call.status = 'released'
     call.endedAt = call.endedAt || nowIso()
     call.releasedAt = nowIso()
+    // 만료된 세션의 WebRTC 시그널도 함께 비운다.
+    call.signals = []
     await saveSafeCall(call)
   }
 }
@@ -161,8 +165,10 @@ export function publicSafeCall(session: SafeCallSession, role: CommsRole): Publi
     status: session.status,
     myVirtualNumber: role === 'passenger' ? session.passengerVirtual : session.driverVirtual,
     peerVirtualNumber: role === 'passenger' ? session.driverVirtual : session.passengerVirtual,
-    peerLabel: role === 'passenger' ? '기사 안심번호' : '승객 안심번호',
+    peerLabel: role === 'passenger' ? '기사' : '승객',
     realNumberExposed: false,
+    callerRole: session.callerRole ?? null,
+    signals: session.signals ?? [],
     startedAt: session.startedAt,
   }
 }
@@ -173,15 +179,41 @@ export async function startSafeCall(input: { rideId: string; actorId: string; ro
   const session = (await getSafeCall(input.rideId)) ?? (await openRideComms(input.rideId))?.call
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   if (session.status === 'released') return { ok: false as const, error: 'released', call: publicSafeCall(session, input.role) }
-  if (input.realPhone?.trim()) {
-    const hashed = hashSecret(input.realPhone.replace(/\D/g, ''))
-    if (input.role === 'passenger') session.passengerPhoneHash = hashed
-    else session.driverPhoneHash = hashed
+  // 인앱 음성 통화는 실제 전화번호를 서버에 저장하지 않는다(realPhone 무시).
+  // 이미 ringing/active면 기존 시그널을 유지하고, idle/ended일 때만 새 통화로 리셋한다.
+  if (session.status === 'idle' || session.status === 'ended') {
+    session.status = 'ringing'
+    session.callerRole = input.role
+    session.signals = []
+    session.startedAt = nowIso()
+    session.endedAt = null
+    await saveSafeCall(session)
+    publishRide(input.rideId, { type: 'call', status: session.status })
   }
-  session.status = 'ringing'
-  session.startedAt = session.startedAt || nowIso()
+  return { ok: true as const, call: publicSafeCall(session, input.role) }
+}
+
+// WebRTC 시그널 중계 — offer/answer/ICE candidate를 세션 메일박스에 추가해
+// 상대방이 폴링으로 가져가게 한다. ringing/active 상태에서만 유효하다.
+export async function appendCallSignal(input: { rideId: string; actorId: string; role: CommsRole; kind: CallSignalKind; payload: string }) {
+  const gate = await assertMember(input.rideId, input.actorId, input.role)
+  if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
+  const session = await getSafeCall(input.rideId)
+  if (!session) return { ok: false as const, error: 'not_found', call: null }
+  if (session.status === 'released') return { ok: false as const, error: 'released', call: publicSafeCall(session, input.role) }
+  if (session.status !== 'ringing' && session.status !== 'active') {
+    return { ok: false as const, error: 'not_calling', call: publicSafeCall(session, input.role) }
+  }
+  const signal: CallSignal = {
+    id: crypto.randomUUID(),
+    from: input.role,
+    kind: input.kind,
+    payload: input.payload.slice(0, 20000),
+    at: nowIso(),
+  }
+  session.signals = [...(session.signals ?? []), signal].slice(-120)
   await saveSafeCall(session)
-  publishRide(input.rideId, { type: 'call', status: session.status })
+  publishRide(input.rideId, { type: 'call-signal' })
   return { ok: true as const, call: publicSafeCall(session, input.role) }
 }
 
@@ -191,6 +223,7 @@ export async function answerSafeCall(rideId: string, actorId: string, role: Comm
   const session = await getSafeCall(rideId)
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   if (session.status === 'released') return { ok: false as const, error: 'released', call: publicSafeCall(session, role) }
+  if (session.status === 'ringing') session.startedAt = nowIso()
   session.status = 'active'
   await saveSafeCall(session)
   publishRide(rideId, { type: 'call', status: session.status })

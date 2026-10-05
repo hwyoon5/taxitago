@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { answerSafeCall, getPublicSafeCall, hangupSafeCall, startSafeCall } from '@/lib/comms-engine'
+import { answerSafeCall, appendCallSignal, getPublicSafeCall, hangupSafeCall, startSafeCall } from '@/lib/comms-engine'
 import type { CommsRole } from '@/lib/comms-types'
 
 export const runtime = 'nodejs'
@@ -25,10 +25,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const actorId = typeof body?.actorId === 'string' ? body.actorId.trim() : ''
   const role = roleOf(body?.role)
-  const action = body?.action === 'answer' || body?.action === 'hangup' ? body.action : 'start'
+  const action =
+    body?.action === 'answer' || body?.action === 'hangup' || body?.action === 'signal' ? body.action : 'start'
   if (!actorId || !role) return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
   const result =
-    action === 'answer'
+    action === 'signal'
+      ? await appendCallSignal({
+          rideId: id,
+          actorId,
+          role,
+          kind: body?.signalKind === 'offer' || body?.signalKind === 'answer' ? body.signalKind : 'ice',
+          payload: typeof body?.payload === 'string' ? body.payload : '',
+        })
+      : action === 'answer'
       ? await answerSafeCall(id, actorId, role)
       : action === 'hangup'
         ? await hangupSafeCall(id, actorId, role)

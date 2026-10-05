@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/app-origin'
-import type { ChatMessage, CommsRole, PublicChatRoom, PublicSafeCall } from '@/lib/comms-types'
+import type { CallSignalKind, ChatMessage, CommsRole, PublicChatRoom, PublicSafeCall } from '@/lib/comms-types'
 
 async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T
@@ -34,6 +34,18 @@ export async function updateSafeCall(rideId: string, actorId: string, role: Comm
   })
   const data = await readJson<{ call?: PublicSafeCall; error?: string }>(res)
   if (!res.ok || !data.call) throw new Error(data.error || '통화 상태를 변경하지 못했어요.')
+  return data.call
+}
+
+// WebRTC 시그널 중계 — SDP offer/answer·ICE candidate를 세션에 추가한다.
+export async function sendCallSignal(rideId: string, actorId: string, role: CommsRole, kind: CallSignalKind, payload: string) {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/safe-call`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actorId, role, action: 'signal', signalKind: kind, payload }),
+  })
+  const data = await readJson<{ call?: PublicSafeCall; error?: string }>(res)
+  if (!res.ok || !data.call) throw new Error(data.error || '통화 신호를 전달하지 못했어요.')
   return data.call
 }
 
