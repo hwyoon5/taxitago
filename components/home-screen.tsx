@@ -5795,8 +5795,8 @@ function WalletModal({
           ))}
         </div>
         {tab === 'charge' && (
-          <div className="mt-4 space-y-3">
-            <section className="rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
+          <div className="mt-4 flex flex-col gap-3">
+            <section className="order-2 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
               <div className="flex items-center justify-between">
                 <p className="font-black">입금 주소</p>
                 <span className="rounded-full bg-[#EDE5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">입금 전용</span>
@@ -5849,7 +5849,7 @@ function WalletModal({
                 </>
               )}
             </section>
-            <section className="rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
+            <section className="order-1 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
               <p className="font-black">파이 충전 단위</p>
               <p className="mt-1 text-xs font-bold text-[#8b8495]">빠른 선택을 누르거나, 원하는 수량을 직접 입력해 주세요. 24시간 충전 한도는 {PI_CHARGE_MAX_PI} Pi입니다.</p>
               <p className={`mt-1 text-xs font-black ${chargeCapRemaining > 0 ? 'text-[#4C1FB8]' : 'text-[#DC2626]'}`}>
