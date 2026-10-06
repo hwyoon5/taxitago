@@ -7252,8 +7252,9 @@ function DriverOfferWatcher({
     )
       .then((next) => {
         if (action === 'accept') {
-          writeStoredDriverRide(driverId, next)
-          onActivityRef.current?.('콜 수락', rideStops(incoming).chain)
+          // 사전 배차 수락이면 진행 중인 운행의 저장본은 유지한다(데스크 복귀 후 서버 active가 승계).
+          if (!activeRide || activeRide.id === next.id) writeStoredDriverRide(driverId, next)
+          onActivityRef.current?.(activeRide && activeRide.id !== next.id ? '사전 배차 수락' : '콜 수락', rideStops(incoming).chain)
           onOpenDesk()
         } else {
           setIncoming(null)
@@ -7272,6 +7273,11 @@ function DriverOfferWatcher({
             <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
           </div>
           <LongDistanceCallBadge ride={incoming} />
+          {activeRide ? (
+            <p className="mt-2 rounded-lg bg-[#DBEAFE] px-2.5 py-1.5 text-[11px] font-black text-[#1D4ED8]">
+              사전 배차 콜 · 현재 운행이 끝나면 이어서 이동할 다음 콜입니다.
+            </p>
+          ) : null}
           <p className="mt-3 text-lg font-bold leading-6 text-[#0F172A]">{rideStops(incoming).chain}</p>
           {rideStops(incoming).via.length ? (
             <p className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-[#EA580C]">
@@ -7374,6 +7380,8 @@ function DriverDashboard({
 }) {
   const [incoming, setIncoming] = useState<PublicRide | null>(null)
   const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
+  // 운행 도착 임박 시 수락한 다음 콜 — 현재 운행이 끝나면 서버 active가 자동 승계한다.
+  const [queuedRide, setQueuedRide] = useState<PublicRide | null>(null)
   const [earnings, setEarnings] = useState<DriverEarningsStats | null>(null)
   const [earningsReady, setEarningsReady] = useState(false)
   const applyEarnings = useCallback((id: string, next: DriverEarningsStats | null | undefined) => {
@@ -7684,6 +7692,8 @@ function DriverDashboard({
         dropEndedRide(incoming.id)
         return
       }
+      // 서버에 assigned 콜이 없거나 사전 배차분이 현재 운행으로 승계되면 큐 표시를 지운다.
+      setQueuedRide((queued) => (queued && (!incoming || queued.id === incoming.id) ? null : queued))
       setActiveRide((current) => {
         if (!incoming) return lastActiveRef.current ? current : null
         if (!current || current.id !== incoming.id) return incoming
@@ -7914,11 +7924,18 @@ function DriverDashboard({
         if (action === 'accept') {
           if (ride.status === 'assigned') {
             endedRideIds.current.delete(ride.id)
-            lastActiveRef.current = ride
-            writeStoredDriverRide(driverId, ride)
-            setActiveRide(ride)
-            noteActivity(`accept:${ride.id}`, '수락', rideRoute(ride))
-            onNotice('운행을 수락했어요. 승객 에스크로가 잠기면 운행 완료 시 자동 정산됩니다.')
+            if (activeRide && activeRide.id !== ride.id) {
+              // 사전 배차 수락 — 진행 중인 운행 카드를 유지하고 다음 콜만 큐에 둔다.
+              setQueuedRide(ride)
+              noteActivity(`prematch:${ride.id}`, '사전 배차', rideRoute(ride))
+              onNotice('다음 콜이 사전 배차되었어요. 현재 운행이 끝나면 이어서 진행됩니다.')
+            } else {
+              lastActiveRef.current = ride
+              writeStoredDriverRide(driverId, ride)
+              setActiveRide(ride)
+              noteActivity(`accept:${ride.id}`, '수락', rideRoute(ride))
+              onNotice('운행을 수락했어요. 승객 에스크로가 잠기면 운행 완료 시 자동 정산됩니다.')
+            }
           } else {
             onNotice('배차가 확정되지 않았어요. 잠시 후 다시 확인해 주세요.')
           }
@@ -8072,6 +8089,11 @@ function DriverDashboard({
           <p className="mt-2 text-xs font-bold text-[#047857]">
             {activeRide.readyToSettleAt ? '승객이 목적지 도착을 확인했어요. 정산할 수 있어요.' : activeRide.boardedAt ? '승객이 탑승을 확인했어요. 목적지 도착 확인을 기다리는 중이에요.' : '승객의 탑승 확인 전에는 정산할 수 없어요.'}
           </p>
+          {queuedRide ? (
+            <p className="mt-2 rounded-lg bg-[#DBEAFE] px-2.5 py-1.5 text-[11px] font-black text-[#1D4ED8]">
+              다음 콜 사전 배차됨 — {rideStops(queuedRide).chain}
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={() => setNavOpen(true)}
@@ -8265,6 +8287,11 @@ function DriverDashboard({
             <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
           </div>
           <LongDistanceCallBadge ride={incoming} />
+          {activeRide ? (
+            <p className="mt-2 rounded-lg bg-[#DBEAFE] px-2.5 py-1.5 text-[11px] font-black text-[#1D4ED8]">
+              사전 배차 콜 · 현재 운행이 끝나면 이어서 이동할 다음 콜입니다.
+            </p>
+          ) : null}
           <p className="mt-3 text-lg font-bold leading-6 text-[#0F172A]">{rideStops(incoming).chain}</p>
           {rideStops(incoming).via.length ? (
             <p className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-[#EA580C]">

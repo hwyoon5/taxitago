@@ -122,3 +122,5 @@ export type PublicRide = {
 export const OFFER_TIMEOUT_MS = 45_000
 export const MATCH_RADIUS_KM = 25
 export const DRIVER_STALE_MS = 45_000
+/** 운행 중인 기사가 현재 목적지에 이 거리(km) 이내로 들어오면 다음 콜을 사전 배차받을 수 있다. */
+export const PREMATCH_RADIUS_KM = 1.5

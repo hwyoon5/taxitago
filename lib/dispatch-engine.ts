@@ -23,6 +23,7 @@ import {
   DRIVER_STALE_MS,
   MATCH_RADIUS_KM,
   OFFER_TIMEOUT_MS,
+  PREMATCH_RADIUS_KM,
   type DriverRecord,
   type PublicRide,
   type RideOfferRecord,
@@ -87,9 +88,17 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
   }
 }
 
+/** 운행 중인 기사도 현재 목적지 도착이 임박하면 다음 콜을 사전 배차(pre-match) 후보로 둔다. */
+function prematchEligible(driver: DriverRecord, activeRide: RideRequestRecord) {
+  if (driver.virtual) return false
+  const km = haversineKm({ lat: driver.lat, lng: driver.lng }, activeRide.dest)
+  return Number.isFinite(km) && km <= PREMATCH_RADIUS_KM
+}
+
 function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: number) {
   if (driver.status === 'offline') return false
-  if (listRides().some((item) => item.assignedDriverId === driver.id && item.status === 'assigned')) return false
+  const assignedRide = listRides().find((item) => item.assignedDriverId === driver.id && item.status === 'assigned')
+  if (assignedRide && !prematchEligible(driver, assignedRide)) return false
   if (listRides().some((item) => item.id !== ride.id && item.currentOffer?.driverId === driver.id && item.currentOffer.decision === 'pending')) return false
   if (ride.declinedDriverIds.includes(driver.id)) return false
   if (ride.timedOutDriverIds.includes(driver.id)) return false
@@ -290,11 +299,9 @@ export function cancelRide(rideId: string, passengerId?: string) {
   const offeredDriverId = ride.currentOffer?.decision === 'pending' ? ride.currentOffer.driverId : ''
   if (ride.assignedDriverId) {
     const driver = getDriver(ride.assignedDriverId)
-    if (driver && driver.status === 'busy' && !driver.virtual) {
-      saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
-    }
-    if (driver?.virtual) {
-      saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
+    if (driver && (driver.status === 'busy' || driver.virtual)) {
+      const stillBusy = listRides().some((item) => item.id !== ride.id && item.assignedDriverId === driver.id && item.status === 'assigned')
+      saveDriver({ ...driver, status: stillBusy ? 'busy' : 'online', lastSeenAt: nowIso() })
     }
   }
   ride.status = 'cancelled'
@@ -480,9 +487,11 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     return { ok: false as const, error: 'driver_unavailable', ride: assignNextDriver(ride.id) ?? ride }
   }
 
-  const driverBusyOnRide = listRides().some(
+  const busyRide = listRides().find(
     (item) => item.id !== ride.id && item.assignedDriverId === driverId && item.status === 'assigned',
   )
+  // 목적지 도착 임박(PREMATCH_RADIUS_KM 이내)이면 사전 배차로 수락을 허용한다.
+  const driverBusyOnRide = Boolean(busyRide && !prematchEligible(driver, busyRide))
   if (driverBusyOnRide) {
     ride.timedOutDriverIds = [...new Set([...ride.timedOutDriverIds, driverId])]
     ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
@@ -673,7 +682,10 @@ export function completeAssignedRide(rideId: string, driverId: string) {
   publishDriverLive(driverId)
   stopLiveDriverMove(rideId)
   const driver = getDriver(driverId)
-  if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
+  if (driver) {
+    const stillBusy = listRides().some((item) => item.assignedDriverId === driverId && item.status === 'assigned')
+    saveDriver({ ...driver, status: stillBusy ? 'busy' : 'online', lastSeenAt: nowIso() })
+  }
   void archiveRideComms(rideId, 'completed')
   return ride
 }
@@ -683,7 +695,11 @@ const offerLookupLog = { key: '' }
 export function getDriverActiveRide(driverId: string) {
   syncDispatchFromDisk()
   syncEscrowFromDisk()
-  const ride = listRides().find((item) => item.assignedDriverId === driverId && item.status === 'assigned')
+  // 사전 배차로 assigned 콜이 2건이 될 수 있다 — 진행 중(탑승 확인됨)이거나
+  // 먼저 생성된 콜이 현재 운행이고, 완료되면 다음 콜이 자동으로 올라온다.
+  const ride = listRides()
+    .filter((item) => item.assignedDriverId === driverId && item.status === 'assigned')
+    .sort((a, b) => Number(Boolean(b.boardedAt)) - Number(Boolean(a.boardedAt)) || a.createdAt.localeCompare(b.createdAt))[0]
   return ride ? toPublicRide(ride) : null
 }
 
