@@ -67,3 +67,14 @@ export async function fetchFareConfig(): Promise<FareConfig> {
   if (!res.ok || !data?.fare) return DEFAULT_FARE_CONFIG
   return normalizeFareConfig(data.fare)
 }
+
+/** 플랫폼 공식 Pi 입금 수신지 — 등록 전이면 빈 문자열. */
+export async function fetchDepositWallet(): Promise<string> {
+  try {
+    const res = await fetch('/api/fare-config', { cache: 'no-store' })
+    const data = (await res.json().catch(() => null)) as { depositWallet?: string } | null
+    return typeof data?.depositWallet === 'string' ? data.depositWallet.trim() : ''
+  } catch {
+    return ''
+  }
+}

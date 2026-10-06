@@ -32,7 +32,8 @@ import {
 } from '@/lib/partner-account'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { piCompact } from '@/lib/pi-format'
-import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
+import { DEFAULT_FARE_CONFIG, fetchDepositWallet, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
+import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
@@ -5637,7 +5638,16 @@ function WalletModal({
     const saved = loadDepositAddress()
     setDepositAddress(saved)
     setDepositDraft(saved)
+    // 플랫폼 공식 수신 지갑을 서버에서 가져와 저장된 임시/구형 주소를 갱신한다.
+    void fetchDepositWallet().then((official) => {
+      if (!isPiWalletAddress(official)) return
+      setDepositAddress(official)
+      setDepositDraft(official)
+      saveDepositAddress(official)
+    })
   }, [])
+
+  const depositAddressValid = isPiWalletAddress(depositAddress)
 
   useEffect(() => {
     if (process?.phase !== 'pending' || process.kind !== 'withdraw') return
@@ -5668,8 +5678,9 @@ function WalletModal({
 
   const saveEditedDeposit = () => {
     const next = depositDraft.trim()
-    if (!next) {
-      onNotice('입금 주소를 입력해 주세요.')
+    const invalid = piWalletError(next)
+    if (invalid) {
+      onNotice(invalid)
       return
     }
     saveDepositAddress(next)
@@ -5740,13 +5751,19 @@ function WalletModal({
                 <p className="font-black">입금 주소</p>
                 <span className="rounded-full bg-[#EDE5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">입금 전용</span>
               </div>
-              <p className="mt-2 text-xs font-bold text-[#8b8495]">아래 주소로 Pi를 입금해 주세요. 주소를 바꾼 뒤 저장하면 이 기기에 보관됩니다.</p>
+              <p className="mt-2 text-xs font-bold text-[#8b8495]">Pi Wallet 앱에서 아래 주소(G로 시작하는 56자리 Pi 주소)로 송금하면 잔액이 충전됩니다.</p>
+              {!depositAddressValid ? (
+                <p className="mt-2 rounded-xl bg-[#FFFBEB] px-3 py-2 text-[11px] font-black leading-4 text-[#B45309]">
+                  플랫폼 입금 지갑이 아직 등록되지 않았습니다. 아래 임시 표시는 실제 Pi 주소가 아니므로 송금하지 마세요. Pi Browser에서는 위 충전 버튼의 SDK 결제로 바로 충전할 수 있습니다.
+                </p>
+              ) : null}
               {depositEditing ? (
                 <div className="mt-3 space-y-2">
                   <input
                     value={depositDraft}
-                    onChange={(event) => setDepositDraft(event.target.value)}
-                    placeholder="Pi 입금 주소"
+                    onChange={(event) => setDepositDraft(event.target.value.toUpperCase())}
+                    placeholder="G로 시작하는 56자리 Pi 주소"
+                    maxLength={56}
                     autoComplete="off"
                     spellCheck={false}
                     className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3 font-mono text-xs font-bold text-[#3B16A8] outline-none"
@@ -5771,7 +5788,7 @@ function WalletModal({
                 <>
                   <div className="mt-3 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-3">
                     <p className="min-w-0 flex-1 break-all font-mono text-xs font-bold text-[#3B16A8]">{depositAddress}</p>
-                    <button type="button" onClick={copyAddress} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#4C1FB8] px-3 py-2 text-[11px] font-black text-white">
+                    <button type="button" disabled={!depositAddressValid} onClick={copyAddress} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#4C1FB8] px-3 py-2 text-[11px] font-black text-white disabled:opacity-40">
                       <Copy className="h-3.5 w-3.5" />
                       복사
                     </button>
