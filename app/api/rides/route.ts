@@ -4,6 +4,7 @@ import { drivingRouteSummaryOnServer } from '@/lib/server-directions'
 import { createRideAndMatch, toPublicRide } from '@/lib/dispatch-engine'
 import { ensureSeedDrivers, flushDispatchPersist, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { hydrateEscrowFromKv } from '@/lib/escrow-store'
+import { avoidSurchargePi, avoidZoneScore, hydrateAvoidFromKv } from '@/lib/avoid-zone-store'
 import { isUsableCoord } from '@/lib/ride-session'
 import { getFareConfig } from '@/lib/fare-config-server'
 import { piRound } from '@/lib/pi-format'
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
   if (!pickup || !dest || !passengerId) {
     return NextResponse.json({ error: 'passengerId, pickup, dest required' }, { status: 400 })
   }
-  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv(), hydrateAvoidFromKv()])
   const existing = listRides().find(
     (ride) =>
       ride.passengerId === passengerId &&
@@ -75,6 +76,21 @@ export async function POST(request: Request) {
     routeSummary && Number.isFinite(routeSummary.durationMin)
       ? (routeSummary.durationMin as number)
       : etaMinutesFromKm(fareQuote.routeKm)
+  // 기피 지역 할증 — 목적지 격자의 누적 거절/타임아웃/미배차율이 임계 이상이면
+  // 견적에 할증을 얹어 기사 수락 유인을 만든다.
+  const zone = avoidZoneScore(dest)
+  const avoidPi = zone?.avoided ? avoidSurchargePi(quoted, zone.rate) : 0
+  if (zone?.avoided) {
+    console.log('[dispatch] avoided-zone surcharge', {
+      zone: zone.key,
+      label: zone.label,
+      rate: zone.rate,
+      samples: zone.samples,
+      unmatched: zone.unmatched,
+      reason: zone.reason,
+      avoidPi,
+    })
+  }
   const ride = createRideAndMatch({
     id: crypto.randomUUID(),
     kind,
@@ -82,7 +98,8 @@ export async function POST(request: Request) {
     pickup,
     waypoints,
     dest,
-    estimatedFare: quoted,
+    estimatedFare: piRound(quoted + avoidPi),
+    avoidSurchargePi: avoidPi,
     expectedMinutes,
   })
   // Flush before responding so the pending offer is visible to other

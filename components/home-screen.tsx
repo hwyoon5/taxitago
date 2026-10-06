@@ -2750,6 +2750,9 @@ function TaxiMatchingSheet({
             <h2 className="mt-2 text-2xl font-black text-[#0F172A]">기사님 매칭 대기 중</h2>
             <p className="mt-2 text-sm font-bold text-[#64748B]">{route}</p>
             {ride ? <p className="mt-1 text-xs font-black text-[#4C1FB8]">예상 요금 {ride.estimatedFare.toFixed(7)} Pi</p> : null}
+            {Number(ride?.avoidSurchargePi || 0) > 0 ? (
+              <p className="mt-1 text-[11px] font-bold text-[#B45309]">기피 지역 할증 +{Number(ride?.avoidSurchargePi).toFixed(7)} Pi 포함</p>
+            ) : null}
             {ride?.pendingOffer ? (
               <p className="mt-2 text-sm font-bold text-[#4C1FB8]">{ride.pendingOffer.driverName} 기사님에게 콜을 요청했어요. 수락을 기다리는 중입니다.</p>
             ) : (
@@ -7267,6 +7270,11 @@ function DriverOfferWatcher({
             <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
             <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(7)} Pi</strong>
           </div>
+          {Number(incoming.avoidSurchargePi || 0) > 0 ? (
+            <p className="mt-1.5 rounded-lg bg-[#FEF3C7] px-2.5 py-1.5 text-[11px] font-black text-[#B45309]">
+              기피 지역 할증 +{Number(incoming.avoidSurchargePi).toFixed(7)} Pi 적용 — 추가 수익이 붙은 콜입니다.
+            </p>
+          ) : null}
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
               disabled={busy}
@@ -8227,6 +8235,11 @@ function DriverDashboard({
             <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
             <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(7)} Pi</strong>
           </div>
+          {Number(incoming.avoidSurchargePi || 0) > 0 ? (
+            <p className="mt-1.5 rounded-lg bg-[#FEF3C7] px-2.5 py-1.5 text-[11px] font-black text-[#B45309]">
+              기피 지역 할증 +{Number(incoming.avoidSurchargePi).toFixed(7)} Pi 적용 — 추가 수익이 붙은 콜입니다.
+            </p>
+          ) : null}
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
               disabled={busy}

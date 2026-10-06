@@ -22,6 +22,7 @@ type PushPayload = {
     waypoints?: { lat: number; lng: number; address?: string; label?: string }[]
     dest: { lat: number; lng: number; address?: string; label?: string }
     estimatedFare: number
+    avoidSurchargePi?: number
   }
 }
 

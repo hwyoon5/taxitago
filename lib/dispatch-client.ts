@@ -237,6 +237,7 @@ export type PushedDriverOffer = {
     waypoints?: { lat?: number; lng?: number; address?: string; label?: string }[]
     dest?: { lat?: number; lng?: number; address?: string; label?: string }
     estimatedFare?: number
+    avoidSurchargePi?: number
   }
 }
 
@@ -271,6 +272,7 @@ export function rideFromPushedOffer(payload: PushedDriverOffer | null | undefine
     waypoints,
     dest,
     estimatedFare: Number(payload?.ride?.estimatedFare) || 0,
+    avoidSurchargePi: Number(payload?.ride?.avoidSurchargePi) || 0,
     status: 'offered',
     offerExpiresAt: expiresAt,
     pendingOffer: null,

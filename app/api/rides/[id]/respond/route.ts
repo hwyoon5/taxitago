@@ -3,6 +3,7 @@ import { confirmMatchOnDevice, rememberDriverVehicle, toPublicRide } from '@/lib
 import { openRideComms } from '@/lib/comms-engine'
 import { flushDispatchPersist, hydrateDispatchFromKv } from '@/lib/dispatch-store'
 import { flushEscrowPersist, hydrateEscrowFromKv } from '@/lib/escrow-store'
+import { hydrateAvoidFromKv } from '@/lib/avoid-zone-store'
 import { rideTransitionErrorMessage, transitionRide } from '@/lib/ride-machine'
 
 export const runtime = 'nodejs'
@@ -51,7 +52,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!action) {
     return NextResponse.json({ error: 'action required' }, { status: 400 })
   }
-  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
+  await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv(), hydrateAvoidFromKv()])
   if (action === 'device-accept') {
     const result = confirmMatchOnDevice(
       id,

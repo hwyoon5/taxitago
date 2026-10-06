@@ -18,6 +18,7 @@ import {
   syncDispatchFromDisk,
 } from '@/lib/dispatch-store'
 import { sendDriverPush } from '@/lib/driver-push'
+import { recordZoneOutcome } from '@/lib/avoid-zone-store'
 import {
   DRIVER_STALE_MS,
   MATCH_RADIUS_KM,
@@ -50,6 +51,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
     waypoints: ride.waypoints ?? [],
     dest: ride.dest,
     estimatedFare: ride.estimatedFare,
+    avoidSurchargePi: ride.avoidSurchargePi ?? 0,
     expectedMinutes: ride.expectedMinutes ?? null,
     status: ride.status,
     offerExpiresAt: ride.currentOffer?.decision === 'pending' ? ride.currentOffer.expiresAt : null,
@@ -145,6 +147,7 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
   ride.currentOffer = offer
   stamp(ride)
   scheduleOfferWatch(ride)
+  recordZoneOutcome(ride.dest, 'offer')
   publishDriverLive(driver.id)
   const via = (ride.waypoints ?? []).map((point) => point.label || point.address || '경유지')
   const pickup = ride.pickup.address || ride.pickup.label || '출발지'
@@ -166,6 +169,7 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
       waypoints: ride.waypoints,
       dest: ride.dest,
       estimatedFare: ride.estimatedFare,
+      avoidSurchargePi: ride.avoidSurchargePi ?? 0,
     },
   })
   return ride
@@ -218,6 +222,7 @@ export function assignNextDriver(rideId: string) {
     ride.status = 'unmatched'
     ride.currentOffer = null
     ride.assignedDriverId = null
+    recordZoneOutcome(ride.dest, 'unmatched')
     return stamp(ride)
   }
   const rank = ride.declinedDriverIds.length + ride.timedOutDriverIds.length + 1
@@ -233,6 +238,7 @@ export function expireCurrentOffer(rideId: string) {
   ride.status = 'searching'
   stamp(ride)
   publishDriverLive(previousDriverId)
+  recordZoneOutcome(ride.dest, 'timeout')
   return assignNextDriver(ride.id)
 }
 
@@ -252,12 +258,14 @@ export function createRideAndMatch(input: {
   waypoints?: RideRequestRecord['waypoints']
   dest: RideRequestRecord['dest']
   estimatedFare: number
+  avoidSurchargePi?: number
   expectedMinutes?: number | null
 }) {
   const createdAt = nowIso()
   const ride = saveRide({
     ...input,
     kind: input.kind === 'daeri' ? 'daeri' : 'taxi',
+    avoidSurchargePi: input.avoidSurchargePi ?? 0,
     waypoints: input.waypoints ?? [],
     status: 'searching',
     assignedDriverId: null,
@@ -457,6 +465,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     ride.status = 'searching'
     stamp(ride)
     publishDriverLive(driverId)
+    recordZoneOutcome(ride.dest, 'reject')
     return { ok: true as const, ride: assignNextDriver(ride.id) ?? ride }
   }
 
@@ -467,6 +476,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     ride.status = 'searching'
     stamp(ride)
     publishDriverLive(driverId)
+    recordZoneOutcome(ride.dest, 'timeout')
     return { ok: false as const, error: 'driver_unavailable', ride: assignNextDriver(ride.id) ?? ride }
   }
 
@@ -479,6 +489,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     ride.status = 'searching'
     stamp(ride)
     publishDriverLive(driverId)
+    recordZoneOutcome(ride.dest, 'timeout')
     return { ok: false as const, error: 'driver_busy', ride: assignNextDriver(ride.id) ?? ride }
   }
 
@@ -487,6 +498,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   ride.status = 'assigned'
   stamp(ride)
   publishDriverLive(driverId)
+  recordZoneOutcome(ride.dest, 'accept')
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
   openEscrowForRide(ride.id)
   if (isPiSandboxEnv()) lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })

@@ -28,6 +28,8 @@ export type RideRequestRecord = {
   waypoints?: GeoPoint[]
   dest: GeoPoint
   estimatedFare: number
+  /** 기피 지역 판정 시 예상 요금에 포함된 할증액(Pi) — 0이면 미적용. */
+  avoidSurchargePi?: number
   /** 길찾기 API 기준 예상 소요 시간(분) — 정체 추가 요금의 지연 판별 기준. */
   expectedMinutes?: number | null
   status: RideStatus
@@ -101,6 +103,8 @@ export type PublicRide = {
   waypoints?: GeoPoint[]
   dest: GeoPoint
   estimatedFare: number
+  /** 기피 지역 판정으로 부과된 할증액(Pi) — estimatedFare에 이미 포함된 값. */
+  avoidSurchargePi?: number
   expectedMinutes?: number | null
   status: RideStatus
   offerExpiresAt: string | null
