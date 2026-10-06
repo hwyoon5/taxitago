@@ -69,7 +69,7 @@ import DriverLostWatcher from '@/components/driver-lost-watcher'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
-import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, signInWithPi, type PiSession } from '@/components/pi-checkout'
+import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, PI_CHARGE_MAX_PI, signInWithPi, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
@@ -5618,8 +5618,15 @@ function WalletModal({
   const [depositEditing, setDepositEditing] = useState(false)
   const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number } | null>(null)
   const chargeUnits = [5, 10, 25, 50]
+  // 최근 24시간 충전 누적 — 한도는 최대 50 Pi로 고정(지갑 내역은 localStorage에 보존됨).
+  const chargeNow = Date.now()
+  const charged24h = transactions
+    .filter((tx) => tx.label === 'Pi 충전' && typeof tx.ts === 'number' && chargeNow - tx.ts >= 0 && chargeNow - tx.ts < 24 * 60 * 60 * 1000)
+    .reduce((sum, tx) => sum + Math.max(0, tx.amount), 0)
+  const chargeCapRemaining = Math.max(0, Math.round((PI_CHARGE_MAX_PI - charged24h) * 1_000_000) / 1_000_000)
   const chargeAmount = typeof chargeValue === 'number' ? chargeValue : Number.NaN
-  const chargeValid = Number.isFinite(chargeAmount) && chargeAmount > 0
+  const chargeOverCap = Number.isFinite(chargeAmount) && chargeAmount > chargeCapRemaining + 1e-9
+  const chargeValid = Number.isFinite(chargeAmount) && chargeAmount > 0 && !chargeOverCap
   const withdrawValue = Number(amount)
 
   const applyChargeAmount = (value: number) => {
@@ -5777,14 +5784,18 @@ function WalletModal({
             </section>
             <section className="rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
               <p className="font-black">파이 충전 단위</p>
-              <p className="mt-1 text-xs font-bold text-[#8b8495]">빠른 선택을 누르거나, 원하는 수량을 직접 입력해 주세요.</p>
+              <p className="mt-1 text-xs font-bold text-[#8b8495]">빠른 선택을 누르거나, 원하는 수량을 직접 입력해 주세요. 24시간 충전 한도는 {PI_CHARGE_MAX_PI} Pi입니다.</p>
+              <p className={`mt-1 text-xs font-black ${chargeCapRemaining > 0 ? 'text-[#4C1FB8]' : 'text-[#DC2626]'}`}>
+                {chargeCapRemaining > 0 ? `남은 한도 ${chargeCapRemaining.toFixed(7)} Pi` : '24시간 충전 한도를 모두 사용했어요'}
+              </p>
               <div className="mt-3 grid grid-cols-4 gap-2">
                 {chargeUnits.map((unit) => (
                   <button
                     key={unit}
                     type="button"
+                    disabled={unit > chargeCapRemaining}
                     onClick={() => applyChargeAmount(unit)}
-                    className={`rounded-2xl py-3 text-sm font-black ${chargeValid && chargeAmount === unit ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'bg-[#F1EBFF] text-[#4C1FB8]'}`}
+                    className={`rounded-2xl py-3 text-sm font-black disabled:opacity-40 ${chargeValid && chargeAmount === unit ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'bg-[#F1EBFF] text-[#4C1FB8]'}`}
                   >
                     {unit}
                   </button>
@@ -5798,6 +5809,7 @@ function WalletModal({
                     name="chargeAmount"
                     type="number"
                     min={0.01}
+                    max={PI_CHARGE_MAX_PI}
                     step="any"
                     inputMode="decimal"
                     autoComplete="off"
@@ -5818,6 +5830,11 @@ function WalletModal({
                   <span className="shrink-0 text-sm font-black text-[#4C1FB8]">Pi</span>
                 </div>
               </label>
+              {chargeOverCap ? (
+                <p className="mt-2 rounded-xl bg-[#FEF2F2] px-3 py-2 text-[11px] font-black text-[#DC2626]">
+                  24시간 충전 한도 {PI_CHARGE_MAX_PI} Pi를 초과할 수 없어요. {chargeCapRemaining > 0 ? `남은 한도는 ${chargeCapRemaining.toFixed(7)} Pi입니다.` : '한도를 모두 사용했습니다.'}
+                </p>
+              ) : null}
               <div className="mt-4 flex items-end justify-between rounded-2xl bg-[#F8F5FF] px-4 py-3">
                 <span className="text-xs font-bold text-[#64748B]">신청 수량</span>
                 <strong className="text-lg font-black text-[#4C1FB8]">{chargeValid ? `${chargeAmount.toFixed(7)} Pi` : '—'}</strong>
@@ -5827,8 +5844,15 @@ function WalletModal({
                 disabled={Boolean(process) || !chargeValid}
                 className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-60"
                 onClick={() => {
-                  if (process || !chargeValid) return
-                  const amount = Math.round(chargeAmount * 100) / 100
+                  if (process || !chargeValid) {
+                    if (chargeOverCap) onNotice(`24시간 충전 한도 ${PI_CHARGE_MAX_PI} Pi를 초과할 수 없어요.`)
+                    return
+                  }
+                  const amount = Math.min(Math.round(chargeAmount * 100) / 100, chargeCapRemaining)
+                  if (!(amount > 0)) {
+                    onNotice('24시간 충전 한도를 모두 사용했어요.')
+                    return
+                  }
                   setProcess({ kind: 'charge', phase: 'pending', amount })
                   void chargePiWallet(amount)
                     .then(() => {

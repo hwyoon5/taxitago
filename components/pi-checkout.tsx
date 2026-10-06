@@ -438,9 +438,11 @@ async function postSandboxCharge(amount: number, memo: string) {
 }
 
 /** Wallet top-up: sandbox credits test balance; mainnet requires createPayment. */
+export const PI_CHARGE_MAX_PI = 50
 export async function chargePiWallet(amount: number) {
   const value = Math.round(amount * 1_000_000) / 1_000_000
   if (!(value > 0)) throw new Error('충전 금액이 올바르지 않습니다.')
+  if (value > PI_CHARGE_MAX_PI) throw new Error(`충전은 한 번에 최대 ${PI_CHARGE_MAX_PI} Pi까지 가능합니다.`)
   const memo = `TaxiTago ${value} Pi 충전`.slice(0, 25)
 
   if (PI_SANDBOX) {
