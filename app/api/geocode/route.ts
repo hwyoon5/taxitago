@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { searchKakaoPlaces } from '@/lib/kakao-local'
+import { searchKakaoParkingLots, searchKakaoPlaces } from '@/lib/kakao-local'
 import { forwardGeocodeOnServer, looksLikeStreetAddress, reverseGeocodeOnServer } from '@/lib/server-geocode'
 
 export const runtime = 'nodejs'
@@ -26,7 +26,27 @@ export async function GET(request: Request) {
       seen.add(key)
       return Number.isFinite(place.lat) && Number.isFinite(place.lng) && Boolean(place.address || place.name)
     })
-    const notices = [...new Set([...kakaoResult.notices, ...naverResult.notices])]
+    // 검색된 대표 지점 반경 2km 안의 공영/일반 주차장을 결과 뒤에 덧붙인다.
+    const anchor = places[0]
+    let parkingNotices: string[] = []
+    if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
+      const parking = await searchKakaoParkingLots(anchor.lat, anchor.lng).catch((error: unknown) => ({
+        places: [],
+        notices: [`parking failed: ${error instanceof Error ? error.message : 'request error'}`],
+      }))
+      parkingNotices = parking.notices
+      for (const lot of parking.places) {
+        const key = `${lot.name}|${lot.address}|${lot.lat}|${lot.lng}`
+        if (seen.has(key)) continue
+        const duplicated = places.some(
+          (place) => place.name === lot.name && Math.abs(place.lat - lot.lat) < 0.0004 && Math.abs(place.lng - lot.lng) < 0.0004,
+        )
+        if (duplicated) continue
+        seen.add(key)
+        places.push(lot)
+      }
+    }
+    const notices = [...new Set([...kakaoResult.notices, ...naverResult.notices, ...parkingNotices])]
     return NextResponse.json({ places, query, addressSearch: looksLikeStreetAddress(query), notices })
   }
   const lat = Number(searchParams.get('lat'))

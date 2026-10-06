@@ -5,6 +5,7 @@ export type KakaoSearchPlace = {
   category: string
   lat: number
   lng: number
+  kind?: 'parking'
 }
 
 function cleanEnv(value?: string | null) {
@@ -156,14 +157,13 @@ function fullRoad(addressName: string, road?: KakaoRoad) {
   return named.length >= composed.length ? named : composed
 }
 
-async function kakaoGet(path: string, query: string, notices: string[]) {
+async function kakaoGet(path: string, params: URLSearchParams, notices: string[]) {
   const key = kakaoRestKey()
-  if (!query) return [] as unknown[]
+  if (!params.toString()) return [] as unknown[]
   if (!key) {
     notices.push('kakao skipped: KAKAO_REST_API_KEY is missing')
     return [] as unknown[]
   }
-  const params = new URLSearchParams({ query, size: '15' })
   try {
     const response = await fetch(`https://dapi.kakao.com${path}?${params.toString()}`, {
       method: 'GET',
@@ -230,8 +230,8 @@ export async function searchKakaoPlaces(query: string) {
   const variants = addressQueryVariants(q)
   const batches = await Promise.all(
     variants.flatMap((variant) => [
-      kakaoGet('/v2/local/search/keyword.json', variant, notices),
-      kakaoGet('/v2/local/search/address.json', variant, notices),
+      kakaoGet('/v2/local/search/keyword.json', new URLSearchParams({ query: variant, size: '15' }), notices),
+      kakaoGet('/v2/local/search/address.json', new URLSearchParams({ query: variant, size: '15' }), notices),
     ]),
   )
   const keywords = batches.filter((_, index) => index % 2 === 0).flat()
@@ -244,6 +244,36 @@ export async function searchKakaoPlaces(query: string) {
   for (const place of places) {
     if (kept.some((item) => samePlace(item, place))) continue
     kept.push(place)
+  }
+  return { places: kept, notices: [...new Set(notices)] }
+}
+
+// 장소 검색 결과 좌표를 기준으로 반경 내 주차장(PK6 카테고리)을 함께 조회한다.
+// 이름에 '공영'이 들어간 시설은 공영주차장 배지로 구분한다.
+export async function searchKakaoParkingLots(lat: number, lng: number) {
+  const notices: string[] = []
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { places: [] as KakaoSearchPlace[], notices }
+  const params = new URLSearchParams({
+    category_group_code: 'PK6',
+    x: String(lng),
+    y: String(lat),
+    radius: '2000',
+    sort: 'distance',
+    size: '8',
+  })
+  const docs = await kakaoGet('/v2/local/search/category.json', params, notices)
+  const kept: KakaoSearchPlace[] = []
+  for (const doc of docs) {
+    const place = fromKeyword(doc as KakaoKeywordDoc)
+    if (!place) continue
+    const tagged: KakaoSearchPlace = {
+      ...place,
+      kind: 'parking',
+      category: /공영/.test(place.name) || /공영/.test(place.category) ? '공영주차장' : '주차장',
+    }
+    if (kept.some((item) => samePlace(item, tagged))) continue
+    kept.push(tagged)
+    if (kept.length >= 5) break
   }
   return { places: kept, notices: [...new Set(notices)] }
 }

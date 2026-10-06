@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Navigation, Phone, PhoneOff, Plus, Search, Share2, Sparkles, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Navigation, Phone, PhoneOff, Plus, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { translateService } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -1062,7 +1062,7 @@ const DEFAULT_RECENT_PLACES: RecentPlace[] = [
   { id: 'r3', name: '서울역', address: '서울 중구 한강대로 405' },
 ]
 
-type PlaceItem = { name: string; address: string; jibun?: string; category?: string; hint: string; lat?: number; lng?: number }
+type PlaceItem = { name: string; address: string; jibun?: string; category?: string; kind?: 'parking'; hint: string; lat?: number; lng?: number }
 
 function locationHint(address: string) {
   return address.replace(/\s+/g, ' ').trim()
@@ -1188,6 +1188,7 @@ function DestinationSearchModal({
                 address: place.address,
                 jibun: place.jibun,
                 category: place.category,
+                kind: place.kind,
                 hint: locationHint(place.address),
                 lat: place.lat,
                 lng: place.lng,
@@ -1265,13 +1266,17 @@ function DestinationSearchModal({
                       : undefined
                   return (
                     <button key={`${place.name}-${place.address}-${place.lat}-${place.lng}`} type="button" onClick={() => pick(place.name, place.address, coords)} className="flex w-full items-start gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.06)] active:scale-[0.99]">
-                      <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
-                        <MapPin className="h-5 w-5" />
+                      <span className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${place.kind === 'parking' ? 'bg-[#FEF3C7] text-[#B45309]' : 'bg-[#EDE5FF] text-[#4C1FB8]'}`}>
+                        {place.kind === 'parking' ? <SquareParking className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-1.5">
                           <strong className="break-words text-sm font-black text-[#0F172A]">{place.name}</strong>
-                          {place.category ? <span className="rounded-full bg-[#EDE5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{place.category}</span> : null}
+                          {place.kind === 'parking' ? (
+                            <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#B45309]">{place.category || '주차장'}</span>
+                          ) : place.category ? (
+                            <span className="rounded-full bg-[#EDE5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{place.category}</span>
+                          ) : null}
                         </span>
                         <span className="mt-1 block break-words text-xs font-bold text-[#334155]">{place.address}</span>
                         {place.jibun && place.jibun !== place.address ? <span className="mt-0.5 block break-words text-[11px] font-bold text-[#64748B]">지번 {place.jibun}</span> : null}

@@ -251,7 +251,7 @@ export function requestAddressLookup(lat: number, lng: number, onAddress: (addre
   })
 }
 
-export type SearchedPlace = { name: string; address: string; jibun: string; category: string; lat: number; lng: number }
+export type SearchedPlace = { name: string; address: string; jibun: string; category: string; lat: number; lng: number; kind?: 'parking' }
 
 async function fetchSearchJson(search: string, signal?: AbortSignal) {
   for (const url of geocodeCandidates(search)) {
@@ -356,7 +356,8 @@ export async function searchPlacesFromApi(query: string, signal?: AbortSignal) {
           }
         }
         if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
-        return { name, address, jibun: jibun && jibun !== address ? jibun : '', category, lat, lng }
+        const kind = item.kind === 'parking' ? { kind: 'parking' as const } : {}
+        return { name, address, jibun: jibun && jibun !== address ? jibun : '', category, lat, lng, ...kind }
       })
       .filter((item): item is SearchedPlace => Boolean(item))
   } catch {
