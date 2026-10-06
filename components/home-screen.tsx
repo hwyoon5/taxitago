@@ -712,6 +712,7 @@ function LocationMapModal({
 const FAVORITES_KEY = 'taxitago-favorite-places'
 const WALLET_KEY = 'taxitago-pi-wallet'
 const DEPOSIT_ADDRESS_KEY = 'taxitago-pi-deposit-address'
+const DEPOSIT_CREDITED_KEY = 'taxitago-pi-deposit-credited'
 const DEFAULT_DEPOSIT_ADDRESS = 'GBCX92KL-TAXI-DEPOSIT-ADDRESS'
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
@@ -5649,6 +5650,55 @@ function WalletModal({
 
   const depositAddressValid = isPiWalletAddress(depositAddress)
 
+  // 자동 입금 감지 — 연동된 내 Pi 지갑에서 플랫폼 수신지로 들어온 온체인 결제를
+  // 서버가 Horizon으로 스캔해 장부화하고, 여기서 잔액에 즉시 반영한다.
+  const creditedDeposits = useRef<Set<string> | null>(null)
+  const creditedSet = () => {
+    if (!creditedDeposits.current) {
+      try {
+        creditedDeposits.current = new Set(JSON.parse(window.localStorage.getItem(DEPOSIT_CREDITED_KEY) || '[]') as string[])
+      } catch {
+        creditedDeposits.current = new Set()
+      }
+    }
+    return creditedDeposits.current
+  }
+  useEffect(() => {
+    const identity = loadPiIdentity()
+    const wallet = identity?.wallet?.trim() || ''
+    if (!isPiWalletAddress(wallet)) return
+    const uidParam = identity?.uid ? `&uid=${encodeURIComponent(identity.uid)}` : ''
+    let stopped = false
+    const scan = async () => {
+      try {
+        const res = await fetch(`/api/wallet/deposits?from=${encodeURIComponent(wallet)}${uidParam}`, { cache: 'no-store' })
+        const data = (await res.json().catch(() => null)) as { deposits?: { txid: string; amount: number }[] } | null
+        if (stopped || !res.ok || !data?.deposits) return
+        for (const deposit of data.deposits) {
+          if (!deposit.txid || creditedSet().has(deposit.txid) || !(deposit.amount > 0)) continue
+          creditedSet().add(deposit.txid)
+          try {
+            window.localStorage.setItem(DEPOSIT_CREDITED_KEY, JSON.stringify([...creditedSet()].slice(-300)))
+          } catch {
+            undefined
+          }
+          onDeposit(deposit.amount)
+          setProcess((prev) => (prev?.phase === 'pending' ? prev : { kind: 'charge', phase: 'done', amount: deposit.amount }))
+        }
+      } catch {
+        undefined
+      }
+    }
+    void scan()
+    const timer = window.setInterval(scan, 8000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+    // onDeposit은 매 렌더 새로 만들어지지만 스캔 루프는 마운트 시 한 번이면 충분하다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     if (process?.phase !== 'pending' || process.kind !== 'withdraw') return
     const value = process.amount
@@ -5972,10 +6022,13 @@ function WalletModal({
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#4C1FB8] text-white">
               <Check className="h-7 w-7" strokeWidth={3} />
             </div>
-            <h3 className="mt-4 text-xl font-black text-[#0F172A]">처리가 완료되었습니다</h3>
+            <h3 className="mt-4 text-xl font-black text-[#0F172A]">{process.kind === 'charge' ? '충전이 완료되었습니다!' : '처리가 완료되었습니다'}</h3>
             <p className="mt-2 text-sm font-bold text-[#64748B]">
               {process.kind === 'charge' ? '충전' : '출금ㆍ환불'} {process.amount.toFixed(7)} Pi가 월렛에 반영되었습니다.
             </p>
+            {process.kind === 'charge' ? (
+              <p className="mt-2 rounded-xl bg-[#F8F5FF] px-3 py-2 text-sm font-black text-[#4C1FB8]">현재 잔액 {balance.toFixed(7)} Pi</p>
+            ) : null}
             <button type="button" onClick={() => setProcess(null)} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
               확인
             </button>
