@@ -7080,6 +7080,8 @@ function DriverOfferWatcher({
   const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
   const [busy, setBusy] = useState(false)
   const notifiedRef = useRef('')
+  // 거절한 콜 id — 응답이 서버에 반영되는 동안 폴링/푸시가 같은 콜을 다시 띄우지 않게 막는다.
+  const dismissedRef = useRef(new Set<string>())
   const onActivityRef = useRef(onActivity)
   onActivityRef.current = onActivity
 
@@ -7167,7 +7169,8 @@ function DriverOfferWatcher({
     if (!driverId) return
     primeDriverAlertAudio()
     const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; active?: PublicRide | null } | null) => {
-      const ride = pending?.ride ?? null
+      const fetched = pending?.ride ?? null
+      const ride = fetched && dismissedRef.current.has(fetched.id) ? null : fetched
       const active = pending?.active && pending.active.status === 'assigned' ? pending.active : null
       setActiveRide((current) => {
         if (!active) return null
@@ -7228,6 +7231,11 @@ function DriverOfferWatcher({
     const partner = loadPartnerProfile()
     const fleet = partnerVehicle(partner)
     setBusy(true)
+    if (action === 'reject') {
+      dismissedRef.current.add(incoming.id)
+      setIncoming(null)
+      setOfferKm(null)
+    }
     void respondToRideOffer(
       incoming.id,
       incoming.pendingOffer?.driverId || driverId,
@@ -7385,6 +7393,8 @@ function DriverDashboard({
   // alias so rides/earnings recorded under it stay visible.
   const driverAliasRef = useRef('')
   const localOfferRef = useRef<{ ride: PublicRide; expiresAt: number; km: number | null } | null>(null)
+  // 거절한 콜 id — 폴링·SSE·푸시 재도착으로 거절된 콜 카드가 다시 뜨지 않도록 막는다.
+  const dismissedOfferIds = useRef(new Set<string>())
   const offerLogRef = useRef('')
   const activityKeys = useRef(new Set<string>())
   const onActivityRef = useRef(onActivity)
@@ -7700,7 +7710,11 @@ function DriverDashboard({
     }
     const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; earnings?: DriverEarningsStats | null; active?: PublicRide | null } | null, active?: PublicRide | null) => {
       if (active && endedRideIds.current.has(active.id)) active = null
-      const ride = pending?.ride ?? null
+      const fetched = pending?.ride ?? null
+      if (fetched && dismissedOfferIds.current.has(fetched.id) && localOfferRef.current?.ride.id === fetched.id) {
+        localOfferRef.current = null
+      }
+      const ride = fetched && dismissedOfferIds.current.has(fetched.id) ? null : fetched
       if (pending?.earnings) applyEarnings(driverId, pending.earnings)
       if (!activityPrimed.current) {
         activityPrimed.current = true
@@ -7738,7 +7752,7 @@ function DriverDashboard({
         return
       }
       const held = localOfferRef.current
-      if (held && held.expiresAt > Date.now()) {
+      if (held && held.expiresAt > Date.now() && !dismissedOfferIds.current.has(held.ride.id)) {
         logOffer({ rideId: held.ride.id, source: 'push' })
         setIncoming(held.ride)
         setOfferKm(held.km)
@@ -7807,6 +7821,7 @@ function DriverDashboard({
         return
       }
       logOffer({ rideId: pushed.ride.id, source: 'push' })
+      if (dismissedOfferIds.current.has(pushed.ride.id)) return
       rememberOffer(pushed.ride, pushed.offer.expiresAt, pushed.offer.pickupDistanceKm)
       // 푸시 수신 즉시 알림음 — 다음 폴링(최대 2s)을 기다리지 않는다.
       // alertDriverOffer는 ride.id로 중복 제거되므로 폴링 도착 시 재울리지 않는다.
@@ -7868,6 +7883,11 @@ function DriverDashboard({
     stopDriverOfferAlarm()
     setBusy(true)
     localOfferRef.current = null
+    if (action === 'reject') {
+      dismissedOfferIds.current.add(incoming.id)
+      setIncoming(null)
+      setOfferKm(null)
+    }
     const fleet = partnerVehicle(partner)
     void respondToRideOffer(incoming.id, incoming.pendingOffer?.driverId || driverId, action, incoming, {
       name: partner?.name,
