@@ -7279,6 +7279,22 @@ function DriverOfferWatcher({
               경유지 {rideStops(incoming).via.join(' · ')}
             </p>
           ) : null}
+          <TaxiLiveMap
+            kind={incoming.kind}
+            phase="arriving"
+            routeLabel={rideStops(incoming).chain}
+            statusLabel="픽업 경로"
+            originLat={incoming.pickup.lat}
+            originLng={incoming.pickup.lng}
+            destLat={incoming.dest.lat}
+            destLng={incoming.dest.lng}
+            originLabel={incoming.pickup.address || '승객 탑승 위치'}
+            destLabel={incoming.dest.label || incoming.dest.address || '목적지'}
+            waypoints={incoming.waypoints ?? []}
+            vehicleLat={lat}
+            vehicleLng={lng}
+            className="mt-2 h-[140px]"
+          />
           <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
             <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
             <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(7)} Pi</strong>
@@ -8256,6 +8272,22 @@ function DriverDashboard({
               경유지 {rideStops(incoming).via.join(' · ')}
             </p>
           ) : null}
+          <TaxiLiveMap
+            kind={incoming.kind}
+            phase="arriving"
+            routeLabel={rideStops(incoming).chain}
+            statusLabel="픽업 경로"
+            originLat={incoming.pickup.lat}
+            originLng={incoming.pickup.lng}
+            destLat={incoming.dest.lat}
+            destLng={incoming.dest.lng}
+            originLabel={incoming.pickup.address || '승객 탑승 위치'}
+            destLabel={incoming.dest.label || incoming.dest.address || '목적지'}
+            waypoints={incoming.waypoints ?? []}
+            vehicleLat={lat}
+            vehicleLng={lng}
+            className="mt-2 h-[140px]"
+          />
           <div className="mt-2 flex justify-between text-sm font-semibold text-[#475569]">
             <span>승객까지 {offerKm != null ? `${offerKm.toFixed(1)} km` : '계산 중'}</span>
             <strong className="text-[#0F172A]">{Number(incoming.estimatedFare || 0).toFixed(7)} Pi</strong>
