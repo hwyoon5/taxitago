@@ -5785,7 +5785,7 @@ function WalletModal({
         </div>
         {tab === 'charge' && (
           <div className="mt-4 flex flex-col gap-3">
-            <section className="order-2 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
+            <section className="order-3 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
               <div className="flex items-center justify-between">
                 <p className="font-black">입금 주소</p>
                 <span className="rounded-full bg-[#EDE5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">입금 전용</span>
@@ -5804,28 +5804,31 @@ function WalletModal({
                 </button>
               </div>
             </section>
-            <section className="order-1 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
+            <p className="order-2 rounded-2xl border border-[#F2DCB8] bg-[#FFFBEB] px-4 py-2.5 text-center text-xs font-black text-[#B45309]">
+              파이 충전이 안 될 시 아래 입금 주소로 수동 충전 하세요
+            </p>
+            <section className="order-1 rounded-3xl border-2 border-[#E0D4FF] bg-white p-3.5">
               <p className="font-black">파이 충전 단위</p>
               <p className="mt-1 text-xs font-bold text-[#8b8495]">빠른 선택을 누르거나, 원하는 수량을 직접 입력해 주세요. 24시간 충전 한도는 {PI_CHARGE_MAX_PI} Pi입니다.</p>
               <p className={`mt-1 text-xs font-black ${chargeCapRemaining > 0 ? 'text-[#4C1FB8]' : 'text-[#DC2626]'}`}>
                 {chargeCapRemaining > 0 ? `남은 한도 ${chargeCapRemaining.toFixed(7)} Pi` : '24시간 충전 한도를 모두 사용했어요'}
               </p>
-              <div className="mt-3 grid grid-cols-4 gap-2">
+              <div className="mt-2.5 grid grid-cols-4 gap-1.5">
                 {chargeUnits.map((unit) => (
                   <button
                     key={unit}
                     type="button"
                     disabled={unit > chargeCapRemaining}
                     onClick={() => applyChargeAmount(unit)}
-                    className={`rounded-2xl py-3 text-sm font-black disabled:opacity-40 ${chargeValid && chargeAmount === unit ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'bg-[#F1EBFF] text-[#4C1FB8]'}`}
+                    className={`rounded-xl py-2.5 text-sm font-black disabled:opacity-40 ${chargeValid && chargeAmount === unit ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'bg-[#F1EBFF] text-[#4C1FB8]'}`}
                   >
                     {unit}
                   </button>
                 ))}
               </div>
-              <label className="mt-4 block" htmlFor="pi-charge-amount">
+              <label className="mt-3 block" htmlFor="pi-charge-amount">
                 <span className="text-xs font-black text-[#334155]">직접 입력</span>
-                <div className="mt-2 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-4 py-3 focus-within:border-[#4C1FB8]">
+                <div className="mt-1.5 flex items-center gap-2 rounded-xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-2 focus-within:border-[#4C1FB8]">
                   <input
                     id="pi-charge-amount"
                     name="chargeAmount"
@@ -5847,7 +5850,7 @@ function WalletModal({
                     }}
                     placeholder="원하는 수량"
                     aria-label="충전할 Pi 수량 직접 입력"
-                    className="min-w-0 flex-1 bg-transparent text-lg font-black tabular-nums text-[#0F172A] outline-none [appearance:auto]"
+                    className="min-w-0 flex-1 bg-transparent text-base font-black tabular-nums text-[#0F172A] outline-none [appearance:auto]"
                   />
                   <span className="shrink-0 text-sm font-black text-[#4C1FB8]">Pi</span>
                 </div>
@@ -5857,14 +5860,14 @@ function WalletModal({
                   24시간 충전 한도 {PI_CHARGE_MAX_PI} Pi를 초과할 수 없어요. {chargeCapRemaining > 0 ? `남은 한도는 ${chargeCapRemaining.toFixed(7)} Pi입니다.` : '한도를 모두 사용했습니다.'}
                 </p>
               ) : null}
-              <div className="mt-4 flex items-end justify-between rounded-2xl bg-[#F8F5FF] px-4 py-3">
+              <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F8F5FF] px-3.5 py-2.5">
                 <span className="text-xs font-bold text-[#64748B]">신청 수량</span>
-                <strong className="text-lg font-black text-[#4C1FB8]">{chargeValid ? `${chargeAmount.toFixed(7)} Pi` : '—'}</strong>
+                <strong className="text-base font-black text-[#4C1FB8]">{chargeValid ? `${chargeAmount.toFixed(7)} Pi` : '—'}</strong>
               </div>
               <button
                 type="button"
                 disabled={Boolean(process) || !chargeValid}
-                className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-60"
+                className="mt-3 w-full rounded-xl bg-[#4C1FB8] py-3 text-sm font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-60"
                 onClick={() => {
                   if (process || !chargeValid) {
                     if (chargeOverCap) onNotice(`24시간 충전 한도 ${PI_CHARGE_MAX_PI} Pi를 초과할 수 없어요.`)
