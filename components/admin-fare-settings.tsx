@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import { DEFAULT_RATES, type CommissionRates, type SettlementService } from '@/lib/settlement-types'
 import { DEFAULT_FARE_CONFIG, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
-import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
+import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import type { DepositEntry } from '@/lib/deposit-store'
 
 const SERVICES: SettlementService[] = ['taxi', 'daeri', 'delivery', 'bicycle', 'kickboard', 'ev', 'parking']
@@ -19,8 +19,8 @@ const SERVICE_LABEL: Record<SettlementService, string> = {
 }
 
 export default function AdminFareSettings() {
-  const [wallet, setWallet] = useState('PI_DEMO_ADMIN_WALLET_999_TAXI_TAGO')
-  const [walletDraft, setWalletDraft] = useState('PI_DEMO_ADMIN_WALLET_999_TAXI_TAGO')
+  const [wallet, setWallet] = useState(PLATFORM_DEPOSIT_WALLET)
+  const [walletDraft, setWalletDraft] = useState(PLATFORM_DEPOSIT_WALLET)
   const [rates, setRates] = useState<CommissionRates>({ ...DEFAULT_RATES })
   const [rateDraft, setRateDraft] = useState<CommissionRates>({ ...DEFAULT_RATES })
   const [fare, setFare] = useState<FareConfig>(DEFAULT_FARE_CONFIG)

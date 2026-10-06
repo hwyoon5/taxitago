@@ -33,7 +33,7 @@ import {
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { piCompact } from '@/lib/pi-format'
 import { DEFAULT_FARE_CONFIG, fetchDepositWallet, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
-import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
+import { isPiWalletAddress, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
@@ -713,7 +713,7 @@ const FAVORITES_KEY = 'taxitago-favorite-places'
 const WALLET_KEY = 'taxitago-pi-wallet'
 const DEPOSIT_ADDRESS_KEY = 'taxitago-pi-deposit-address'
 const DEPOSIT_CREDITED_KEY = 'taxitago-pi-deposit-credited'
-const DEFAULT_DEPOSIT_ADDRESS = 'GBCX92KL-TAXI-DEPOSIT-ADDRESS'
+const DEFAULT_DEPOSIT_ADDRESS = PLATFORM_DEPOSIT_WALLET
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
 const PI_ACCOUNT_KEY = 'taxitago-pi-account-linked'
@@ -5616,8 +5616,6 @@ function WalletModal({
   const [address, setAddress] = useState('')
   const [amount, setAmount] = useState('')
   const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
-  const [depositDraft, setDepositDraft] = useState(DEFAULT_DEPOSIT_ADDRESS)
-  const [depositEditing, setDepositEditing] = useState(false)
   const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number } | null>(null)
   const chargeUnits = [5, 10, 25, 50]
   // 최근 24시간 충전 누적 — 한도는 최대 50 Pi로 고정(지갑 내역은 localStorage에 보존됨).
@@ -5638,14 +5636,24 @@ function WalletModal({
   useEffect(() => {
     const saved = loadDepositAddress()
     setDepositAddress(saved)
-    setDepositDraft(saved)
     // 플랫폼 공식 수신 지갑을 서버에서 가져와 저장된 임시/구형 주소를 갱신한다.
-    void fetchDepositWallet().then((official) => {
-      if (!isPiWalletAddress(official)) return
-      setDepositAddress(official)
-      setDepositDraft(official)
-      saveDepositAddress(official)
-    })
+    // 모달이 열려 있는 동안 주기적으로 다시 확인해 관리자 변경이 즉시 반영되게 한다.
+    let stopped = false
+    const sync = async () => {
+      const official = await fetchDepositWallet()
+      if (stopped || !isPiWalletAddress(official)) return
+      setDepositAddress((prev) => {
+        if (prev === official) return prev
+        saveDepositAddress(official)
+        return official
+      })
+    }
+    void sync()
+    const timer = window.setInterval(sync, 10_000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
   }, [])
 
   const depositAddressValid = isPiWalletAddress(depositAddress)
@@ -5721,25 +5729,6 @@ function WalletModal({
     onNotice('주소가 복사되었습니다')
   }
 
-  const startEditDeposit = () => {
-    setDepositDraft(depositAddress)
-    setDepositEditing(true)
-  }
-
-  const saveEditedDeposit = () => {
-    const next = depositDraft.trim()
-    const invalid = piWalletError(next)
-    if (invalid) {
-      onNotice(invalid)
-      return
-    }
-    saveDepositAddress(next)
-    setDepositAddress(next)
-    setDepositDraft(next)
-    setDepositEditing(false)
-    onNotice('입금 주소가 변경되었습니다')
-  }
-
   const setQuickAmount = (ratio: number) => {
     const value = Math.round(balance * ratio * 100) / 100
     setAmount(value > 0 ? value.toFixed(7) : '0')
@@ -5807,47 +5796,13 @@ function WalletModal({
                   플랫폼 입금 지갑이 아직 등록되지 않았습니다. 아래 임시 표시는 실제 Pi 주소가 아니므로 송금하지 마세요. Pi Browser에서는 위 충전 버튼의 SDK 결제로 바로 충전할 수 있습니다.
                 </p>
               ) : null}
-              {depositEditing ? (
-                <div className="mt-3 space-y-2">
-                  <input
-                    value={depositDraft}
-                    onChange={(event) => setDepositDraft(event.target.value.toUpperCase())}
-                    placeholder="G로 시작하는 56자리 Pi 주소"
-                    maxLength={56}
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3 font-mono text-xs font-bold text-[#3B16A8] outline-none"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDepositDraft(depositAddress)
-                        setDepositEditing(false)
-                      }}
-                      className="rounded-2xl border-2 border-[#D8CCF5] bg-white py-3 text-sm font-black text-[#475569]"
-                    >
-                      취소
-                    </button>
-                    <button type="button" onClick={saveEditedDeposit} className="rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
-                      주소 저장
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="mt-3 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-3">
-                    <p className="min-w-0 flex-1 break-all font-mono text-xs font-bold text-[#3B16A8]">{depositAddress}</p>
-                    <button type="button" disabled={!depositAddressValid} onClick={copyAddress} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#4C1FB8] px-3 py-2 text-[11px] font-black text-white disabled:opacity-40">
-                      <Copy className="h-3.5 w-3.5" />
-                      복사
-                    </button>
-                  </div>
-                  <button type="button" onClick={startEditDeposit} className="mt-2 w-full rounded-2xl border-2 border-[#D8CCF5] bg-white py-3 text-sm font-black text-[#4C1FB8]">
-                    수정하기
-                  </button>
-                </>
-              )}
+              <div className="mt-3 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-3">
+                <p className="min-w-0 flex-1 break-all font-mono text-xs font-bold text-[#3B16A8]">{depositAddress}</p>
+                <button type="button" disabled={!depositAddressValid} onClick={copyAddress} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#4C1FB8] px-3 py-2 text-[11px] font-black text-white disabled:opacity-40">
+                  <Copy className="h-3.5 w-3.5" />
+                  복사
+                </button>
+              </div>
             </section>
             <section className="order-1 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
               <p className="font-black">파이 충전 단위</p>

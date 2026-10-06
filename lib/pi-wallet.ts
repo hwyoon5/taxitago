@@ -5,6 +5,9 @@
  */
 const PI_WALLET_RE = /^G[A-Z0-9]{55}$/
 
+/** 플랫폼 공식 Pi 입금 수신지 — 서버 기본값이며 클라이언트 폴백으로도 쓰인다. */
+export const PLATFORM_DEPOSIT_WALLET = 'GDQW3DP4XK46AL2YYKDB5SJ7RVRYCE5PNBIWGPFQ7ZEZ4CEWMS5WGUWS'
+
 export function isPiWalletAddress(value: unknown): boolean {
   return typeof value === 'string' && PI_WALLET_RE.test(value.trim())
 }

@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
-import { isPiWalletAddress } from '@/lib/pi-wallet'
+import { isPiWalletAddress, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 
-/** Fallback shown until a real testnet address is configured (never a valid wallet). */
-export const DEFAULT_ADMIN_WALLET = 'PI_DEMO_ADMIN_WALLET_999_TAXI_TAGO'
+/** 공식 입금지 미등록 시 기본값: PI_PLATFORM_WALLET 환경변수, 없으면 플랫폼 공식 수신지. */
+export const DEFAULT_ADMIN_WALLET = (process.env.PI_PLATFORM_WALLET || '').trim() || PLATFORM_DEPOSIT_WALLET
 
 const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
 const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
