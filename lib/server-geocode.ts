@@ -200,6 +200,7 @@ export type ForwardPlace = {
   lat: number
   lng: number
   trustName?: boolean
+  kind?: 'parking'
 }
 
 type NaverAddressRow = {
@@ -391,6 +392,58 @@ async function forwardNaverPlaceSearch(query: string): Promise<ForwardPlace[]> {
     }
   }
   return []
+}
+
+function approxKmBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const dLat = (b.lat - a.lat) * 111
+  const dLng = (b.lng - a.lng) * 111 * Math.cos((a.lat * Math.PI) / 180)
+  return Math.hypot(dLat, dLng)
+}
+
+// 앵커 주소에서 "대구광역시 동구" 같은 시·군·구 맥락을 뽑아 지역 단위 주차장 검색에 쓴다.
+function regionHintFrom(address: string) {
+  const tokens = address.trim().split(/\s+/).filter(Boolean)
+  const picked = tokens.filter((token) => /(특별자치시|특별자치도|광역시|특별시|자치시|시|군|구|도)$/.test(token))
+  return picked.slice(0, 2).join(' ')
+}
+
+// 장소 검색 시 주변 공영주차장·주차장을 네이버 장소 검색으로 함께 조회한다.
+// 카카오 카테고리 검색(PK6) 결과와 병합·중복 제거해 검색 결과 뒤에 붙인다.
+export async function searchNaverParkingLots(
+  query: string,
+  anchor?: { lat: number; lng: number; address?: string },
+): Promise<{ places: ForwardPlace[]; notices: string[] }> {
+  const notices: string[] = []
+  const q = query.trim()
+  if (!q) return { places: [], notices }
+  const region = anchor?.address ? regionHintFrom(anchor.address) : ''
+  const attempts = /주차/.test(q)
+    ? [q]
+    : [`${q} 공영주차장`, `${q} 주차장`, ...(region && !q.includes(region) ? [`${region} 공영주차장`] : [])]
+  const found: ForwardPlace[] = []
+  const seen = new Set<string>()
+  for (const attempt of attempts) {
+    const batches = await Promise.all([
+      forwardNaverLocalSearch(attempt, 'comment', notices),
+      forwardNaverPlaceSearch(attempt).catch(() => [] as ForwardPlace[]),
+    ])
+    for (const place of batches.flat()) {
+      if (!/주차/.test(`${place.name} ${place.category ?? ''}`)) continue
+      const key = `${place.name.replace(/\s+/g, '')}|${place.address.replace(/\s+/g, '')}`
+      if (seen.has(key)) continue
+      if (anchor && approxKmBetween(anchor, place) > 6) continue
+      seen.add(key)
+      found.push(place)
+    }
+    if (found.length >= 5) break
+  }
+  const ranked = anchor ? [...found].sort((a, b) => approxKmBetween(anchor, a) - approxKmBetween(anchor, b)) : found
+  const places = ranked.slice(0, 5).map((place) => ({
+    ...place,
+    kind: 'parking' as const,
+    category: /공영/.test(`${place.name} ${place.category ?? ''}`) ? '공영주차장' : '주차장',
+  }))
+  return { places, notices: [...new Set(notices)] }
 }
 
 async function forwardGeocodeNaver(query: string, notices: string[] = []): Promise<ForwardPlace[]> {
