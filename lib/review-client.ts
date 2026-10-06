@@ -48,3 +48,16 @@ export async function fetchUserRating(userId: string, role: RatingRole) {
   const data = await readJson<{ rating?: PublicRating }>(res)
   return data.rating ?? null
 }
+
+/** 리뷰 감사 포인트 지급을 관리자 장부에 기록한다. 실패해도 사용자 흐름은 막지 않는다. */
+export async function recordReviewReward(userId: string, key?: string) {
+  try {
+    await apiFetch('/api/rewards/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, key }),
+    })
+  } catch {
+    undefined
+  }
+}

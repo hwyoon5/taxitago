@@ -79,7 +79,7 @@ import RideCommsAlerts from '@/components/ride-comms-alerts'
 import RideReviewModal, { type RideReviewTarget } from '@/components/ride-review'
 import RideSosButton from '@/components/ride-sos'
 import SupportCenter, { type LostPrefill } from '@/components/support-center'
-import { fetchUserRating } from '@/lib/review-client'
+import { fetchUserRating, recordReviewReward } from '@/lib/review-client'
 import { fetchLostInbox, fetchSosInbox } from '@/lib/support-client'
 import type { LostItem, SosAlert } from '@/lib/support-types'
 
@@ -8836,11 +8836,12 @@ export default function HomeScreen() {
     setTransactions((items) => [{ label: 'Pi 환불', amount: -amount, detail: `${dest.slice(0, 10)}… · ${at}`, place: dest || 'Pi 월렛', at, ts: Date.now() }, ...items])
     recordActivity('Pi 환불', `-${amount.toFixed(7)} Pi`)
   }
-  const rewardReview = () => {
+  const rewardReview = (key?: string) => {
     const amount = 0.1
     const at = formatPiTime()
     setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
     setTransactions((items) => [{ label: '리뷰 적립', amount, detail: `기사 평가 · ${at}`, place: '리뷰 감사 포인트', at, ts: Date.now() }, ...items])
+    void recordReviewReward(localPassengerId(), key)
     showNotice('평가 감사합니다. 0.1 Pi가 적립되었습니다.')
   }
   const openService = (value: string) => {
@@ -9352,7 +9353,7 @@ export default function HomeScreen() {
             target={rideReview}
             onClose={() => setRideReview(null)}
             onSubmitted={() => {
-              if (rideReview.raterRole === 'passenger') rewardReview()
+              if (rideReview.raterRole === 'passenger') rewardReview(rideReview.rideId)
               setRideReview(null)
             }}
           />

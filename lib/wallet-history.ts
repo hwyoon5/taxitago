@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { piRound } from '@/lib/pi-format'
 
-export type WalletTxKind = 'deposit' | 'withdraw'
+export type WalletTxKind = 'deposit' | 'withdraw' | 'reward'
 export type WalletTxStatus = 'confirmed' | 'pending' | 'failed'
 
 export type WalletTxEntry = {
@@ -155,5 +155,6 @@ export async function walletTxTotals() {
       total: sum('withdraw'),
       fee: piRound(confirmed.filter((entry) => entry.kind === 'withdraw').reduce((total, entry) => total + (entry.fee || 0), 0)),
     },
+    reward: { count: confirmed.filter((entry) => entry.kind === 'reward').length, total: sum('reward') },
   }
 }

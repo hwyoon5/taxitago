@@ -68,7 +68,7 @@ export default function AdminSettlements() {
   const [deposits, setDeposits] = useState<DepositEntry[]>([])
   const [depositTotal, setDepositTotal] = useState<{ count: number; total: number } | null>(null)
   const [history, setHistory] = useState<WalletTxEntry[]>([])
-  const [historyTotals, setHistoryTotals] = useState<{ deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number } } | null>(null)
+  const [historyTotals, setHistoryTotals] = useState<{ deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number }; reward?: { count: number; total: number } } | null>(null)
   const [adminWallet, setAdminWallet] = useState('')
   const [depositBusy, setDepositBusy] = useState(false)
   const [depositForm, setDepositForm] = useState({ txid: '', fromWallet: '', amount: '', memo: '' })
@@ -88,7 +88,7 @@ export default function AdminSettlements() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number }; history?: WalletTxEntry[]; historyTotals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number } }; adminWallet?: string }
+        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number }; history?: WalletTxEntry[]; historyTotals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number }; reward?: { count: number; total: number } }; adminWallet?: string }
       })
       .then((data) => {
         setEntries(data.entries)
@@ -265,6 +265,20 @@ export default function AdminSettlements() {
             <p className="text-[11px] font-black text-[#B45309]">정산 대기</p>
             <p className="mt-1 text-lg font-black text-[#B45309]">{summary.pendingCount}건</p>
             <p className="text-[10px] font-bold text-[#B45309]">{pi(summary.pendingNet)}</p>
+          </div>
+          <div className="rounded-2xl border-2 border-[#E9D5FF] bg-[#FAF5FF] p-3">
+            <p className="text-[11px] font-black text-[#7E22CE]">리뷰 보상 지출</p>
+            <p className="mt-1 text-lg font-black text-[#7E22CE]">{pi(historyTotals?.reward?.total ?? 0)}</p>
+            <p className="text-[10px] font-bold text-[#94A3B8]">감사 포인트 {historyTotals?.reward?.count ?? 0}건</p>
+          </div>
+          <div className="rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] p-3">
+            <p className="text-[11px] font-black text-[#047857]">최종 순수익 (Net Revenue)</p>
+            <p className="mt-1 text-lg font-black text-[#047857]">
+              {pi(Math.max(0, summary.commission - (historyTotals?.withdraw.total ?? 0) - (historyTotals?.withdraw.fee ?? 0) - (historyTotals?.reward?.total ?? 0)))}
+            </p>
+            <p className="text-[10px] font-bold text-[#94A3B8]">
+              수수료 {pi(summary.commission)} − 출금 {pi((historyTotals?.withdraw.total ?? 0) + (historyTotals?.withdraw.fee ?? 0))} − 리뷰 보상 {pi(historyTotals?.reward?.total ?? 0)}
+            </p>
           </div>
         </section>
       ) : null}

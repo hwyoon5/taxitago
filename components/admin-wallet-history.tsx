@@ -5,10 +5,10 @@ import type { WalletTxEntry, WalletTxKind } from '@/lib/wallet-history'
 
 type Props = {
   entries: WalletTxEntry[]
-  totals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number } } | null
+  totals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number }; reward?: { count: number; total: number } } | null
 }
 
-const KIND_LABEL: Record<WalletTxKind, string> = { deposit: '입금', withdraw: '출금' }
+const KIND_LABEL: Record<WalletTxKind, string> = { deposit: '입금', withdraw: '출금', reward: '보상' }
 const STATUS_LABEL: Record<WalletTxEntry['status'], string> = { confirmed: '완료', pending: '대기', failed: '실패' }
 const STATUS_TONE: Record<WalletTxEntry['status'], string> = {
   confirmed: 'bg-[#DCFCE7] text-[#15803D]',
@@ -18,10 +18,11 @@ const STATUS_TONE: Record<WalletTxEntry['status'], string> = {
 const KIND_TONE: Record<WalletTxKind, string> = {
   deposit: 'bg-[#DBEAFE] text-[#1D4ED8]',
   withdraw: 'bg-[#FFEDD5] text-[#C2410C]',
+  reward: 'bg-[#F3E8FF] text-[#7E22CE]',
 }
 
 const explorerTxUrl = (entry: WalletTxEntry) => {
-  if (!entry.txid) return ''
+  if (!entry.txid || entry.txid.startsWith('review:')) return ''
   const base = entry.network === 'mainnet' ? 'https://api.mainnet.minepi.com' : 'https://api.testnet.minepi.com'
   return `${base}/transactions/${entry.txid}`
 }
@@ -61,6 +62,7 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
           누적 입금 <strong className="text-[#1D4ED8]">{pi(totals.deposit.total)}</strong> ({totals.deposit.count}건) ·
           누적 출금 <strong className="text-[#C2410C]">{pi(totals.withdraw.total + totals.withdraw.fee)}</strong> ({totals.withdraw.count}건 · 수수료 {pi(totals.withdraw.fee)} 포함)
+          {totals.reward ? <> · 리뷰 보상 <strong className="text-[#7E22CE]">{pi(totals.reward.total)}</strong> ({totals.reward.count}건)</> : null}
         </p>
       ) : (
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">수동 입금 기록과 관리자 지갑 출금 트랜잭션이 함께 기록됩니다.</p>
@@ -68,7 +70,7 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
 
       <div className="mt-2 flex flex-wrap items-center gap-1">
         <div className="flex gap-1">
-          {([['all', '전체'], ['deposit', '입금'], ['withdraw', '출금']] as const).map(([key, label]) => (
+          {([['all', '전체'], ['deposit', '입금'], ['withdraw', '출금'], ['reward', '보상']] as const).map(([key, label]) => (
             <button
               key={key}
               type="button"
