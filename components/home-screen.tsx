@@ -5617,6 +5617,7 @@ function WalletModal({
   const [amount, setAmount] = useState('')
   const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
   const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number } | null>(null)
+  const [historyRange, setHistoryRange] = useState<'all' | 'week' | 'month' | 'year'>('all')
   const chargeUnits = [5, 10, 25, 50]
   // 최근 24시간 충전 누적 — 한도는 최대 50 Pi로 고정(지갑 내역은 localStorage에 보존됨).
   const chargeNow = Date.now()
@@ -5748,6 +5749,27 @@ function WalletModal({
     { id: 'refund' as const, label: '출금ㆍ환불' },
     { id: 'history' as const, label: '이용 내역' },
   ]
+
+  const historyRanges = [
+    { id: 'all' as const, label: '전체' },
+    { id: 'week' as const, label: '주간' },
+    { id: 'month' as const, label: '월간' },
+    { id: 'year' as const, label: '년간' },
+  ]
+  const historyNow = new Date()
+  const historyStart =
+    historyRange === 'week'
+      ? historyNow.getTime() - 7 * 24 * 60 * 60 * 1000
+      : historyRange === 'month'
+        ? new Date(historyNow.getFullYear(), historyNow.getMonth(), 1).getTime()
+        : historyRange === 'year'
+          ? new Date(historyNow.getFullYear(), 0, 1).getTime()
+          : 0
+  const historyTransactions = transactions.filter((tx) => {
+    if (historyRange === 'all') return true
+    const ts = typeof tx.ts === 'number' ? tx.ts : 0
+    return ts >= historyStart
+  })
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end bg-[#241d35]/45 p-0 sm:p-4">
@@ -5936,7 +5958,24 @@ function WalletModal({
         )}
         {tab === 'history' && (
           <section className="mt-4 space-y-2">
-            {transactions.map((transaction, index) => (
+            <div className="flex gap-1.5 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+              {historyRanges.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setHistoryRange(item.id)}
+                  className={`flex-1 rounded-xl py-2 text-xs font-black transition ${historyRange === item.id ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            {historyTransactions.length === 0 && (
+              <p className="rounded-2xl border-2 border-dashed border-[#D8CCF5] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
+                해당 기간에 이용 내역이 없습니다.
+              </p>
+            )}
+            {historyTransactions.map((transaction, index) => (
               <button
                 key={`${transaction.label}-${transaction.at}-${index}`}
                 type="button"
