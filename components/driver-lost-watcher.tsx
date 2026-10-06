@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { fetchLostInbox } from '@/lib/support-client'
-import { playCommsAlert } from '@/lib/alert-sound'
+import { playCommsAlert, primeCommsAlertAudio } from '@/lib/alert-sound'
 import type { LostItem } from '@/lib/support-types'
 
 const POLL_MS = 6000
@@ -28,6 +28,7 @@ export default function DriverLostWatcher({
 
   useEffect(() => {
     if (!driverId) return
+    primeCommsAlertAudio()
     let live = true
     const pull = () => {
       void fetchLostInbox(driverId, 'driver')

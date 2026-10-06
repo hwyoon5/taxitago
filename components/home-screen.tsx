@@ -38,7 +38,7 @@ import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, pu
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
-import { haversineKm, longDistanceCheck } from '@/lib/dispatch-geo'
+import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
 import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, setMobilityDeviceStatus } from '@/lib/mobility-devices'
 import {
@@ -64,7 +64,7 @@ import {
 } from '@/lib/dispatch-client'
 import { enableDriverPush, showDriverOfferNotification } from '@/lib/driver-notify-client'
 import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, releaseDriverWakeLock, stopDriverOfferAlarm } from '@/lib/driver-alert'
-import { playCommsAlert } from '@/lib/alert-sound'
+import { playCommsAlert, primeCommsAlertAudio } from '@/lib/alert-sound'
 import DriverLostWatcher from '@/components/driver-lost-watcher'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import type { PublicRide } from '@/lib/dispatch-types'
@@ -241,6 +241,36 @@ function rideStops(ride: RideStopPoints) {
   const via = (ride.waypoints ?? []).map((point) => point.label || point.address || '경유지').filter(Boolean)
   const dest = ride.dest.label || ride.dest.address || '목적지'
   return { origin, via, dest, chain: [origin, ...via, dest].join(' → ') }
+}
+
+/** 기사 콜 카드용 장거리 판별 — 출발지→경유지→목적지 체인 거리 + 시/도 권역 이탈 여부. */
+function rideLongDistanceFlag(ride: PublicRide | null | undefined) {
+  if (!ride?.pickup || !ride?.dest) return null
+  if (!Number.isFinite(ride.pickup.lat) || !Number.isFinite(ride.dest.lat)) return null
+  const flag = longDistanceCheck(ride.pickup, ride.dest)
+  const chain = [ride.pickup, ...(ride.waypoints ?? []), ride.dest].filter(
+    (point): point is NonNullable<typeof point> => Number.isFinite(point?.lat) && Number.isFinite(point?.lng),
+  )
+  const chainKm = chain.length > 1 ? routeChainKm(chain) : 0
+  const km = Math.max(chainKm, flag.km)
+  if (!flag.far && km < LONG_DISTANCE_CALL_KM) return null
+  return { km, regionExit: flag.regionExit }
+}
+
+function LongDistanceCallBadge({ ride }: { ride: PublicRide | null }) {
+  const flag = rideLongDistanceFlag(ride)
+  if (!flag) return null
+  return (
+    <div className="mt-2 flex items-start gap-2 rounded-xl border border-[#FDBA74] bg-[#FFF7ED] px-3 py-2">
+      <Navigation className="mt-0.5 h-4 w-4 shrink-0 text-[#EA580C]" />
+      <div className="min-w-0">
+        <p className="text-xs font-black text-[#C2410C]">장거리 운행</p>
+        <p className="mt-0.5 text-[11px] font-bold leading-4 text-[#9A3412]">
+          예상 이동 거리 약 {flag.km.toFixed(1)}km{flag.regionExit ? ' · 타 시/도 이동' : ''} — 수락 전 경로와 요금을 확인해 주세요.
+        </p>
+      </div>
+    </div>
+  )
 }
 
 type RouteGap = 'pickup' | 'dest' | 'both'
@@ -7225,6 +7255,7 @@ function DriverOfferWatcher({
             <p className="text-xs font-bold text-[#4A82B8]">새로운 운행 요청</p>
             <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
           </div>
+          <LongDistanceCallBadge ride={incoming} />
           <p className="mt-3 text-lg font-bold leading-6 text-[#0F172A]">{rideStops(incoming).chain}</p>
           {rideStops(incoming).via.length ? (
             <p className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-[#EA580C]">
@@ -7764,6 +7795,9 @@ function DriverDashboard({
       }
       logOffer({ rideId: pushed.ride.id, source: 'push' })
       rememberOffer(pushed.ride, pushed.offer.expiresAt, pushed.offer.pickupDistanceKm)
+      // 푸시 수신 즉시 알림음 — 다음 폴링(최대 2s)을 기다리지 않는다.
+      // alertDriverOffer는 ride.id로 중복 제거되므로 폴링 도착 시 재울리지 않는다.
+      alertDriverOffer(pushed.ride.id)
     }
     refreshDesk()
     const askStoredOffer = () => navigator.serviceWorker?.controller?.postMessage({ type: 'driver-offer-sync' })
@@ -8181,6 +8215,7 @@ function DriverDashboard({
             <p className="text-xs font-bold text-[#4A82B8]">새로운 운행 요청</p>
             <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
           </div>
+          <LongDistanceCallBadge ride={incoming} />
           <p className="mt-3 text-lg font-bold leading-6 text-[#0F172A]">{rideStops(incoming).chain}</p>
           {rideStops(incoming).via.length ? (
             <p className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-[#EA580C]">
@@ -8611,6 +8646,12 @@ export default function HomeScreen() {
     saveRecentUse(next)
     setRecentUse(next)
   }
+  // 앱 첫 진입부터 오디오 잠금 해제 리스너를 걸어, 이후 어떤 알림음도
+  // 자동재생 정책에 막혀 누락되지 않게 한다.
+  useEffect(() => {
+    primeCommsAlertAudio()
+    primeDriverAlertAudio()
+  }, [])
   useEffect(() => {
     const stored = readStoredTaxi()
     if (!stored) return
