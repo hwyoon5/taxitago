@@ -5810,7 +5810,11 @@ function WalletModal({
             <section className="order-1 rounded-3xl border-2 border-[#E0D4FF] bg-white p-3.5">
               <p className="font-black">파이 충전 단위</p>
               <p className="mt-1 text-xs font-bold text-[#8b8495]">빠른 선택을 누르거나, 원하는 수량을 직접 입력해 주세요. 24시간 충전 한도는 {PI_CHARGE_MAX_PI} Pi입니다.</p>
-              <p className={`mt-1 text-xs font-black ${chargeCapRemaining > 0 ? 'text-[#4C1FB8]' : 'text-[#DC2626]'}`}>
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#F1EBFF] px-3 py-1.5 text-[11px] font-black text-[#4C1FB8]">
+                <WalletCards className="h-3.5 w-3.5" />
+                파이 지갑과 연동되어 충전 됩니다
+              </p>
+              <p className={`mt-1.5 text-xs font-black ${chargeCapRemaining > 0 ? 'text-[#4C1FB8]' : 'text-[#DC2626]'}`}>
                 {chargeCapRemaining > 0 ? `남은 한도 ${chargeCapRemaining.toFixed(7)} Pi` : '24시간 충전 한도를 모두 사용했어요'}
               </p>
               <div className="mt-2.5 grid grid-cols-4 gap-1.5">
