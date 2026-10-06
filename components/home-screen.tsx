@@ -2246,6 +2246,8 @@ function TaxiMatchingSheet({
   const [cancelSettling, setCancelSettling] = useState(false)
   const settledRef = useRef(false)
   const payingRef = useRef(false)
+  // 취소/종료된 세션 표시 — 취소 중 늦게 도착하는 create 응답이 좀비 콜을 남기지 않도록 한다.
+  const endedRef = useRef(false)
   // 서버에서 먼저 완료된 운행의 정산 내역을 홈 '최근 이용'/활동 기록과 동기화한다.
   const settledSyncedRef = useRef('')
   const syncCompleted = useCallback(
@@ -2326,6 +2328,11 @@ function TaxiMatchingSheet({
     passengerIdRef.current = localPassengerId()
     const attach = (created: PublicRide) => {
       if (cancelled) return
+      if (endedRef.current) {
+        // 사용자가 생성 완료 전에 취소한 경우: 늦게 도착한 콜을 즉시 취소해 좀비 운행을 막는다.
+        void cancelRideRequest(created.id, passengerIdRef.current || localPassengerId()).catch(() => undefined)
+        return
+      }
       taxiSheetRideId = created.id
       rideIdRef.current = created.id
       setRide(created)
@@ -2337,15 +2344,16 @@ function TaxiMatchingSheet({
           attach(created)
         })
         .catch((error) => {
-          if (!cancelled) setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+          if (!cancelled && !endedRef.current) setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
         })
     }
     if (taxiSheetRideId) {
       rideIdRef.current = taxiSheetRideId
       void fetchRideRequest(taxiSheetRideId).then((existing) => {
-        if (cancelled || !existing) return
-        if (existing.status === 'completed' || existing.status === 'cancelled') {
-          if (existing.status === 'completed') syncCompleted(existing.id)
+        if (cancelled) return
+        // 이전 세션 id가 사라졌거나(조회 실패/404) 이미 종료된 경우 즉시 새 호출로 전환한다.
+        if (!existing || existing.status === 'completed' || existing.status === 'cancelled') {
+          if (existing?.status === 'completed') syncCompleted(existing.id)
           taxiSheetRideId = ''
           rideIdRef.current = ''
           writeStoredTaxi(null)
@@ -2354,7 +2362,11 @@ function TaxiMatchingSheet({
         }
         attach(existing)
         if (existing.status === 'assigned') matchedRef.current = true
-      }).catch(() => undefined)
+      }).catch(() => {
+        // 조회 자체가 실패해도 세션을 버리지 않고 새 호출로 전환한다 —
+        // 서버 dedupe가 살아있는 같은 콜을 돌려주므로 중복 생성되지 않는다.
+        if (!cancelled) createNew()
+      })
       return () => {
         cancelled = true
       }
@@ -2372,7 +2384,11 @@ function TaxiMatchingSheet({
       status === 'completed' || status === 'cancelled' ? 2 : status === 'assigned' ? 1 : 0
     const apply = (next: PublicRide) => {
       if (next.status === 'cancelled') {
+        endedRef.current = true
         taxiSheetRideId = ''
+        rideIdRef.current = ''
+        matchedRef.current = false
+        writeStoredTaxi(null)
         onEnd?.()
         onClose()
         return
@@ -2430,44 +2446,69 @@ function TaxiMatchingSheet({
 
   const retryMatch = () => {
     if (accepting) return
+    const staleId = ride?.id || rideIdRef.current
     setAccepting(true)
     setMatchError('')
+    endedRef.current = false
     matchedRef.current = false
     settledRef.current = false
     payingRef.current = false
+    settledSyncedRef.current = ''
     setRide(null)
     taxiSheetRideId = ''
     rideIdRef.current = ''
     writeStoredTaxi(null)
+    // 이전 미배차 콜을 서버에서도 종료한다 — 기사가 늦게 온라인이 되면
+    // unmatched가 다시 살아나 고스트 배차가 될 수 있다.
+    if (staleId) void cancelRideRequest(staleId, passengerIdRef.current || localPassengerId()).catch(() => undefined)
     void startNewRide()
       .then((created) => {
+        if (endedRef.current) {
+          void cancelRideRequest(created.id, passengerIdRef.current || localPassengerId()).catch(() => undefined)
+          return
+        }
         taxiSheetRideId = created.id
         rideIdRef.current = created.id
         setRide(created)
         if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요. 다시 호출해 주세요.')
       })
-      .catch((error) => setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.'))
+      .catch((error) => {
+        if (!endedRef.current) setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+      })
       .finally(() => setAccepting(false))
   }
 
   const cancelRide = () => {
-    try {
-      if (rideIdRef.current) void cancelRideRequest(rideIdRef.current, passengerIdRef.current)
-      taxiSheetRideId = ''
-      onActivity?.(matched ? '배차 취소' : '택시 호출 취소', route)
-      onNotice(matched ? '배차를 취소했어요.' : '택시 호출을 취소했어요.')
-    } finally {
-      onClose()
-    }
+    endedRef.current = true
+    const rideId = ride?.id || rideIdRef.current
+    taxiSheetRideId = ''
+    rideIdRef.current = ''
+    matchedRef.current = false
+    payingRef.current = false
+    settledRef.current = false
+    writeStoredTaxi(null)
+    setMatchError('')
+    setAccepting(false)
+    setCancelConfirmOpen(false)
+    setCancelSettling(false)
+    if (rideId) void cancelRideRequest(rideId, passengerIdRef.current || localPassengerId()).catch(() => undefined)
+    onActivity?.(matched ? '배차 취소' : '택시 호출 취소', route)
+    onNotice(matched ? '배차를 취소했어요.' : '택시 호출을 취소했어요.')
+    onEnd?.()
+    onClose()
   }
 
   const confirmInTripCancel = async () => {
     if (cancelSettling || payingRef.current) return
     payingRef.current = true
+    endedRef.current = true
     const rideId = ride?.id || rideIdRef.current
     if (!rideId) {
       taxiSheetRideId = ''
+      rideIdRef.current = ''
+      writeStoredTaxi(null)
       setCancelConfirmOpen(false)
+      onEnd?.()
       onClose()
       return
     }
@@ -2487,6 +2528,8 @@ function TaxiMatchingSheet({
       onNotice(error instanceof Error ? error.message : '취소 처리 중 문제가 생겼지만 홈으로 돌아갑니다.')
     } finally {
       taxiSheetRideId = ''
+      rideIdRef.current = ''
+      writeStoredTaxi(null)
       setCancelConfirmOpen(false)
       setCancelSettling(false)
       onEnd?.()
@@ -3058,6 +3101,8 @@ function ServiceSheet({
   const daeriPassengerIdRef = useRef('')
   const daeriRideIdRef = useRef(daeriSheetRideId)
   const daeriAcceptedRef = useRef(false)
+  // 취소/종료된 세션 표시 — 늦게 도착하는 create 응답이 좀비 콜을 남기지 않도록 한다.
+  const daeriEndedRef = useRef(false)
   const [deliveryVehicle, setDeliveryVehicle] = useState<DeliveryVehicle>('오토바이')
   const [packageSize, setPackageSize] = useState<PackageSizeId>('document')
   const [senderPhone, setSenderPhone] = useState('')
@@ -3267,6 +3312,10 @@ function ServiceSheet({
     daeriPassengerIdRef.current = localPassengerId()
     const attach = (created: PublicRide) => {
       if (cancelled) return
+      if (daeriEndedRef.current) {
+        void cancelRideRequest(created.id, daeriPassengerIdRef.current || localPassengerId()).catch(() => undefined)
+        return
+      }
       daeriSheetRideId = created.id
       daeriRideIdRef.current = created.id
       setDispatchRide(created)
@@ -3276,22 +3325,25 @@ function ServiceSheet({
       void startNewDaeriRide()
         .then(attach)
         .catch((error) => {
-          if (!cancelled) setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+          if (!cancelled && !daeriEndedRef.current) setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
         })
     }
     if (daeriSheetRideId) {
       daeriRideIdRef.current = daeriSheetRideId
       void fetchRideRequest(daeriSheetRideId).then((existing) => {
-        if (cancelled || !existing) return
-        if (existing.status === 'completed' || existing.status === 'cancelled') {
-          if (existing.status === 'completed') syncDaeriCompleted(existing.id)
+        if (cancelled) return
+        // 이전 세션 id가 사라졌거나 이미 종료된 경우 즉시 새 호출로 전환한다.
+        if (!existing || existing.status === 'completed' || existing.status === 'cancelled') {
+          if (existing?.status === 'completed') syncDaeriCompleted(existing.id)
           daeriSheetRideId = ''
           daeriRideIdRef.current = ''
           createNew()
           return
         }
         attach(existing)
-      }).catch(() => undefined)
+      }).catch(() => {
+        if (!cancelled) createNew()
+      })
       return () => {
         cancelled = true
       }
@@ -3307,7 +3359,11 @@ function ServiceSheet({
     if (!ride || !rideId) return
     const apply = (next: PublicRide) => {
       if (next.status === 'cancelled') {
+        daeriEndedRef.current = true
         daeriSheetRideId = ''
+        daeriRideIdRef.current = ''
+        daeriAcceptedRef.current = false
+        setDaeriMatchError('')
         onClose()
         return
       }
@@ -3370,28 +3426,40 @@ function ServiceSheet({
   }
   const retryDaeriMatch = () => {
     if (daeriAccepting) return
+    const staleId = dispatchRide?.id || daeriRideIdRef.current
     setDaeriAccepting(true)
     setDaeriMatchError('')
+    daeriEndedRef.current = false
     daeriAcceptedRef.current = false
     setDispatchRide(null)
     daeriSheetRideId = ''
     daeriRideIdRef.current = ''
+    // 이전 미배차 콜을 서버에서도 종료해 고스트 배차를 막는다.
+    if (staleId) void cancelRideRequest(staleId, daeriPassengerIdRef.current || localPassengerId()).catch(() => undefined)
     void startNewDaeriRide()
       .then((created) => {
+        if (daeriEndedRef.current) {
+          void cancelRideRequest(created.id, daeriPassengerIdRef.current || localPassengerId()).catch(() => undefined)
+          return
+        }
         daeriSheetRideId = created.id
         daeriRideIdRef.current = created.id
         setDispatchRide(created)
         if (created.status === 'unmatched') setDaeriMatchError('지금은 배차 가능한 기사가 없어요. 다시 호출해 주세요.')
       })
-      .catch((error) => setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.'))
+      .catch((error) => {
+        if (!daeriEndedRef.current) setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+      })
       .finally(() => setDaeriAccepting(false))
   }
   const confirmInTripCancel = async () => {
     if (cancelSettling || cancelLockRef.current) return
     cancelLockRef.current = true
+    daeriEndedRef.current = true
     const rideId = dispatchRide?.id || daeriRideIdRef.current
     if (!rideId) {
       daeriSheetRideId = ''
+      daeriRideIdRef.current = ''
       setCancelConfirmOpen(false)
       onClose()
       return
@@ -3412,6 +3480,8 @@ function ServiceSheet({
       onNotice(error instanceof Error ? error.message : '취소 처리 중 문제가 생겼지만 홈으로 돌아갑니다.')
     } finally {
       daeriSheetRideId = ''
+      daeriRideIdRef.current = ''
+      daeriAcceptedRef.current = false
       setCancelConfirmOpen(false)
       setCancelSettling(false)
       onClose()
@@ -3513,9 +3583,15 @@ function ServiceSheet({
             <button
               type="button"
               onClick={() => {
-                if (ride && (dispatchRide?.id || daeriRideIdRef.current)) {
-                  daeriSheetRideId = ''
-                  void cancelRideRequest(dispatchRide?.id || daeriRideIdRef.current, daeriPassengerIdRef.current || localPassengerId())
+                daeriEndedRef.current = true
+                const staleId = dispatchRide?.id || daeriRideIdRef.current
+                daeriSheetRideId = ''
+                daeriRideIdRef.current = ''
+                daeriAcceptedRef.current = false
+                setDaeriMatchError('')
+                setDaeriAccepting(false)
+                if (ride && staleId) {
+                  void cancelRideRequest(staleId, daeriPassengerIdRef.current || localPassengerId()).catch(() => undefined)
                 }
                 releaseRental()
                 onActivity?.(selfServe ? '이용 취소' : '호출 취소', place)
