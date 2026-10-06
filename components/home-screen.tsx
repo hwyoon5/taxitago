@@ -7231,11 +7231,10 @@ function DriverOfferWatcher({
     const partner = loadPartnerProfile()
     const fleet = partnerVehicle(partner)
     setBusy(true)
-    if (action === 'reject') {
-      dismissedRef.current.add(incoming.id)
-      setIncoming(null)
-      setOfferKm(null)
-    }
+    // 수락한 콜도 즉시 오퍼 큐에서 제거 — 수락 응답이 서버에 반영되기 전 폴링/푸시 재도착을 차단한다.
+    dismissedRef.current.add(incoming.id)
+    setIncoming(null)
+    setOfferKm(null)
     void respondToRideOffer(
       incoming.id,
       incoming.pendingOffer?.driverId || driverId,
@@ -7260,7 +7259,11 @@ function DriverOfferWatcher({
           setIncoming(null)
         }
       })
-      .catch((error) => onNotice(error instanceof Error ? error.message : '콜 응답에 실패했어요.'))
+      .catch((error) => {
+        // 수락 실패 시에는 콜이 살아있을 수 있으니 차단 해제로 재시도를 허용한다.
+        if (action === 'accept') dismissedRef.current.delete(incoming.id)
+        onNotice(error instanceof Error ? error.message : '콜 응답에 실패했어요.')
+      })
       .finally(() => setBusy(false))
   }
 
@@ -7908,12 +7911,11 @@ function DriverDashboard({
     if (!incoming || busy || !driverId) return
     stopDriverOfferAlarm()
     setBusy(true)
+    // 수락/거절 모두 즉시 오퍼 큐에서 제거 — 응답 대기 중 폴링·SSE·푸시가 같은 콜을 다시 띄우지 못하게 한다.
+    dismissedOfferIds.current.add(incoming.id)
     localOfferRef.current = null
-    if (action === 'reject') {
-      dismissedOfferIds.current.add(incoming.id)
-      setIncoming(null)
-      setOfferKm(null)
-    }
+    setIncoming(null)
+    setOfferKm(null)
     const fleet = partnerVehicle(partner)
     void respondToRideOffer(incoming.id, incoming.pendingOffer?.driverId || driverId, action, incoming, {
       name: partner?.name,
@@ -7947,6 +7949,8 @@ function DriverDashboard({
         setIncoming(null)
       })
       .catch((error) => {
+        // 수락이 실제로 실패하면(네트워크 오류 등) 콜이 아직 살아있을 수 있으므로 차단을 해제해 재시도를 허용한다.
+        if (action === 'accept') dismissedOfferIds.current.delete(incoming.id)
         onNotice(error instanceof Error ? error.message : '콜 응답에 실패했어요.')
         setIncoming(null)
       })
