@@ -355,6 +355,19 @@ function headingAngle(from: RidePoint, to: RidePoint) {
   return (Math.atan2(-(to.lat - from.lat), to.lng - from.lng) * 180) / Math.PI
 }
 
+// headingDegrees(서버)는 나침반 방위각(0°=북, 시계방향)이지만 headingAngle과
+// CSS rotate()는 0°=동쪽을 기준으로 하므로 -90° 보정한다.
+function compassToScreenAngle(heading: number) {
+  return heading - 90
+}
+
+// 측면 자동차 아이콘이 좌측 반향(90°~270°)을 가리킬 때 바퀴가 위로 뒤집히지
+// 않도록 좌우 미러링한다 — 진행 방향은 그대로 유지된다.
+function vehicleMarkerRotation(angle: number) {
+  const norm = ((angle % 360) + 360) % 360
+  return norm > 90 && norm < 270 ? `rotate(${norm - 180}deg) scaleX(-1)` : `rotate(${norm}deg)`
+}
+
 export function resolveRideDestination(origin: RidePoint, destLat?: number, destLng?: number): RidePoint | null {
   if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) return null
   return { lat: destLat as number, lng: destLng as number }
@@ -1353,7 +1366,7 @@ function LiveFallbackOverlay({
           </span>
         )
       })}
-      <span className="absolute" style={{ left: mover.left, top: mover.top, transform: `translate(-50%, -50%) rotate(${walker ? 0 : taxi.angle}deg)` }}>
+      <span className="absolute" style={{ left: mover.left, top: mover.top, transform: `translate(-50%, -50%) ${walker ? '' : vehicleMarkerRotation(taxi.angle)}` }}>
         <MarkerIcon className="h-7 w-7 text-[#0F172A] drop-shadow-[0_1px_1px_rgba(255,255,255,0.95)]" strokeWidth={2.35} />
       </span>
     </div>
@@ -1670,7 +1683,7 @@ function NaverLiveRideMap({
     const sdk = mapsRef.current
     const maps = liveNaverMaps(sdk)
     if (!marker || !maps || mode !== 'naver') return
-    if (el) el.style.transform = `rotate(${walker ? 0 : taxi.angle}deg)`
+    if (el) el.style.transform = walker ? '' : vehicleMarkerRotation(taxi.angle)
     const position = naverLatLng(maps, taxi.lat, taxi.lng)
     if (position) marker.setPosition(position)
   }, [taxi, walker, mode])
@@ -1808,7 +1821,7 @@ export function TaxiLiveMap({
   console.log("👉 파싱된 origin:", origin, "dest:", dest);
    const [taxi, setTaxi] = useState(() => {
     if (isUsableCoord(vehicleLat, vehicleLng)) {
-      return { lat: vehicleLat as number, lng: vehicleLng as number, angle: vehicleHeading ?? 0 }
+      return { lat: vehicleLat as number, lng: vehicleLng as number, angle: compassToScreenAngle(vehicleHeading ?? 0) }
     }
     return origin && dest ? vehicleOnRide(phase, origin, dest, phase === 'boarding' ? 1 : 0, via) : { lat: 0, lng: 0, angle: 0 }
   })
@@ -1818,7 +1831,7 @@ export function TaxiLiveMap({
     setTaxi((prev) => ({
       lat: vehicleLat as number,
       lng: vehicleLng as number,
-      angle: Number.isFinite(vehicleHeading) ? (vehicleHeading as number) : prev.angle,
+      angle: Number.isFinite(vehicleHeading) ? compassToScreenAngle(vehicleHeading as number) : prev.angle,
     }))
   }, [vehicleLat, vehicleLng, vehicleHeading])
 
