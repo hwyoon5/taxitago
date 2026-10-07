@@ -5,6 +5,7 @@ import { adminHeaders } from '@/lib/admin-key'
 import { isPiWalletAddress } from '@/lib/pi-wallet'
 import { type SettlementEntry, type SettlementService } from '@/lib/settlement-types'
 import AdminWithdraw from '@/components/admin-withdraw'
+import AdminWithdrawMonitor from '@/components/admin-withdraw-monitor'
 import AdminWalletHistory from '@/components/admin-wallet-history'
 import type { AuditEntry } from '@/lib/audit-store'
 import type { DepositEntry } from '@/lib/deposit-store'
@@ -319,6 +320,8 @@ export default function AdminSettlements() {
           </div>
         </section>
       ) : null}
+
+      {view === 'summary' ? <AdminWithdrawMonitor /> : null}
 
       {view === 'wallet' ? (
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">

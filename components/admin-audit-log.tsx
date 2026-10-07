@@ -49,8 +49,8 @@ export default function AdminAuditLog() {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
 
-  const load = () => {
-    setLoading(true)
+  const load = (silent = false) => {
+    if (!silent) setLoading(true)
     void fetch('/api/admin/audit', { headers: adminHeaders(), cache: 'no-store' })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { entries?: AuditEntry[] } | null
@@ -63,6 +63,9 @@ export default function AdminAuditLog() {
 
   useEffect(() => {
     load()
+    // 마스터가 직원 작업을 실시간으로 감시할 수 있도록 주기적으로 갱신한다.
+    const timer = window.setInterval(() => load(true), 15000)
+    return () => window.clearInterval(timer)
   }, [])
 
   const staffOptions = useMemo(() => {
@@ -104,7 +107,7 @@ export default function AdminAuditLog() {
           <p className="text-xs font-black text-[#4C1FB8]">필터 · {filtered.length}건</p>
           <button
             type="button"
-            onClick={load}
+            onClick={() => load()}
             disabled={loading}
             className="rounded-full border-2 border-[#D8CCF5] bg-white px-3 py-1.5 text-[10px] font-black text-[#4C1FB8] disabled:opacity-60"
           >

@@ -3,6 +3,10 @@ import path from 'path'
 
 /** 직원 계정이 이 금액을 초과해 출금/송금을 요청하면 최고 관리자 승인 대기로 전환된다. */
 export const APPROVAL_THRESHOLD_PI = 10
+/** 직원의 24시간 누적 직접 송금 한도 — 초과분은 승인 대기로 전환된다. */
+export const STAFF_DAILY_LIMIT_PI = 30
+/** 직원이 1시간 내 직접 송금할 수 있는 최대 횟수 — 초과 시 승인 대기로 전환된다. */
+export const STAFF_HOURLY_MAX_COUNT = 3
 
 export type WithdrawalRequest = {
   id: string
@@ -12,7 +16,9 @@ export type WithdrawalRequest = {
   reason: string
   requestedBy: string
   requestedByName: string
-  status: 'pending' | 'approved' | 'rejected' | 'failed'
+  /** 승인 대기로 전환된 사유 (고액/일일 한도/연속 송금 감지) */
+  flag?: string
+  status: 'pending' | 'approved' | 'rejected' | 'sent' | 'failed'
   txid?: string
   decidedBy?: string
   decidedByName?: string
@@ -94,6 +100,7 @@ export async function queueWithdrawal(input: {
   reason: string
   requestedBy: string
   requestedByName: string
+  flag?: string
 }): Promise<WithdrawalRequest> {
   const entry: WithdrawalRequest = {
     id: crypto.randomUUID(),
@@ -103,6 +110,7 @@ export async function queueWithdrawal(input: {
     reason: input.reason,
     requestedBy: input.requestedBy,
     requestedByName: input.requestedByName,
+    flag: input.flag,
     status: 'pending',
     createdAt: new Date().toISOString(),
   }
@@ -110,6 +118,46 @@ export async function queueWithdrawal(input: {
   entries.push(entry)
   await writeEntries(entries)
   return entry
+}
+
+/** 승인 없이 즉시 전송된 출금도 집행 내역으로 남겨 속도 제한·모니터링에 사용한다. */
+export async function recordSentWithdrawal(input: {
+  recipient: string
+  amount: number
+  memo: string
+  reason: string
+  requestedBy: string
+  requestedByName: string
+  txid: string
+}): Promise<WithdrawalRequest> {
+  const entry: WithdrawalRequest = {
+    id: crypto.randomUUID(),
+    recipient: input.recipient,
+    amount: input.amount,
+    memo: input.memo,
+    reason: input.reason,
+    requestedBy: input.requestedBy,
+    requestedByName: input.requestedByName,
+    status: 'sent',
+    txid: input.txid,
+    createdAt: new Date().toISOString(),
+  }
+  const entries = await readEntries()
+  entries.push(entry)
+  await writeEntries(entries)
+  return entry
+}
+
+/** 해당 직원이 실제로 전송한(즉시 전송 + 승인 완료) 내역 중 최근 windowMs 이내 건. */
+export async function staffRecentSends(staffId: string, windowMs: number): Promise<WithdrawalRequest[]> {
+  const cutoff = Date.now() - windowMs
+  const entries = await readEntries()
+  return entries.filter(
+    (entry) =>
+      entry.requestedBy === staffId &&
+      (entry.status === 'sent' || entry.status === 'approved') &&
+      new Date(entry.createdAt).getTime() >= cutoff,
+  )
 }
 
 export async function getWithdrawalRequest(id: string): Promise<WithdrawalRequest | null> {

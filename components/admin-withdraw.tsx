@@ -23,6 +23,7 @@ const STATUS_LABEL: Record<WithdrawalRequest['status'], string> = {
   pending: '승인 대기',
   approved: '승인·전송 완료',
   rejected: '거절됨',
+  sent: '즉시 전송',
   failed: '전송 실패',
 }
 
@@ -30,6 +31,7 @@ const STATUS_TONE: Record<WithdrawalRequest['status'], string> = {
   pending: 'bg-[#FEF3C7] text-[#B45309]',
   approved: 'bg-[#DCFCE7] text-[#15803D]',
   rejected: 'bg-[#FEE2E2] text-[#B91C1C]',
+  sent: 'bg-[#DBEAFE] text-[#1D4ED8]',
   failed: 'bg-[#FEE2E2] text-[#B91C1C]',
 }
 
@@ -98,6 +100,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
         const data = (await res.json().catch(() => null)) as {
           txid?: string
           pending?: boolean
+          flag?: string
           error?: string
         } | null
         if (!res.ok) throw new Error(data?.error || 'withdraw_failed')
@@ -105,7 +108,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
       })
       .then((data) => {
         if (data?.pending) {
-          tell(`승인 대기로 등록되었습니다. ${threshold} Pi를 초과하는 직원 출금은 최고 관리자 승인 후 전송됩니다.`)
+          tell(`승인 대기로 등록되었습니다${data.flag ? ` (${data.flag})` : ''} — 최고 관리자 승인 후 전송됩니다.`)
         } else {
           tell(`출금 완료 — txid ${data?.txid ? `${data.txid.slice(0, 16)}…` : '(해시 없음)'}`)
         }
@@ -181,7 +184,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
       </p>
       {!isMaster ? (
         <p className="mt-1.5 flex items-center gap-1 rounded-lg bg-[#FFFBEB] px-2 py-1.5 text-[10px] font-black text-[#B45309]">
-          <ShieldAlert size={12} /> 직원 계정은 {threshold} Pi 초과 송금 시 최고 관리자 승인 후 전송됩니다.
+          <ShieldAlert size={12} /> 직원 계정은 {threshold} Pi 초과 송금, 24시간 누적 한도 초과, 또는 1시간 내 반복 송금 시 최고 관리자 승인 후 전송됩니다.
         </p>
       ) : null}
       <form onSubmit={submit} className="mt-3 space-y-2">
@@ -236,7 +239,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
       {requests.length ? (
         <div className="mt-4 border-t-2 border-dashed border-[#E2E8F0] pt-3">
           <p className="flex items-center justify-between text-xs font-black text-[#B45309]">
-            <span>출금 승인 요청{pendingCount ? ` · 대기 ${pendingCount}건` : ''}</span>
+            <span>출금 승인·집행 내역{pendingCount ? ` · 대기 ${pendingCount}건` : ''}</span>
             <button
               type="button"
               onClick={loadRequests}
@@ -266,6 +269,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
                   {row.decidedBy ? ` · 처리: ${row.decidedByName || row.decidedBy}` : ''}
                   {row.txid ? ` · txid ${row.txid.slice(0, 12)}…` : ''}
                 </p>
+                {row.flag ? <p className="mt-0.5 text-[10px] font-black text-[#B45309]">사유: {row.flag}</p> : null}
                 {row.error ? <p className="mt-0.5 text-[10px] font-black text-[#DC2626]">전송 오류: {row.error}</p> : null}
                 {row.status === 'pending' && isMaster ? (
                   <div className="mt-2 flex gap-2">

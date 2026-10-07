@@ -10,12 +10,16 @@ import { piRound } from '@/lib/pi-format'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import {
   APPROVAL_THRESHOLD_PI,
+  STAFF_DAILY_LIMIT_PI,
+  STAFF_HOURLY_MAX_COUNT,
   getWithdrawalRequest,
   listWithdrawalRequests,
   markWithdrawalApproved,
   markWithdrawalFailed,
   markWithdrawalRejected,
   queueWithdrawal,
+  recordSentWithdrawal,
+  staffRecentSends,
 } from '@/lib/withdrawal-queue'
 
 export const runtime = 'nodejs'
@@ -160,7 +164,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const requests = await listWithdrawalRequests()
-  return NextResponse.json({ ok: true, requests, approvalThreshold: APPROVAL_THRESHOLD_PI })
+  return NextResponse.json({
+    ok: true,
+    requests,
+    approvalThreshold: APPROVAL_THRESHOLD_PI,
+    staffDailyLimit: STAFF_DAILY_LIMIT_PI,
+    staffHourlyMax: STAFF_HOURLY_MAX_COUNT,
+  })
 }
 
 export async function POST(request: Request) {
@@ -244,32 +254,57 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '메모는 28바이트를 초과할 수 없습니다.' }, { status: 400 })
   }
 
-  // 직원 계정의 고액 송금은 최고 관리자 승인 대기로 전환한다.
-  if (actor.role !== 'master' && amount > APPROVAL_THRESHOLD_PI) {
-    const entry = await queueWithdrawal({
-      recipient,
-      amount,
-      memo: memoText,
-      reason,
-      requestedBy: actor.staffId,
-      requestedByName: actor.staffName,
-    })
-    await recordAudit({
-      kind: 'withdraw',
-      actor: actor.staffId,
-      actorName: actor.staffName,
-      refId: `withdraw-req:${entry.id}`,
-      reason,
-      detail: `고액 출금 승인 요청 · ${amount.toFixed(7)}Pi → ${recipient.slice(0, 12)}… (한도 ${APPROVAL_THRESHOLD_PI}Pi 초과)`,
-      after: { amount, recipient, status: 'pending' },
-    }).catch(() => undefined)
-    return NextResponse.json({ ok: true, pending: true, request: entry })
+  // 직원 계정의 송금은 한도·반복 감지를 거쳐 조건 초과 시 승인 대기로 전환한다.
+  if (actor.role !== 'master') {
+    let flag = ''
+    if (amount > APPROVAL_THRESHOLD_PI) {
+      flag = `고액 송금 (건당 한도 ${APPROVAL_THRESHOLD_PI}Pi 초과)`
+    } else {
+      const daySends = await staffRecentSends(actor.staffId, 24 * 60 * 60 * 1000)
+      const dayTotal = daySends.reduce((sum, item) => sum + item.amount, 0)
+      const hourSends = await staffRecentSends(actor.staffId, 60 * 60 * 1000)
+      if (dayTotal + amount > STAFF_DAILY_LIMIT_PI) {
+        flag = `일일 누적 한도 초과 (24h ${dayTotal.toFixed(2)}Pi + 이번 ${amount}Pi > ${STAFF_DAILY_LIMIT_PI}Pi)`
+      } else if (hourSends.length >= STAFF_HOURLY_MAX_COUNT) {
+        flag = `연속 송금 감지 (1시간 내 ${hourSends.length}건)`
+      }
+    }
+    if (flag) {
+      const entry = await queueWithdrawal({
+        recipient,
+        amount,
+        memo: memoText,
+        reason,
+        requestedBy: actor.staffId,
+        requestedByName: actor.staffName,
+        flag,
+      })
+      await recordAudit({
+        kind: 'withdraw',
+        actor: actor.staffId,
+        actorName: actor.staffName,
+        refId: `withdraw-req:${entry.id}`,
+        reason,
+        detail: `출금 승인 요청 · ${amount.toFixed(7)}Pi → ${recipient.slice(0, 12)}… (${flag})`,
+        after: { amount, recipient, status: 'pending', flag },
+      }).catch(() => undefined)
+      return NextResponse.json({ ok: true, pending: true, flag, request: entry })
+    }
   }
 
   const sent = await executeWithdrawal({ recipient, amount, memoText, reason, actor })
   if (!sent.ok) {
     return NextResponse.json({ error: sent.error }, { status: sent.status })
   }
+  await recordSentWithdrawal({
+    recipient,
+    amount,
+    memo: memoText,
+    reason,
+    requestedBy: actor.staffId,
+    requestedByName: actor.staffName,
+    txid: sent.txid,
+  }).catch(() => undefined)
   return NextResponse.json({
     ok: true,
     txid: sent.txid,
