@@ -140,15 +140,17 @@ export function clearPartnerAccount() {
 }
 
 export async function requestAccountWithdrawal(uid?: string) {
-  const id = uid?.trim() || loadPiIdentity()?.uid || loadPartnerProfile()?.uid || ''
+  const identity = loadPiIdentity()
+  const id = uid?.trim() || identity?.uid || loadPartnerProfile()?.uid || ''
   if (id) {
     const res = await apiFetch('/api/partner/link/', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: id }),
+      body: JSON.stringify({ uid: id, wallet: identity?.wallet || loadPartnerProfile()?.wallet || '' }),
     })
     const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
     if (!res.ok || data?.ok !== true) {
+      // 서버가 돌려준 사유(잔액 잔존 등)를 그대로 이용자에게 보인다.
       throw new Error(typeof data?.error === 'string' ? data.error : '회원 탈퇴에 실패했어요.')
     }
   }

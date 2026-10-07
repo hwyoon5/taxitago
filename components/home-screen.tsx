@@ -9233,7 +9233,13 @@ export default function HomeScreen() {
   }
   const logoutMember = async () => {
     const uid = loadPartnerProfile()?.uid || loadPiIdentity()?.uid
-    await requestAccountWithdrawal(uid)
+    try {
+      await requestAccountWithdrawal(uid)
+    } catch (error) {
+      // 잔액 잔존 등 서버가 돌려준 차단 사유를 이용자에게 보인다.
+      showNotice(error instanceof Error ? error.message : '회원 탈퇴에 실패했어요.')
+      throw error
+    }
     setIsPiLinked(false)
     saveIsPiLinked(false)
     setIsDriverRegistered(false)
