@@ -261,15 +261,15 @@ export default function AdminSettlements() {
             <p className="text-[11px] font-black text-[#64748B]">기사 정산액(순지급)</p>
             <p className="mt-1 text-lg font-black">{pi(summary.net)}</p>
           </div>
-          <div className="rounded-2xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-3">
-            <p className="text-[11px] font-black text-[#B45309]">정산 대기</p>
-            <p className="mt-1 text-lg font-black text-[#B45309]">{summary.pendingCount}건</p>
-            <p className="text-[10px] font-bold text-[#B45309]">{pi(summary.pendingNet)}</p>
-          </div>
           <div className="rounded-2xl border-2 border-[#E9D5FF] bg-[#FAF5FF] p-3">
             <p className="text-[11px] font-black text-[#7E22CE]">리뷰 보상 지출</p>
             <p className="mt-1 text-lg font-black text-[#7E22CE]">{pi(historyTotals?.reward?.total ?? 0)}</p>
             <p className="text-[10px] font-bold text-[#94A3B8]">감사 포인트 {historyTotals?.reward?.count ?? 0}건</p>
+          </div>
+          <div className="rounded-2xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-3">
+            <p className="text-[11px] font-black text-[#B45309]">정산 대기</p>
+            <p className="mt-1 text-lg font-black text-[#B45309]">{summary.pendingCount}건</p>
+            <p className="text-[10px] font-bold text-[#B45309]">{pi(summary.pendingNet)}</p>
           </div>
           <div className="rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] p-3">
             <p className="text-[11px] font-black text-[#047857]">최종 순수익 (Net Revenue)</p>

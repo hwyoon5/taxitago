@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
-import { recordWalletTx } from '@/lib/wallet-history'
+import { recordWalletTx, REVIEW_REWARD_PI } from '@/lib/wallet-history'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const REVIEW_REWARD_PI = 0.1
 
 // 리뷰 감사 포인트 지급을 관리자 장부에 비용(reward)으로 기록한다.
 // key가 있으면 (kind, txid) 멱등으로 중복 기록을 막는다.
