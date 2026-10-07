@@ -80,16 +80,18 @@ export async function POST(request: Request) {
     paymentId?: unknown
     txid?: unknown
     uid?: unknown
+    sandbox?: unknown
   } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
   const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
+  const sandboxHint = typeof body?.sandbox === 'boolean' ? body.sandbox : null
   console.log('[Deposit] POST claim', { paymentId: paymentId || '(empty)', txid: txid || '(empty)', uid: uid || '(empty)' })
   if (!paymentId || !uid) {
     return NextResponse.json({ error: 'paymentId and uid required' }, { status: 400 })
   }
 
-  const info = (await getPiPayment(paymentId).catch((error) => {
+  const info = (await getPiPayment(paymentId, sandboxHint).catch((error) => {
     console.error('[Deposit] claim: payment lookup failed', { paymentId, error })
     return null
   })) as Record<string, unknown> | null

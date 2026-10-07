@@ -98,22 +98,39 @@ function requestKind(body: Record<string, unknown> | null | undefined) {
   return kind || metaKind
 }
 
+/**
+ * 클라이언트가 SDK init에 쓴 sandbox 값 — 결제가 실제로 생성된 네트워크다.
+ * 서버 env(NEXT_PUBLIC_PI_SANDBOX)가 클라이언트 빌드와 어긋날 때(테스트넷
+ * 결제를 메인넷 키로 승인 → 401/403 → 지갑 만료)를 막기 위한 힌트. 키 선택에만
+ * 쓰이고 신뢰 결정에는 쓰지 않는다.
+ */
+function requestSandboxHint(body: Record<string, unknown> | null | undefined) {
+  return typeof body?.sandbox === 'boolean' ? body.sandbox : null
+}
+
 export async function handlePiApprove(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     paymentId?: unknown
     kind?: unknown
     metadata?: unknown
+    sandbox?: unknown
   } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const kind = requestKind(body)
-  console.log('[Pi] /api/pi/approve incoming', { paymentId: paymentId || '(empty)', kind, sandbox: isPiSandboxEnv() })
+  const sandboxHint = requestSandboxHint(body)
+  console.log('[Pi] /api/pi/approve incoming', {
+    paymentId: paymentId || '(empty)',
+    kind,
+    sandboxHint,
+    serverSandbox: isPiSandboxEnv(),
+  })
   if (!paymentId) {
     console.error('[Pi] /api/pi/approve rejected: paymentId required')
     return NextResponse.json({ error: 'paymentId required' }, { status: 400 })
   }
 
   try {
-    const payment = await approvePiPayment(paymentId)
+    const payment = await approvePiPayment(paymentId, sandboxHint)
     console.log('[Pi] /api/pi/approve ok', { paymentId })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
@@ -132,11 +149,19 @@ export async function handlePiComplete(request: Request) {
     amount?: unknown
     kind?: unknown
     metadata?: unknown
+    sandbox?: unknown
   } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
   const kind = requestKind(body)
-  console.log('[Pi] /api/pi/complete incoming', { paymentId: paymentId || '(empty)', txid: txid || '(empty)', kind, sandbox: isPiSandboxEnv() })
+  const sandboxHint = requestSandboxHint(body)
+  console.log('[Pi] /api/pi/complete incoming', {
+    paymentId: paymentId || '(empty)',
+    txid: txid || '(empty)',
+    kind,
+    sandboxHint,
+    serverSandbox: isPiSandboxEnv(),
+  })
   if (!paymentId || !txid) {
     console.error('[Pi] /api/pi/complete rejected: paymentId and txid required')
     return NextResponse.json({ error: 'paymentId and txid required' }, { status: 400 })
@@ -146,9 +171,9 @@ export async function handlePiComplete(request: Request) {
     body?.metadata && typeof body.metadata === 'object' ? (body.metadata as Record<string, unknown>) : null
 
   try {
-    const { payment, info } = await completePiPayment(paymentId, txid)
+    const { payment, info } = await completePiPayment(paymentId, txid, sandboxHint)
     assertPiPaymentCompleted(payment, paymentId, txid)
-    await verifyPiTxidOnChain(txid)
+    await verifyPiTxidOnChain(txid, sandboxHint)
     console.log('[Pi] /api/pi/complete verified', { paymentId, txid })
     // kind는 Pi Platform이 보관하는 결제 메타데이터(서버가 조회한 원본)가 권위.
     // 서버 조회가 실패(info null)하거나 원본에 kind가 없으면 클라이언트 주장을

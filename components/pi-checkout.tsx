@@ -65,7 +65,7 @@ async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<v
   }
   if (!paymentId || !txid) return
   try {
-    await postPiApiRetry('/api/pi/complete', { paymentId, txid })
+    await postPiApiRetry('/api/pi/complete', { paymentId, txid, sandbox: PI_SANDBOX })
   } catch (error) {
     logPi('warn', 'incomplete payment complete failed', error)
   }
@@ -669,9 +669,9 @@ export async function startPiCheckout(options: {
             return Promise.resolve()
           }
           // 지갑 시트가 뜨는 동안 페이지 fetch가 멈출 수 있어 beacon을 먼저 실어둔다.
-          beaconPiApi('/api/pi/approve', { paymentId, kind: checkoutKind(payment.metadata) })
+          beaconPiApi('/api/pi/approve', { paymentId, kind: checkoutKind(payment.metadata), sandbox: PI_SANDBOX })
           if (options.advanceOnApproval && approvedTxid) succeed({ paymentId, txid: approvedTxid })
-          return postPiApiRetry('/api/pi/approve', { paymentId, kind: checkoutKind(payment.metadata) })
+          return postPiApiRetry('/api/pi/approve', { paymentId, kind: checkoutKind(payment.metadata), sandbox: PI_SANDBOX })
             .then((payload) => {
               if (options.advanceOnApproval) {
                 succeed({ paymentId, txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}` })
@@ -706,6 +706,7 @@ export async function startPiCheckout(options: {
             amount,
             metadata: payment.metadata,
             kind: checkoutKind(payment.metadata),
+            sandbox: PI_SANDBOX,
           })
           return postPiApiRetry('/api/pi/complete', {
             paymentId,
@@ -713,6 +714,7 @@ export async function startPiCheckout(options: {
             amount,
             metadata: payment.metadata,
             kind: checkoutKind(payment.metadata),
+            sandbox: PI_SANDBOX,
           })
             .then(() => {
               succeed({ paymentId, txid })

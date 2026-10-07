@@ -10,18 +10,23 @@ const PI_API_BASE = 'https://api.minepi.com/v2/payments'
  */
 const PI_TESTNET_API_KEY = 'Uyu7admbaeoeucn1yfqsg57l71oa2ah5ldyoe5urrpyjzr9mse2pdmof3o1ee1nd'
 
-function piApiKey() {
-  if (isPiSandboxEnv()) return PI_TESTNET_API_KEY
-  const key = (process.env.PI_API_KEY || '').trim()
-  if (!key) {
-    throw new Error('PI_API_KEY is not configured')
-  }
-  return key
-}
+type PiKeyChoice = { key: string; source: 'forced-testnet' | 'env' }
 
-/** 로그용 — 어떤 키 출처를 썼는지 남긴다(키 값 자체는 절대 기록하지 않음). */
-function piApiKeySource() {
-  return isPiSandboxEnv() ? 'forced-testnet' : 'env'
+/**
+ * 결제가 실제로 생성된 네트워크를 우선으로 키를 고른다. 클라이언트 SDK가
+ * sandbox=true로 만든 테스트넷 결제를 서버 env(메인넷) 키로 승인하면
+ * Pi Platform이 401/403으로 거부해 지갑이 "결제 만료"로 끝난다 — 그래서
+ * 클라이언트가 보낸 sandbox 힌트를 서버 env보다 우선한다. 첫 키가
+ * 401/403으로 거부되면 남은 키로 한 번씩 자동 재시도한다.
+ */
+function resolvePiApiKeys(sandboxHint?: boolean | null): PiKeyChoice[] {
+  const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  const testnet: PiKeyChoice = { key: PI_TESTNET_API_KEY, source: 'forced-testnet' }
+  const envKey = (process.env.PI_API_KEY || '').trim()
+  const env: PiKeyChoice[] = envKey ? [{ key: envKey, source: 'env' }] : []
+  const choices = sandbox ? [testnet, ...env] : [...env, testnet]
+  if (!choices.length) throw new Error('PI_API_KEY is not configured')
+  return choices
 }
 
 function piPaymentUrl(paymentId: string, pathSuffix = '') {
@@ -70,14 +75,15 @@ function piHttpError(message: string, status: number) {
 async function piPaymentsRequest(
   paymentId: string,
   method: 'GET' | 'POST',
-  pathSuffix = '',
-  body?: Record<string, string>,
-  timeoutMs = PI_FETCH_TIMEOUT_MS,
+  pathSuffix: string,
+  body: Record<string, string> | undefined,
+  timeoutMs: number,
+  apiKey: string,
+  keySource: string,
 ) {
   const url = piPaymentUrl(paymentId, pathSuffix)
-  const apiKey = piApiKey()
   const startedAt = Date.now()
-  console.log(`[Pi] ${method} ${url} start`, { apiKey: piApiKeySource(), timeoutMs })
+  console.log(`[Pi] ${method} ${url} start`, { apiKey: keySource, timeoutMs })
 
   let response: Response
   try {
@@ -134,8 +140,39 @@ async function piPaymentsRequest(
   return payload
 }
 
-export async function getPiPayment(paymentId: string) {
-  return (await piPaymentsRequest(paymentId, 'GET')) as {
+/**
+ * 결제용 호출 공통 래퍼 — 401/403(키-앱 불일치·만료 키)은 즉시 반환되는
+ * 저비용 실패이므로 남은 키 후보로 한 번씩 교체 시도한다. 그 외 에러는
+ * 재시도 판단을 호출자(approvePiPayment)에 맡겨 그대로 던진다.
+ */
+async function piPaymentsRequestAuthed(
+  paymentId: string,
+  method: 'GET' | 'POST',
+  pathSuffix = '',
+  body?: Record<string, string>,
+  timeoutMs = PI_FETCH_TIMEOUT_MS,
+  sandboxHint?: boolean | null,
+) {
+  const keys = resolvePiApiKeys(sandboxHint)
+  let lastError: unknown
+  for (const { key, source } of keys) {
+    try {
+      return await piPaymentsRequest(paymentId, method, pathSuffix, body, timeoutMs, key, source)
+    } catch (error) {
+      lastError = error
+      const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
+      if (status === 401 || status === 403) {
+        console.warn('[Pi] API key rejected; trying alternate key', { status, source })
+        continue
+      }
+      throw error
+    }
+  }
+  throw lastError
+}
+
+export async function getPiPayment(paymentId: string, sandboxHint?: boolean | null) {
+  return (await piPaymentsRequestAuthed(paymentId, 'GET', '', undefined, PI_FETCH_TIMEOUT_MS, sandboxHint)) as {
     amount?: number
     metadata?: Record<string, unknown>
     [key: string]: unknown
@@ -146,12 +183,12 @@ export async function getPiPayment(paymentId: string) {
  * Approve must answer inside the wallet expiry window. Retry once on network
  * stalls and 5xx; 4xx (already approved/cancelled/expired) is final.
  */
-export async function approvePiPayment(paymentId: string) {
+export async function approvePiPayment(paymentId: string, sandboxHint?: boolean | null) {
   let lastError: unknown
   for (let attempt = 0; attempt < PI_APPROVE_ATTEMPTS; attempt += 1) {
     const attemptStart = Date.now()
     try {
-      return await piPaymentsRequest(paymentId, 'POST', '/approve', undefined, PI_APPROVE_TIMEOUT_MS)
+      return await piPaymentsRequestAuthed(paymentId, 'POST', '/approve', undefined, PI_APPROVE_TIMEOUT_MS, sandboxHint)
     } catch (error) {
       lastError = error
       const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
@@ -169,12 +206,19 @@ export async function approvePiPayment(paymentId: string) {
   throw lastError
 }
 
-export async function completePiPayment(paymentId: string, txid: string) {
-  const infoPromise = getPiPayment(paymentId).catch(() => null)
-  const payment = await piPaymentsRequest(paymentId, 'POST', '/complete', { txid })
+export async function completePiPayment(paymentId: string, txid: string, sandboxHint?: boolean | null) {
+  const infoPromise = getPiPayment(paymentId, sandboxHint).catch(() => null)
+  const payment = await piPaymentsRequestAuthed(
+    paymentId,
+    'POST',
+    '/complete',
+    { txid },
+    PI_FETCH_TIMEOUT_MS,
+    sandboxHint,
+  )
   // info는 결제 kind의 권위 있는 출처 — 1차 GET이 실패하면 한 번 더 조회해
   // 클라이언트 주장 kind에 의존해야 하는 경우를 줄인다.
-  const info = (await infoPromise) ?? (await getPiPayment(paymentId).catch(() => null))
+  const info = (await infoPromise) ?? (await getPiPayment(paymentId, sandboxHint).catch(() => null))
   return { payment, info }
 }
 
@@ -213,18 +257,21 @@ export function assertPiPaymentCompleted(payment: unknown, paymentId: string, tx
   }
 }
 
-function piHorizonUrl() {
+function piHorizonUrl(sandboxHint?: boolean | null) {
   const override = (process.env.PI_HORIZON_URL || '').trim()
   if (override) return override
-  return isPiSandboxEnv() ? 'https://api.testnet.minepi.com' : 'https://api.mainnet.minepi.com'
+  // 결제가 실제 생성된 네트워크를 우선 — 서버 env와 어긋나면 테스트넷
+  // txid를 메인넷 Horizon에서 찾다 404로 거부하는 사태가 생긴다.
+  const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  return sandbox ? 'https://api.testnet.minepi.com' : 'https://api.mainnet.minepi.com'
 }
 
 /**
  * Cross-check the txid on Horizon. Definitive negatives (404 / failed tx) throw;
  * transient Horizon problems only warn — Pi API's own verification stands.
  */
-export async function verifyPiTxidOnChain(txid: string) {
-  const url = `${piHorizonUrl()}/transactions/${encodeURIComponent(txid)}`
+export async function verifyPiTxidOnChain(txid: string, sandboxHint?: boolean | null) {
+  const url = `${piHorizonUrl(sandboxHint)}/transactions/${encodeURIComponent(txid)}`
   let response: Response | null = null
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -258,16 +305,9 @@ export async function verifyPiTxidOnChain(txid: string) {
   }
 }
 
-export async function createA2UPayment(input: {
-  amount: number
-  memo: string
-  uid: string
-  metadata?: Record<string, unknown>
-}) {
+async function a2uPost(input: { amount: number; memo: string; uid: string; metadata?: Record<string, unknown> }, apiKey: string) {
   const url = 'https://api.minepi.com/v2/payments'
-  const apiKey = piApiKey()
   const startedAt = Date.now()
-  console.log(`[Pi] POST ${url} A2U start`, { apiKey: piApiKeySource() })
   let response: Response
   try {
     response = await fetch(url, {
@@ -309,7 +349,30 @@ export async function createA2UPayment(input: {
         ? payload.message
         : `Pi A2U ${response.status}`
     console.error(`[Pi] POST ${url} A2U failed`, { status: response.status, ms: Date.now() - startedAt, body: raw.slice(0, 500) })
-    throw new Error(message)
+    throw piHttpError(message, response.status)
   }
   return payload as { identifier?: string; transaction?: { txid?: string } }
+}
+
+export async function createA2UPayment(
+  input: { amount: number; memo: string; uid: string; metadata?: Record<string, unknown> },
+  sandboxHint?: boolean | null,
+) {
+  const keys = resolvePiApiKeys(sandboxHint)
+  let lastError: unknown
+  for (const { key, source } of keys) {
+    try {
+      console.log('[Pi] POST A2U start', { apiKey: source })
+      return await a2uPost(input, key)
+    } catch (error) {
+      lastError = error
+      const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
+      if (status === 401 || status === 403) {
+        console.warn('[Pi] A2U api key rejected; trying alternate key', { status, source })
+        continue
+      }
+      throw error
+    }
+  }
+  throw lastError
 }

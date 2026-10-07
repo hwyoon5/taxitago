@@ -5961,7 +5961,7 @@ function WalletModal({
                         void fetch('/api/wallet/deposits', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ paymentId: claimPaymentId, txid, uid: claimUid }),
+                          body: JSON.stringify({ paymentId: claimPaymentId, txid, uid: claimUid, sandbox: PI_SANDBOX }),
                         }).catch(() => undefined)
                       }
                       // 이미 Horizon 폴러가 온체인 입금으로 충전한 건이면 중복 반영하지 않는다.
