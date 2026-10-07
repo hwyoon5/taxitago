@@ -45,6 +45,58 @@ function errorStatus(message: string) {
 }
 
 /**
+ * wallet-charge 결제는 검증 완료 직후 이용자 크레딧까지 서버에서 마감한다.
+ * 보낸 주소·금액은 클라이언트 body가 아니라 온체인 payment op에서 꺼낸다.
+ */
+async function creditWalletChargeDeposit(paymentId: string, txid: string) {
+  try {
+    const [{ getAdminWallet }, { fetchInboundPaymentOp }] = await Promise.all([
+      import('@/lib/admin-wallet'),
+      import('@/lib/deposit-scan'),
+    ])
+    const adminWallet = (await getAdminWallet()).trim()
+    if (!adminWallet) return
+    const op = await fetchInboundPaymentOp(txid, adminWallet)
+    if (!op?.from || !(op.amount > 0)) {
+      console.warn('[Pi] /api/pi/complete wallet-charge: no inbound op found', { paymentId, txid })
+      return
+    }
+    const [{ recordDeposit }, { creditUserDeposit }, { recordWalletTx }] = await Promise.all([
+      import('@/lib/deposit-store'),
+      import('@/lib/user-credit-store'),
+      import('@/lib/wallet-history'),
+    ])
+    const deposit = await recordDeposit({
+      txid,
+      fromWallet: op.from,
+      toWallet: adminWallet,
+      amount: op.amount,
+      status: 'confirmed',
+      seenAt: op.createdAt,
+    }).catch(() => null)
+    if (!deposit) return
+    await Promise.all([
+      creditUserDeposit({ txid, wallet: deposit.fromWallet, uid: deposit.fromUid, amount: deposit.amount, source: 'scan' }).catch(
+        () => undefined,
+      ),
+      recordWalletTx({
+        kind: 'deposit',
+        txid: deposit.txid,
+        fromWallet: deposit.fromWallet,
+        toWallet: deposit.toWallet,
+        amount: deposit.amount,
+        status: 'confirmed',
+        network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
+      }).catch(() => undefined),
+    ])
+    console.log('[Pi] /api/pi/complete wallet-charge credited', { paymentId, txid, from: op.from, amount: op.amount })
+  } catch (error) {
+    // 크레딧 기록 실패는 결제 완료 자체를 되돌리지 않는다 — 폴러 스캔이 복구한다.
+    console.error('[Pi] /api/pi/complete wallet-charge credit failed', { paymentId, txid, error })
+  }
+}
+
+/**
  * 지갑 충전(내부 잔액 증가)은 샌드박스 폴백으로 속이면 안 된다 —
  * 실제 Pi Platform 승인/완료가 성공해야만 한다.
  */
@@ -115,6 +167,17 @@ export async function handlePiComplete(request: Request) {
     assertPiPaymentCompleted(payment, paymentId, txid)
     await verifyPiTxidOnChain(txid)
     console.log('[Pi] /api/pi/complete verified', { paymentId, txid })
+    // kind는 Pi Platform이 보관하는 결제 메타데이터(서버가 조회한 원본)가 권위 —
+    // 클라이언트 body의 kind는 조작 가능하므로 fallback으로만 쓴다.
+    const metaKind =
+      info?.metadata && typeof info.metadata.kind === 'string' && info.metadata.kind.trim()
+        ? info.metadata.kind.trim()
+        : kind
+    const { markPaymentKind } = await import('@/lib/payment-kind-store')
+    await markPaymentKind(txid, metaKind).catch(() => undefined)
+    if (metaKind === 'wallet-charge') {
+      await creditWalletChargeDeposit(paymentId, txid)
+    }
     await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
       console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
     })

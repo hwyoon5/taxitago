@@ -19,6 +19,7 @@ import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import { depositTotals, listDeposits, recordDeposit } from '@/lib/deposit-store'
 import { checkInboundPayment, scanInboundDeposits } from '@/lib/deposit-scan'
 import { creditUserDeposit, listUserCredits } from '@/lib/user-credit-store'
+import { isDepositPaymentKind, knownServiceTxids, paymentKindOf } from '@/lib/payment-kind-store'
 import { listWalletTxs, recordWalletTx, walletTxTotals } from '@/lib/wallet-history'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import type { FareConfig } from '@/lib/fare-config'
@@ -91,9 +92,11 @@ export async function GET(request: Request) {
   )
   const [rates, entries, audit, fare, adminWallet, deposits, depositTotal, history, historyTotals, userCredits] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig(), getAdminWallet(), listDeposits(), depositTotals(), listWalletTxs(), walletTxTotals(), listUserCredits()])
   // 크레딧 귀속 백필 — 입금은 기록됐는데 유저 크레딧이 빠진 과거 건을 복구한다(txid 멱등).
+  // 단, 서비스 결제로 확정된 txid는 입금이 아니므로 크레딧하지 않는다.
+  const serviceTxids = await knownServiceTxids().catch(() => new Set<string>())
   const seenCredit = new Set(userCredits.map((credit) => credit.txid))
   for (const deposit of deposits) {
-    if (!deposit.txid || deposit.status !== 'confirmed' || seenCredit.has(deposit.txid)) continue
+    if (!deposit.txid || deposit.status !== 'confirmed' || seenCredit.has(deposit.txid) || serviceTxids.has(deposit.txid)) continue
     const credited = await creditUserDeposit({
       txid: deposit.txid,
       wallet: deposit.fromWallet,
@@ -104,7 +107,11 @@ export async function GET(request: Request) {
     if (credited) seenCredit.add(deposit.txid)
   }
   // 각 입금이 이용자 잔액에 귀속됐는지 관리자 화면에서 바로 확인할 수 있게 표시한다.
-  const depositsView = deposits.map((deposit) => ({ ...deposit, userCredited: seenCredit.has(deposit.txid) }))
+  const depositsView = deposits.map((deposit) => ({
+    ...deposit,
+    userCredited: seenCredit.has(deposit.txid),
+    servicePayment: serviceTxids.has(deposit.txid),
+  }))
   // Older ledger rows predate the passengerId column — resolve it from the
   // ride record so exports still show the passenger for every ride:* ref.
   await hydrateDispatchFromKv()
@@ -186,6 +193,11 @@ export async function PATCH(request: Request) {
     if (!txid) return NextResponse.json({ error: 'txid가 필요합니다.' }, { status: 400 })
     if (!fromWallet) return NextResponse.json({ error: '보낸 지갑 주소가 필요합니다.' }, { status: 400 })
     if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: '입금 금액이 올바르지 않습니다.' }, { status: 400 })
+    // 서비스 결제(탑승비 등)로 확정된 txid를 입금으로 등록하면 이용자 잔액이 이중 반영된다.
+    const paidKind = await paymentKindOf(txid).catch(() => '')
+    if (!isDepositPaymentKind(paidKind)) {
+      return NextResponse.json({ error: '해당 txid는 서비스 결제로 이미 처리된 트랜잭션입니다. 입금으로 등록할 수 없습니다.' }, { status: 400 })
+    }
     const toWallet = await getAdminWallet()
     // 체인에 실제 존재하는 입금인지 교차 확인 — 불일치(실패 tx, 다른 입금)는 기록하지 않는다.
     // unknown(전파 지연/Horizon 장애)은 관리자 판단으로 기록을 허용하고 상태를 표시한다.

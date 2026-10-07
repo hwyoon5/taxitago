@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { listDeposits } from '@/lib/deposit-store'
 import { scanInboundDeposits } from '@/lib/deposit-scan'
 import { creditUserDeposit, listUserCredits, userCreditTotals } from '@/lib/user-credit-store'
+import { knownServiceTxids } from '@/lib/payment-kind-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,9 +27,12 @@ export async function GET(request: Request) {
   // 스캔 범위 밖의 과거 입금도 유저별 조회에서 빠지지 않게 장부 기준으로 반환한다.
   // confirmed 건만 반환 — pending은 이용자 잔액에 반영되지 않는다.
   const entries = await listDeposits()
+  // 서비스 결제로 확정된 txid는 이용자 입금이 아니다 — 잔액 크레딧 대상에서 제외.
+  const serviceTxids = await knownServiceTxids().catch(() => new Set<string>())
   const matched = entries.filter((entry) => {
     if (entry.status !== 'confirmed') return false
     if (entry.toWallet !== adminWallet) return false
+    if (serviceTxids.has(entry.txid)) return false
     if (!from) return true
     return entry.fromWallet === from || (uid !== '' && entry.fromUid === uid)
   })

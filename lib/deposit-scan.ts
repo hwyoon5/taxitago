@@ -3,6 +3,7 @@ import { getAdminWallet } from '@/lib/admin-wallet'
 import { isPiWalletAddress } from '@/lib/pi-wallet'
 import { recordDeposit } from '@/lib/deposit-store'
 import { creditUserDeposit } from '@/lib/user-credit-store'
+import { knownServiceTxids } from '@/lib/payment-kind-store'
 import { recordWalletTx } from '@/lib/wallet-history'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 
@@ -50,7 +51,11 @@ export async function scanInboundDeposits(viewerWallet = '', viewerUid = ''): Pr
   const inbound = records.filter(
     (record) => record.type === 'payment' && record.to === adminWallet && record.transaction_hash && record.from,
   )
+  // 서비스 결제(탑승비 등)로 확정된 txid는 입금 장부·유저 크레딧에서 제외한다 —
+  // 승객이 낸 요금이 '입금'으로 되돌아가는 이중 크레딧 방지.
+  const serviceTxids = await knownServiceTxids().catch(() => new Set<string>())
   for (const record of inbound) {
+    if (serviceTxids.has(record.transaction_hash!)) continue
     const amount = Number(record.amount)
     const deposit = await recordDeposit({
       txid: record.transaction_hash!,
@@ -86,6 +91,37 @@ export async function scanInboundDeposits(viewerWallet = '', viewerUid = ''): Pr
 }
 
 export type DepositChainCheck = 'verified' | 'mismatch' | 'unknown'
+
+/**
+ * 완료된 결제의 온체인 payment op를 조회 — 보낸 주소와 실제 금액을
+ * 체인에서 꺼낸다(클라이언트가 보낸 금액이 아니라 온체인 값이 권위).
+ */
+export async function fetchInboundPaymentOp(
+  txid: string,
+  toWallet: string,
+): Promise<{ from: string; amount: number; createdAt?: string } | null> {
+  try {
+    const res = await fetch(`${horizonUrl()}/transactions/${encodeURIComponent(txid)}/operations?limit=30`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) return null
+    const payload = (await res.json().catch(() => null)) as {
+      _embedded?: { records?: { type?: string; from?: string; to?: string; amount?: string; created_at?: string }[] }
+    } | null
+    const op = payload?._embedded?.records?.find(
+      (record) => record.type === 'payment' && record.to === toWallet && record.from,
+    )
+    if (!op?.from) return null
+    return {
+      from: String(op.from),
+      amount: Number(op.amount),
+      createdAt: typeof op.created_at === 'string' ? op.created_at : undefined,
+    }
+  } catch {
+    return null
+  }
+}
 
 /**
  * 수동 입금 동기화 전 온체인 교차 확인.
