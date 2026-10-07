@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { listDeposits } from '@/lib/deposit-store'
 import { scanInboundDeposits } from '@/lib/deposit-scan'
-import { creditUserDeposit, listUserCredits, userCreditTotals } from '@/lib/user-credit-store'
+import { creditUserDeposit, listUserCredits, userCreditTotals, walletsForUid } from '@/lib/user-credit-store'
 import { knownServiceTxids } from '@/lib/payment-kind-store'
 
 export const runtime = 'nodejs'
@@ -29,12 +29,18 @@ export async function GET(request: Request) {
   const entries = await listDeposits()
   // 서비스 결제로 확정된 txid는 이용자 입금이 아니다 — 잔액 크레딧 대상에서 제외.
   const serviceTxids = await knownServiceTxids().catch(() => new Set<string>())
+  // 클라이언트가 보내는 from은 uid 유사주소일 수 있어 실제 on-chain 주소와
+  // 불일치한다 — 과거 결제로 확인된 지갑↔uid 연결로 진짜 주소 매칭도 커버.
+  const linkedWallets = uid ? await walletsForUid(uid).catch(() => new Set<string>()) : new Set<string>()
   const matched = entries.filter((entry) => {
     if (entry.status !== 'confirmed') return false
     if (entry.toWallet !== adminWallet) return false
     if (serviceTxids.has(entry.txid)) return false
-    if (!from) return true
-    return entry.fromWallet === from || (uid !== '' && entry.fromUid === uid)
+    if (!from && !uid) return true
+    return (
+      entry.fromWallet === from ||
+      (uid !== '' && (entry.fromUid === uid || linkedWallets.has(entry.fromWallet)))
+    )
   })
   // 반환되는 입금은 이용자 크레딧 귀속도 함께 보장한다 — 장부에 있는데
   // 크레딧이 빠진 과거 건도 여기서 복구된다(txid 멱등).

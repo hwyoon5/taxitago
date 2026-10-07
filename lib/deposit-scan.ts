@@ -2,7 +2,7 @@ import { Horizon } from '@stellar/stellar-sdk'
 import { getAdminWallet } from '@/lib/admin-wallet'
 import { isPiWalletAddress } from '@/lib/pi-wallet'
 import { recordDeposit } from '@/lib/deposit-store'
-import { creditUserDeposit } from '@/lib/user-credit-store'
+import { creditUserDeposit, uidForWallet } from '@/lib/user-credit-store'
 import { knownServiceTxids } from '@/lib/payment-kind-store'
 import { recordWalletTx } from '@/lib/wallet-history'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
@@ -57,10 +57,15 @@ export async function scanInboundDeposits(viewerWallet = '', viewerUid = ''): Pr
   for (const record of inbound) {
     if (serviceTxids.has(record.transaction_hash!)) continue
     const amount = Number(record.amount)
+    // 이용자 귀속 uid: ①호출자 지갑 직접 일치 ②지갑→uid 매핑(과거 결제로 확인된 연결)
+    const knownUid =
+      record.from === viewerWallet && viewerUid
+        ? viewerUid
+        : await uidForWallet(record.from!).catch(() => '')
     const deposit = await recordDeposit({
       txid: record.transaction_hash!,
       fromWallet: record.from!,
-      fromUid: record.from === viewerWallet ? viewerUid || undefined : undefined,
+      fromUid: knownUid || undefined,
       toWallet: adminWallet,
       amount,
       seenAt: record.created_at,
@@ -81,7 +86,7 @@ export async function scanInboundDeposits(viewerWallet = '', viewerUid = ''): Pr
       await creditUserDeposit({
         txid: deposit.txid,
         wallet: deposit.fromWallet,
-        uid: deposit.fromUid || (record.from === viewerWallet ? viewerUid : ''),
+        uid: deposit.fromUid || knownUid,
         amount: deposit.amount,
         source: 'scan',
       }).catch(() => undefined)

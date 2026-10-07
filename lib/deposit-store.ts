@@ -104,10 +104,17 @@ export async function recordDeposit(input: {
   const entries = await readEntries()
   const existing = entries.find((entry) => entry.txid === txid)
   if (existing) {
+    let dirty = false
     if (existing.status === 'pending' && input.status === 'confirmed') {
       existing.status = 'confirmed'
-      await writeEntries(entries)
+      dirty = true
     }
+    // 뒤늦게 확인된 귀속 uid 보강 — 이용자별 조회가 uid 매칭으로 찾을 수 있게 한다.
+    if (!existing.fromUid && input.fromUid?.trim()) {
+      existing.fromUid = input.fromUid.trim()
+      dirty = true
+    }
+    if (dirty) await writeEntries(entries)
     return existing
   }
   const now = new Date().toISOString()

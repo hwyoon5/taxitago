@@ -2,12 +2,26 @@ import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 
 const PI_API_BASE = 'https://api.minepi.com/v2/payments'
 
+/**
+ * Pi 개발자 포털 도메인 인증 충돌 우회용 임시 테스트넷 키.
+ * 샌드박스/테스트넷 모드에서는 PI_API_KEY 설정과 무관하게 이 키를 강제로 사용한다.
+ * 메인넷(NEXT_PUBLIC_PI_SANDBOX=false/0/mainnet)에서는 절대 사용되지 않는다.
+ * TODO: 포털 도메인 인증이 정리되면 제거하고 PI_API_KEY로 되돌린다.
+ */
+const PI_TESTNET_API_KEY = 'Uyu7admbaeoeucn1yfqsg57l71oa2ah5ldyoe5urrpyjzr9mse2pdmof3o1ee1nd'
+
 function piApiKey() {
+  if (isPiSandboxEnv()) return PI_TESTNET_API_KEY
   const key = (process.env.PI_API_KEY || '').trim()
   if (!key) {
     throw new Error('PI_API_KEY is not configured')
   }
   return key
+}
+
+/** 로그용 — 어떤 키 출처를 썼는지 남긴다(키 값 자체는 절대 기록하지 않음). */
+function piApiKeySource() {
+  return isPiSandboxEnv() ? 'forced-testnet' : 'env'
 }
 
 function piPaymentUrl(paymentId: string, pathSuffix = '') {
@@ -63,7 +77,7 @@ async function piPaymentsRequest(
   const url = piPaymentUrl(paymentId, pathSuffix)
   const apiKey = piApiKey()
   const startedAt = Date.now()
-  console.log(`[Pi] ${method} ${url} start`, { apiKey: 'set', timeoutMs })
+  console.log(`[Pi] ${method} ${url} start`, { apiKey: piApiKeySource(), timeoutMs })
 
   let response: Response
   try {
@@ -253,7 +267,7 @@ export async function createA2UPayment(input: {
   const url = 'https://api.minepi.com/v2/payments'
   const apiKey = piApiKey()
   const startedAt = Date.now()
-  console.log(`[Pi] POST ${url} A2U start`, { apiKey: 'set' })
+  console.log(`[Pi] POST ${url} A2U start`, { apiKey: piApiKeySource() })
   let response: Response
   try {
     response = await fetch(url, {

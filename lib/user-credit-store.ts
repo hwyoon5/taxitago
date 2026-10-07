@@ -21,16 +21,21 @@ const useKv = Boolean(kvUrl && kvToken)
 
 const ENTRIES_KEY = 'taxitago:user-credits'
 const BALANCES_KEY = 'taxitago:user-balances'
+/** 실제 온체인 지갑주소 → Pi uid — 스캐너가 후속 입금의 귀속을 판별할 때 쓴다. */
+const WALLETS_KEY = 'taxitago:user-wallets'
 const MAX_ENTRIES = 4000
 const filePath = path.join(process.cwd(), 'data', 'user-credits.json')
 const balancesPath = path.join(process.cwd(), 'data', 'user-balances.json')
+const walletsPath = path.join(process.cwd(), 'data', 'user-wallets.json')
 
 const globalStore = globalThis as typeof globalThis & {
   __taxitagoUserCredits?: UserCreditEntry[]
   __taxitagoUserBalances?: Record<string, number>
+  __taxitagoUserWallets?: Record<string, string>
 }
 if (!globalStore.__taxitagoUserCredits) globalStore.__taxitagoUserCredits = []
 if (!globalStore.__taxitagoUserBalances) globalStore.__taxitagoUserBalances = {}
+if (!globalStore.__taxitagoUserWallets) globalStore.__taxitagoUserWallets = {}
 
 function readFileEntries(): UserCreditEntry[] {
   try {
@@ -127,6 +132,61 @@ async function writeBalances(balances: Record<string, number>) {
   writeFileBalances(balances)
 }
 
+function readFileWallets(): Record<string, string> {
+  try {
+    if (!existsSync(walletsPath)) return {}
+    const parsed = JSON.parse(readFileSync(walletsPath, 'utf8')) as { wallets?: Record<string, string> }
+    return parsed.wallets && typeof parsed.wallets === 'object' ? parsed.wallets : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeFileWallets(wallets: Record<string, string>) {
+  try {
+    mkdirSync(path.dirname(walletsPath), { recursive: true })
+    writeFileSync(walletsPath, JSON.stringify({ wallets }, null, 2), 'utf8')
+  } catch {
+    undefined
+  }
+}
+
+async function readWallets(): Promise<Record<string, string>> {
+  if (useKv) {
+    const raw = await kvCommand<Record<string, string> | string | null>(['GET', WALLETS_KEY])
+    if (!raw) return {}
+    const parsed = typeof raw === 'string' ? (JSON.parse(raw) as Record<string, string>) : raw
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  }
+  if (!Object.keys(globalStore.__taxitagoUserWallets!).length) globalStore.__taxitagoUserWallets = readFileWallets()
+  return globalStore.__taxitagoUserWallets!
+}
+
+async function writeWallets(wallets: Record<string, string>) {
+  if (useKv) {
+    await kvCommand(['SET', WALLETS_KEY, JSON.stringify(wallets)])
+    return
+  }
+  globalStore.__taxitagoUserWallets = wallets
+  writeFileWallets(wallets)
+}
+
+/** 온체인 지갑주소로 귀속 uid 조회 — 한 번이라도 결제가 귀속된 지갑만 맞는다. */
+export async function uidForWallet(wallet: string): Promise<string> {
+  const w = wallet.trim()
+  if (!w) return ''
+  const map = await readWallets().catch(() => ({} as Record<string, string>))
+  return typeof map[w] === 'string' ? map[w] : ''
+}
+
+/** uid에 연결된 온체인 지갑주소들 — 이용자별 입금 조회가 진짜 주소로도 맞게 한다. */
+export async function walletsForUid(uid: string): Promise<Set<string>> {
+  const u = uid.trim()
+  if (!u) return new Set()
+  const map = await readWallets().catch(() => ({} as Record<string, string>))
+  return new Set(Object.entries(map).filter(([, v]) => v === u).map(([k]) => k))
+}
+
 /** 이용자 잔액 맵의 키 — 지갑 주소 우선, 없으면 uid 네임스페이스. */
 function balanceKey(wallet: string, uid: string) {
   return wallet || `uid:${uid}`
@@ -149,7 +209,15 @@ export async function creditUserDeposit(input: {
   const uid = (input.uid || '').trim()
   const amount = piRound(Number(input.amount))
   if (!txid || (!wallet && !uid) || !Number.isFinite(amount) || amount <= 0) return null
-  const [entries, balances] = await Promise.all([readEntries(), readBalances()])
+  const [entries, balances, wallets] = await Promise.all([readEntries(), readBalances(), readWallets()])
+  // 실제 지갑주소↔uid 연결이 확인되면 매핑에 남긴다 — 이후 스캐너가 같은 지갑의
+  // 입금을 uid로 귀속할 수 있게 된다.
+  const link = async (w: string, u: string) => {
+    if (w && u && wallets[w] !== u) {
+      wallets[w] = u
+      await writeWallets(wallets).catch(() => undefined)
+    }
+  }
   const existing = entries.find((entry) => entry.txid === txid)
   if (existing) {
     // 중복 txid는 무시(no-op) — 폴러/재시도가 에러를 내면 안 된다.
@@ -171,6 +239,7 @@ export async function creditUserDeposit(input: {
       dirty = true
     }
     if (dirty) await Promise.all([writeEntries(entries), writeBalances(balances)])
+    await link(existing.wallet || wallet, existing.uid || uid)
     return existing
   }
   const entry: UserCreditEntry = {
@@ -187,6 +256,7 @@ export async function creditUserDeposit(input: {
   const key = balanceKey(wallet, uid)
   balances[key] = piRound((balances[key] || 0) + amount)
   await Promise.all([writeEntries(entries), writeBalances(balances)])
+  await link(wallet, uid)
   return entry
 }
 

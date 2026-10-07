@@ -49,39 +49,56 @@ function errorStatus(error: unknown, message: string) {
   return 502
 }
 
+type PiPaymentInfo = {
+  user_uid?: unknown
+  from_address?: unknown
+  amount?: unknown
+  metadata?: Record<string, unknown>
+} | null
+
 /**
  * wallet-charge 결제는 검증 완료 직후 이용자 크레딧까지 서버에서 마감한다.
- * 보낸 주소·금액은 클라이언트 body가 아니라 온체인 payment op에서 꺼낸다.
+ * 보낸 주소·금액은 온체인 payment op가 권위이고, 귀속 uid는 Pi 결제 객체의
+ * user_uid가 권위 — 클라이언트 body의 값은 쓰지 않는다. Horizon op 조회가
+ * 실패해도 Pi 응답의 from_address/amount로 폴백해 크레딧을 놓치지 않는다.
  */
-async function creditWalletChargeDeposit(paymentId: string, txid: string) {
+async function creditWalletChargeDeposit(paymentId: string, txid: string, info: PiPaymentInfo) {
   try {
-    const [{ getAdminWallet }, { fetchInboundPaymentOp }] = await Promise.all([
+    const [{ getAdminWallet }, { fetchInboundPaymentOp }, { creditUserDeposit, uidForWallet }] = await Promise.all([
       import('@/lib/admin-wallet'),
       import('@/lib/deposit-scan'),
+      import('@/lib/user-credit-store'),
     ])
     const adminWallet = (await getAdminWallet()).trim()
     if (!adminWallet) return
     const op = await fetchInboundPaymentOp(txid, adminWallet)
-    if (!op?.from || !(op.amount > 0)) {
-      console.warn('[Pi] /api/pi/complete wallet-charge: no inbound op found', { paymentId, txid })
+    const fromAddress = typeof info?.from_address === 'string' ? info.from_address.trim() : ''
+    const from = op?.from || fromAddress
+    const amount = op?.amount && op.amount > 0 ? op.amount : typeof info?.amount === 'number' ? info.amount : 0
+    if (!from || !(amount > 0)) {
+      console.warn('[Pi] /api/pi/complete wallet-charge: no sender resolvable', { paymentId, txid })
       return
     }
-    const [{ recordDeposit }, { creditUserDeposit }, { recordWalletTx }] = await Promise.all([
+    const infoUid = typeof info?.user_uid === 'string' ? info.user_uid.trim() : ''
+    const metaUid =
+      info?.metadata && typeof info.metadata.uid === 'string' ? (info.metadata.uid as string).trim() : ''
+    const uid = infoUid || metaUid || (await uidForWallet(from).catch(() => ''))
+    const [{ recordDeposit }, { recordWalletTx }] = await Promise.all([
       import('@/lib/deposit-store'),
-      import('@/lib/user-credit-store'),
       import('@/lib/wallet-history'),
     ])
     const deposit = await recordDeposit({
       txid,
-      fromWallet: op.from,
+      fromWallet: from,
+      fromUid: uid || undefined,
       toWallet: adminWallet,
-      amount: op.amount,
+      amount,
       status: 'confirmed',
-      seenAt: op.createdAt,
+      seenAt: op?.createdAt,
     }).catch(() => null)
     if (!deposit) return
     await Promise.all([
-      creditUserDeposit({ txid, wallet: deposit.fromWallet, uid: deposit.fromUid, amount: deposit.amount, source: 'scan' }).catch(
+      creditUserDeposit({ txid, wallet: deposit.fromWallet, uid: deposit.fromUid || uid, amount: deposit.amount, source: 'scan' }).catch(
         () => undefined,
       ),
       recordWalletTx({
@@ -94,7 +111,7 @@ async function creditWalletChargeDeposit(paymentId: string, txid: string) {
         network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
       }).catch(() => undefined),
     ])
-    console.log('[Pi] /api/pi/complete wallet-charge credited', { paymentId, txid, from: op.from, amount: op.amount })
+    console.log('[Pi] /api/pi/complete wallet-charge credited', { paymentId, txid, from, amount, uid })
   } catch (error) {
     // 크레딧 기록 실패는 결제 완료 자체를 되돌리지 않는다 — 폴러 스캔이 복구한다.
     console.error('[Pi] /api/pi/complete wallet-charge credit failed', { paymentId, txid, error })
@@ -189,7 +206,7 @@ export async function handlePiComplete(request: Request) {
     // 장부가 반만 기록되는 사태를 막는다. 각 단계는 멱등이라 폴러가 복구도 한다.
     after(async () => {
       if (metaKind === 'wallet-charge') {
-        await creditWalletChargeDeposit(paymentId, txid)
+        await creditWalletChargeDeposit(paymentId, txid, info)
       }
       await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
         console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
