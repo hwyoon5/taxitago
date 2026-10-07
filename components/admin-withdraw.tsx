@@ -16,7 +16,7 @@ type Props = {
 
 /** 최종 확인 대상 — 신규 송금이거나 마스터 승인 대상 */
 type ConfirmTarget =
-  | { kind: 'send'; recipient: string; amount: number; memo: string }
+  | { kind: 'send'; recipient: string; amount: number; memo: string; reason: string }
   | { kind: 'approve'; request: WithdrawalRequest }
 
 const STATUS_LABEL: Record<WithdrawalRequest['status'], string> = {
@@ -38,7 +38,7 @@ const STATUS_TONE: Record<WithdrawalRequest['status'], string> = {
 export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
   const { actor } = useAdminAuth()
   const isMaster = actor?.role === 'master'
-  const [form, setForm] = useState({ recipient: '', amount: '', memo: '' })
+  const [form, setForm] = useState({ recipient: '', amount: '', memo: '', reason: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -84,7 +84,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
     }
     setError('')
     // 온체인 송금은 되돌릴 수 없으므로 주소·금액 재확인 모달을 거친다.
-    setConfirmTarget({ kind: 'send', recipient, amount, memo: form.memo.trim() })
+    setConfirmTarget({ kind: 'send', recipient, amount, memo: form.memo.trim(), reason: form.reason.trim() })
   }
 
   const executeSend = (target: Extract<ConfirmTarget, { kind: 'send' }>) => {
@@ -94,7 +94,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
     void fetch('/api/admin/withdraw', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-      body: JSON.stringify({ recipientAddress: target.recipient, amount: target.amount, memo: target.memo }),
+      body: JSON.stringify({ recipientAddress: target.recipient, amount: target.amount, memo: target.memo, reason: target.reason }),
     })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as {
@@ -112,7 +112,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
         } else {
           tell(`출금 완료 — txid ${data?.txid ? `${data.txid.slice(0, 16)}…` : '(해시 없음)'}`)
         }
-        setForm({ recipient: '', amount: '', memo: '' })
+        setForm({ recipient: '', amount: '', memo: '', reason: '' })
         loadRequests()
         onChanged?.()
       })
@@ -214,7 +214,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
             />
           </label>
           <label className="block">
-            <span className="text-[10px] font-black text-[#64748B]">메모 (선택)</span>
+            <span className="text-[10px] font-black text-[#64748B]">온체인 메모 (선택 · 28바이트)</span>
             <input
               type="text"
               maxLength={28}
@@ -225,6 +225,16 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
             />
           </label>
         </div>
+        <label className="block">
+          <span className="text-[10px] font-black text-[#64748B]">처리 사유·메모 (선택 — 지갑 내역·업무 처리 기록에 저장됩니다)</span>
+          <input
+            type="text"
+            value={form.reason}
+            onChange={(event) => setForm((prev) => ({ ...prev, reason: event.target.value }))}
+            placeholder="예: OO기사 특별 정산분, 운영비 이체 등"
+            className="mt-0.5 w-full rounded-lg border-2 border-[#D8CCF5] bg-[#F8F5FF] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
+          />
+        </label>
         {error ? <p className="text-xs font-black text-[#DC2626]">{error}</p> : null}
         {notice ? <p className="text-xs font-black text-[#047857]">{notice}</p> : null}
         <button
@@ -266,6 +276,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
                 <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">
                   요청: {row.requestedByName || row.requestedBy}({row.requestedBy})
                   {row.memo ? ` · 메모: ${row.memo}` : ''}
+                  {row.reason ? ` · 사유: ${row.reason}` : ''}
                   {row.decidedBy ? ` · 처리: ${row.decidedByName || row.decidedBy}` : ''}
                   {row.txid ? ` · txid ${row.txid.slice(0, 12)}…` : ''}
                 </p>
@@ -314,9 +325,18 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
               <p className="mt-0.5 break-all text-xs font-black text-[#0F172A]">{confirmRecipient}</p>
               <p className="mt-2 text-[10px] font-black text-[#64748B]">송금 금액</p>
               <p className="mt-0.5 text-lg font-black text-[#B45309]">{confirmAmount.toFixed(7)} Pi</p>
+              {confirmTarget.kind === 'send' && (confirmTarget.memo || confirmTarget.reason) ? (
+                <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
+                  {confirmTarget.memo ? `온체인 메모: ${confirmTarget.memo}` : ''}
+                  {confirmTarget.memo && confirmTarget.reason ? ' · ' : ''}
+                  {confirmTarget.reason ? `사유: ${confirmTarget.reason}` : ''}
+                </p>
+              ) : null}
               {confirmTarget.kind === 'approve' ? (
                 <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
                   요청자: {confirmTarget.request.requestedByName || confirmTarget.request.requestedBy}
+                  {confirmTarget.request.reason ? ` · 사유: ${confirmTarget.request.reason}` : ''}
+                  {confirmTarget.request.memo ? ` · 메모: ${confirmTarget.request.memo}` : ''}
                 </p>
               ) : null}
               <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">네트워크 수수료 0.01 Pi가 별도로 차감됩니다.</p>

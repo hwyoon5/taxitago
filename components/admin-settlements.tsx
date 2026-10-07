@@ -65,7 +65,7 @@ export default function AdminSettlements() {
   const [period, setPeriod] = useState<'all' | 'today' | 'd7' | 'd30'>('all')
   const [busy, setBusy] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [reconcileReason, setReconcileReason] = useState('')
+  const [actionReason, setActionReason] = useState('')
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [deposits, setDeposits] = useState<DepositEntry[]>([])
   const [depositTotal, setDepositTotal] = useState<{ count: number; total: number } | null>(null)
@@ -129,7 +129,7 @@ export default function AdminSettlements() {
   const settleEntry = (id: string) => {
     if (busy) return
     setBusy(true)
-    void patch({ action: 'settle', id })
+    void patch({ action: 'settle', id, reason: actionReason })
       .then(() => reload())
       .catch(() => setError('정산 처리에 실패했습니다.'))
       .finally(() => setBusy(false))
@@ -138,7 +138,7 @@ export default function AdminSettlements() {
   const settleAll = () => {
     if (busy || !summary?.pendingCount) return
     setBusy(true)
-    void patch({ action: 'settle-all' })
+    void patch({ action: 'settle-all', reason: actionReason })
       .then((data: { count?: number }) => {
         tell(`${data.count ?? 0}건을 정산 완료로 처리했습니다.`)
         reload()
@@ -150,7 +150,7 @@ export default function AdminSettlements() {
   const reconcile = () => {
     if (syncing) return
     setSyncing(true)
-    void patch({ action: 'reconcile', reason: reconcileReason })
+    void patch({ action: 'reconcile', reason: actionReason })
       .then((data: { synced?: number }) => {
         tell(data.synced ? `기사 수익 ${data.synced}건을 장부와 동기화했습니다.` : '장부와 기사 수익이 이미 일치합니다.')
         reload()
@@ -202,7 +202,7 @@ export default function AdminSettlements() {
       return
     }
     setDepositBusy(true)
-    void patch({ action: 'deposit', txid, fromWallet, amount, memo: depositForm.memo })
+    void patch({ action: 'deposit', txid, fromWallet, amount, memo: depositForm.memo, reason: depositForm.memo })
       .then(() => {
         setDepositForm({ txid: '', fromWallet: '', amount: '', memo: '' })
         setError('')
@@ -461,10 +461,10 @@ export default function AdminSettlements() {
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">장부 기준으로 기사 모드 수익 내역을 강제로 일치시킵니다.</p>
         <input
           type="text"
-          value={reconcileReason}
-          onChange={(event) => setReconcileReason(event.target.value)}
-          placeholder="동기화 사유 (선택)"
-          className="mt-2 w-full rounded-lg border border-[#E2E8F0] px-2.5 py-1.5 text-[11px] font-bold outline-none focus:border-[#4C1FB8]"
+          value={actionReason}
+          onChange={(event) => setActionReason(event.target.value)}
+          placeholder="처리 사유·메모 (선택 — 정산·보정·동기화 업무 기록에 함께 저장됩니다)"
+          className="mt-2 w-full rounded-lg border-2 border-[#D8CCF5] bg-[#F8F5FF] px-2.5 py-1.5 text-[11px] font-bold outline-none focus:border-[#4C1FB8]"
         />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
           <div className="flex gap-1">
