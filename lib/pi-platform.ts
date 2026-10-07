@@ -61,16 +61,16 @@ async function piPaymentsRequest(
   timeoutMs = PI_FETCH_TIMEOUT_MS,
 ) {
   const url = piPaymentUrl(paymentId, pathSuffix)
-  const hasApiKey = Boolean((process.env.PI_API_KEY || '').trim())
+  const apiKey = piApiKey()
   const startedAt = Date.now()
-  console.log(`[Pi] ${method} ${url} start`, { apiKey: hasApiKey ? 'set' : 'missing', timeoutMs })
+  console.log(`[Pi] ${method} ${url} start`, { apiKey: 'set', timeoutMs })
 
   let response: Response
   try {
     response = await fetch(url, {
       method,
       headers: {
-        Authorization: `Key ${piApiKey()}`,
+        Authorization: `Key ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
@@ -128,16 +128,21 @@ export async function getPiPayment(paymentId: string) {
 export async function approvePiPayment(paymentId: string) {
   let lastError: unknown
   for (let attempt = 0; attempt < PI_APPROVE_ATTEMPTS; attempt += 1) {
+    const attemptStart = Date.now()
     try {
       return await piPaymentsRequest(paymentId, 'POST', '/approve', undefined, PI_APPROVE_TIMEOUT_MS)
     } catch (error) {
       lastError = error
       const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
       if (typeof status === 'number' && status < 500) break
-      if (attempt + 1 < PI_APPROVE_ATTEMPTS) {
+      // A retry only helps if the first attempt failed fast — once most of the
+      // wallet's approval window is gone, a second 8s attempt lands post-expiry.
+      if (attempt + 1 < PI_APPROVE_ATTEMPTS && Date.now() - attemptStart < 4_000) {
         console.warn(`[Pi] approve attempt ${attempt + 1} failed; retrying once`, { paymentId })
         await new Promise((resolve) => setTimeout(resolve, 350))
+        continue
       }
+      break
     }
   }
   throw lastError

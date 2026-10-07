@@ -73,17 +73,24 @@ async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<v
 
 function authenticatePi(pi: PiSdk) {
   initPi(pi)
-  const pending = pi.authenticate(['username', 'payments'], (payment) => onIncompletePaymentFound(payment))
-  authPromise = pending
-    .then((auth) => {
-      logPi('log', 'authenticate ok', { scopes: PI_AUTH_SCOPES, auth })
-      return auth
+  if (!authPromise) {
+    // Fire-and-forget: if the SDK awaits this callback before resolving
+    // authenticate, a leftover incomplete payment would stall every checkout
+    // behind a /api/pi/complete round-trip.
+    const pending = pi.authenticate(['username', 'payments'], (payment) => {
+      void onIncompletePaymentFound(payment)
     })
-    .catch((error) => {
-      resetPiSession()
-      logPi('error', 'authenticate failed', error)
-      throw error
-    })
+    authPromise = pending
+      .then((auth) => {
+        logPi('log', 'authenticate ok', { scopes: PI_AUTH_SCOPES, auth })
+        return auth
+      })
+      .catch((error) => {
+        resetPiSession()
+        logPi('error', 'authenticate failed', error)
+        throw error
+      })
+  }
   return authPromise
 }
 
@@ -421,7 +428,7 @@ function requirePiSdk() {
 }
 
 function isCancelError(error: unknown) {
-  return /cancel/i.test(errorText(error))
+  return /cancel|취소/i.test(errorText(error))
 }
 
 /** 결제가 Pi 측에 실제로 생성된 이후 발생한 실패 — 모의 충전 폴백으로 넘기면 안 된다. */
@@ -587,7 +594,7 @@ export async function startPiCheckout(options: {
     return mocked
   }
   pi ??= requirePiSdk()
-  await authenticatePi(pi)
+  await withTimeout(authenticatePi(pi), 20_000, 'Pi.authenticate')
 
   const label = checkoutLabel(options.metadata)
   if (options.advanceOnApproval && pendingIncomplete?.txid && isMobilityReturnLabel(label) && pendingIncomplete.label === label && pendingIncomplete.paymentId) {
@@ -702,9 +709,7 @@ export async function startPiCheckout(options: {
         onCancel: (paymentId) => {
           paymentInitiated = true
           logPi('warn', 'onCancel', { paymentId })
-          if (settled) return
-          settled = true
-          reject(new Error('결제가 취소되었습니다.'))
+          finishError('cancelled', new Error('결제가 취소되었습니다.'))
         },
         onError: (error, paymentInfo) => {
           const paymentId = readPaymentId(paymentInfo)
