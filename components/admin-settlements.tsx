@@ -55,6 +55,7 @@ const AUDIT_LABEL: Record<string, string> = {
 }
 
 const pi = (value: number) => `${value.toFixed(7)} Pi`
+const PAGE_SIZE = 10
 
 export default function AdminSettlements() {
   const [entries, setEntries] = useState<SettlementEntry[]>([])
@@ -77,6 +78,9 @@ export default function AdminSettlements() {
   const [draft, setDraft] = useState<{ gross: string; memo: string; driverId: string; driverName: string; status: 'pending' | 'settled'; reason: string } | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [view, setView] = useState<'summary' | 'detail' | 'wallet'>('summary')
+  const [queryDate, setQueryDate] = useState('')
+  const [page, setPage] = useState(1)
 
   const tell = (message: string) => {
     setNotice(message)
@@ -217,8 +221,12 @@ export default function AdminSettlements() {
   const start = periodStart()
   const visible = entries.filter((entry) =>
     (filter === 'all' || entry.service === filter) &&
-    (!start || new Date(entry.createdAt) >= start),
+    (!start || new Date(entry.createdAt) >= start) &&
+    (!queryDate || entry.createdAt.slice(0, 10) === queryDate),
   )
+  const maxPage = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
+  const pageSafe = Math.min(page, maxPage)
+  const paged = visible.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE)
 
   const exportCsv = () => {
     if (!visible.length) {
@@ -240,7 +248,19 @@ export default function AdminSettlements() {
   }
   return (
     <div className="mt-4 space-y-4">
-      {summary ? (
+      <div className="grid grid-cols-3 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+        {([['summary', '요약'], ['detail', '상세 내역'], ['wallet', '지갑·입출금']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setView(id)}
+            className={`rounded-xl py-2.5 text-xs font-black transition ${view === id ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === 'summary' && summary ? (
         <section className="grid grid-cols-2 gap-2">
           <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3">
             <p className="text-[11px] font-black text-[#64748B]">총 결제액</p>
@@ -283,7 +303,7 @@ export default function AdminSettlements() {
         </section>
       ) : null}
 
-      {depositTotal && depositTotal.count > 0 ? (
+      {view === 'summary' && depositTotal && depositTotal.count > 0 ? (
         <section className="rounded-2xl border-2 border-[#BFDBFE] bg-[#EFF6FF] p-3">
           <div className="flex items-center justify-between">
             <p className="text-[11px] font-black text-[#1D4ED8]">플랫폼 지갑 입금 (테스트넷)</p>
@@ -300,6 +320,7 @@ export default function AdminSettlements() {
         </section>
       ) : null}
 
+      {view === 'wallet' ? (
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm font-black">테스트넷 입금 수동 동기화</p>
@@ -376,12 +397,16 @@ export default function AdminSettlements() {
           </button>
         </form>
       </section>
+      ) : null}
 
-      <AdminWithdraw adminWallet={adminWallet} onChanged={reload} />
+      {view === 'wallet' ? (
+        <>
+          <AdminWithdraw adminWallet={adminWallet} onChanged={reload} />
+          <AdminWalletHistory entries={history} totals={historyTotals} />
+        </>
+      ) : null}
 
-      <AdminWalletHistory entries={history} totals={historyTotals} />
-
-      {summary ? (
+      {view === 'summary' && summary ? (
         <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-black">서비스별 집계</p>
@@ -408,6 +433,7 @@ export default function AdminSettlements() {
         </section>
       ) : null}
 
+      {view === 'detail' ? (
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-black">정산 내역</p>
@@ -443,7 +469,7 @@ export default function AdminSettlements() {
               <button
                 key={key}
                 type="button"
-                onClick={() => setPeriod(key)}
+                onClick={() => { setPeriod(key); setPage(1) }}
                 className={`rounded-full px-2.5 py-1 text-[11px] font-black ${period === key ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
               >
                 {label}
@@ -455,7 +481,7 @@ export default function AdminSettlements() {
               <button
                 key={key}
                 type="button"
-                onClick={() => setFilter(key)}
+                onClick={() => { setFilter(key); setPage(1) }}
                 className={`rounded-full px-2.5 py-1 text-[11px] font-black ${filter === key ? 'bg-[#4C1FB8] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
               >
                 {key === 'all' ? '전체' : SERVICE_LABEL[key]}
@@ -463,9 +489,27 @@ export default function AdminSettlements() {
             ))}
           </div>
         </div>
+        <div className="mt-2 flex items-center gap-1.5">
+          <input
+            type="date"
+            value={queryDate}
+            onChange={(event) => { setQueryDate(event.target.value); setPage(1) }}
+            aria-label="날짜로 검색"
+            className="w-full rounded-lg border border-[#E2E8F0] px-2.5 py-1.5 text-[11px] font-bold outline-none focus:border-[#4C1FB8]"
+          />
+          {queryDate ? (
+            <button
+              type="button"
+              onClick={() => { setQueryDate(''); setPage(1) }}
+              className="shrink-0 rounded-full bg-[#F1F5F9] px-2.5 py-1 text-[10px] font-black text-[#475569]"
+            >
+              날짜 해제
+            </button>
+          ) : null}
+        </div>
         {error ? <p className="mt-2 text-xs font-black text-[#DC2626]">{error}</p> : null}
         <div className="mt-3 space-y-2">
-          {visible.map((entry) => (
+          {paged.map((entry) => (
             <div key={entry.id} className="rounded-xl border-2 border-[#E2E8F0] p-3">
               <div className="flex items-center justify-between gap-2">
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${SERVICE_TONE[entry.service]}`}>{SERVICE_LABEL[entry.service]}</span>
@@ -589,8 +633,31 @@ export default function AdminSettlements() {
           ))}
           {visible.length === 0 ? <p className="py-6 text-center text-xs font-bold text-[#94A3B8]">정산 내역이 없습니다.</p> : null}
         </div>
+        <div className="mt-3 flex items-center justify-between">
+          <button
+            type="button"
+            disabled={pageSafe <= 1}
+            onClick={() => setPage(pageSafe - 1)}
+            className="rounded-full bg-[#F1F5F9] px-3 py-1.5 text-[11px] font-black text-[#475569] disabled:opacity-40"
+          >
+            ‹ 이전
+          </button>
+          <span className="text-[11px] font-black text-[#64748B]">
+            {visible.length}건 · {pageSafe}/{maxPage} 페이지
+          </span>
+          <button
+            type="button"
+            disabled={pageSafe >= maxPage}
+            onClick={() => setPage(pageSafe + 1)}
+            className="rounded-full bg-[#F1F5F9] px-3 py-1.5 text-[11px] font-black text-[#475569] disabled:opacity-40"
+          >
+            다음 ›
+          </button>
+        </div>
       </section>
+      ) : null}
 
+      {view === 'detail' ? (
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <button type="button" onClick={() => setShowAudit((prev) => !prev)} className="flex w-full items-center justify-between">
           <p className="text-sm font-black">조정·동기화 이력 <span className="text-[#94A3B8]">({audit.length})</span></p>
@@ -618,6 +685,7 @@ export default function AdminSettlements() {
           </div>
         ) : null}
       </section>
+      ) : null}
       {notice ? <p className="text-center text-xs font-black text-[#047857]">{notice}</p> : null}
     </div>
   )
