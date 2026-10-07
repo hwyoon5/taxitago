@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { isAdminRequest } from '@/lib/admin-auth'
+import { adminActor, isAdminRequest } from '@/lib/admin-auth'
+import { recordAudit } from '@/lib/audit-store'
 import { getPartnerLink, listPartnerLinks, upsertPartnerLink } from '@/lib/partner-ledger-server'
 
 export const runtime = 'nodejs'
@@ -13,7 +14,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!(await isAdminRequest(request))) {
+  const actor = await adminActor(request)
+  if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const body = (await request.json().catch(() => null)) as {
@@ -60,5 +62,13 @@ export async function POST(request: Request) {
     insuranceExpiresAt: text(body?.insuranceExpiresAt, previous?.insuranceExpiresAt) || '',
     linkedAt: previous?.linkedAt || new Date().toISOString(),
   })
+  await recordAudit({
+    kind: 'partner',
+    actor: actor.staffId,
+    actorName: actor.staffName,
+    refId: `partner:${record.uid}`,
+    detail: `기사·파트너 ${previous ? '수정' : '등록'} ${record.name}(${record.uid}) · ${record.role}/${record.serviceType}`,
+    after: { uid: record.uid, name: record.name, phone: record.phone, role: record.role, serviceType: record.serviceType },
+  }).catch(() => undefined)
   return NextResponse.json({ ok: true, partner: record })
 }

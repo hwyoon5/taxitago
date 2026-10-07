@@ -17,11 +17,11 @@ export function adminHeaders(): Record<string, string> {
   return key ? { 'x-admin-key': key } : {}
 }
 
-export async function adminLogin(password: string) {
+export async function adminLogin(password: string, staffId?: string) {
   const res = await fetch('/api/admin/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify(staffId?.trim() ? { staffId: staffId.trim(), password } : { password }),
   })
   const data = (await res.json().catch(() => null)) as { token?: string; expiresAt?: string; error?: string } | null
   if (!res.ok || !data?.token) throw new Error(data?.error || 'login_failed')

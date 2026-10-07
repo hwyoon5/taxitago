@@ -1,12 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 
-export type AuditKind = 'rates' | 'fare' | 'settle' | 'settle-all' | 'adjust' | 'reconcile' | 'wallet' | 'deposit' | 'withdraw'
+export type AuditKind =
+  | 'rates' | 'fare' | 'settle' | 'settle-all' | 'adjust' | 'reconcile'
+  | 'wallet' | 'deposit' | 'withdraw'
+  | 'login' | 'staff' | 'partner' | 'zone' | 'ticket'
 
 export type AuditEntry = {
   id: string
   kind: AuditKind
+  /** 수행자 ID — 마스터는 'master', 직원은 로그인 ID */
   actor: string
+  /** 수행자 표시 이름 (예: 홍길동) */
+  actorName?: string
   entryId?: string
   refId?: string
   reason?: string

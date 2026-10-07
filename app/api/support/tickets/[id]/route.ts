@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getTicket } from '@/lib/support-store'
 import { editTicketMessage, postTicketMessage, setTicketStatus } from '@/lib/support-engine'
-import { isAdminRequest } from '@/lib/admin-auth'
+import { adminActor } from '@/lib/admin-auth'
+import { recordAudit } from '@/lib/audit-store'
 import type { SupportActor, TicketStatus } from '@/lib/support-types'
 
 export const runtime = 'nodejs'
@@ -25,7 +26,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!actorId || (role !== 'passenger' && role !== 'driver' && role !== 'admin')) {
     return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
   }
-  if (role === 'admin' && !(await isAdminRequest(request))) {
+  const actor = role === 'admin' ? await adminActor(request) : null
+  if (role === 'admin' && !actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const result = await postTicketMessage({ ticketId: id, actorId, role: role as SupportActor, text })
@@ -33,12 +35,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const status = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 400
     return NextResponse.json({ error: result.error }, { status })
   }
+  if (actor) {
+    await recordAudit({
+      kind: 'ticket',
+      actor: actor.staffId,
+      actorName: actor.staffName,
+      refId: `ticket:${id}`,
+      detail: `문의 답변 등록 · ${result.ticket.subject || id}`,
+    }).catch(() => undefined)
+  }
   return NextResponse.json({ ok: true, ticket: result.ticket, message: result.message })
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
-  if (!(await isAdminRequest(request))) {
+  const actor = await adminActor(request)
+  if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
@@ -55,6 +67,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       const status = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 400
       return NextResponse.json({ error: result.error }, { status })
     }
+    if (body?.role === 'admin') {
+      await recordAudit({
+        kind: 'ticket',
+        actor: actor.staffId,
+        actorName: actor.staffName,
+        refId: `ticket:${id}`,
+        detail: `문의 답변 수정 · ${id}`,
+      }).catch(() => undefined)
+    }
     return NextResponse.json({ ok: true, ticket: result.ticket })
   }
   const status = body?.status
@@ -63,5 +84,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
   const ticket = await setTicketStatus(id, status as TicketStatus)
   if (!ticket) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+  await recordAudit({
+    kind: 'ticket',
+    actor: actor.staffId,
+    actorName: actor.staffName,
+    refId: `ticket:${id}`,
+    detail: `문의 상태 변경 · ${ticket.subject || id} → ${status}`,
+    after: { status: ticket.status },
+  }).catch(() => undefined)
   return NextResponse.json({ ok: true, ticket })
 }

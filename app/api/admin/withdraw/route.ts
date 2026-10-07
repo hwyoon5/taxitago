@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Account, Asset, Horizon, Keypair, Memo, Operation, TransactionBuilder } from '@stellar/stellar-sdk'
-import { isAdminRequest } from '@/lib/admin-auth'
+import { adminActor } from '@/lib/admin-auth'
 import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import { getAdminWallet, saveAdminWallet } from '@/lib/admin-wallet'
 import { ADMIN_WALLET_SECRET_ENV, adminWalletSecret } from '@/lib/admin-wallet-secret'
@@ -49,7 +49,8 @@ function horizonError(error: unknown): string {
 }
 
 export async function POST(request: Request) {
-  if (!(await isAdminRequest(request))) {
+  const actor = await adminActor(request)
+  if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const body = (await request.json().catch(() => null)) as {
@@ -159,7 +160,8 @@ export async function POST(request: Request) {
     }).catch(() => undefined)
     await recordAudit({
       kind: 'withdraw',
-      actor: 'admin',
+      actor: actor.staffId,
+      actorName: actor.staffName,
       refId: `withdraw:${result.hash}`,
       reason: reason || memoText,
       detail: `${keypair.publicKey()} → ${recipient} · ${amount.toFixed(7)}Pi (${sandbox ? 'testnet' : 'mainnet'})`,

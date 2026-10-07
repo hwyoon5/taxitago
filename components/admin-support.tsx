@@ -7,6 +7,8 @@ import { getAdminKey } from '@/lib/admin-key'
 import AdminPartners from '@/components/admin-partners'
 import AdminSettlements from '@/components/admin-settlements'
 import AdminFareSettings from '@/components/admin-fare-settings'
+import AdminStaff from '@/components/admin-staff'
+import AdminAuditLog from '@/components/admin-audit-log'
 import AttachmentGallery from '@/components/photo-gallery'
 import {
   editTicketReply,
@@ -94,9 +96,9 @@ export default function AdminSupportDesk() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState('')
   const [storage, setStorage] = useState<'kv' | 'file' | null>(null)
-  const [view, setView] = useState<'inbox' | 'partners' | 'fare' | 'ledger'>('inbox')
+  const [view, setView] = useState<'inbox' | 'partners' | 'fare' | 'ledger' | 'staff' | 'audit'>('inbox')
   const seenRef = useRef<Set<string> | null>(null)
-  const { logout } = useAdminAuth()
+  const { logout, actor } = useAdminAuth()
 
   const reload = () => {
     setRefreshing(true)
@@ -284,6 +286,11 @@ export default function AdminSupportDesk() {
             ) : null}
           </h1>
           <p className="mt-1 text-sm font-bold text-[#64748B]">1:1 문의와 분실물 접수를 확인하고 답변을 남깁니다.</p>
+          {actor ? (
+            <p className="mt-1 text-[11px] font-black text-[#4C1FB8]">
+              로그인: {actor.staffName}({actor.staffId}) · {actor.role === 'master' ? '최고 관리자' : actor.role === 'manager' ? '매니저' : '직원'}
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -320,15 +327,25 @@ export default function AdminSupportDesk() {
           <Link href="/" className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]">홈</Link>
         </div>
       </div>
-      <div className="mt-4 grid grid-cols-4 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
-        {(['inbox', 'partners', 'fare', 'ledger'] as const).map((tab) => (
+      <div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
+        {(['inbox', 'partners', 'fare', 'ledger', 'staff', 'audit'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => setView(tab)}
             className={`rounded-xl py-2 text-xs font-black ${view === tab ? 'bg-white text-[#4C1FB8] shadow-sm' : 'text-[#64748B]'}`}
           >
-            {tab === 'inbox' ? '문의 관리' : tab === 'partners' ? '기사·파트너' : tab === 'fare' ? '정산·수수료 설정' : '정산 내역'}
+            {tab === 'inbox'
+              ? '문의 관리'
+              : tab === 'partners'
+                ? '기사·파트너'
+                : tab === 'fare'
+                  ? '수수료 설정'
+                  : tab === 'ledger'
+                    ? '정산 내역'
+                    : tab === 'staff'
+                      ? '직원 관리'
+                      : '업무 기록'}
           </button>
         ))}
       </div>
@@ -340,6 +357,10 @@ export default function AdminSupportDesk() {
         <AdminFareSettings />
       ) : view === 'ledger' ? (
         <AdminSettlements />
+      ) : view === 'staff' ? (
+        <AdminStaff />
+      ) : view === 'audit' ? (
+        <AdminAuditLog />
       ) : (
       <>
       {storage === 'file' ? (

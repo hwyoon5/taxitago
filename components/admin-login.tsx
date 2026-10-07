@@ -6,6 +6,8 @@ import { adminLogin, adminResetPassword, adminSetup } from '@/lib/admin-key'
 
 export default function AdminLogin({ mode, onSuccess }: { mode: 'login' | 'setup'; onSuccess: () => void }) {
   const [password, setPassword] = useState('')
+  const [loginAs, setLoginAs] = useState<'master' | 'staff'>('master')
+  const [staffId, setStaffId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -19,16 +21,24 @@ export default function AdminLogin({ mode, onSuccess }: { mode: 'login' | 'setup
   const submitLogin = () => {
     const value = password.trim()
     if (!value || busy) return
+    if (loginAs === 'staff' && !staffId.trim()) return
     setBusy(true)
     setError('')
-    void adminLogin(value)
+    void adminLogin(value, loginAs === 'staff' ? staffId : undefined)
       .then(() => {
         setPassword('')
+        setStaffId('')
         onSuccess()
       })
       .catch((loginError) => {
         const reason = loginError instanceof Error ? loginError.message : ''
-        setError(reason === 'setup_required' ? '비밀번호가 아직 설정되지 않았습니다.' : '비밀번호가 올바르지 않습니다.')
+        setError(
+          reason === 'setup_required'
+            ? '비밀번호가 아직 설정되지 않았습니다.'
+            : loginAs === 'staff'
+              ? '직원 ID 또는 비밀번호가 올바르지 않습니다.'
+              : '비밀번호가 올바르지 않습니다.',
+        )
       })
       .finally(() => setBusy(false))
   }
@@ -135,6 +145,31 @@ export default function AdminLogin({ mode, onSuccess }: { mode: 'login' | 'setup
         <>
           <h1 className="mt-1 text-2xl font-black">관리자 인증</h1>
           <p className="mt-1 text-sm font-bold text-[#64748B]">관리자 비밀번호를 입력해 주세요.</p>
+          <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
+            {(['master', 'staff'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => {
+                  setLoginAs(tab)
+                  setError('')
+                }}
+                className={`rounded-xl py-2 text-xs font-black ${loginAs === tab ? 'bg-white text-[#4C1FB8] shadow-sm' : 'text-[#64748B]'}`}
+              >
+                {tab === 'master' ? '최고 관리자' : '직원 로그인'}
+              </button>
+            ))}
+          </div>
+          {loginAs === 'staff' ? (
+            <input
+              value={staffId}
+              onChange={(event) => setStaffId(event.target.value)}
+              placeholder="직원 ID"
+              autoCapitalize="none"
+              autoCorrect="off"
+              className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]"
+            />
+          ) : null}
           <input
             type="password"
             value={password}
@@ -142,8 +177,8 @@ export default function AdminLogin({ mode, onSuccess }: { mode: 'login' | 'setup
             onKeyDown={(event) => {
               if (event.key === 'Enter') submitLogin()
             }}
-            placeholder="관리자 비밀번호"
-            className="mt-4 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]"
+            placeholder={loginAs === 'staff' ? '직원 비밀번호' : '관리자 비밀번호'}
+            className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]"
           />
           {error ? <p className="mt-2 text-xs font-black text-[#DC2626]">{error}</p> : null}
           {notice ? <p className="mt-2 text-xs font-black text-[#047857]">{notice}</p> : null}

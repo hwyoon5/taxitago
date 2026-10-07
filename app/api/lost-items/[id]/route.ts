@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getLostItem } from '@/lib/support-store'
 import { updateLostStatus } from '@/lib/support-engine'
-import { isAdminRequest } from '@/lib/admin-auth'
+import { adminActor } from '@/lib/admin-auth'
+import { recordAudit } from '@/lib/audit-store'
 import type { LostStatus, SupportActor } from '@/lib/support-types'
 
 export const runtime = 'nodejs'
@@ -24,13 +25,24 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!actorId || (role !== 'passenger' && role !== 'driver' && role !== 'admin') || !allowed.includes(status as LostStatus)) {
     return NextResponse.json({ error: 'actorId, role, status required' }, { status: 400 })
   }
-  if (role === 'admin' && !(await isAdminRequest(request))) {
+  const actor = role === 'admin' ? await adminActor(request) : null
+  if (role === 'admin' && !actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const result = await updateLostStatus(id, status as LostStatus, actorId, role as SupportActor)
   if (!result.ok) {
     const code = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 409
     return NextResponse.json({ error: result.error }, { status: code })
+  }
+  if (actor) {
+    await recordAudit({
+      kind: 'ticket',
+      actor: actor.staffId,
+      actorName: actor.staffName,
+      refId: `lost:${id}`,
+      detail: `분실물 상태 변경 · ${result.item.itemType} → ${status}`,
+      after: { status: result.item.status },
+    }).catch(() => undefined)
   }
   return NextResponse.json({ ok: true, item: result.item })
 }

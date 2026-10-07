@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { isAdminRequest } from '@/lib/admin-auth'
+import { adminActor, isAdminRequest } from '@/lib/admin-auth'
 import {
   getCommissionRates,
   listSettlements,
@@ -120,7 +120,8 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  if (!(await isAdminRequest(request))) {
+  const actor = await adminActor(request)
+  if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const body = (await request.json().catch(() => null)) as {
@@ -150,7 +151,7 @@ export async function PATCH(request: Request) {
     }
     const before = await getAdminWallet()
     const adminWallet = await saveAdminWallet(address)
-    await recordAudit({ kind: 'wallet', actor: 'admin', reason, before: { address: before }, after: { address: adminWallet } }).catch(() => undefined)
+    await recordAudit({ kind: 'wallet', actor: actor.staffId, actorName: actor.staffName, reason, before: { address: before }, after: { address: adminWallet } }).catch(() => undefined)
     return NextResponse.json({ ok: true, adminWallet })
   }
 
@@ -184,14 +185,14 @@ export async function PATCH(request: Request) {
       status: 'confirmed',
       network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
     }).catch(() => undefined)
-    await recordAudit({ kind: 'deposit', actor: 'admin', refId: `deposit:${txid}`, reason, detail: `${fromWallet} → ${toWallet} · ${piRound(amount)}Pi`, after: { txid, amount: deposit.amount } }).catch(() => undefined)
+    await recordAudit({ kind: 'deposit', actor: actor.staffId, actorName: actor.staffName, refId: `deposit:${txid}`, reason, detail: `${fromWallet} → ${toWallet} · ${piRound(amount)}Pi`, after: { txid, amount: deposit.amount } }).catch(() => undefined)
     return NextResponse.json({ ok: true, deposit, depositTotal: await depositTotals() })
   }
 
   if (action === 'fare') {
     const before = await getFareConfig()
     const fare = await saveFareConfig((body?.fare ?? {}) as Partial<FareConfig>)
-    await recordAudit({ kind: 'fare', actor: 'admin', reason, before, after: fare }).catch(() => undefined)
+    await recordAudit({ kind: 'fare', actor: actor.staffId, actorName: actor.staffName, reason, before, after: fare }).catch(() => undefined)
     return NextResponse.json({ ok: true, fare })
   }
 
@@ -203,7 +204,7 @@ export async function PATCH(request: Request) {
     }
     const before = await getCommissionRates()
     const rates = await saveCommissionRates(next)
-    await recordAudit({ kind: 'rates', actor: 'admin', reason, before, after: rates }).catch(() => undefined)
+    await recordAudit({ kind: 'rates', actor: actor.staffId, actorName: actor.staffName, reason, before, after: rates }).catch(() => undefined)
     return NextResponse.json({ ok: true, rates })
   }
 
@@ -211,13 +212,13 @@ export async function PATCH(request: Request) {
     const id = typeof body?.id === 'string' ? body.id : ''
     const entry = await markSettlementSettled(id)
     if (!entry) return NextResponse.json({ error: 'not_found' }, { status: 404 })
-    await recordAudit({ kind: 'settle', actor: 'admin', entryId: entry.id, refId: entry.refId, reason, detail: `${entry.driverName || entry.driverId} · ${entry.gross}Pi`, after: { status: entry.status, settledAt: entry.settledAt } }).catch(() => undefined)
+    await recordAudit({ kind: 'settle', actor: actor.staffId, actorName: actor.staffName, entryId: entry.id, refId: entry.refId, reason, detail: `${entry.driverName || entry.driverId} · ${entry.gross}Pi`, after: { status: entry.status, settledAt: entry.settledAt } }).catch(() => undefined)
     return NextResponse.json({ ok: true, entry })
   }
 
   if (action === 'settle-all') {
     const count = await markAllSettlementsSettled()
-    await recordAudit({ kind: 'settle-all', actor: 'admin', reason, detail: `${count}건 일괄 정산` }).catch(() => undefined)
+    await recordAudit({ kind: 'settle-all', actor: actor.staffId, actorName: actor.staffName, reason, detail: `${count}건 일괄 정산` }).catch(() => undefined)
     return NextResponse.json({ ok: true, count })
   }
 
@@ -241,7 +242,7 @@ export async function PATCH(request: Request) {
     if (synced) await flushEscrowPersist()
     await recordAudit({
       kind: 'adjust',
-      actor: 'admin',
+      actor: actor.staffId, actorName: actor.staffName,
       entryId: entry.id,
       refId: entry.refId,
       reason,
@@ -265,7 +266,7 @@ export async function PATCH(request: Request) {
       if (syncEntryToEarning(entry)) synced += 1
     }
     if (synced) await flushEscrowPersist()
-    await recordAudit({ kind: 'reconcile', actor: 'admin', reason, detail: onlyDriverId ? `${onlyDriverId} 기사 ${synced}건 동기화` : `전체 ${synced}건 동기화` }).catch(() => undefined)
+    await recordAudit({ kind: 'reconcile', actor: actor.staffId, actorName: actor.staffName, reason, detail: onlyDriverId ? `${onlyDriverId} 기사 ${synced}건 동기화` : `전체 ${synced}건 동기화` }).catch(() => undefined)
     return NextResponse.json({ ok: true, synced })
   }
 

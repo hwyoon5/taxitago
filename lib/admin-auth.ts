@@ -1,10 +1,20 @@
 import { createHash, randomUUID, timingSafeEqual } from 'crypto'
 import { verifyTotpCode } from '@/lib/totp'
+import { staffVersion } from '@/lib/staff-store'
 
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000
 
+export type AdminActor = {
+  /** 감사 로그에 남는 식별자 — 마스터는 'master', 직원은 로그인 ID */
+  staffId: string
+  staffName: string
+  role: 'master' | 'manager' | 'staff'
+}
+
+const MASTER_ACTOR: AdminActor = { staffId: 'master', staffName: '최고 관리자', role: 'master' }
+
 type StoredPassword = { hash: string; salt: string; updatedAt: string }
-type SessionRecord = { v: number; exp: number }
+type SessionRecord = { v: number; exp: number; staffId?: string; staffName?: string; staffRole?: string; sv?: number }
 
 type AdminDb = {
   password: StoredPassword | null
@@ -123,9 +133,15 @@ export async function setupAdminPassword(newPassword: string) {
   return { ok: true as const }
 }
 
-export async function createAdminSession() {
+export async function createAdminSession(actor?: { staffId: string; staffName: string; staffRole: string }) {
   const token = randomUUID() + randomUUID().replace(/-/g, '')
   const record: SessionRecord = { v: await getVersion(), exp: Date.now() + SESSION_TTL_MS }
+  if (actor) {
+    record.staffId = actor.staffId
+    record.staffName = actor.staffName
+    record.staffRole = actor.staffRole
+    record.sv = await staffVersion().catch(() => 0)
+  }
   if (useKv) {
     await kvCommand(['SET', sessionKey(token), JSON.stringify(record), 'PX', SESSION_TTL_MS])
   } else {
@@ -159,19 +175,39 @@ export async function deleteAdminSession(token: string) {
   else db().sessions.delete(token)
 }
 
-export async function isAdminRequest(request: Request) {
+async function sessionActor(token: string): Promise<AdminActor | null> {
+  const session = await getSession(token)
+  if (!session) return null
+  if (session.exp < Date.now()) {
+    await deleteAdminSession(token)
+    return null
+  }
+  if (session.v !== (await getVersion())) return null
+  if (!session.staffId) return MASTER_ACTOR
+  // 직원 목록이 수정·삭제되면 버전이 올라 저장된 세션과 달라져 무효화된다.
+  if ((session.sv ?? -1) !== (await staffVersion().catch(() => -2))) {
+    await deleteAdminSession(token)
+    return null
+  }
+  return {
+    staffId: session.staffId,
+    staffName: session.staffName || session.staffId,
+    role: session.staffRole === 'manager' ? 'manager' : 'staff',
+  }
+}
+
+/** 요청이 관리자 권한을 가지는지 확인하고, 수행 주체(마스터/직원)를 반환한다. */
+export async function adminActor(request: Request): Promise<AdminActor | null> {
   const header = request.headers.get('x-admin-key')?.trim()
   const query = new URL(request.url).searchParams.get('key')?.trim()
   const provided = header || query || ''
-  if (!provided) return false
-  if (await verifyAdminPassword(provided)) return true
-  const session = await getSession(provided)
-  if (!session) return false
-  if (session.exp < Date.now()) {
-    await deleteAdminSession(provided)
-    return false
-  }
-  return session.v === (await getVersion())
+  if (!provided) return null
+  if (await verifyAdminPassword(provided)) return MASTER_ACTOR
+  return sessionActor(provided)
+}
+
+export async function isAdminRequest(request: Request) {
+  return Boolean(await adminActor(request))
 }
 
 export async function resetAdminPassword(code: string, newPassword: string) {
