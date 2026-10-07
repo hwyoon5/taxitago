@@ -5772,12 +5772,22 @@ function WalletModal({
   })
   const historySum = (match: (tx: (typeof transactions)[number]) => boolean) =>
     historyTransactions.filter(match).reduce((total, tx) => total + Math.abs(tx.amount), 0)
+  const historyCategorized = (tx: (typeof transactions)[number]) =>
+    (tx.label === 'Pi 충전' && tx.amount > 0) ||
+    (tx.label === 'Pi 환불' && tx.amount < 0) ||
+    (tx.label === '리뷰 적립' && tx.amount > 0) ||
+    (tx.amount < 0 && /택시|대리/.test(tx.label))
   const historyStats = [
     { label: '총 충전', value: historySum((tx) => tx.label === 'Pi 충전' && tx.amount > 0), tone: 'text-[#059669]' },
     { label: '총 출금·환불', value: historySum((tx) => tx.label === 'Pi 환불' && tx.amount < 0), tone: 'text-[#DC2626]' },
     { label: '총 리뷰 이벤트', value: historySum((tx) => tx.label === '리뷰 적립' && tx.amount > 0), tone: 'text-[#D97706]' },
     { label: '총 택시 이용', value: historySum((tx) => tx.amount < 0 && /택시|대리/.test(tx.label)), tone: 'text-[#2563EB]' },
   ]
+  // 분류되지 않는 나머지(택배·자전거·킥보드·EV·주차·취소 수수료 등)도 합계에 포함해
+  // 기초 잔액 + 전체 기간 순변동이 '사용 가능 잔액'과 정확히 일치하도록 한다.
+  const historyOtherNet = historyTransactions.filter((tx) => !historyCategorized(tx)).reduce((total, tx) => total + tx.amount, 0)
+  const historyNet = historyTransactions.reduce((total, tx) => total + tx.amount, 0)
+  const historyOpening = Math.round((balance - transactions.reduce((total, tx) => total + tx.amount, 0)) * 1_000_000) / 1_000_000
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end bg-[#241d35]/45 p-0 sm:p-4">
@@ -5987,7 +5997,22 @@ function WalletModal({
                     <p className={`mt-0.5 text-sm font-black tabular-nums ${stat.tone}`}>{stat.value.toFixed(7)} Pi</p>
                   </div>
                 ))}
+                <div className="col-span-2 rounded-xl bg-[#F8FAFC] px-3 py-2.5">
+                  <p className="text-[10px] font-bold text-[#64748B]">기타 결제·조정</p>
+                  <p className="mt-0.5 text-sm font-black tabular-nums text-[#475569]">
+                    {historyOtherNet >= 0 ? '+' : ''}{historyOtherNet.toFixed(7)} Pi
+                  </p>
+                </div>
               </div>
+              {historyRange === 'all' ? (
+                <p className="mt-2.5 rounded-xl bg-[#F1F5F9] px-3 py-2 text-[11px] font-black leading-4 text-[#334155]">
+                  기초 지급·조정 {historyOpening.toFixed(7)} + 기간 합계 {(historyNet >= 0 ? '+' : '')}{historyNet.toFixed(7)} = 현재 잔액 {balance.toFixed(7)} Pi
+                </p>
+              ) : (
+                <p className="mt-2.5 rounded-xl bg-[#F1F5F9] px-3 py-2 text-[11px] font-black text-[#334155]">
+                  기간 순변동 {(historyNet >= 0 ? '+' : '')}{historyNet.toFixed(7)} Pi
+                </p>
+              )}
             </section>
             {historyTransactions.length === 0 && (
               <p className="rounded-2xl border-2 border-dashed border-[#D8CCF5] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
