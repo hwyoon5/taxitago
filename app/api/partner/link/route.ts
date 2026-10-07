@@ -67,17 +67,25 @@ export async function DELETE(request: Request) {
     getPartnerLink(uid)?.wallet?.trim() ||
     ''
   const { userCreditTotals } = await import('@/lib/user-credit-store')
-  const totals = await userCreditTotals(wallet, uid).catch((error) => {
-    // 잔액 조회 실패는 탈퇴를 막지 않는다(인프라 장애로 이용자를 가두지 않음) —
-    // 대신 반드시 로그를 남겨 우회 여부를 추적할 수 있게 한다.
-    console.error('[Withdraw] balance lookup failed; proceeding without check', { uid, error })
-    return null
-  })
-  if (totals && totals.total > 0) {
-    console.warn('[Withdraw] blocked: remaining balance', { uid, total: totals.total })
+  // 잔액을 확인할 수 없으면 탈퇴 자체를 중단한다(fail-closed) — 조회 오류를
+  // 우회 수단으로 쓸 수 없게 하고, 인프라 장애 시엔 재시도를 요청한다.
+  let remaining = 0
+  try {
+    const totals = await userCreditTotals(wallet, uid)
+    // 비정상 값(NaN·undefined) 안전 장치 — 숫자로 정규화해 0 이하만 통과시킨다.
+    remaining = Number(totals.total) || 0
+  } catch (error) {
+    console.error('[Withdraw] balance lookup failed; withdrawal blocked', { uid, error })
+    return NextResponse.json(
+      { error: '보유 잔액을 확인하지 못해 탈퇴를 진행할 수 없습니다. 잠시 후 다시 시도해 주세요.' },
+      { status: 500 },
+    )
+  }
+  if (remaining > 0) {
+    console.warn('[Withdraw] blocked: remaining balance', { uid, total: remaining })
     return NextResponse.json(
       {
-        error: `보유 중인 파이 잔액(${piRound(totals.total)} Pi)이 남아있어 탈퇴할 수 없습니다. 잔액을 모두 출금하거나 소진한 후 다시 시도해 주세요.`,
+        error: `보유 중인 파이 잔액(${piRound(remaining)} Pi)이 남아있어 탈퇴할 수 없습니다. 잔액을 모두 출금하거나 소진한 후 다시 시도해 주세요.`,
       },
       { status: 400 },
     )
