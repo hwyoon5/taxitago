@@ -9236,9 +9236,10 @@ export default function HomeScreen() {
     try {
       await requestAccountWithdrawal(uid)
     } catch (error) {
-      // 잔액 잔존 등 서버가 돌려준 차단 사유를 이용자에게 보인다.
+      // 잔액 잔존 등 서버가 돌려준 차단 사유를 이용자에게 보인다 —
+      // 탈퇴는 진행되지 않고 삼키므로 모달도 추가 notice를 띄우지 않는다.
       showNotice(error instanceof Error ? error.message : '회원 탈퇴에 실패했어요.')
-      throw error
+      return
     }
     setIsPiLinked(false)
     saveIsPiLinked(false)
