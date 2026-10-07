@@ -5714,11 +5714,13 @@ function WalletModal({
   useEffect(() => {
     const identity = loadPiIdentity()
     const wallet = identity?.wallet?.trim() || ''
-    if (!isPiWalletAddress(wallet)) return
     const uid = identity?.uid?.trim() || ''
+    // uid만 있어도 폴러가 돌아야 한다 — 지갑 주소가 유사주소·미설정이면 서버가
+    // uid 귀속(fromUid·지갑↔uid 매핑)으로 입금을 찾아준다.
+    if (!uid && !isPiWalletAddress(wallet)) return
     let stopped = false
     const scan = () =>
-      scanPiDeposits(wallet, uid, (amount) => {
+      scanPiDeposits(isPiWalletAddress(wallet) ? wallet : '', uid, (amount) => {
         if (stopped) return
         onDeposit(amount)
         setProcess((prev) => (prev?.phase === 'pending' ? prev : { kind: 'charge', phase: 'done', amount }))
@@ -5951,6 +5953,17 @@ function WalletModal({
                   void chargePiWallet(amount)
                     .then((result) => {
                       const txid = typeof result?.txid === 'string' ? result.txid : ''
+                      // 서버 크레딧 보증 — after() 크레딧이나 스캐너가 놓쳐도 paymentId
+                      // 소유권 증명으로 입금을 내 uid에 귀속시킨다(txid 멱등).
+                      const claimUid = loadPiIdentity()?.uid?.trim() || ''
+                      const claimPaymentId = typeof result?.paymentId === 'string' ? result.paymentId : ''
+                      if (claimUid && claimPaymentId) {
+                        void fetch('/api/wallet/deposits', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ paymentId: claimPaymentId, txid, uid: claimUid }),
+                        }).catch(() => undefined)
+                      }
                       // 이미 Horizon 폴러가 온체인 입금으로 충전한 건이면 중복 반영하지 않는다.
                       if (!isPiDepositCredited(txid)) {
                         markPiDepositCredited(txid)
@@ -8994,11 +9007,12 @@ export default function HomeScreen() {
   useEffect(() => {
     const identity = loadPiIdentity()
     const wallet = identity?.wallet?.trim() || ''
-    if (!isPiWalletAddress(wallet)) return
     const uid = identity?.uid?.trim() || ''
+    // uid만 있어도 폴러가 돌아야 한다 — 서버가 uid 귀속으로 입금을 찾아준다.
+    if (!uid && !isPiWalletAddress(wallet)) return
     let stopped = false
     const scan = () =>
-      scanPiDeposits(wallet, uid, (amount) => {
+      scanPiDeposits(isPiWalletAddress(wallet) ? wallet : '', uid, (amount) => {
         if (stopped) return
         depositWallet(amount)
         showNotice(`${amount.toFixed(2)} Pi 입금 확인 — 지갑에 자동 충전되었습니다.`)

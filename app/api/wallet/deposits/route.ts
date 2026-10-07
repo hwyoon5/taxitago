@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { listDeposits } from '@/lib/deposit-store'
-import { scanInboundDeposits } from '@/lib/deposit-scan'
+import { creditInboundDeposit, scanInboundDeposits } from '@/lib/deposit-scan'
 import { creditUserDeposit, listUserCredits, userCreditTotals, walletsForUid } from '@/lib/user-credit-store'
 import { knownServiceTxids } from '@/lib/payment-kind-store'
+import { getPiPayment } from '@/lib/pi-platform'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,11 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams
   const from = (params.get('from') || '').trim()
   const uid = (params.get('uid') || '').trim()
+  console.log('[Deposit] GET /api/wallet/deposits', { from: from || '(none)', uid: uid || '(none)' })
+  // 식별자 없는 호출에는 전체 장부를 노출하지 않는다 — 이용자 조회 전용 엔드포인트.
+  if (!from && !uid) {
+    return NextResponse.json({ ok: true, deposits: [], configured: true })
+  }
   const scan = await scanInboundDeposits(from, uid)
   if (!scan.configured) {
     return NextResponse.json({ ok: true, deposits: [], configured: false })
@@ -36,12 +42,12 @@ export async function GET(request: Request) {
     if (entry.status !== 'confirmed') return false
     if (entry.toWallet !== adminWallet) return false
     if (serviceTxids.has(entry.txid)) return false
-    if (!from && !uid) return true
     return (
       entry.fromWallet === from ||
       (uid !== '' && (entry.fromUid === uid || linkedWallets.has(entry.fromWallet)))
     )
   })
+  console.log('[Deposit] GET matched', { total: entries.length, matched: matched.length, uid, linkedWallets: linkedWallets.size })
   // 반환되는 입금은 이용자 크레딧 귀속도 함께 보장한다 — 장부에 있는데
   // 크레딧이 빠진 과거 건도 여기서 복구된다(txid 멱등).
   const credits = await listUserCredits()
@@ -61,4 +67,61 @@ export async function GET(request: Request) {
   const creditsTotal = await userCreditTotals(from, uid)
   // balance — 서버 장부에 귀속된 해당 이용자의 누적 입금 잔액(크레딧 롤업).
   return NextResponse.json({ ok: true, configured: true, deposits, creditsTotal, balance: creditsTotal.total })
+}
+
+/**
+ * 이용자 셀프 클레임 — 충전 결제의 paymentId를 소유권 증명으로 써서 완료된
+ * 결제의 온체인 입금을 본인 uid에 귀속시킨다. 서버 after() 크레딧이 실패하거나
+ * 스캐너가 놓친 경우의 복구 경로. Pi 결제 객체의 user_uid가 호출자 uid와
+ * 일치해야만 크레딧된다 — 남의 paymentId로는 user_uid가 달라 거절된다.
+ */
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => null)) as {
+    paymentId?: unknown
+    txid?: unknown
+    uid?: unknown
+  } | null
+  const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
+  const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
+  const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
+  console.log('[Deposit] POST claim', { paymentId: paymentId || '(empty)', txid: txid || '(empty)', uid: uid || '(empty)' })
+  if (!paymentId || !uid) {
+    return NextResponse.json({ error: 'paymentId and uid required' }, { status: 400 })
+  }
+
+  const info = (await getPiPayment(paymentId).catch((error) => {
+    console.error('[Deposit] claim: payment lookup failed', { paymentId, error })
+    return null
+  })) as Record<string, unknown> | null
+  if (!info) return NextResponse.json({ error: 'payment lookup failed' }, { status: 502 })
+
+  const transaction = info.transaction && typeof info.transaction === 'object' ? (info.transaction as Record<string, unknown>) : null
+  const status = info.status && typeof info.status === 'object' ? (info.status as Record<string, unknown>) : null
+  const payUid = typeof info.user_uid === 'string' ? info.user_uid.trim() : ''
+  const payTxid = typeof transaction?.txid === 'string' ? transaction.txid.trim() : ''
+  const completed = status?.developer_completed === true || transaction?.verified === true
+
+  if (!payUid || payUid !== uid) {
+    console.warn('[Deposit] claim denied: uid mismatch', { paymentId, uid, payUid: payUid || '(none)' })
+    return NextResponse.json({ error: 'ownership not verifiable' }, { status: 403 })
+  }
+  if (!completed) {
+    return NextResponse.json({ error: 'payment not completed' }, { status: 409 })
+  }
+  const resolvedTxid = txid || payTxid
+  if (!resolvedTxid) return NextResponse.json({ error: 'txid unavailable' }, { status: 400 })
+  if (payTxid && txid && payTxid !== txid) {
+    console.warn('[Deposit] claim denied: txid mismatch', { paymentId, txid, payTxid })
+    return NextResponse.json({ error: 'txid mismatch' }, { status: 400 })
+  }
+
+  const deposit = await creditInboundDeposit({
+    txid: resolvedTxid,
+    uid: payUid,
+    fromAddress: typeof info.from_address === 'string' ? info.from_address : '',
+    amount: typeof info.amount === 'number' ? info.amount : undefined,
+    source: 'manual',
+  })
+  if (!deposit) return NextResponse.json({ error: 'deposit could not be credited' }, { status: 502 })
+  return NextResponse.json({ ok: true, deposit })
 }

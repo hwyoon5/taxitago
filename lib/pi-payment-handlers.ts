@@ -64,54 +64,22 @@ type PiPaymentInfo = {
  */
 async function creditWalletChargeDeposit(paymentId: string, txid: string, info: PiPaymentInfo) {
   try {
-    const [{ getAdminWallet }, { fetchInboundPaymentOp }, { creditUserDeposit, uidForWallet }] = await Promise.all([
-      import('@/lib/admin-wallet'),
-      import('@/lib/deposit-scan'),
-      import('@/lib/user-credit-store'),
-    ])
-    const adminWallet = (await getAdminWallet()).trim()
-    if (!adminWallet) return
-    const op = await fetchInboundPaymentOp(txid, adminWallet)
-    const fromAddress = typeof info?.from_address === 'string' ? info.from_address.trim() : ''
-    const from = op?.from || fromAddress
-    const amount = op?.amount && op.amount > 0 ? op.amount : typeof info?.amount === 'number' ? info.amount : 0
-    if (!from || !(amount > 0)) {
-      console.warn('[Pi] /api/pi/complete wallet-charge: no sender resolvable', { paymentId, txid })
-      return
-    }
     const infoUid = typeof info?.user_uid === 'string' ? info.user_uid.trim() : ''
     const metaUid =
       info?.metadata && typeof info.metadata.uid === 'string' ? (info.metadata.uid as string).trim() : ''
-    const uid = infoUid || metaUid || (await uidForWallet(from).catch(() => ''))
-    const [{ recordDeposit }, { recordWalletTx }] = await Promise.all([
-      import('@/lib/deposit-store'),
-      import('@/lib/wallet-history'),
-    ])
-    const deposit = await recordDeposit({
+    const { creditInboundDeposit } = await import('@/lib/deposit-scan')
+    const deposit = await creditInboundDeposit({
       txid,
-      fromWallet: from,
-      fromUid: uid || undefined,
-      toWallet: adminWallet,
-      amount,
-      status: 'confirmed',
-      seenAt: op?.createdAt,
-    }).catch(() => null)
-    if (!deposit) return
-    await Promise.all([
-      creditUserDeposit({ txid, wallet: deposit.fromWallet, uid: deposit.fromUid || uid, amount: deposit.amount, source: 'scan' }).catch(
-        () => undefined,
-      ),
-      recordWalletTx({
-        kind: 'deposit',
-        txid: deposit.txid,
-        fromWallet: deposit.fromWallet,
-        toWallet: deposit.toWallet,
-        amount: deposit.amount,
-        status: 'confirmed',
-        network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
-      }).catch(() => undefined),
-    ])
-    console.log('[Pi] /api/pi/complete wallet-charge credited', { paymentId, txid, from, amount, uid })
+      uid: infoUid || metaUid,
+      fromAddress: typeof info?.from_address === 'string' ? info.from_address : '',
+      amount: typeof info?.amount === 'number' ? info.amount : undefined,
+      source: 'scan',
+    })
+    if (!deposit) {
+      console.warn('[Pi] /api/pi/complete wallet-charge credit deferred', { paymentId, txid })
+      return
+    }
+    console.log('[Pi] /api/pi/complete wallet-charge credited', { paymentId, txid, from: deposit.fromWallet, amount: deposit.amount, uid: deposit.fromUid })
   } catch (error) {
     // 크레딧 기록 실패는 결제 완료 자체를 되돌리지 않는다 — 폴러 스캔이 복구한다.
     console.error('[Pi] /api/pi/complete wallet-charge credit failed', { paymentId, txid, error })
@@ -205,6 +173,7 @@ export async function handlePiComplete(request: Request) {
     // 응답 이후 백그라운드로 — maxDuration 초과로 함수가 kill돼 응답이 유실되거나
     // 장부가 반만 기록되는 사태를 막는다. 각 단계는 멱등이라 폴러가 복구도 한다.
     after(async () => {
+      console.log('[Pi] /api/pi/complete background work start', { paymentId, txid, metaKind })
       if (metaKind === 'wallet-charge') {
         await creditWalletChargeDeposit(paymentId, txid, info)
       }
@@ -219,6 +188,7 @@ export async function handlePiComplete(request: Request) {
       }).catch((settleError) => {
         console.error('[Pi] /api/pi/complete settlement record failed', { paymentId, settleError })
       })
+      console.log('[Pi] /api/pi/complete background work done', { paymentId, txid })
     })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {

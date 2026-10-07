@@ -208,7 +208,15 @@ export async function creditUserDeposit(input: {
   const wallet = (input.wallet || '').trim()
   const uid = (input.uid || '').trim()
   const amount = piRound(Number(input.amount))
-  if (!txid || (!wallet && !uid) || !Number.isFinite(amount) || amount <= 0) return null
+  if (!txid || (!wallet && !uid) || !Number.isFinite(amount) || amount <= 0) {
+    console.warn('[Deposit] creditUserDeposit skipped: invalid input', {
+      txid: txid || '(empty)',
+      wallet: wallet || '(empty)',
+      uid: uid || '(empty)',
+      amount,
+    })
+    return null
+  }
   const [entries, balances, wallets] = await Promise.all([readEntries(), readBalances(), readWallets()])
   // 실제 지갑주소↔uid 연결이 확인되면 매핑에 남긴다 — 이후 스캐너가 같은 지갑의
   // 입금을 uid로 귀속할 수 있게 된다.
@@ -257,6 +265,7 @@ export async function creditUserDeposit(input: {
   balances[key] = piRound((balances[key] || 0) + amount)
   await Promise.all([writeEntries(entries), writeBalances(balances)])
   await link(wallet, uid)
+  console.log('[Deposit] creditUserDeposit credited', { txid, wallet, uid: uid || '(none)', amount, source: entry.source })
   return entry
 }
 
