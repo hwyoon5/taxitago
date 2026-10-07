@@ -202,13 +202,24 @@ function piHorizonUrl() {
  */
 export async function verifyPiTxidOnChain(txid: string) {
   const url = `${piHorizonUrl()}/transactions/${encodeURIComponent(txid)}`
-  let response: Response
-  try {
-    response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15_000) })
-  } catch (error) {
-    console.warn('[Pi] horizon txid lookup unreachable; relying on Pi API verification', { txid, ...describeError(error) })
-    return
+  let response: Response | null = null
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15_000) })
+    } catch (error) {
+      console.warn('[Pi] horizon txid lookup unreachable; relying on Pi API verification', { txid, ...describeError(error) })
+      return
+    }
+    // 방금 브로드캐스트된 txid는 Horizon 인덱싱이 늦어 404가 날 수 있다 —
+    // 2초 기다렸다가 한 번만 재조회하고, 그래도 없으면 그때 거부한다.
+    if (response.status === 404 && attempt === 0) {
+      console.warn('[Pi] horizon txid 404; retrying once after indexing delay', { txid })
+      await new Promise((resolve) => setTimeout(resolve, 2_000))
+      continue
+    }
+    break
   }
+  if (!response) return
   if (response.status === 404) {
     console.error('[Pi] horizon txid not found', { txid })
     throw new Error('blockchain transaction not found')

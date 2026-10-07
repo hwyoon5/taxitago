@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { approvePiPayment, assertPiPaymentCompleted, completePiPayment, describeError, verifyPiTxidOnChain } from '@/lib/pi-platform'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 
@@ -175,19 +175,24 @@ export async function handlePiComplete(request: Request) {
         : kind
     const { markPaymentKind } = await import('@/lib/payment-kind-store')
     await markPaymentKind(txid, metaKind).catch(() => undefined)
-    if (metaKind === 'wallet-charge') {
-      await creditWalletChargeDeposit(paymentId, txid)
-    }
-    await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
-      console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
-    })
-    await recordServiceSettlement({
-      paymentId,
-      txid,
-      amount: typeof info?.amount === 'number' ? info.amount : fallbackAmount,
-      metadata: info?.metadata ?? fallbackMetadata,
-    }).catch((settleError) => {
-      console.error('[Pi] /api/pi/complete settlement record failed', { paymentId, settleError })
+    // 검증은 응답 전에 끝내고, 무거운 후속 작업(충전 크레딧·에스크로·정산 기록)은
+    // 응답 이후 백그라운드로 — maxDuration 초과로 함수가 kill돼 응답이 유실되거나
+    // 장부가 반만 기록되는 사태를 막는다. 각 단계는 멱등이라 폴러가 복구도 한다.
+    after(async () => {
+      if (metaKind === 'wallet-charge') {
+        await creditWalletChargeDeposit(paymentId, txid)
+      }
+      await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
+        console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
+      })
+      await recordServiceSettlement({
+        paymentId,
+        txid,
+        amount: typeof info?.amount === 'number' ? info.amount : fallbackAmount,
+        metadata: info?.metadata ?? fallbackMetadata,
+      }).catch((settleError) => {
+        console.error('[Pi] /api/pi/complete settlement record failed', { paymentId, settleError })
+      })
     })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
