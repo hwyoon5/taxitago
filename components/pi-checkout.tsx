@@ -223,8 +223,11 @@ async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Rec
 }
 
 const PI_CALL_TIMEOUT_MS = 8000
-/** 승인은 지갑 만료 창 안에서 끝나야 하므로 완료 호출보다 훨씬 짧게 제한한다. */
-const PI_APPROVE_SERVER_TIMEOUT_MS = 12_000
+/**
+ * 승인은 지갑 만료 창 안에서 끝나야 하지만, 느린 네트워크/콜드 스타트에서의
+ * 정상 승인까지 자르지 않도록 여유를 둔다(서버는 시도당 8초·최대 2회로 제한).
+ */
+const PI_APPROVE_SERVER_TIMEOUT_MS = 25_000
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
   return new Promise<T>((resolve, reject) => {
@@ -261,7 +264,7 @@ async function postPiApiRetry(path: '/api/pi/approve' | '/api/pi/complete', body
       logPi('warn', `${path} attempt ${attempt + 1} failed`, error)
       // 승인 재시도는 첫 시도가 빨리 실패했을 때만 의미가 있다 —
       // 이미 만료 창이 지난 뒤의 재시도는 지갑을 구하지 못한다.
-      const retryWorthIt = path !== '/api/pi/approve' || Date.now() - started < 5_000
+      const retryWorthIt = path !== '/api/pi/approve' || Date.now() - started < 8_000
       if (attempt < retries && retryWorthIt) await new Promise((resolve) => window.setTimeout(resolve, 1200))
       else break
     }

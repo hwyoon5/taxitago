@@ -2,6 +2,7 @@ import { Horizon } from '@stellar/stellar-sdk'
 import { getAdminWallet } from '@/lib/admin-wallet'
 import { isPiWalletAddress } from '@/lib/pi-wallet'
 import { recordDeposit } from '@/lib/deposit-store'
+import { creditUserDeposit } from '@/lib/user-credit-store'
 import { recordWalletTx } from '@/lib/wallet-history'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 
@@ -70,6 +71,14 @@ export async function scanInboundDeposits(viewerWallet = '', viewerUid = ''): Pr
         memo: deposit.memo,
         status: 'confirmed',
         network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
+      }).catch(() => undefined)
+      // 이용자 잔액 귀속 — 장부 기록과 같은 지점에서 반드시 남긴다(txid 멱등).
+      await creditUserDeposit({
+        txid: deposit.txid,
+        wallet: deposit.fromWallet,
+        uid: deposit.fromUid || (record.from === viewerWallet ? viewerUid : ''),
+        amount: deposit.amount,
+        source: 'scan',
       }).catch(() => undefined)
     }
   }

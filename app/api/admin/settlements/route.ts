@@ -18,6 +18,7 @@ import { getAdminWallet, saveAdminWallet } from '@/lib/admin-wallet'
 import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import { depositTotals, listDeposits, recordDeposit } from '@/lib/deposit-store'
 import { checkInboundPayment, scanInboundDeposits } from '@/lib/deposit-scan'
+import { creditUserDeposit, listUserCredits } from '@/lib/user-credit-store'
 import { listWalletTxs, recordWalletTx, walletTxTotals } from '@/lib/wallet-history'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import type { FareConfig } from '@/lib/fare-config'
@@ -88,7 +89,22 @@ export async function GET(request: Request) {
   await Promise.race([scanInboundDeposits(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000))]).catch(
     () => null,
   )
-  const [rates, entries, audit, fare, adminWallet, deposits, depositTotal, history, historyTotals] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig(), getAdminWallet(), listDeposits(), depositTotals(), listWalletTxs(), walletTxTotals()])
+  const [rates, entries, audit, fare, adminWallet, deposits, depositTotal, history, historyTotals, userCredits] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig(), getAdminWallet(), listDeposits(), depositTotals(), listWalletTxs(), walletTxTotals(), listUserCredits()])
+  // 크레딧 귀속 백필 — 입금은 기록됐는데 유저 크레딧이 빠진 과거 건을 복구한다(txid 멱등).
+  const seenCredit = new Set(userCredits.map((credit) => credit.txid))
+  for (const deposit of deposits) {
+    if (!deposit.txid || deposit.status !== 'confirmed' || seenCredit.has(deposit.txid)) continue
+    const credited = await creditUserDeposit({
+      txid: deposit.txid,
+      wallet: deposit.fromWallet,
+      uid: deposit.fromUid,
+      amount: deposit.amount,
+      source: 'scan',
+    }).catch(() => null)
+    if (credited) seenCredit.add(deposit.txid)
+  }
+  // 각 입금이 이용자 잔액에 귀속됐는지 관리자 화면에서 바로 확인할 수 있게 표시한다.
+  const depositsView = deposits.map((deposit) => ({ ...deposit, userCredited: seenCredit.has(deposit.txid) }))
   // Older ledger rows predate the passengerId column — resolve it from the
   // ride record so exports still show the passenger for every ride:* ref.
   await hydrateDispatchFromKv()
@@ -122,7 +138,7 @@ export async function GET(request: Request) {
     const passengerId = rideId ? getRide(rideId)?.passengerId : undefined
     return passengerId ? { ...entry, passengerId } : entry
   })
-  return NextResponse.json({ ok: true, rates, entries: enriched, summary: summarize(enriched), storage: settlementStorageBackend(), audit, fare, adminWallet, deposits, depositTotal, history, historyTotals })
+  return NextResponse.json({ ok: true, rates, entries: enriched, summary: summarize(enriched), storage: settlementStorageBackend(), audit, fare, adminWallet, deposits: depositsView, depositTotal, history, historyTotals })
 }
 
 export async function PATCH(request: Request) {
@@ -187,6 +203,14 @@ export async function PATCH(request: Request) {
       status: 'confirmed',
     })
     if (!deposit) return NextResponse.json({ error: '입금 기록에 실패했습니다.' }, { status: 400 })
+    // 수동 동기화도 보낸 지갑/uid 이용자의 잔액 귀속을 즉시 기록한다(txid 멱등).
+    await creditUserDeposit({
+      txid: deposit.txid,
+      wallet: deposit.fromWallet,
+      uid: deposit.fromUid,
+      amount: deposit.amount,
+      source: 'manual',
+    }).catch(() => undefined)
     await recordWalletTx({
       kind: 'deposit',
       txid: deposit.txid,

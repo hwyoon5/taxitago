@@ -15,13 +15,14 @@ function piPaymentUrl(paymentId: string, pathSuffix = '') {
 }
 
 /** GET/complete calls — not on the wallet expiry path, so they can afford a wider budget. */
-const PI_FETCH_TIMEOUT_MS = 30_000
+const PI_FETCH_TIMEOUT_MS = 45_000
 /**
- * Approve sits inside the Pi wallet's ~10s server-approval window — a hanging
- * call here is what makes the wallet show "결제가 만료되었습니다". Keep each
- * attempt short and retry once inside that window instead of one long stall.
+ * Approve sits inside the Pi wallet's server-approval window — a hanging
+ * call here is what makes the wallet show "결제가 만료되었습니다". Each
+ * attempt gets a generous 8s so slow-but-healthy Pi API responses still
+ * succeed, with one retry as a safety net.
  */
-const PI_APPROVE_TIMEOUT_MS = 4_500
+const PI_APPROVE_TIMEOUT_MS = 8_000
 const PI_APPROVE_ATTEMPTS = 2
 
 export function describeError(error: unknown): Record<string, unknown> {

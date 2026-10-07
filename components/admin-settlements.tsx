@@ -67,7 +67,7 @@ export default function AdminSettlements() {
   const [syncing, setSyncing] = useState(false)
   const [actionReason, setActionReason] = useState('')
   const [audit, setAudit] = useState<AuditEntry[]>([])
-  const [deposits, setDeposits] = useState<DepositEntry[]>([])
+  const [deposits, setDeposits] = useState<(DepositEntry & { userCredited?: boolean })[]>([])
   const [depositTotal, setDepositTotal] = useState<{ count: number; total: number } | null>(null)
   const [history, setHistory] = useState<WalletTxEntry[]>([])
   const [historyTotals, setHistoryTotals] = useState<{ deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number }; reward?: { count: number; total: number } } | null>(null)
@@ -320,6 +320,9 @@ export default function AdminSettlements() {
             {deposits.slice(0, 5).map((deposit) => (
               <p key={deposit.id} className="truncate text-[10px] font-bold text-[#3B82F6]">
                 {new Date(deposit.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · {deposit.amount.toFixed(7)} Pi · {deposit.fromWallet.slice(0, 12)}… → {deposit.toWallet.slice(0, 12)}…
+                <span className={`ml-1 rounded-full px-1.5 py-px text-[9px] font-black ${deposit.userCredited ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEE2E2] text-[#B91C1C]'}`}>
+                  {deposit.userCredited ? '잔액 반영' : '미반영'}
+                </span>
               </p>
             ))}
           </div>
