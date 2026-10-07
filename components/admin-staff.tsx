@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Pencil, Trash2, UserPlus, X } from 'lucide-react'
+import { Copy, Eye, EyeOff, KeyRound, Pencil, Trash2, UserPlus, X } from 'lucide-react'
 import { adminHeaders } from '@/lib/admin-key'
 import type { PublicStaff, StaffRole } from '@/lib/staff-store'
 
@@ -27,6 +27,9 @@ export default function AdminStaff() {
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<EditState | null>(null)
   const [form, setForm] = useState({ loginId: '', name: '', password: '', role: 'staff' as StaffRole })
+  const [showPw, setShowPw] = useState(false)
+  const [showEditPw, setShowEditPw] = useState(false)
+  const [tempPw, setTempPw] = useState<{ loginId: string; name: string; password: string } | null>(null)
 
   const tell = (message: string) => {
     setNotice(message)
@@ -104,9 +107,27 @@ export default function AdminStaff() {
       .finally(() => setBusy(false))
   }
 
+  const resetPassword = (row: PublicStaff) => {
+    if (busy) return
+    const temp = `Tt${Array.from(crypto.getRandomValues(new Uint8Array(6))).map((byte) => 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[byte % 55]).join('')}1!`
+    setBusy(true)
+    void fetch('/api/admin/staff', {
+      method: 'PATCH',
+      headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: row.id, password: temp }),
+    })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => null)) as { staff?: PublicStaff; error?: string } | null
+        if (!res.ok) throw new Error(data?.error || 'reset_failed')
+        setTempPw({ loginId: row.loginId, name: row.name, password: temp })
+      })
+      .catch((err) => fail(err instanceof Error ? err.message : 'reset_failed', '비밀번호 초기화에 실패했습니다.'))
+      .finally(() => setBusy(false))
+  }
+
   const remove = (row: PublicStaff) => {
     if (busy) return
-    if (!window.confirm(`직원 계정 ${row.loginId}(${row.name})을 삭제할까요? 해당 직원은 즉시 로그아웃되며 다시 로그인할 수 없습니다.`)) return
+    if (!window.confirm(`직원 계정 ${row.loginId}(${row.name})을 삭제할까요?\n\n해당 직원은 즉시 로그아웃되며 다시 로그인할 수 없습니다. 이 직원이 처리한 업무 로그(직원 ID 기록)는 삭제되지 않고 그대로 보존됩니다.`)) return
     setBusy(true)
     void fetch('/api/admin/staff', {
       method: 'DELETE',
@@ -156,13 +177,23 @@ export default function AdminStaff() {
             placeholder="이름"
             className="rounded-xl border-2 border-[#CBD5E1] px-3 py-2.5 text-sm font-bold outline-none focus:border-[#4C1FB8]"
           />
-          <input
-            type="password"
-            value={form.password}
-            onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-            placeholder="비밀번호 (8자 이상)"
-            className="rounded-xl border-2 border-[#CBD5E1] px-3 py-2.5 text-sm font-bold outline-none focus:border-[#4C1FB8]"
-          />
+          <div className="relative">
+            <input
+              type={showPw ? 'text' : 'password'}
+              value={form.password}
+              onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+              placeholder="비밀번호 (8자 이상)"
+              className="w-full rounded-xl border-2 border-[#CBD5E1] px-3 py-2.5 pr-10 text-sm font-bold outline-none focus:border-[#4C1FB8]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPw((prev) => !prev)}
+              aria-label={showPw ? '비밀번호 숨기기' : '비밀번호 보기'}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#4C1FB8]"
+            >
+              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
           <select
             value={form.role}
             onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value as StaffRole }))}
@@ -212,13 +243,23 @@ export default function AdminStaff() {
                     <option value="staff">직원</option>
                     <option value="manager">매니저</option>
                   </select>
-                  <input
-                    type="password"
-                    value={editing.password}
-                    onChange={(event) => setEditing((prev) => (prev ? { ...prev, password: event.target.value } : prev))}
-                    placeholder="새 비밀번호 (변경 시만 입력)"
-                    className="col-span-2 rounded-xl border-2 border-[#CBD5E1] bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#4C1FB8]"
-                  />
+                  <div className="relative col-span-2">
+                    <input
+                      type={showEditPw ? 'text' : 'password'}
+                      value={editing.password}
+                      onChange={(event) => setEditing((prev) => (prev ? { ...prev, password: event.target.value } : prev))}
+                      placeholder="새 비밀번호 (변경 시만 입력)"
+                      className="w-full rounded-xl border-2 border-[#CBD5E1] bg-white px-3 py-2 pr-10 text-sm font-bold outline-none focus:border-[#4C1FB8]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEditPw((prev) => !prev)}
+                      aria-label={showEditPw ? '비밀번호 숨기기' : '비밀번호 보기'}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#4C1FB8]"
+                    >
+                      {showEditPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-2 flex gap-2">
                   <button
@@ -261,6 +302,14 @@ export default function AdminStaff() {
                   </button>
                   <button
                     type="button"
+                    disabled={busy}
+                    onClick={() => resetPassword(row)}
+                    className="flex items-center gap-1 rounded-full border-2 border-[#FDE68A] bg-white px-2.5 py-1.5 text-[10px] font-black text-[#B45309] disabled:opacity-50"
+                  >
+                    <KeyRound size={11} /> 초기화
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => remove(row)}
                     className="flex items-center gap-1 rounded-full border-2 border-[#FCA5A5] bg-white px-2.5 py-1.5 text-[10px] font-black text-[#DC2626]"
                   >
@@ -272,6 +321,38 @@ export default function AdminStaff() {
           )}
         </div>
       </div>
+
+      {tempPw ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">
+          <div className="w-full max-w-sm rounded-[24px] bg-white p-5 shadow-2xl">
+            <p className="flex items-center gap-1.5 text-sm font-black text-[#4C1FB8]">
+              <KeyRound size={16} /> 임시 비밀번호 발급
+            </p>
+            <p className="mt-1 text-xs font-bold text-[#64748B]">
+              {tempPw.name}({tempPw.loginId}) 직원의 비밀번호가 초기화되었습니다. 아래 임시 비밀번호를 직원에게 안전하게 전달해 주세요. 이 창을 닫으면 다시 확인할 수 없습니다.
+            </p>
+            <div className="mt-3 flex items-center gap-2 rounded-2xl bg-[#F8F5FF] px-3 py-2.5">
+              <code className="flex-1 break-all text-sm font-black text-[#4C1FB8]">{tempPw.password}</code>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(tempPw.password).then(() => tell('임시 비밀번호를 복사했습니다.'))
+                }}
+                className="flex shrink-0 items-center gap-1 rounded-lg border-2 border-[#D8CCF5] bg-white px-2 py-1.5 text-[10px] font-black text-[#4C1FB8]"
+              >
+                <Copy size={12} /> 복사
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTempPw(null)}
+              className="mt-3 w-full rounded-xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white"
+            >
+              확인했습니다
+            </button>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
