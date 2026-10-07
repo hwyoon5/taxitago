@@ -49,5 +49,6 @@ export async function GET(request: Request) {
   }
   const deposits = matched.map((entry) => ({ ...entry, userCredited: creditedTxids.has(entry.txid) }))
   const creditsTotal = await userCreditTotals(from, uid)
-  return NextResponse.json({ ok: true, configured: true, deposits, creditsTotal })
+  // balance — 서버 장부에 귀속된 해당 이용자의 누적 입금 잔액(크레딧 롤업).
+  return NextResponse.json({ ok: true, configured: true, deposits, creditsTotal, balance: creditsTotal.total })
 }
