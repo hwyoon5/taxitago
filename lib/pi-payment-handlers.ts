@@ -97,23 +97,15 @@ async function creditWalletChargeDeposit(paymentId: string, txid: string) {
 }
 
 /**
- * 지갑 충전(내부 잔액 증가)은 샌드박스 폴백으로 속이면 안 된다 —
- * 실제 Pi Platform 승인/완료가 성공해야만 한다.
+ * 요청 body에서 결제 kind를 읽는다. body 값은 클라이언트가 자유롭게 쓸 수
+ * 있으므로 '입금 아님' 분류와 로깅에만 쓰고, 크레딧을 만드는 판정에는
+ * 서버가 조회한 결제 메타데이터(info.metadata.kind)를 쓴다.
  */
 function requestKind(body: Record<string, unknown> | null | undefined) {
   const kind = typeof body?.kind === 'string' ? body.kind.trim() : ''
   const metadata = body?.metadata && typeof body.metadata === 'object' ? (body.metadata as Record<string, unknown>) : null
   const metaKind = typeof metadata?.kind === 'string' ? metadata.kind.trim() : ''
   return kind || metaKind
-}
-
-function sandboxOk(kind: 'approve' | 'complete', paymentId: string, extra?: Record<string, string>) {
-  console.warn(`[Pi] /api/pi/${kind} sandbox fallback`, { paymentId, ...extra })
-  return NextResponse.json({
-    ok: true,
-    sandbox: true,
-    payment: { identifier: paymentId, ...extra },
-  })
 }
 
 export async function handlePiApprove(request: Request) {
@@ -135,8 +127,9 @@ export async function handlePiApprove(request: Request) {
     console.log('[Pi] /api/pi/approve ok', { paymentId })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
+    // 샌드박스 폴백 없음 — 승인 실패를 ok로 위장해도 Pi Platform이 승인하지
+    // 않은 결제는 지갑에서 어차피 만료되며, 진짜 오류만 로그에서 가려진다.
     const message = error instanceof Error ? error.message : 'approve failed'
-    if (isPiSandboxEnv() && kind !== 'wallet-charge') return sandboxOk('approve', paymentId)
     console.error('[Pi] /api/pi/approve error', { paymentId, kind, message, ...describeError(error) })
     return NextResponse.json({ error: message }, { status: errorStatus(message) })
   }
@@ -167,13 +160,24 @@ export async function handlePiComplete(request: Request) {
     assertPiPaymentCompleted(payment, paymentId, txid)
     await verifyPiTxidOnChain(txid)
     console.log('[Pi] /api/pi/complete verified', { paymentId, txid })
-    // kind는 Pi Platform이 보관하는 결제 메타데이터(서버가 조회한 원본)가 권위 —
-    // 클라이언트 body의 kind는 조작 가능하므로 fallback으로만 쓴다.
-    const metaKind =
+    // kind는 Pi Platform이 보관하는 결제 메타데이터(서버가 조회한 원본)가 권위.
+    // 서버 조회가 실패(info null)하거나 원본에 kind가 없으면 클라이언트 주장을
+    // '입금 아님' 방향으로만 받아들인다 — 서비스 결제로 분류하는 표시는 크레딧을
+    // 막기만 하지만, wallet-charge 주장은 크레딧을 만들므로 미검증이면 기록하지
+    // 않는다. 크레딧 없이 남은 진짜 입금은 입금 스캐너가 뒤늦게 처리한다.
+    const infoKind =
       info?.metadata && typeof info.metadata.kind === 'string' && info.metadata.kind.trim()
         ? info.metadata.kind.trim()
-        : kind
-    const { markPaymentKind } = await import('@/lib/payment-kind-store')
+        : ''
+    const { markPaymentKind, isDepositPaymentKind } = await import('@/lib/payment-kind-store')
+    const metaKind = infoKind || (isDepositPaymentKind(kind) ? '' : kind)
+    if (!infoKind && isDepositPaymentKind(kind) && kind) {
+      console.warn('[Pi] /api/pi/complete deposit-kind claim unverified; skipping mark+credit', {
+        paymentId,
+        txid,
+        claimedKind: kind,
+      })
+    }
     await markPaymentKind(txid, metaKind).catch(() => undefined)
     // 검증은 응답 전에 끝내고, 무거운 후속 작업(충전 크레딧·에스크로·정산 기록)은
     // 응답 이후 백그라운드로 — maxDuration 초과로 함수가 kill돼 응답이 유실되거나
@@ -196,14 +200,10 @@ export async function handlePiComplete(request: Request) {
     })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
+    // 샌드박스 폴백 없음 — 검증 실패(취소·txid 불일치·체인 거부)를 ok로 위장해
+    // 에스크로/정산을 기록하는 것은 가짜 '처리됨' 상태를 만든다. 실제 체인 결제가
+    // 된 경우는 입금 스캐너·미완료 결제 복구가 잡아낸다.
     const message = error instanceof Error ? error.message : 'complete failed'
-    if (isPiSandboxEnv() && kind !== 'wallet-charge') {
-      await lockRideEscrowFromPayment(paymentId, txid, fallbackMetadata).catch(() => null)
-      await recordServiceSettlement({ paymentId, txid, amount: fallbackAmount, metadata: fallbackMetadata }).catch(
-        () => null,
-      )
-      return sandboxOk('complete', paymentId, { txid })
-    }
     console.error('[Pi] /api/pi/complete error', { paymentId, txid, kind, message, ...describeError(error) })
     return NextResponse.json({ error: message }, { status: errorStatus(message) })
   }

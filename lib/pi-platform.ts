@@ -151,7 +151,9 @@ export async function approvePiPayment(paymentId: string) {
 export async function completePiPayment(paymentId: string, txid: string) {
   const infoPromise = getPiPayment(paymentId).catch(() => null)
   const payment = await piPaymentsRequest(paymentId, 'POST', '/complete', { txid })
-  const info = await infoPromise
+  // info는 결제 kind의 권위 있는 출처 — 1차 GET이 실패하면 한 번 더 조회해
+  // 클라이언트 주장 kind에 의존해야 하는 경우를 줄인다.
+  const info = (await infoPromise) ?? (await getPiPayment(paymentId).catch(() => null))
   return { payment, info }
 }
 
