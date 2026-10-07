@@ -5,6 +5,20 @@ export type PiIdentity = {
   uid: string
   username: string
   wallet: string
+  /** Pi authenticate 결과의 이용자 토큰 — 서버측 재검증 자격증명. */
+  accessToken?: string
+}
+
+/** 개발용 샌드박스 세션 uid — 테스트넷 환경에서만 서버가 토큰 없이 통과시킨다. */
+export const SANDBOX_PI_UID = 'sandbox-uid-taxitago'
+
+/**
+ * 호출 등 보호 기능의 인증 게이트 — 실제 Pi 토큰이 실린 세션이거나
+ * 개발용 샌드박스 세션만 통과한다. 토큰 없는 구형 세션은 재로그인이 필요하다.
+ */
+export function hasPiCallCredential(identity: PiIdentity | null | undefined) {
+  if (!identity?.uid) return false
+  return Boolean(identity.accessToken?.trim()) || identity.uid === SANDBOX_PI_UID
 }
 
 export type PartnerProfile = PiIdentity & {

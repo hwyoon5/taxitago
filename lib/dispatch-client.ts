@@ -7,6 +7,25 @@ async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T
 }
 
+export const PI_AUTH_REQUIRED_MESSAGE = 'Pi 계정 연동 및 로그인 후 이용해 주세요.'
+
+/**
+ * 세션에 저장된 Pi 인증 자격증명 — partner-account를 import하면 순환 참조가
+ * 생기므로 같은 localStorage 키를 직접 읽는다. 서버는 이 헤더를 /v2/me로 재검증한다.
+ */
+function piSessionCredential(): { uid: string; accessToken: string } | null {
+  try {
+    const raw = window.localStorage.getItem('taxitago-pi-session')
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { uid?: unknown; accessToken?: unknown }
+    const uid = typeof parsed?.uid === 'string' ? parsed.uid.trim() : ''
+    if (!uid) return null
+    return { uid, accessToken: typeof parsed?.accessToken === 'string' ? parsed.accessToken.trim() : '' }
+  } catch {
+    return null
+  }
+}
+
 export async function createRideRequest(input: {
   passengerId: string
   kind?: 'taxi' | 'daeri'
@@ -20,9 +39,15 @@ export async function createRideRequest(input: {
   destLabel?: string
   estimatedFare?: number
 }): Promise<PublicRide> {
+  const credential = piSessionCredential()
+  if (!credential) throw new Error(PI_AUTH_REQUIRED_MESSAGE)
   const res = await apiFetch('/api/rides', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Pi-Uid': credential.uid,
+      ...(credential.accessToken ? { 'X-Pi-Access-Token': credential.accessToken } : {}),
+    },
     body: JSON.stringify(input),
   })
   const data = await readJson<{ ride?: PublicRide; error?: string }>(res)

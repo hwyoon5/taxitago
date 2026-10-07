@@ -8,6 +8,8 @@ import { avoidSurchargePi, avoidZoneScore, hydrateAvoidFromKv } from '@/lib/avoi
 import { isUsableCoord } from '@/lib/ride-session'
 import { getFareConfig } from '@/lib/fare-config-server'
 import { piRound } from '@/lib/pi-format'
+import { verifyPiAccessToken } from '@/lib/pi-platform'
+import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,6 +42,27 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   ensureSeedDrivers()
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  // 비회원 호출 원천 차단 — 세션의 Pi uid + accessToken을 /v2/me로 재검증한다.
+  // 개발용 샌드박스 세션은 테스트넷 환경에서만 토큰 없이 통과한다.
+  const piUid =
+    request.headers.get('x-pi-uid')?.trim() ||
+    (typeof body?.piUid === 'string' ? body.piUid.trim() : '')
+  const piToken =
+    request.headers.get('x-pi-access-token')?.trim() ||
+    (typeof body?.piAccessToken === 'string' ? body.piAccessToken.trim() : '')
+  if (!piUid) {
+    return NextResponse.json({ error: 'Pi 계정 연동 및 로그인 후 이용해 주세요.' }, { status: 401 })
+  }
+  const sandboxSession = isPiSandboxEnv() && piUid === 'sandbox-uid-taxitago'
+  if (!sandboxSession) {
+    if (!piToken) {
+      return NextResponse.json({ error: 'Pi 계정 연동 및 로그인 후 이용해 주세요.' }, { status: 401 })
+    }
+    const verifiedUid = await verifyPiAccessToken(piToken)
+    if (!verifiedUid || verifiedUid !== piUid) {
+      return NextResponse.json({ error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' }, { status: 401 })
+    }
+  }
   const pickup = asPoint(body?.pickupLat, body?.pickupLng, { address: body?.pickupAddress })
   const dest = asPoint(body?.destLat, body?.destLng, { address: body?.destAddress, label: body?.destLabel })
   const passengerId = typeof body?.passengerId === 'string' ? body.passengerId.trim() : ''

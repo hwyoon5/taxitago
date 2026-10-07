@@ -360,6 +360,8 @@ export type PiSession = {
   uid: string
   username: string
   wallet: string
+  /** Pi authenticate 결과의 이용자 토큰 — 서버가 /v2/me로 재검증하는 자격증명. */
+  accessToken?: string
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -390,7 +392,8 @@ export function parsePiAuthResult(auth: unknown): PiSession | null {
     pickString(user, ['walletAddress', 'wallet_address', 'wallet']) ||
     pickString(root, ['walletAddress', 'wallet_address', 'wallet']) ||
     walletFromPiUid(uid)
-  return { uid, username, wallet }
+  const accessToken = pickString(root, ['accessToken', 'access_token']) || undefined
+  return { uid, username, wallet, accessToken }
 }
 
 /** Pi Sign-in: returns unique UID + wallet for partner profile / settlement. */

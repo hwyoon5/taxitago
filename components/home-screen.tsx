@@ -21,6 +21,7 @@ import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveF
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import {
   appendSettlementEntry,
+  hasPiCallCredential,
   loadPartnerProfile,
   loadPiIdentity,
   partnerVehicle,
@@ -9037,6 +9038,7 @@ export default function HomeScreen() {
     }
     setMoreOpen(false)
     if (value === '대리운전') {
+      if (!requirePiForCall()) return
       const gap = routeGap(origin.address, destination)
       if (gap) {
         setRouteAlert(gap)
@@ -9071,7 +9073,18 @@ export default function HomeScreen() {
       writeRideSession({ dest: place })
     })
   }
+  /**
+   * 호출 진입 인증 게이트 — Pi 토큰이 실린 연동 세션이 없으면 호출을 차단하고
+   * 계정 연동 모달로 보낸다. 서버도 동일 자격을 /v2/me로 재검증한다.
+   */
+  const requirePiForCall = () => {
+    if (hasPiCallCredential(loadPiIdentity())) return true
+    showNotice('Pi 계정 연동 및 로그인 후 이용해 주세요.')
+    setHeaderModal('account')
+    return false
+  }
   const startTaxiCall = async (skipLongCheck = false) => {
+    if (!requirePiForCall()) return
     const gap = routeGap(origin.address, destination)
     if (gap) {
       setRouteAlert(gap)

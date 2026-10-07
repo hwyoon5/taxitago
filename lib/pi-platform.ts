@@ -257,6 +257,32 @@ export function assertPiPaymentCompleted(payment: unknown, paymentId: string, tx
   }
 }
 
+/**
+ * Pi accessToken 서버 검증 — `/v2/me`는 서비스 Key가 아니라 이용자 토큰을
+ * Bearer로 받는다. 유효하면 토큰 소유자의 Pi uid, 아니면 null을 돌려준다.
+ * 장애·타임아웃도 null(fail-closed) — 인증 확인이 불가한 호출을 통과시키지 않는다.
+ */
+export async function verifyPiAccessToken(accessToken: string): Promise<string | null> {
+  const token = accessToken.trim()
+  if (!token) return null
+  try {
+    const res = await fetch('https://api.minepi.com/v2/me', {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8_000),
+    })
+    if (!res.ok) {
+      console.warn('[Pi] access token rejected', { status: res.status })
+      return null
+    }
+    const data = (await res.json().catch(() => null)) as { uid?: unknown } | null
+    return typeof data?.uid === 'string' && data.uid.trim() ? data.uid.trim() : null
+  } catch (error) {
+    console.error('[Pi] access token verification failed', error)
+    return null
+  }
+}
+
 function piHorizonUrl(sandboxHint?: boolean | null) {
   const override = (process.env.PI_HORIZON_URL || '').trim()
   if (override) return override
