@@ -212,12 +212,29 @@ function waitForPi(timeoutMs = 12000) {
   })
 }
 
+/**
+ * Pi Browser가 지갑 시트를 띄우는 동안 페이지 fetch가 스로틀/서스펜드될 수
+ * 있다 — 서버가 승인 요청을 "아예 못 받는" 상황을 막기 위해 sendBeacon으로
+ * 같은 payload를 OS 큐에 한 번 더 실어둔다(서버 승인은 멱등이라 중복 안전).
+ */
+function beaconPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, unknown>) {
+  try {
+    if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return
+    const queued = navigator.sendBeacon(`${path}/`, new Blob([JSON.stringify(body)], { type: 'application/json' }))
+    logPi('log', `${path} beacon`, { queued })
+  } catch (error) {
+    logPi('warn', `${path} beacon failed`, error)
+  }
+}
+
 async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, unknown>) {
   logPi('log', `${path} request`, body)
   const response = await apiFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    // keepalive: 지갑 모달로 페이지가 백그라운드돼도 요청이 끝까지 전달된다.
+    keepalive: true,
   })
   const payload = (await response.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
   if (!response.ok || payload?.ok !== true) {
@@ -651,6 +668,8 @@ export async function startPiCheckout(options: {
             finishError('approve missing paymentId', paymentIdArg)
             return Promise.resolve()
           }
+          // 지갑 시트가 뜨는 동안 페이지 fetch가 멈출 수 있어 beacon을 먼저 실어둔다.
+          beaconPiApi('/api/pi/approve', { paymentId, kind: checkoutKind(payment.metadata) })
           if (options.advanceOnApproval && approvedTxid) succeed({ paymentId, txid: approvedTxid })
           return postPiApiRetry('/api/pi/approve', { paymentId, kind: checkoutKind(payment.metadata) })
             .then((payload) => {
@@ -681,6 +700,13 @@ export async function startPiCheckout(options: {
             return Promise.resolve()
           }
           if (!txid) return Promise.resolve()
+          beaconPiApi('/api/pi/complete', {
+            paymentId,
+            txid,
+            amount,
+            metadata: payment.metadata,
+            kind: checkoutKind(payment.metadata),
+          })
           return postPiApiRetry('/api/pi/complete', {
             paymentId,
             txid,
