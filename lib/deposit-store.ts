@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { piRound } from '@/lib/pi-format'
+import { kvCommand, kvConfigured } from '@/lib/kv'
 
 export type DepositEntry = {
   id: string
@@ -17,10 +18,7 @@ export type DepositEntry = {
   createdAt: string
 }
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
-
+const useKv = kvConfigured
 const ENTRIES_KEY = 'taxitago:deposits'
 const MAX_ENTRIES = 2000
 const filePath = path.join(process.cwd(), 'data', 'deposits.json')
@@ -47,38 +45,40 @@ function writeFileEntries(entries: DepositEntry[]) {
   }
 }
 
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
-}
-
+/**
+ * KV 읽기 실패는 인스턴스 로컬 캐시로 폴백한다 — 일시적 KV 장애가
+ * 장부 조회/기록 경로를 통째로 500으로 죽이는 것을 막는다.
+ */
 async function readEntries(): Promise<DepositEntry[]> {
   if (useKv) {
-    const raw = await kvCommand<string | null>(['GET', ENTRIES_KEY])
-    if (!raw) return []
     try {
+      const raw = await kvCommand<string | null>(['GET', ENTRIES_KEY])
+      if (!raw) return []
       const parsed = JSON.parse(raw) as DepositEntry[]
       return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
+    } catch (error) {
+      console.error('[Deposit] kv read failed; using local fallback', error)
+      if (!globalStore.__taxitagoDeposits!.length) globalStore.__taxitagoDeposits = readFileEntries()
+      return globalStore.__taxitagoDeposits!
     }
   }
   if (!globalStore.__taxitagoDeposits!.length) globalStore.__taxitagoDeposits = readFileEntries()
   return globalStore.__taxitagoDeposits!
 }
 
+/**
+ * KV 쓰기 실패 시에도 로컬에 기록하고 계속 진행한다 — 스캐너가 같은 txid를
+ * 다시 보면 멱등 재기록으로 KV 회복 후 자동 복구된다. 에러는 반드시 로그.
+ */
 async function writeEntries(entries: DepositEntry[]) {
   const trimmed = entries.slice(-MAX_ENTRIES)
   if (useKv) {
-    await kvCommand(['SET', ENTRIES_KEY, JSON.stringify(trimmed)])
-    return
+    try {
+      await kvCommand(['SET', ENTRIES_KEY, JSON.stringify(trimmed)])
+      return
+    } catch (error) {
+      console.error('[Deposit] kv write failed; falling back to local store', error)
+    }
   }
   globalStore.__taxitagoDeposits = trimmed
   writeFileEntries(trimmed)

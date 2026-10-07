@@ -17,12 +17,18 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams
   const from = (params.get('from') || '').trim()
   const uid = (params.get('uid') || '').trim()
-  console.log('[Deposit] GET /api/wallet/deposits', { from: from || '(none)', uid: uid || '(none)' })
+  const sandboxParam = (params.get('sandbox') || '').trim().toLowerCase()
+  const sandboxHint = sandboxParam === 'true' ? true : sandboxParam === 'false' ? false : null
+  console.log('[Deposit] GET /api/wallet/deposits', { from: from || '(none)', uid: uid || '(none)', sandboxHint })
   // 식별자 없는 호출에는 전체 장부를 노출하지 않는다 — 이용자 조회 전용 엔드포인트.
   if (!from && !uid) {
     return NextResponse.json({ ok: true, deposits: [], configured: true })
   }
-  const scan = await scanInboundDeposits(from, uid)
+  // 스캔 자체의 예외가 라우트를 500으로 죽이지 않게 방어한다.
+  const scan = await scanInboundDeposits(from, uid, sandboxHint).catch((error) => {
+    console.error('[Deposit] GET scan threw', error)
+    return { configured: true, scanned: 0, scanError: true, adminWallet: '' }
+  })
   if (!scan.configured) {
     return NextResponse.json({ ok: true, deposits: [], configured: false })
   }
@@ -123,6 +129,7 @@ export async function POST(request: Request) {
     fromAddress: typeof info.from_address === 'string' ? info.from_address : '',
     amount: typeof info.amount === 'number' ? info.amount : undefined,
     source: 'manual',
+    sandboxHint,
   })
   if (!deposit) return NextResponse.json({ error: 'deposit could not be credited' }, { status: 502 })
   return NextResponse.json({ ok: true, deposit })

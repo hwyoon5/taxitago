@@ -62,7 +62,7 @@ type PiPaymentInfo = {
  * user_uid가 권위 — 클라이언트 body의 값은 쓰지 않는다. Horizon op 조회가
  * 실패해도 Pi 응답의 from_address/amount로 폴백해 크레딧을 놓치지 않는다.
  */
-async function creditWalletChargeDeposit(paymentId: string, txid: string, info: PiPaymentInfo) {
+async function creditWalletChargeDeposit(paymentId: string, txid: string, info: PiPaymentInfo, sandboxHint?: boolean | null) {
   try {
     const infoUid = typeof info?.user_uid === 'string' ? info.user_uid.trim() : ''
     const metaUid =
@@ -74,6 +74,7 @@ async function creditWalletChargeDeposit(paymentId: string, txid: string, info: 
       fromAddress: typeof info?.from_address === 'string' ? info.from_address : '',
       amount: typeof info?.amount === 'number' ? info.amount : undefined,
       source: 'scan',
+      sandboxHint,
     })
     if (!deposit) {
       console.warn('[Pi] /api/pi/complete wallet-charge credit deferred', { paymentId, txid })
@@ -200,7 +201,7 @@ export async function handlePiComplete(request: Request) {
     after(async () => {
       console.log('[Pi] /api/pi/complete background work start', { paymentId, txid, metaKind })
       if (metaKind === 'wallet-charge') {
-        await creditWalletChargeDeposit(paymentId, txid, info)
+        await creditWalletChargeDeposit(paymentId, txid, info, sandboxHint)
       }
       await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
         console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })

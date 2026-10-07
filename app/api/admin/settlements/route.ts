@@ -87,9 +87,10 @@ export async function GET(request: Request) {
   }
   // 관리자 화면을 여는 것만으로도 체인 입금을 다시 스캔해 장부에 반영한다 —
   // 스캔이 느려도 화면 로딩이 밀리지 않도록 소프트 타임아웃을 둔다.
-  await Promise.race([scanInboundDeposits(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000))]).catch(
-    () => null,
-  )
+  await Promise.race([
+    scanInboundDeposits(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
+  ]).catch((error) => console.error('[Deposit] admin settlements scan failed', error))
   const [rates, entries, audit, fare, adminWallet, deposits, depositTotal, history, historyTotals, userCredits] = await Promise.all([getCommissionRates(), listSettlements(), listAudit(), getFareConfig(), getAdminWallet(), listDeposits(), depositTotals(), listWalletTxs(), walletTxTotals(), listUserCredits()])
   // 크레딧 귀속 백필 — 입금은 기록됐는데 유저 크레딧이 빠진 과거 건을 복구한다(txid 멱등).
   // 단, 서비스 결제로 확정된 txid는 입금이 아니므로 크레딧하지 않는다.
@@ -103,7 +104,10 @@ export async function GET(request: Request) {
       uid: deposit.fromUid,
       amount: deposit.amount,
       source: 'scan',
-    }).catch(() => null)
+    }).catch((error) => {
+      console.error('[Deposit] admin backfill credit failed', { txid: deposit.txid, error })
+      return null
+    })
     if (credited) seenCredit.add(deposit.txid)
   }
   // 각 입금이 이용자 잔액에 귀속됐는지 관리자 화면에서 바로 확인할 수 있게 표시한다.
@@ -201,7 +205,10 @@ export async function PATCH(request: Request) {
     const toWallet = await getAdminWallet()
     // 체인에 실제 존재하는 입금인지 교차 확인 — 불일치(실패 tx, 다른 입금)는 기록하지 않는다.
     // unknown(전파 지연/Horizon 장애)은 관리자 판단으로 기록을 허용하고 상태를 표시한다.
-    const chainStatus = await checkInboundPayment({ txid, from: fromWallet, to: toWallet, amount }).catch(() => 'unknown' as const)
+    const chainStatus = await checkInboundPayment({ txid, from: fromWallet, to: toWallet, amount }).catch((error) => {
+      console.warn('[Deposit] admin manual deposit chain check failed', { txid, error })
+      return 'unknown' as const
+    })
     if (chainStatus === 'mismatch') {
       return NextResponse.json({ error: '체인에서 확인된 입금 정보(보낸 주소·수신 주소·금액)와 일치하지 않습니다.', chainStatus }, { status: 400 })
     }

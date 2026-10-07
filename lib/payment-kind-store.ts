@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
+import { kvCommand, kvConfigured } from '@/lib/kv'
 
 /**
  * txid → 결제 kind 레지스트리.
@@ -8,10 +9,7 @@ import path from 'path'
  * 이중 크레딧을 막는 안전장치다.
  */
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
-
+const useKv = kvConfigured
 const KINDS_KEY = 'taxitago:payment-kinds'
 const MAX_ENTRIES = 4000
 const filePath = path.join(process.cwd(), 'data', 'payment-kinds.json')
@@ -38,27 +36,17 @@ function writeFileMap(kinds: Record<string, string>) {
   }
 }
 
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
-}
-
 async function readKinds(): Promise<Record<string, string>> {
   if (useKv) {
-    const raw = await kvCommand<string | null>(['GET', KINDS_KEY])
-    if (!raw) return {}
     try {
+      const raw = await kvCommand<string | null>(['GET', KINDS_KEY])
+      if (!raw) return {}
       const parsed = JSON.parse(raw) as Record<string, string>
       return parsed && typeof parsed === 'object' ? parsed : {}
-    } catch {
-      return {}
+    } catch (error) {
+      console.error('[Pi] payment-kinds kv read failed; using local fallback', error)
+      if (!Object.keys(globalStore.__taxitagoPaymentKinds!).length) globalStore.__taxitagoPaymentKinds = readFileMap()
+      return globalStore.__taxitagoPaymentKinds!
     }
   }
   if (!Object.keys(globalStore.__taxitagoPaymentKinds!).length) globalStore.__taxitagoPaymentKinds = readFileMap()
@@ -69,8 +57,12 @@ async function writeKinds(kinds: Record<string, string>) {
   const keys = Object.keys(kinds)
   const trimmed = keys.length > MAX_ENTRIES ? Object.fromEntries(keys.slice(-MAX_ENTRIES).map((k) => [k, kinds[k]])) : kinds
   if (useKv) {
-    await kvCommand(['SET', KINDS_KEY, JSON.stringify(trimmed)])
-    return
+    try {
+      await kvCommand(['SET', KINDS_KEY, JSON.stringify(trimmed)])
+      return
+    } catch (error) {
+      console.error('[Pi] payment-kinds kv write failed; falling back to local', error)
+    }
   }
   globalStore.__taxitagoPaymentKinds = trimmed
   writeFileMap(trimmed)

@@ -751,7 +751,10 @@ function isPiDepositCredited(txid: string) {
 async function scanPiDeposits(wallet: string, uid: string, onCredit: (amount: number, txid: string) => void) {
   try {
     const uidParam = uid ? `&uid=${encodeURIComponent(uid)}` : ''
-    const res = await fetch(`/api/wallet/deposits?from=${encodeURIComponent(wallet)}${uidParam}`, { cache: 'no-store' })
+    const res = await fetch(
+      `/api/wallet/deposits?from=${encodeURIComponent(wallet)}${uidParam}&sandbox=${PI_SANDBOX}`,
+      { cache: 'no-store' },
+    )
     const data = (await res.json().catch(() => null)) as { deposits?: { txid: string; amount: number }[] } | null
     if (!res.ok || !data?.deposits) return
     for (const deposit of data.deposits) {

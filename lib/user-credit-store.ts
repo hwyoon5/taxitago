@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { piRound } from '@/lib/pi-format'
+import { kvCommand, kvConfigured } from '@/lib/kv'
 
 export type UserCreditEntry = {
   id: string
@@ -15,10 +16,7 @@ export type UserCreditEntry = {
   creditedAt: string
 }
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
-
+const useKv = kvConfigured
 const ENTRIES_KEY = 'taxitago:user-credits'
 const BALANCES_KEY = 'taxitago:user-balances'
 /** 실제 온체인 지갑주소 → Pi uid — 스캐너가 후속 입금의 귀속을 판별할 때 쓴다. */
@@ -75,27 +73,18 @@ function writeFileBalances(balances: Record<string, number>) {
   }
 }
 
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
-}
-
+/** KV 읽기 실패 시 로컬 캐시 폴백 — 장애가 조회/기록 경로를 죽이지 않게 한다. */
 async function readEntries(): Promise<UserCreditEntry[]> {
   if (useKv) {
-    const raw = await kvCommand<string | null>(['GET', ENTRIES_KEY])
-    if (!raw) return []
     try {
+      const raw = await kvCommand<string | null>(['GET', ENTRIES_KEY])
+      if (!raw) return []
       const parsed = JSON.parse(raw) as UserCreditEntry[]
       return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
+    } catch (error) {
+      console.error('[Deposit] user-credit kv read failed; using local fallback', error)
+      if (!globalStore.__taxitagoUserCredits!.length) globalStore.__taxitagoUserCredits = readFileEntries()
+      return globalStore.__taxitagoUserCredits!
     }
   }
   if (!globalStore.__taxitagoUserCredits!.length) globalStore.__taxitagoUserCredits = readFileEntries()
@@ -105,8 +94,12 @@ async function readEntries(): Promise<UserCreditEntry[]> {
 async function writeEntries(entries: UserCreditEntry[]) {
   const trimmed = entries.slice(-MAX_ENTRIES)
   if (useKv) {
-    await kvCommand(['SET', ENTRIES_KEY, JSON.stringify(trimmed)])
-    return
+    try {
+      await kvCommand(['SET', ENTRIES_KEY, JSON.stringify(trimmed)])
+      return
+    } catch (error) {
+      console.error('[Deposit] user-credit kv write failed; falling back to local', error)
+    }
   }
   globalStore.__taxitagoUserCredits = trimmed
   writeFileEntries(trimmed)
@@ -114,10 +107,16 @@ async function writeEntries(entries: UserCreditEntry[]) {
 
 async function readBalances(): Promise<Record<string, number>> {
   if (useKv) {
-    const raw = await kvCommand<Record<string, number> | string | null>(['GET', BALANCES_KEY])
-    if (!raw) return {}
-    const parsed = typeof raw === 'string' ? (JSON.parse(raw) as Record<string, number>) : raw
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    try {
+      const raw = await kvCommand<Record<string, number> | string | null>(['GET', BALANCES_KEY])
+      if (!raw) return {}
+      const parsed = typeof raw === 'string' ? (JSON.parse(raw) as Record<string, number>) : raw
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch (error) {
+      console.error('[Deposit] balances kv read failed; using local fallback', error)
+      if (!Object.keys(globalStore.__taxitagoUserBalances!).length) globalStore.__taxitagoUserBalances = readFileBalances()
+      return globalStore.__taxitagoUserBalances!
+    }
   }
   if (!Object.keys(globalStore.__taxitagoUserBalances!).length) globalStore.__taxitagoUserBalances = readFileBalances()
   return globalStore.__taxitagoUserBalances!
@@ -125,8 +124,12 @@ async function readBalances(): Promise<Record<string, number>> {
 
 async function writeBalances(balances: Record<string, number>) {
   if (useKv) {
-    await kvCommand(['SET', BALANCES_KEY, JSON.stringify(balances)])
-    return
+    try {
+      await kvCommand(['SET', BALANCES_KEY, JSON.stringify(balances)])
+      return
+    } catch (error) {
+      console.error('[Deposit] balances kv write failed; falling back to local', error)
+    }
   }
   globalStore.__taxitagoUserBalances = balances
   writeFileBalances(balances)
@@ -153,10 +156,16 @@ function writeFileWallets(wallets: Record<string, string>) {
 
 async function readWallets(): Promise<Record<string, string>> {
   if (useKv) {
-    const raw = await kvCommand<Record<string, string> | string | null>(['GET', WALLETS_KEY])
-    if (!raw) return {}
-    const parsed = typeof raw === 'string' ? (JSON.parse(raw) as Record<string, string>) : raw
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    try {
+      const raw = await kvCommand<Record<string, string> | string | null>(['GET', WALLETS_KEY])
+      if (!raw) return {}
+      const parsed = typeof raw === 'string' ? (JSON.parse(raw) as Record<string, string>) : raw
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch (error) {
+      console.error('[Deposit] wallets kv read failed; using local fallback', error)
+      if (!Object.keys(globalStore.__taxitagoUserWallets!).length) globalStore.__taxitagoUserWallets = readFileWallets()
+      return globalStore.__taxitagoUserWallets!
+    }
   }
   if (!Object.keys(globalStore.__taxitagoUserWallets!).length) globalStore.__taxitagoUserWallets = readFileWallets()
   return globalStore.__taxitagoUserWallets!
@@ -164,8 +173,12 @@ async function readWallets(): Promise<Record<string, string>> {
 
 async function writeWallets(wallets: Record<string, string>) {
   if (useKv) {
-    await kvCommand(['SET', WALLETS_KEY, JSON.stringify(wallets)])
-    return
+    try {
+      await kvCommand(['SET', WALLETS_KEY, JSON.stringify(wallets)])
+      return
+    } catch (error) {
+      console.error('[Deposit] wallets kv write failed; falling back to local', error)
+    }
   }
   globalStore.__taxitagoUserWallets = wallets
   writeFileWallets(wallets)

@@ -1,30 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { isPiWalletAddress, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
+import { kvCommand, kvConfigured } from '@/lib/kv'
 
 /** 공식 입금지 미등록 시 기본값: PI_PLATFORM_WALLET 환경변수, 없으면 플랫폼 공식 수신지. */
 export const DEFAULT_ADMIN_WALLET = (process.env.PI_PLATFORM_WALLET || '').trim() || PLATFORM_DEPOSIT_WALLET
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
+const useKv = kvConfigured
 
 const WALLET_KEY = 'taxitago:admin:wallet'
 const filePath = path.join(process.cwd(), 'data', 'admin-wallet.json')
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoAdminWallet?: string }
-
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
-}
 
 function normalizeWallet(value: unknown): string {
   const text = typeof value === 'string' ? value.trim() : ''
@@ -44,7 +31,11 @@ function readFileWallet(): string | null {
 
 export async function getAdminWallet(): Promise<string> {
   if (useKv) {
-    const raw = await kvCommand<string | null>(['GET', WALLET_KEY])
+    // KV 읽기 실패가 입금 스캔/크레딧 경로 전체를 죽이지 않게 기본 수신지로 폴백.
+    const raw = await kvCommand<string | null>(['GET', WALLET_KEY]).catch((error) => {
+      console.error('[Deposit] admin wallet kv read failed; using default', error)
+      return null
+    })
     return normalizeWallet(raw)
   }
   if (globalStore.__taxitagoAdminWallet === undefined) {
