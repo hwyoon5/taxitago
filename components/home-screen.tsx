@@ -713,6 +713,56 @@ const FAVORITES_KEY = 'taxitago-favorite-places'
 const WALLET_KEY = 'taxitago-pi-wallet'
 const DEPOSIT_ADDRESS_KEY = 'taxitago-pi-deposit-address'
 const DEPOSIT_CREDITED_KEY = 'taxitago-pi-deposit-credited'
+
+/** txid 단위 멱등 — 지갑 모달과 앱 레벨 폴러가 같은 입금을 두 번 충전하지 못하게 공유한다. */
+let piDepositCreditedCache: Set<string> | null = null
+function piDepositCreditedSet() {
+  if (!piDepositCreditedCache) {
+    piDepositCreditedCache = new Set()
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(DEPOSIT_CREDITED_KEY) || '[]') as unknown
+      if (Array.isArray(stored)) piDepositCreditedCache = new Set(stored.map(String))
+    } catch {
+      undefined
+    }
+  }
+  return piDepositCreditedCache
+}
+function markPiDepositCredited(txid: string) {
+  const value = txid.trim()
+  if (!value) return
+  piDepositCreditedSet().add(value)
+  try {
+    window.localStorage.setItem(DEPOSIT_CREDITED_KEY, JSON.stringify([...piDepositCreditedSet()].slice(-300)))
+  } catch {
+    undefined
+  }
+}
+function isPiDepositCredited(txid: string) {
+  const value = txid.trim()
+  return Boolean(value) && piDepositCreditedSet().has(value)
+}
+
+/**
+ * 서버(/api/wallet/deposits)가 Horizon 스캔+장부 기록까지 처리한 뒤
+ * 이 이용자에게 귀속되는 confirmed 입금을 돌려준다 — 각 건은 txid 멱등으로
+ * 정확히 한 번만 onCredit 된다.
+ */
+async function scanPiDeposits(wallet: string, uid: string, onCredit: (amount: number, txid: string) => void) {
+  try {
+    const uidParam = uid ? `&uid=${encodeURIComponent(uid)}` : ''
+    const res = await fetch(`/api/wallet/deposits?from=${encodeURIComponent(wallet)}${uidParam}`, { cache: 'no-store' })
+    const data = (await res.json().catch(() => null)) as { deposits?: { txid: string; amount: number }[] } | null
+    if (!res.ok || !data?.deposits) return
+    for (const deposit of data.deposits) {
+      if (!deposit.txid || isPiDepositCredited(deposit.txid) || !(deposit.amount > 0)) continue
+      markPiDepositCredited(deposit.txid)
+      onCredit(deposit.amount, deposit.txid)
+    }
+  } catch {
+    undefined
+  }
+}
 const DEFAULT_DEPOSIT_ADDRESS = PLATFORM_DEPOSIT_WALLET
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
@@ -5661,49 +5711,18 @@ function WalletModal({
 
   // 자동 입금 감지 — 연동된 내 Pi 지갑에서 플랫폼 수신지로 들어온 온체인 결제를
   // 서버가 Horizon으로 스캔해 장부화하고, 여기서 잔액에 즉시 반영한다.
-  const creditedDeposits = useRef<Set<string> | null>(null)
-  const creditedSet = () => {
-    if (!creditedDeposits.current) {
-      try {
-        creditedDeposits.current = new Set(JSON.parse(window.localStorage.getItem(DEPOSIT_CREDITED_KEY) || '[]') as string[])
-      } catch {
-        creditedDeposits.current = new Set()
-      }
-    }
-    return creditedDeposits.current
-  }
-  const markDepositCredited = (txid: string) => {
-    const value = txid.trim()
-    if (!value) return
-    creditedSet().add(value)
-    try {
-      window.localStorage.setItem(DEPOSIT_CREDITED_KEY, JSON.stringify([...creditedSet()].slice(-300)))
-    } catch {
-      undefined
-    }
-  }
-  const isDepositCredited = (txid: string) => Boolean(txid.trim()) && creditedSet().has(txid.trim())
   useEffect(() => {
     const identity = loadPiIdentity()
     const wallet = identity?.wallet?.trim() || ''
     if (!isPiWalletAddress(wallet)) return
-    const uidParam = identity?.uid ? `&uid=${encodeURIComponent(identity.uid)}` : ''
+    const uid = identity?.uid?.trim() || ''
     let stopped = false
-    const scan = async () => {
-      try {
-        const res = await fetch(`/api/wallet/deposits?from=${encodeURIComponent(wallet)}${uidParam}`, { cache: 'no-store' })
-        const data = (await res.json().catch(() => null)) as { deposits?: { txid: string; amount: number }[] } | null
-        if (stopped || !res.ok || !data?.deposits) return
-        for (const deposit of data.deposits) {
-          if (!deposit.txid || isDepositCredited(deposit.txid) || !(deposit.amount > 0)) continue
-          markDepositCredited(deposit.txid)
-          onDeposit(deposit.amount)
-          setProcess((prev) => (prev?.phase === 'pending' ? prev : { kind: 'charge', phase: 'done', amount: deposit.amount }))
-        }
-      } catch {
-        undefined
-      }
-    }
+    const scan = () =>
+      scanPiDeposits(wallet, uid, (amount) => {
+        if (stopped) return
+        onDeposit(amount)
+        setProcess((prev) => (prev?.phase === 'pending' ? prev : { kind: 'charge', phase: 'done', amount }))
+      })
     void scan()
     const timer = window.setInterval(scan, 8000)
     return () => {
@@ -5933,8 +5952,8 @@ function WalletModal({
                     .then((result) => {
                       const txid = typeof result?.txid === 'string' ? result.txid : ''
                       // 이미 Horizon 폴러가 온체인 입금으로 충전한 건이면 중복 반영하지 않는다.
-                      if (!isDepositCredited(txid)) {
-                        markDepositCredited(txid)
+                      if (!isPiDepositCredited(txid)) {
+                        markPiDepositCredited(txid)
                         onDeposit(amount)
                       }
                       setProcess({ kind: 'charge', phase: 'done', amount })
@@ -8970,6 +8989,29 @@ export default function HomeScreen() {
     void recordReviewReward(localPassengerId(), key)
     showNotice('평가 감사합니다. 0.1 Pi가 적립되었습니다.')
   }
+  // 앱이 열려 있는 동안에는 지갑 모달을 열지 않아도 온체인 입금이 감지되면
+  // 즉시 잔액에 반영한다(수동 동기화로 기록된 입금 포함, txid 멱등).
+  useEffect(() => {
+    const identity = loadPiIdentity()
+    const wallet = identity?.wallet?.trim() || ''
+    if (!isPiWalletAddress(wallet)) return
+    const uid = identity?.uid?.trim() || ''
+    let stopped = false
+    const scan = () =>
+      scanPiDeposits(wallet, uid, (amount) => {
+        if (stopped) return
+        depositWallet(amount)
+        showNotice(`${amount.toFixed(2)} Pi 입금 확인 — 지갑에 자동 충전되었습니다.`)
+      })
+    void scan()
+    const timer = window.setInterval(scan, 10_000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+    // depositWallet/showNotice는 매 렌더 새로 만들어지지만 스캔 루프는 마운트 시 한 번이면 충분하다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const openService = (value: string) => {
     if (value === '더보기') {
       setMoreOpen(true)

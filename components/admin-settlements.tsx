@@ -203,10 +203,15 @@ export default function AdminSettlements() {
     }
     setDepositBusy(true)
     void patch({ action: 'deposit', txid, fromWallet, amount, memo: depositForm.memo, reason: depositForm.memo })
-      .then(() => {
+      .then((data) => {
         setDepositForm({ txid: '', fromWallet: '', amount: '', memo: '' })
         setError('')
-        tell('입금 기록을 추가했습니다.')
+        const chain = (data as { chainStatus?: string } | undefined)?.chainStatus
+        tell(
+          chain === 'verified'
+            ? '입금 기록을 추가했습니다. (체인 검증 완료 — 이용자 잔액에 자동 반영됩니다)'
+            : '입금 기록을 추가했습니다. (체인 미확인 — 이용자 잔액에 자동 반영됩니다)',
+        )
         reload()
       })
       .catch((err) => setError(err instanceof Error ? err.message : '입금 기록에 실패했습니다.'))
@@ -330,7 +335,7 @@ export default function AdminSettlements() {
           <span className="rounded-full bg-[#DCFCE7] px-2 py-0.5 text-[10px] font-black text-[#15803D]">입금 IN</span>
         </div>
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
-          테스트넷 전송 건을 입금 장부에 수동으로 기록합니다. 동일한 txid는 중복 등록되지 않습니다.
+          테스트넷 전송 건을 입금 장부에 수동으로 기록합니다. 동일한 txid는 중복 등록되지 않으며, 기록 즉시 해당 지갑 이용자의 잔액에 자동 반영됩니다.
           {isPiWalletAddress(adminWallet) ? ` 입금 지갑: ${adminWallet.slice(0, 12)}…` : ' 지갑 주소 설정 탭에서 관리자 지갑을 먼저 등록해 주세요.'}
         </p>
 
