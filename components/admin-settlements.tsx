@@ -324,9 +324,10 @@ export default function AdminSettlements() {
       {view === 'summary' ? <AdminWithdrawMonitor /> : null}
 
       {view === 'wallet' ? (
-      <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
+      <section className="rounded-2xl border-2 border-[#A7F3D0] bg-[#F0FDF9] p-4">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-black">테스트넷 입금 수동 동기화</p>
+          <p className="text-sm font-black text-[#047857]">테스트넷 입금 수동 동기화</p>
+          <span className="rounded-full bg-[#DCFCE7] px-2 py-0.5 text-[10px] font-black text-[#15803D]">입금 IN</span>
         </div>
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
           테스트넷 전송 건을 입금 장부에 수동으로 기록합니다. 동일한 txid는 중복 등록되지 않습니다.

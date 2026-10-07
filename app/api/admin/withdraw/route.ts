@@ -5,7 +5,8 @@ import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import { getAdminWallet, saveAdminWallet } from '@/lib/admin-wallet'
 import { ADMIN_WALLET_SECRET_ENV, adminWalletSecret } from '@/lib/admin-wallet-secret'
 import { recordAudit } from '@/lib/audit-store'
-import { recordWalletTx } from '@/lib/wallet-history'
+import { listSettlements } from '@/lib/settlement-store'
+import { recordWalletTx, walletTxTotals } from '@/lib/wallet-history'
 import { piRound } from '@/lib/pi-format'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import {
@@ -28,6 +29,14 @@ export const dynamic = 'force-dynamic'
 const MAX_WITHDRAW_PI = 10_000
 /** Pi mainnet requires a 0.01 Pi base fee (100_000 stroops); pay at least that everywhere. */
 const MIN_FEE_STROOPS = 100_000
+
+/** 정산 가능 수수료 잔액 — 누적 수수료에서 출금·수수료·리뷰 보상 지출을 차감한 값. */
+async function availableFeeBalance(): Promise<number> {
+  const [entries, totals] = await Promise.all([listSettlements(), walletTxTotals()])
+  const commission = entries.reduce((sum, entry) => sum + entry.commission, 0)
+  const available = commission - totals.withdraw.total - totals.withdraw.fee - (totals.reward?.total ?? 0)
+  return Math.max(0, piRound(available))
+}
 
 function horizonFor(sandbox: boolean) {
   const url = (process.env.PI_HORIZON_URL || '').trim()
@@ -163,13 +172,14 @@ export async function GET(request: Request) {
   if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  const requests = await listWithdrawalRequests()
+  const [requests, available] = await Promise.all([listWithdrawalRequests(), availableFeeBalance()])
   return NextResponse.json({
     ok: true,
     requests,
     approvalThreshold: APPROVAL_THRESHOLD_PI,
     staffDailyLimit: STAFF_DAILY_LIMIT_PI,
     staffHourlyMax: STAFF_HOURLY_MAX_COUNT,
+    available,
   })
 }
 
@@ -289,6 +299,17 @@ export async function POST(request: Request) {
         after: { amount, recipient, status: 'pending', flag },
       }).catch(() => undefined)
       return NextResponse.json({ ok: true, pending: true, flag, request: entry })
+    }
+  }
+
+  // 직원은 정산 가능 수수료 잔액을 넘는 금액을 즉시 송금할 수 없다.
+  if (actor.role !== 'master') {
+    const available = await availableFeeBalance()
+    if (amount > available) {
+      return NextResponse.json(
+        { error: `정산 가능 수수료 잔액(${available.toFixed(7)} Pi)을 초과하는 금액은 출금할 수 없습니다.` },
+        { status: 400 },
+      )
     }
   }
 

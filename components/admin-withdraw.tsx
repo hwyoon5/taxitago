@@ -45,6 +45,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
   const [requests, setRequests] = useState<WithdrawalRequest[]>([])
   const [threshold, setThreshold] = useState(10)
+  const [available, setAvailable] = useState<number | null>(null)
 
   const tell = (message: string) => {
     setNotice(message)
@@ -57,10 +58,12 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
         const data = (await res.json().catch(() => null)) as {
           requests?: WithdrawalRequest[]
           approvalThreshold?: number
+          available?: number
         } | null
         if (!res.ok) return
         setRequests(data?.requests ?? [])
         if (typeof data?.approvalThreshold === 'number') setThreshold(data.approvalThreshold)
+        if (typeof data?.available === 'number') setAvailable(data.available)
       })
       .catch(() => undefined)
   }
@@ -80,6 +83,10 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
     }
     if (!Number.isFinite(amount) || amount <= 0) {
       setError('출금 금액을 확인해 주세요.')
+      return
+    }
+    if (!isMaster && available !== null && amount > available) {
+      setError(`정산 가능 수수료 잔액(${available.toFixed(4)} Pi)을 초과하는 금액은 출금할 수 없습니다.`)
       return
     }
     setError('')
@@ -176,8 +183,16 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
     <section className="rounded-2xl border-2 border-[#FDE68A] bg-white p-4">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-black">수수료 출금 (관리자 지갑 → 외부)</p>
-        <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#B45309]">주의</span>
+        <div className="flex items-center gap-1">
+          <span className="rounded-full bg-[#FEE2E2] px-2 py-0.5 text-[10px] font-black text-[#B91C1C]">출금·지출 OUT</span>
+          <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#B45309]">주의</span>
+        </div>
       </div>
+      {available !== null ? (
+        <p className="mt-1 text-[10px] font-black text-[#047857]">
+          정산 가능 수수료 잔액: {available.toFixed(7)} Pi{isMaster ? '' : ' — 이 잔액을 초과한 출금은 불가합니다.'}
+        </p>
+      ) : null}
       <p className="mt-1 text-[10px] font-bold leading-4 text-[#94A3B8]">
         등록된 관리자 지갑에서 외부 주소로 Pi를 전송합니다. 전송은 되돌릴 수 없으며 네트워크 수수료(0.01 Pi)가 추가로 차감됩니다.
         {isPiWalletAddress(adminWallet) ? ` 출금 지갑: ${adminWallet.slice(0, 12)}…` : ' 관리자 지갑 주소가 아직 등록되지 않았습니다.'}
@@ -340,6 +355,11 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
                 </p>
               ) : null}
               <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">네트워크 수수료 0.01 Pi가 별도로 차감됩니다.</p>
+              {available !== null && confirmAmount > available ? (
+                <p className="mt-1.5 rounded-lg bg-[#FEE2E2] px-2 py-1.5 text-[10px] font-black text-[#B91C1C]">
+                  정산 가능 수수료 잔액({available.toFixed(4)} Pi)을 초과하는 송금입니다.
+                </p>
+              ) : null}
             </div>
             <p className="mt-3 text-center text-xs font-black text-[#0F172A]">정말 송금하시겠습니까?</p>
             <div className="mt-3 flex gap-2">
