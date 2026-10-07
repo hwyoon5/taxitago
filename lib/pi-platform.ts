@@ -1,3 +1,5 @@
+import { isPiSandboxEnv } from '@/lib/pi-sandbox'
+
 const PI_API_BASE = 'https://api.minepi.com/v2/payments'
 
 function piApiKey() {
@@ -108,6 +110,75 @@ export async function completePiPayment(paymentId: string, txid: string) {
   const payment = await piPaymentsRequest(paymentId, 'POST', '/complete', { txid })
   const info = await infoPromise
   return { payment, info }
+}
+
+/**
+ * A bare 2xx from Pi's /complete is not proof of settlement — insist on the
+ * documented completion markers: developer_completed / transaction.verified,
+ * a matching txid, no cancellation, and a matching identifier.
+ */
+export function assertPiPaymentCompleted(payment: unknown, paymentId: string, txid: string) {
+  if (!payment || typeof payment !== 'object') {
+    throw new Error('payment verification failed: empty completion response')
+  }
+  const record = payment as Record<string, unknown>
+  const identifier = record.identifier
+  if (typeof identifier === 'string' && identifier.trim() && identifier !== paymentId) {
+    throw new Error('payment verification failed: identifier mismatch')
+  }
+  const status = record.status && typeof record.status === 'object' ? (record.status as Record<string, unknown>) : null
+  if (status?.cancelled === true || status?.user_cancelled === true) {
+    throw new Error('payment verification failed: cancelled')
+  }
+  if (status?.developer_completed === false) {
+    throw new Error('payment verification failed: not completed')
+  }
+  const transaction =
+    record.transaction && typeof record.transaction === 'object' ? (record.transaction as Record<string, unknown>) : null
+  const onChainTxid = typeof transaction?.txid === 'string' ? transaction.txid.trim() : ''
+  if (onChainTxid && onChainTxid !== txid) {
+    throw new Error('payment verification failed: txid mismatch')
+  }
+  if (transaction?.verified === false) {
+    throw new Error('payment verification failed: unverified transaction')
+  }
+  if (!(status?.developer_completed === true || transaction?.verified === true)) {
+    throw new Error('payment verification failed: completion not confirmed')
+  }
+}
+
+function piHorizonUrl() {
+  const override = (process.env.PI_HORIZON_URL || '').trim()
+  if (override) return override
+  return isPiSandboxEnv() ? 'https://api.testnet.minepi.com' : 'https://api.mainnet.minepi.com'
+}
+
+/**
+ * Cross-check the txid on Horizon. Definitive negatives (404 / failed tx) throw;
+ * transient Horizon problems only warn — Pi API's own verification stands.
+ */
+export async function verifyPiTxidOnChain(txid: string) {
+  const url = `${piHorizonUrl()}/transactions/${encodeURIComponent(txid)}`
+  let response: Response
+  try {
+    response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15_000) })
+  } catch (error) {
+    console.warn('[Pi] horizon txid lookup unreachable; relying on Pi API verification', { txid, ...describeError(error) })
+    return
+  }
+  if (response.status === 404) {
+    console.error('[Pi] horizon txid not found', { txid })
+    throw new Error('blockchain transaction not found')
+  }
+  if (!response.ok) {
+    console.warn('[Pi] horizon txid lookup failed; relying on Pi API verification', { txid, status: response.status })
+    return
+  }
+  const payload = (await response.json().catch(() => null)) as { successful?: unknown } | null
+  if (payload?.successful === false) {
+    console.error('[Pi] horizon txid failed on-chain', { txid })
+    throw new Error('blockchain transaction failed')
+  }
 }
 
 export async function createA2UPayment(input: {

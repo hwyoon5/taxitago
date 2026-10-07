@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { approvePiPayment, completePiPayment, describeError } from '@/lib/pi-platform'
+import { approvePiPayment, assertPiPaymentCompleted, completePiPayment, describeError, verifyPiTxidOnChain } from '@/lib/pi-platform'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { handleServicePaymentComplete } from '@/lib/service-settlement'
 import { ensureSettlementEscrow } from '@/lib/escrow-engine'
@@ -29,6 +29,17 @@ function errorStatus(message: string) {
   return message.includes('PI_API_KEY') ? 500 : 502
 }
 
+/**
+ * 지갑 충전(내부 잔액 증가)은 샌드박스 폴백으로 속이면 안 된다 —
+ * 실제 Pi Platform 승인/완료가 성공해야만 한다.
+ */
+function requestKind(body: Record<string, unknown> | null | undefined) {
+  const kind = typeof body?.kind === 'string' ? body.kind.trim() : ''
+  const metadata = body?.metadata && typeof body.metadata === 'object' ? (body.metadata as Record<string, unknown>) : null
+  const metaKind = typeof metadata?.kind === 'string' ? metadata.kind.trim() : ''
+  return kind || metaKind
+}
+
 function sandboxOk(kind: 'approve' | 'complete', paymentId: string, extra?: Record<string, string>) {
   console.warn(`[Pi] /api/pi/${kind} sandbox fallback`, { paymentId, ...extra })
   return NextResponse.json({
@@ -39,9 +50,14 @@ function sandboxOk(kind: 'approve' | 'complete', paymentId: string, extra?: Reco
 }
 
 export async function handlePiApprove(request: Request) {
-  const body = (await request.json().catch(() => null)) as { paymentId?: unknown } | null
+  const body = (await request.json().catch(() => null)) as {
+    paymentId?: unknown
+    kind?: unknown
+    metadata?: unknown
+  } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
-  console.log('[Pi] /api/pi/approve incoming', { paymentId: paymentId || '(empty)', sandbox: isPiSandboxEnv() })
+  const kind = requestKind(body)
+  console.log('[Pi] /api/pi/approve incoming', { paymentId: paymentId || '(empty)', kind, sandbox: isPiSandboxEnv() })
   if (!paymentId) {
     console.error('[Pi] /api/pi/approve rejected: paymentId required')
     return NextResponse.json({ error: 'paymentId required' }, { status: 400 })
@@ -53,8 +69,8 @@ export async function handlePiApprove(request: Request) {
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'approve failed'
-    if (isPiSandboxEnv()) return sandboxOk('approve', paymentId)
-    console.error('[Pi] /api/pi/approve error', { paymentId, message, ...describeError(error) })
+    if (isPiSandboxEnv() && kind !== 'wallet-charge') return sandboxOk('approve', paymentId)
+    console.error('[Pi] /api/pi/approve error', { paymentId, kind, message, ...describeError(error) })
     return NextResponse.json({ error: message }, { status: errorStatus(message) })
   }
 }
@@ -64,11 +80,13 @@ export async function handlePiComplete(request: Request) {
     paymentId?: unknown
     txid?: unknown
     amount?: unknown
+    kind?: unknown
     metadata?: unknown
   } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
-  console.log('[Pi] /api/pi/complete incoming', { paymentId: paymentId || '(empty)', txid: txid || '(empty)', sandbox: isPiSandboxEnv() })
+  const kind = requestKind(body)
+  console.log('[Pi] /api/pi/complete incoming', { paymentId: paymentId || '(empty)', txid: txid || '(empty)', kind, sandbox: isPiSandboxEnv() })
   if (!paymentId || !txid) {
     console.error('[Pi] /api/pi/complete rejected: paymentId and txid required')
     return NextResponse.json({ error: 'paymentId and txid required' }, { status: 400 })
@@ -79,7 +97,9 @@ export async function handlePiComplete(request: Request) {
 
   try {
     const { payment, info } = await completePiPayment(paymentId, txid)
-    console.log('[Pi] /api/pi/complete ok', { paymentId, txid })
+    assertPiPaymentCompleted(payment, paymentId, txid)
+    await verifyPiTxidOnChain(txid)
+    console.log('[Pi] /api/pi/complete verified', { paymentId, txid })
     await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
       console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
     })
@@ -94,14 +114,14 @@ export async function handlePiComplete(request: Request) {
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'complete failed'
-    if (isPiSandboxEnv()) {
+    if (isPiSandboxEnv() && kind !== 'wallet-charge') {
       await lockRideEscrowFromPayment(paymentId, txid, fallbackMetadata).catch(() => null)
       await handleServicePaymentComplete({ paymentId, txid, amount: fallbackAmount, metadata: fallbackMetadata }).catch(
         () => null,
       )
       return sandboxOk('complete', paymentId, { txid })
     }
-    console.error('[Pi] /api/pi/complete error', { paymentId, txid, message, ...describeError(error) })
+    console.error('[Pi] /api/pi/complete error', { paymentId, txid, kind, message, ...describeError(error) })
     return NextResponse.json({ error: message }, { status: errorStatus(message) })
   }
 }

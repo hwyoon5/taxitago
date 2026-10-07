@@ -5672,6 +5672,17 @@ function WalletModal({
     }
     return creditedDeposits.current
   }
+  const markDepositCredited = (txid: string) => {
+    const value = txid.trim()
+    if (!value) return
+    creditedSet().add(value)
+    try {
+      window.localStorage.setItem(DEPOSIT_CREDITED_KEY, JSON.stringify([...creditedSet()].slice(-300)))
+    } catch {
+      undefined
+    }
+  }
+  const isDepositCredited = (txid: string) => Boolean(txid.trim()) && creditedSet().has(txid.trim())
   useEffect(() => {
     const identity = loadPiIdentity()
     const wallet = identity?.wallet?.trim() || ''
@@ -5684,13 +5695,8 @@ function WalletModal({
         const data = (await res.json().catch(() => null)) as { deposits?: { txid: string; amount: number }[] } | null
         if (stopped || !res.ok || !data?.deposits) return
         for (const deposit of data.deposits) {
-          if (!deposit.txid || creditedSet().has(deposit.txid) || !(deposit.amount > 0)) continue
-          creditedSet().add(deposit.txid)
-          try {
-            window.localStorage.setItem(DEPOSIT_CREDITED_KEY, JSON.stringify([...creditedSet()].slice(-300)))
-          } catch {
-            undefined
-          }
+          if (!deposit.txid || isDepositCredited(deposit.txid) || !(deposit.amount > 0)) continue
+          markDepositCredited(deposit.txid)
           onDeposit(deposit.amount)
           setProcess((prev) => (prev?.phase === 'pending' ? prev : { kind: 'charge', phase: 'done', amount: deposit.amount }))
         }
@@ -5924,8 +5930,13 @@ function WalletModal({
                   }
                   setProcess({ kind: 'charge', phase: 'pending', amount })
                   void chargePiWallet(amount)
-                    .then(() => {
-                      onDeposit(amount)
+                    .then((result) => {
+                      const txid = typeof result?.txid === 'string' ? result.txid : ''
+                      // 이미 Horizon 폴러가 온체인 입금으로 충전한 건이면 중복 반영하지 않는다.
+                      if (!isDepositCredited(txid)) {
+                        markDepositCredited(txid)
+                        onDeposit(amount)
+                      }
                       setProcess({ kind: 'charge', phase: 'done', amount })
                     })
                     .catch((error) => {

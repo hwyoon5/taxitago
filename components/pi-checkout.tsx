@@ -413,6 +413,18 @@ function isCancelError(error: unknown) {
   return /cancel/i.test(errorText(error))
 }
 
+/** 결제가 Pi 측에 실제로 생성된 이후 발생한 실패 — 모의 충전 폴백으로 넘기면 안 된다. */
+type PiCheckoutError = Error & { piInitiated?: boolean }
+
+function markPiInitiated(error: unknown): boolean {
+  return Boolean((error as PiCheckoutError | null)?.piInitiated)
+}
+
+function checkoutKind(metadata?: Record<string, unknown>) {
+  const kind = metadata?.kind
+  return typeof kind === 'string' ? kind.trim() : ''
+}
+
 async function postSandboxCharge(amount: number, memo: string) {
   logPi('log', '/api/pi/charge request', { amount, memo })
   const response = await apiFetch('/api/pi/charge', {
@@ -453,9 +465,11 @@ export async function chargePiWallet(amount: number) {
           amount: value,
           memo,
           metadata: { kind: 'wallet-charge' },
+          strictCompletion: true,
         })
       } catch (error) {
-        if (isCancelError(error)) throw error
+        // 실제 결제가 생성된 뒤 승인/완료가 실패·만료된 경우 — 무상 충전으로 대체하지 않는다.
+        if (isCancelError(error) || markPiInitiated(error)) throw error
         logPi('warn', 'sandbox createPayment failed; crediting test balance', error)
       }
     } else {
@@ -468,6 +482,7 @@ export async function chargePiWallet(amount: number) {
     amount: value,
     memo,
     metadata: { kind: 'wallet-charge' },
+    strictCompletion: true,
   })
 }
 
@@ -542,6 +557,12 @@ export async function startPiCheckout(options: {
   metadata?: Record<string, unknown>
   /** Leave the pending button once approve or complete responds. */
   advanceOnApproval?: boolean
+  /**
+   * Wallet top-ups only resolve after a verified /api/pi/complete — no
+   * "txid exists so treat as paid" fallback. If the real payment did land,
+   * the Horizon deposit poller credits it with on-chain proof instead.
+   */
+  strictCompletion?: boolean
   /** Called as soon as the checkout can leave the pending button, even if the SDK promise is still open. */
   onSettled?: (result: PiCheckoutResult) => void
 }) {
@@ -576,6 +597,7 @@ export async function startPiCheckout(options: {
 
   return new Promise<PiCheckoutResult>((resolve, reject) => {
     let settled = false
+    let paymentInitiated = false
     const succeed = (result: PiCheckoutResult) => {
       const paymentId = result.paymentId.trim()
       const txid = result.txid.trim() || (paymentId ? `approved-${paymentId}` : '')
@@ -595,7 +617,9 @@ export async function startPiCheckout(options: {
       settled = true
       logPi('error', label, { error, extra })
       if (isSessionError(error)) resetPiSession()
-      reject(error instanceof Error ? error : new Error(describePiUserMessage(error)))
+      const failure: PiCheckoutError = error instanceof Error ? error : new Error(describePiUserMessage(error))
+      if (paymentInitiated) failure.piInitiated = true
+      reject(failure)
     }
 
     try {
@@ -603,13 +627,14 @@ export async function startPiCheckout(options: {
         onReadyForServerApproval: (paymentIdArg) => {
           const paymentId = readPaymentId(paymentIdArg)
           const approvedTxid = txidFromPiPayload(paymentIdArg)
+          paymentInitiated = true
           logPi('log', 'onReadyForServerApproval', { paymentId, approvedTxid })
           if (!paymentId) {
             finishError('approve missing paymentId', paymentIdArg)
             return Promise.resolve()
           }
           if (options.advanceOnApproval && approvedTxid) succeed({ paymentId, txid: approvedTxid })
-          return postPiApiRetry('/api/pi/approve', { paymentId })
+          return postPiApiRetry('/api/pi/approve', { paymentId, kind: checkoutKind(payment.metadata) })
             .then((payload) => {
               if (options.advanceOnApproval) {
                 succeed({ paymentId, txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}` })
@@ -625,6 +650,7 @@ export async function startPiCheckout(options: {
         onReadyForServerCompletion: (paymentIdArg, txidArg) => {
           const paymentId = readPaymentId(paymentIdArg) || readPaymentId(txidArg)
           const txid = txidFromPiPayload(txidArg) || txidFromPiPayload(paymentIdArg)
+          paymentInitiated = true
           logPi('log', 'onReadyForServerCompletion', { paymentId, txid })
           if (!paymentId) {
             if (!options.advanceOnApproval) finishError('completion missing ids', { paymentId, txid })
@@ -637,12 +663,24 @@ export async function startPiCheckout(options: {
             return Promise.resolve()
           }
           if (!txid) return Promise.resolve()
-          return postPiApiRetry('/api/pi/complete', { paymentId, txid, amount, metadata: payment.metadata })
+          return postPiApiRetry('/api/pi/complete', {
+            paymentId,
+            txid,
+            amount,
+            metadata: payment.metadata,
+            kind: checkoutKind(payment.metadata),
+          })
             .then(() => {
               succeed({ paymentId, txid })
             })
             .catch((error) => {
               if (settled) return undefined
+              // 지갑 충전은 서버 검증 완료만이 충전 근거 — 실패 시 절대 잔액을 올리지 않는다.
+              // 실제 체인 결제가 됐다면 Horizon 입금 폴러가 txid로 검증 후 충전한다.
+              if (options.strictCompletion) {
+                finishError('complete failed', error)
+                return undefined
+              }
               // txid exists → the blockchain transfer already settled. Treat the checkout as
               // paid; the server finishes the payment via onIncompletePaymentFound recovery.
               logPi('warn', 'complete failed after retry; treating as settled', { paymentId, txid, error })
@@ -651,6 +689,7 @@ export async function startPiCheckout(options: {
             })
         },
         onCancel: (paymentId) => {
+          paymentInitiated = true
           logPi('warn', 'onCancel', { paymentId })
           if (settled) return
           settled = true
