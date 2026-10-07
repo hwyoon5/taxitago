@@ -78,9 +78,14 @@ async function piPaymentsRequest(
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (error) {
+    // fetch가 던지는 예외를 세분화해 기록한다 — AbortSignal.timeout은 Node에서
+    // name='TimeoutError'로 오므로 타임아웃과 진짜 네트워크 단절을 구분한다.
+    const timedOut =
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
     console.error(`[Pi] ${method} ${url} network error`, {
       ms: Date.now() - startedAt,
       timeoutMs,
+      timedOut,
       ...describeError(error),
     })
     throw error
@@ -100,10 +105,12 @@ async function piPaymentsRequest(
       payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
         ? payload.message
         : `Pi API ${response.status}`
+    // err.response.data에 해당 — Pi API가 돌려준 파싱된 본문과 원문을 함께 남긴다.
     console.error(`[Pi] ${method} ${url} failed`, {
       status: response.status,
       ms: elapsed,
-      body: raw.slice(0, 500),
+      body: raw.slice(0, 1000),
+      payload,
       message,
     })
     throw piHttpError(message, response.status)
@@ -244,15 +251,15 @@ export async function createA2UPayment(input: {
   metadata?: Record<string, unknown>
 }) {
   const url = 'https://api.minepi.com/v2/payments'
-  const hasApiKey = Boolean((process.env.PI_API_KEY || '').trim())
+  const apiKey = piApiKey()
   const startedAt = Date.now()
-  console.log(`[Pi] POST ${url} A2U start`, { apiKey: hasApiKey ? 'set' : 'missing' })
+  console.log(`[Pi] POST ${url} A2U start`, { apiKey: 'set' })
   let response: Response
   try {
     response = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Key ${piApiKey()}`,
+        Authorization: `Key ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -270,6 +277,7 @@ export async function createA2UPayment(input: {
     console.error(`[Pi] POST ${url} A2U network error`, {
       ms: Date.now() - startedAt,
       timeoutMs: PI_FETCH_TIMEOUT_MS,
+      timedOut: error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError'),
       ...describeError(error),
     })
     throw error

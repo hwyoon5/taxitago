@@ -40,8 +40,13 @@ export async function lockRideEscrowFromPayment(
   })
 }
 
-function errorStatus(message: string) {
-  return message.includes('PI_API_KEY') ? 500 : 502
+function errorStatus(error: unknown, message: string) {
+  if (message.includes('PI_API_KEY')) return 500
+  // Pi API가 4xx로 거절한 경우(만료·취소·잘못된 paymentId)는 그대로 전달한다 —
+  // 502로 변환하면 업스트림 장애로 오진되고 재시도 판단도 흐려진다.
+  const upstream = (error as { piHttpStatus?: number } | null)?.piHttpStatus
+  if (typeof upstream === 'number' && upstream >= 400 && upstream < 500) return upstream
+  return 502
 }
 
 /**
@@ -131,7 +136,7 @@ export async function handlePiApprove(request: Request) {
     // 않은 결제는 지갑에서 어차피 만료되며, 진짜 오류만 로그에서 가려진다.
     const message = error instanceof Error ? error.message : 'approve failed'
     console.error('[Pi] /api/pi/approve error', { paymentId, kind, message, ...describeError(error) })
-    return NextResponse.json({ error: message }, { status: errorStatus(message) })
+    return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
   }
 }
 
@@ -205,6 +210,6 @@ export async function handlePiComplete(request: Request) {
     // 된 경우는 입금 스캐너·미완료 결제 복구가 잡아낸다.
     const message = error instanceof Error ? error.message : 'complete failed'
     console.error('[Pi] /api/pi/complete error', { paymentId, txid, kind, message, ...describeError(error) })
-    return NextResponse.json({ error: message }, { status: errorStatus(message) })
+    return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
   }
 }
