@@ -5770,6 +5770,14 @@ function WalletModal({
     const ts = typeof tx.ts === 'number' ? tx.ts : 0
     return ts >= historyStart
   })
+  const historySum = (match: (tx: (typeof transactions)[number]) => boolean) =>
+    historyTransactions.filter(match).reduce((total, tx) => total + Math.abs(tx.amount), 0)
+  const historyStats = [
+    { label: '총 충전', value: historySum((tx) => tx.label === 'Pi 충전' && tx.amount > 0), tone: 'text-[#059669]' },
+    { label: '총 출금·환불', value: historySum((tx) => tx.label === 'Pi 환불' && tx.amount < 0), tone: 'text-[#DC2626]' },
+    { label: '총 리뷰 이벤트', value: historySum((tx) => tx.label === '리뷰 적립' && tx.amount > 0), tone: 'text-[#D97706]' },
+    { label: '총 택시 이용', value: historySum((tx) => tx.amount < 0 && /택시|대리/.test(tx.label)), tone: 'text-[#2563EB]' },
+  ]
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end bg-[#241d35]/45 p-0 sm:p-4">
@@ -5970,6 +5978,17 @@ function WalletModal({
                 </button>
               ))}
             </div>
+            <section className="rounded-2xl border border-[#E2E8F0] bg-white p-3.5 shadow-[0_8px_18px_rgba(15,23,42,0.06)]">
+              <p className="text-[11px] font-black text-[#64748B]">기간 요약</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {historyStats.map((stat) => (
+                  <div key={stat.label} className="rounded-xl bg-[#F8FAFC] px-3 py-2.5">
+                    <p className="text-[10px] font-bold text-[#64748B]">{stat.label}</p>
+                    <p className={`mt-0.5 text-sm font-black tabular-nums ${stat.tone}`}>{stat.value.toFixed(7)} Pi</p>
+                  </div>
+                ))}
+              </div>
+            </section>
             {historyTransactions.length === 0 && (
               <p className="rounded-2xl border-2 border-dashed border-[#D8CCF5] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
                 해당 기간에 이용 내역이 없습니다.
