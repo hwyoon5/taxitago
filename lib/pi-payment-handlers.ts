@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server'
 import { approvePiPayment, assertPiPaymentCompleted, completePiPayment, describeError, verifyPiTxidOnChain } from '@/lib/pi-platform'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
-import { handleServicePaymentComplete } from '@/lib/service-settlement'
-import { ensureSettlementEscrow } from '@/lib/escrow-engine'
-import { getRide, hydrateDispatchFromKv } from '@/lib/dispatch-store'
-import { hydrateEscrowFromKv } from '@/lib/escrow-store'
+
+/**
+ * 승인 경로는 지갑 만료 시간 안에 응답해야 하므로, 완료 처리에만 필요한
+ * 디스패치/에스크로/정산 모듈 그래프를 필요 시점에 lazy-load 한다.
+ */
+async function recordServiceSettlement(input: {
+  paymentId: string
+  txid: string
+  amount: number | null
+  metadata: Record<string, unknown> | null
+}) {
+  const { handleServicePaymentComplete } = await import('@/lib/service-settlement')
+  await handleServicePaymentComplete(input)
+}
 
 /** Lock the ride escrow as soon as a funding payment completes, so either side can settle later. */
 export async function lockRideEscrowFromPayment(
@@ -15,6 +25,11 @@ export async function lockRideEscrowFromPayment(
   if (!metadata || metadata.kind !== 'escrow-lock') return
   const rideId = typeof metadata.rideId === 'string' ? metadata.rideId.trim() : ''
   if (!rideId) return
+  const [{ getRide, hydrateDispatchFromKv }, { hydrateEscrowFromKv }, { ensureSettlementEscrow }] = await Promise.all([
+    import('@/lib/dispatch-store'),
+    import('@/lib/escrow-store'),
+    import('@/lib/escrow-engine'),
+  ])
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   const ride = getRide(rideId)
   if (!ride?.assignedDriverId) return
@@ -103,7 +118,7 @@ export async function handlePiComplete(request: Request) {
     await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
       console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
     })
-    await handleServicePaymentComplete({
+    await recordServiceSettlement({
       paymentId,
       txid,
       amount: typeof info?.amount === 'number' ? info.amount : fallbackAmount,
@@ -116,7 +131,7 @@ export async function handlePiComplete(request: Request) {
     const message = error instanceof Error ? error.message : 'complete failed'
     if (isPiSandboxEnv() && kind !== 'wallet-charge') {
       await lockRideEscrowFromPayment(paymentId, txid, fallbackMetadata).catch(() => null)
-      await handleServicePaymentComplete({ paymentId, txid, amount: fallbackAmount, metadata: fallbackMetadata }).catch(
+      await recordServiceSettlement({ paymentId, txid, amount: fallbackAmount, metadata: fallbackMetadata }).catch(
         () => null,
       )
       return sandboxOk('complete', paymentId, { txid })

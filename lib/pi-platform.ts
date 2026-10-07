@@ -14,8 +14,15 @@ function piPaymentUrl(paymentId: string, pathSuffix = '') {
   return `${PI_API_BASE}/${encodeURIComponent(paymentId)}${pathSuffix}`
 }
 
-/** Generous budget — Pi API can be slow from serverless cold starts; the client retries anyway. */
-const PI_FETCH_TIMEOUT_MS = 60_000
+/** GET/complete calls — not on the wallet expiry path, so they can afford a wider budget. */
+const PI_FETCH_TIMEOUT_MS = 30_000
+/**
+ * Approve sits inside the Pi wallet's ~10s server-approval window — a hanging
+ * call here is what makes the wallet show "결제가 만료되었습니다". Keep each
+ * attempt short and retry once inside that window instead of one long stall.
+ */
+const PI_APPROVE_TIMEOUT_MS = 4_500
+const PI_APPROVE_ATTEMPTS = 2
 
 export function describeError(error: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -39,11 +46,23 @@ export function describeError(error: unknown): Record<string, unknown> {
   return out
 }
 
-async function piPaymentsRequest(paymentId: string, method: 'GET' | 'POST', pathSuffix = '', body?: Record<string, string>) {
+function piHttpError(message: string, status: number) {
+  const error = new Error(message) as Error & { piHttpStatus?: number }
+  error.piHttpStatus = status
+  return error
+}
+
+async function piPaymentsRequest(
+  paymentId: string,
+  method: 'GET' | 'POST',
+  pathSuffix = '',
+  body?: Record<string, string>,
+  timeoutMs = PI_FETCH_TIMEOUT_MS,
+) {
   const url = piPaymentUrl(paymentId, pathSuffix)
   const hasApiKey = Boolean((process.env.PI_API_KEY || '').trim())
   const startedAt = Date.now()
-  console.log(`[Pi] ${method} ${url} start`, { apiKey: hasApiKey ? 'set' : 'missing' })
+  console.log(`[Pi] ${method} ${url} start`, { apiKey: hasApiKey ? 'set' : 'missing', timeoutMs })
 
   let response: Response
   try {
@@ -55,12 +74,12 @@ async function piPaymentsRequest(paymentId: string, method: 'GET' | 'POST', path
       },
       body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
       cache: 'no-store',
-      signal: AbortSignal.timeout(PI_FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (error) {
     console.error(`[Pi] ${method} ${url} network error`, {
       ms: Date.now() - startedAt,
-      timeoutMs: PI_FETCH_TIMEOUT_MS,
+      timeoutMs,
       ...describeError(error),
     })
     throw error
@@ -86,7 +105,7 @@ async function piPaymentsRequest(paymentId: string, method: 'GET' | 'POST', path
       body: raw.slice(0, 500),
       message,
     })
-    throw new Error(message)
+    throw piHttpError(message, response.status)
   }
 
   console.log(`[Pi] ${method} ${url} success`, { status: response.status, ms: elapsed })
@@ -101,8 +120,26 @@ export async function getPiPayment(paymentId: string) {
   } | null
 }
 
+/**
+ * Approve must answer inside the wallet expiry window. Retry once on network
+ * stalls and 5xx; 4xx (already approved/cancelled/expired) is final.
+ */
 export async function approvePiPayment(paymentId: string) {
-  return piPaymentsRequest(paymentId, 'POST', '/approve')
+  let lastError: unknown
+  for (let attempt = 0; attempt < PI_APPROVE_ATTEMPTS; attempt += 1) {
+    try {
+      return await piPaymentsRequest(paymentId, 'POST', '/approve', undefined, PI_APPROVE_TIMEOUT_MS)
+    } catch (error) {
+      lastError = error
+      const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
+      if (typeof status === 'number' && status < 500) break
+      if (attempt + 1 < PI_APPROVE_ATTEMPTS) {
+        console.warn(`[Pi] approve attempt ${attempt + 1} failed; retrying once`, { paymentId })
+        await new Promise((resolve) => setTimeout(resolve, 350))
+      }
+    }
+  }
+  throw lastError
 }
 
 export async function completePiPayment(paymentId: string, txid: string) {

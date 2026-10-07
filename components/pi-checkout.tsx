@@ -223,6 +223,8 @@ async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Rec
 }
 
 const PI_CALL_TIMEOUT_MS = 8000
+/** 승인은 지갑 만료 창 안에서 끝나야 하므로 완료 호출보다 훨씬 짧게 제한한다. */
+const PI_APPROVE_SERVER_TIMEOUT_MS = 12_000
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
   return new Promise<T>((resolve, reject) => {
@@ -248,14 +250,20 @@ function piApiLabel(path: '/api/pi/approve' | '/api/pi/complete') {
 
 /** Serverless cold starts and Pi API latency can push one call past the window — retry once. */
 async function postPiApiRetry(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, unknown>, retries = 1) {
+  const timeoutMs = path === '/api/pi/approve' ? PI_APPROVE_SERVER_TIMEOUT_MS : PI_SERVER_TIMEOUT_MS
   let lastError: unknown
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const started = Date.now()
     try {
-      return await withTimeout(postPiApi(path, body), PI_SERVER_TIMEOUT_MS, piApiLabel(path))
+      return await withTimeout(postPiApi(path, body), timeoutMs, piApiLabel(path))
     } catch (error) {
       lastError = error
       logPi('warn', `${path} attempt ${attempt + 1} failed`, error)
-      if (attempt < retries) await new Promise((resolve) => window.setTimeout(resolve, 1200))
+      // 승인 재시도는 첫 시도가 빨리 실패했을 때만 의미가 있다 —
+      // 이미 만료 창이 지난 뒤의 재시도는 지갑을 구하지 못한다.
+      const retryWorthIt = path !== '/api/pi/approve' || Date.now() - started < 5_000
+      if (attempt < retries && retryWorthIt) await new Promise((resolve) => window.setTimeout(resolve, 1200))
+      else break
     }
   }
   throw lastError
