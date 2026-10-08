@@ -311,37 +311,50 @@ export function assertPiPaymentCompleted(payment: unknown, paymentId: string, tx
  * Bearer로 받는다. 유효하면 토큰 소유자의 Pi uid, 아니면 null을 돌려준다.
  * 장애·타임아웃도 null(fail-closed) — 인증 확인이 불가한 호출을 통과시키지 않는다.
  */
+/**
+ * Platform API base — 네트워크별로 분기한다. 테스트넷 토큰을 메인넷
+ * api.minepi.com/v2/me로 검증하면 거절돼 테스트 도메인 로그인이 "세션 끊김"으로
+ * 실패한다. PI_PLATFORM_API_URL로 강제 지정 가능.
+ */
+function piPlatformApiBase(sandboxHint?: boolean | null) {
+  const override = (process.env.PI_PLATFORM_API_URL || '').trim()
+  if (override) return override.replace(/\/+$/, '')
+  const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  return sandbox ? 'https://api.testnet.minepi.com' : 'https://api.minepi.com'
+}
+
 export type PiTokenInspection = {
   uid: string | null
   /** 'ok' — 토큰 유효 · 'invalid' — 401/403으로 명시적 거절(만료/위조)
-   *  'unreachable' — /v2/me 장애·타임아웃·파싱 실패로 판정 불가 */
+   *  'unreachable' — /v2/me 장애·타임아웃·미구현·파싱 실패로 판정 불가 */
   status: 'ok' | 'invalid' | 'unreachable'
 }
 
-export async function inspectPiAccessToken(accessToken: string): Promise<PiTokenInspection> {
+export async function inspectPiAccessToken(accessToken: string, sandboxHint?: boolean | null): Promise<PiTokenInspection> {
   const token = accessToken.trim()
   if (!token) return { uid: null, status: 'invalid' }
+  const base = piPlatformApiBase(sandboxHint)
   try {
-    const res = await fetch('https://api.minepi.com/v2/me', {
+    const res = await fetch(`${base}/v2/me`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: 'no-store',
       signal: AbortSignal.timeout(8_000),
     })
     if (!res.ok) {
-      console.warn('[Pi] access token rejected', { status: res.status })
+      console.warn('[Pi] access token rejected', { status: res.status, base })
       return { uid: null, status: res.status === 401 || res.status === 403 ? 'invalid' : 'unreachable' }
     }
     const data = (await res.json().catch(() => null)) as { uid?: unknown } | null
     const uid = typeof data?.uid === 'string' && data.uid.trim() ? data.uid.trim() : null
     return uid ? { uid, status: 'ok' } : { uid: null, status: 'unreachable' }
   } catch (error) {
-    console.error('[Pi] access token verification failed', error)
+    console.error('[Pi] access token verification failed', { base, ...describeError(error) })
     return { uid: null, status: 'unreachable' }
   }
 }
 
-export async function verifyPiAccessToken(accessToken: string): Promise<string | null> {
-  const result = await inspectPiAccessToken(accessToken)
+export async function verifyPiAccessToken(accessToken: string, sandboxHint?: boolean | null): Promise<string | null> {
+  const result = await inspectPiAccessToken(accessToken, sandboxHint)
   // 장애·타임아웃도 null(fail-closed) — 인증 확인이 불가한 호출을 통과시키지 않는다.
   return result.status === 'ok' ? result.uid : null
 }

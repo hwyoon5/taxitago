@@ -8,7 +8,7 @@ import { avoidSurchargePi, avoidZoneScore, hydrateAvoidFromKv } from '@/lib/avoi
 import { isUsableCoord } from '@/lib/ride-session'
 import { getFareConfig } from '@/lib/fare-config-server'
 import { piRound } from '@/lib/pi-format'
-import { verifyPiAccessToken } from '@/lib/pi-platform'
+import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
@@ -53,13 +53,21 @@ export async function POST(request: Request) {
   if (!piUid) {
     return NextResponse.json({ error: 'Pi 계정 연동 및 로그인 후 이용해 주세요.' }, { status: 401 })
   }
-  const sandboxSession = isPiSandboxRequest(request) && piUid === 'sandbox-uid-taxitago'
+  const sandbox = isPiSandboxRequest(request)
+  const sandboxSession = sandbox && piUid === 'sandbox-uid-taxitago'
   if (!sandboxSession) {
     if (!piToken) {
       return NextResponse.json({ error: 'Pi 계정 연동 및 로그인 후 이용해 주세요.' }, { status: 401 })
     }
-    const verifiedUid = await verifyPiAccessToken(piToken)
-    if (!verifiedUid || verifiedUid !== piUid) {
+    // 토큰은 결정된 네트워크의 /v2/me로 검증한다 — 테스트넷 토큰을 메인넷으로
+    // 검증하면 정상 토큰도 거절돼 테스트 도메인 로그인이 "세션 끊김"으로 깨진다.
+    const inspection = await inspectPiAccessToken(piToken, sandbox)
+    const verifiedUid = inspection.status === 'ok' ? inspection.uid : null
+    // 테스트넷은 플랫폼 /v2/me가 미구현·불안정할 수 있으므로 sandbox에서는
+    // 판정 불가(unreachable)를 통과시킨다. 명시적 거절(invalid)은 그대로 차단.
+    // 메인넷은 기존과 동일하게 fail-closed.
+    const allowed = verifiedUid === piUid || (sandbox && inspection.status === 'unreachable')
+    if (!allowed) {
       return NextResponse.json({ error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' }, { status: 401 })
     }
   }

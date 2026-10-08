@@ -1,5 +1,6 @@
 import { after, NextResponse } from 'next/server'
 import { describeError, inspectPiAccessToken } from '@/lib/pi-platform'
+import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 const PI_APP_STUDIO_LOGIN_URL =
   'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
@@ -28,7 +29,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'uid/accessToken required' }, { status: 400 })
     }
 
-    const result = await inspectPiAccessToken(accessToken)
+    // 토큰은 요청이 결정된 네트워크의 /v2/me로 검증한다 — 테스트 도메인에서
+    // 발급된 테스트넷 토큰을 메인넷 엔드포인트로 내면 거절돼 정상 로그인이
+    // "세션 끊김"으로 실패한다.
+    const sandbox = isPiSandboxRequest(request)
+    const result = await inspectPiAccessToken(accessToken, sandbox)
 
     // App Studio 검증 포워딩 — 응답을 지연시키지 않도록 after()로 백그라운드
     // 처리한다. 직렬로 기다리면 최대 8초가 로그인 응답에 붙어 클라이언트
