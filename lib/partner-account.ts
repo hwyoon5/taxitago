@@ -142,17 +142,22 @@ export function clearPartnerAccount() {
 export async function requestAccountWithdrawal(uid?: string) {
   const identity = loadPiIdentity()
   const id = uid?.trim() || identity?.uid || loadPartnerProfile()?.uid || ''
-  if (id) {
-    const res = await apiFetch('/api/partner/link/', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: id, wallet: identity?.wallet || loadPartnerProfile()?.wallet || '' }),
-    })
-    const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
-    if (!res.ok || data?.ok !== true) {
-      // 서버가 돌려준 사유(잔액 잔존 등)를 그대로 이용자에게 보인다.
-      throw new Error(typeof data?.error === 'string' ? data.error : '회원 탈퇴에 실패했어요.')
-    }
+  // 백엔드가 잔액 검사의 최종 권위 — uid가 없어도 호출해 서버가 거절
+  // (400 uid required)하게 두고, 로컬만으로 탈퇴를 완료하지 않는다.
+  const res = await apiFetch('/api/partner/link/', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid: id, wallet: identity?.wallet || loadPartnerProfile()?.wallet || '' }),
+  })
+  const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
+  if (!res.ok || data?.ok !== true) {
+    // 서버가 돌려준 사유(잔액 잔존 등)를 그대로 이용자에게 보인다.
+    const serverError = typeof data?.error === 'string' ? data.error : ''
+    throw new Error(
+      serverError === 'uid required'
+        ? 'Pi 계정 연동 정보를 찾을 수 없어 탈퇴를 진행할 수 없습니다.'
+        : serverError || '회원 탈퇴에 실패했어요.',
+    )
   }
   clearPartnerAccount()
 }
