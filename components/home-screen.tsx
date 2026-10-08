@@ -6164,7 +6164,7 @@ function HeaderModal({
   piLinked: boolean
   onClose: () => void
   onLinkPi: () => void | Promise<void>
-  onUnlinkPi: () => void | Promise<void>
+  onUnlinkPi: () => void | Promise<void | boolean>
   activities?: ActivityEntry[]
 }) {
   const isActivity = kind === 'activity'
@@ -6181,8 +6181,10 @@ function HeaderModal({
     if (withdrawing) return
     setWithdrawing(true)
     void Promise.resolve(onUnlinkPi())
-      .then(() => setUnlinkConfirm(false))
-      .catch(() => setWithdrawing(false))
+      // 거부(false)면 확인 모달을 닫지 않는다 — 사유는 logoutMember가 표시.
+      .then((ok) => { if (ok !== false) setUnlinkConfirm(false) })
+      .catch(() => undefined)
+      .finally(() => setWithdrawing(false))
   }
   return (
     <>
@@ -7558,7 +7560,7 @@ function DriverDashboard({
   lng: number
   onToggleOnline: () => void
   onPassengerMode: () => void
-  onWithdraw: () => void | Promise<void>
+  onWithdraw: () => void | Promise<void | boolean>
   onNotice: (message: string) => void
   onAskPassengerReview: (target: RideReviewTarget) => void
   onActivity?: (label: string, detail: string) => void
@@ -8581,7 +8583,9 @@ function DriverDashboard({
             if (withdrawing) return
             setWithdrawing(true)
             void Promise.resolve(onWithdraw())
-              .then(() => setWithdrawOpen(false))
+              // false가 돌아오면 서버가 탈퇴를 거부한 것 — 모달을 닫지 않고
+              // 열어둬 이용자가 사유를 보고 재시도할 수 있게 한다.
+              .then((ok) => { if (ok !== false) setWithdrawOpen(false) })
               .catch((error) => onNotice(error instanceof Error ? error.message : '회원 탈퇴에 실패했어요.'))
               .finally(() => setWithdrawing(false))
           }}
@@ -9231,15 +9235,16 @@ export default function HomeScreen() {
       setDriverMode(true)
     }
   }
-  const logoutMember = async () => {
+  const logoutMember = async (): Promise<boolean> => {
     const uid = loadPartnerProfile()?.uid || loadPiIdentity()?.uid
     try {
       await requestAccountWithdrawal(uid)
     } catch (error) {
       // 잔액 잔존 등 서버가 돌려준 차단 사유를 이용자에게 보인다 —
-      // 탈퇴는 진행되지 않고 삼키므로 모달도 추가 notice를 띄우지 않는다.
+      // 탈퇴는 진행되지 않는다. false를 돌려 모달이 열린 채 남아 재시도할
+      // 수 있게 한다(삼키면 호출부가 성공으로 간주해 모달을 닫아버린다).
       showNotice(error instanceof Error ? error.message : '회원 탈퇴에 실패했어요.')
-      return
+      return false
     }
     setIsPiLinked(false)
     saveIsPiLinked(false)
@@ -9252,6 +9257,7 @@ export default function HomeScreen() {
     setHeaderModal(null)
     setTab('홈')
     showNotice('회원 탈퇴가 완료되어 로그아웃되었습니다')
+    return true
   }
 
   return (
