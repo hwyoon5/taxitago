@@ -76,7 +76,7 @@ async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<v
  * 영원히 pending으로 남지 않도록 강제 상한 — 초과 시 authPromise를 리셋해
  * 다음 시도가 새 authenticate를 시작할 수 있게 한다.
  */
-const PI_AUTH_RESPONSE_TIMEOUT_MS = 8_000
+const PI_AUTH_RESPONSE_TIMEOUT_MS = 20_000
 
 function authenticatePi(pi: PiSdk) {
   initPi(pi)
