@@ -15,48 +15,58 @@ const PI_APP_STUDIO_LOGIN_URL =
  * "Verified" 검증이 토큰을 받도록 보장한다(토큰은 App Studio가 자체 검증).
  */
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as {
-    uid?: unknown
-    accessToken?: unknown
-  } | null
-  const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
-  const accessToken = typeof body?.accessToken === 'string' ? body.accessToken.trim() : ''
-  if (!uid || !accessToken) {
-    return NextResponse.json({ ok: false, error: 'uid/accessToken required' }, { status: 400 })
-  }
-
-  const result = await inspectPiAccessToken(accessToken)
-
-  // App Studio 검증 포워딩 — 응답을 지연시키지 않도록 after()로 백그라운드
-  // 처리한다. 직렬로 기다리면 최대 8초가 로그인 응답에 붙어 클라이언트
-  // 타임아웃(15s)과 합쳐져 로그인이 느려진다.
-  after(async () => {
-    try {
-      const studioRes = await fetch(PI_APP_STUDIO_LOGIN_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken }),
-        signal: AbortSignal.timeout(8_000),
-      })
-      const studioBody = await studioRes.text().catch(() => '')
-      console.log('[Pi] App Studio login forwarded', { status: studioRes.status, body: studioBody.slice(0, 200) })
-    } catch (error) {
-      console.warn('[Pi] App Studio login forward failed', error)
+  // 어떤 예외로든 응답을 놓치면 클라이언트 로그인이 무한 대기한다 —
+  // 핸들러 전체를 가드해 반드시 HTTP 응답을 돌려준다.
+  try {
+    const body = (await request.json().catch(() => null)) as {
+      uid?: unknown
+      accessToken?: unknown
+    } | null
+    const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
+    const accessToken = typeof body?.accessToken === 'string' ? body.accessToken.trim() : ''
+    if (!uid || !accessToken) {
+      return NextResponse.json({ ok: false, error: 'uid/accessToken required' }, { status: 400 })
     }
-  })
 
-  if (result.status === 'ok' && result.uid === uid) {
-    return NextResponse.json({ ok: true, uid })
-  }
-  if (result.status === 'unreachable') {
+    const result = await inspectPiAccessToken(accessToken)
+
+    // App Studio 검증 포워딩 — 응답을 지연시키지 않도록 after()로 백그라운드
+    // 처리한다. 직렬로 기다리면 최대 8초가 로그인 응답에 붙어 클라이언트
+    // 타임아웃(15s)과 합쳐져 로그인이 느려진다.
+    after(async () => {
+      try {
+        const studioRes = await fetch(PI_APP_STUDIO_LOGIN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accessToken }),
+          signal: AbortSignal.timeout(8_000),
+        })
+        const studioBody = await studioRes.text().catch(() => '')
+        console.log('[Pi] App Studio login forwarded', { status: studioRes.status, body: studioBody.slice(0, 200) })
+      } catch (error) {
+        console.warn('[Pi] App Studio login forward failed', error)
+      }
+    })
+
+    if (result.status === 'ok' && result.uid === uid) {
+      return NextResponse.json({ ok: true, uid })
+    }
+    if (result.status === 'unreachable') {
+      return NextResponse.json(
+        { ok: false, error: 'Pi 인증 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.' },
+        { status: 502 },
+      )
+    }
+    console.warn('[Pi] /api/pi/auth rejected', { uid, status: result.status, tokenUid: result.uid })
     return NextResponse.json(
-      { ok: false, error: 'Pi 인증 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.' },
-      { status: 502 },
+      { ok: false, error: 'Pi 로그인 세션이 끊겼습니다. 파이 브라우저에서 다시 로그인한 뒤 시도해 주세요.' },
+      { status: 401 },
+    )
+  } catch (error) {
+    console.error('[Pi] /api/pi/auth unhandled error', error)
+    return NextResponse.json(
+      { ok: false, error: '인증 처리 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' },
+      { status: 500 },
     )
   }
-  console.warn('[Pi] /api/pi/auth rejected', { uid, status: result.status, tokenUid: result.uid })
-  return NextResponse.json(
-    { ok: false, error: 'Pi 로그인 세션이 끊겼습니다. 파이 브라우저에서 다시 로그인한 뒤 시도해 주세요.' },
-    { status: 401 },
-  )
 }

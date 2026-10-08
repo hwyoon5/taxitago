@@ -71,6 +71,13 @@ async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<v
   }
 }
 
+/**
+ * Pi.authenticate가 시트를 띄우지 못하거나 SDK가 응답을 누락해도 프라미스가
+ * 영원히 pending으로 남지 않도록 강제 상한 — 초과 시 authPromise를 리셋해
+ * 다음 시도가 새 authenticate를 시작할 수 있게 한다.
+ */
+const PI_AUTH_RESPONSE_TIMEOUT_MS = 8_000
+
 function authenticatePi(pi: PiSdk) {
   initPi(pi)
   if (!authPromise) {
@@ -80,12 +87,21 @@ function authenticatePi(pi: PiSdk) {
     const pending = pi.authenticate([...PI_AUTH_SCOPES], (payment) => {
       void onIncompletePaymentFound(payment)
     })
-    authPromise = pending
+    const watchdog = new Promise<never>((_, reject) => {
+      const timer = window.setTimeout(() => {
+        reject(new Error(`Pi.authenticate 응답 없음(${PI_AUTH_RESPONSE_TIMEOUT_MS / 1000}초) — 인증 시트가 열리지 않았거나 네트워크가 지연되고 있습니다.`))
+      }, PI_AUTH_RESPONSE_TIMEOUT_MS)
+      // SDK가 정상 settle되면 타이머를 해제해 잔여 reject가 새어 나가지 않게 한다.
+      pending.finally(() => window.clearTimeout(timer))
+    })
+    authPromise = Promise.race([pending, watchdog])
       .then((auth) => {
         logPi('log', 'authenticate ok', { scopes: PI_AUTH_SCOPES, auth })
         return auth
       })
       .catch((error) => {
+        // 타임아웃 포함 모든 실패에서 캐시를 리셋 — pending인 SDK 프라미스가
+        // 남아 있어도 다음 호출이 신선한 authenticate로 재시도한다.
         resetPiSession()
         logPi('error', 'authenticate failed', error)
         throw error
