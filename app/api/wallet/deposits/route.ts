@@ -4,6 +4,7 @@ import { creditInboundDeposit, scanInboundDeposits } from '@/lib/deposit-scan'
 import { creditUserDeposit, listUserCredits, userCreditTotals, walletsForUid } from '@/lib/user-credit-store'
 import { knownServiceTxids } from '@/lib/payment-kind-store'
 import { getPiPayment } from '@/lib/pi-platform'
+import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -19,13 +20,14 @@ export async function GET(request: Request) {
   const uid = (params.get('uid') || '').trim()
   const sandboxParam = (params.get('sandbox') || '').trim().toLowerCase()
   const sandboxHint = sandboxParam === 'true' ? true : sandboxParam === 'false' ? false : null
-  console.log('[Deposit] GET /api/wallet/deposits', { from: from || '(none)', uid: uid || '(none)', sandboxHint })
+  const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
+  console.log('[Deposit] GET /api/wallet/deposits', { from: from || '(none)', uid: uid || '(none)', sandboxHint, effectiveSandbox })
   // 식별자 없는 호출에는 전체 장부를 노출하지 않는다 — 이용자 조회 전용 엔드포인트.
   if (!from && !uid) {
     return NextResponse.json({ ok: true, deposits: [], configured: true })
   }
   // 스캔 자체의 예외가 라우트를 500으로 죽이지 않게 방어한다.
-  const scan = await scanInboundDeposits(from, uid, sandboxHint).catch((error) => {
+  const scan = await scanInboundDeposits(from, uid, effectiveSandbox).catch((error) => {
     console.error('[Deposit] GET scan threw', error)
     return { configured: true, scanned: 0, scanError: true, adminWallet: '' }
   })
@@ -92,12 +94,13 @@ export async function POST(request: Request) {
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
   const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
   const sandboxHint = typeof body?.sandbox === 'boolean' ? body.sandbox : null
-  console.log('[Deposit] POST claim', { paymentId: paymentId || '(empty)', txid: txid || '(empty)', uid: uid || '(empty)' })
+  const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
+  console.log('[Deposit] POST claim', { paymentId: paymentId || '(empty)', txid: txid || '(empty)', uid: uid || '(empty)', effectiveSandbox })
   if (!paymentId || !uid) {
     return NextResponse.json({ error: 'paymentId and uid required' }, { status: 400 })
   }
 
-  const info = (await getPiPayment(paymentId, sandboxHint).catch((error) => {
+  const info = (await getPiPayment(paymentId, effectiveSandbox).catch((error) => {
     console.error('[Deposit] claim: payment lookup failed', { paymentId, error })
     return null
   })) as Record<string, unknown> | null
@@ -129,7 +132,7 @@ export async function POST(request: Request) {
     fromAddress: typeof info.from_address === 'string' ? info.from_address : '',
     amount: typeof info.amount === 'number' ? info.amount : undefined,
     source: 'manual',
-    sandboxHint,
+    sandboxHint: effectiveSandbox,
   })
   if (!deposit) return NextResponse.json({ error: 'deposit could not be credited' }, { status: 502 })
   return NextResponse.json({ ok: true, deposit })

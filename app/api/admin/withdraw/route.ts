@@ -8,7 +8,7 @@ import { recordAudit } from '@/lib/audit-store'
 import { listSettlements } from '@/lib/settlement-store'
 import { recordWalletTx, walletTxTotals } from '@/lib/wallet-history'
 import { piRound } from '@/lib/pi-format'
-import { isPiSandboxEnv } from '@/lib/pi-sandbox'
+import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 import {
   APPROVAL_THRESHOLD_PI,
   STAFF_DAILY_LIMIT_PI,
@@ -77,8 +77,9 @@ async function executeWithdrawal(input: {
   memoText: string
   reason: string
   actor: AdminActor
+  sandbox: boolean
 }): Promise<{ ok: true; txid: string; ledger: number | bigint; network: string } | { ok: false; status: number; error: string }> {
-  const { recipient, amount, memoText, reason, actor } = input
+  const { recipient, amount, memoText, reason, actor, sandbox } = input
   const secret = adminWalletSecret()
   if (!secret) {
     return { ok: false, status: 500, error: `${ADMIN_WALLET_SECRET_ENV} 환경 변수가 설정되지 않았습니다.` }
@@ -102,7 +103,6 @@ async function executeWithdrawal(input: {
     await saveAdminWallet(keypair.publicKey()).catch(() => undefined)
   }
 
-  const sandbox = isPiSandboxEnv()
   const { url, passphrase } = horizonFor(sandbox)
   const recordFailed = (message: string) =>
     recordWalletTx({
@@ -227,6 +227,7 @@ export async function POST(request: Request) {
       memoText: pending.memo,
       reason: pending.reason,
       actor,
+      sandbox: isPiSandboxRequest(request),
     })
     if (!sent.ok) {
       await markWithdrawalFailed(id, sent.error).catch(() => undefined)
@@ -313,7 +314,14 @@ export async function POST(request: Request) {
     }
   }
 
-  const sent = await executeWithdrawal({ recipient, amount, memoText, reason, actor })
+  const sent = await executeWithdrawal({
+    recipient,
+    amount,
+    memoText,
+    reason,
+    actor,
+    sandbox: isPiSandboxRequest(request),
+  })
   if (!sent.ok) {
     return NextResponse.json({ error: sent.error }, { status: sent.status })
   }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { recordWalletTx, REVIEW_REWARD_PI } from '@/lib/wallet-history'
-import { isPiSandboxEnv } from '@/lib/pi-sandbox'
+import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     amount: REVIEW_REWARD_PI,
     memo: '리뷰 감사 포인트',
     status: 'confirmed',
-    network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
+    network: isPiSandboxRequest(request) ? 'testnet' : 'mainnet',
   })
   return NextResponse.json({ ok: true, reward: entry })
 }

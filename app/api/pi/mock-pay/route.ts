@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { isPiSandboxEnv, parseChargeAmount } from '@/lib/pi-sandbox'
+import { isPiSandboxRequest, parseChargeAmount } from '@/lib/pi-sandbox'
 import { lockRideEscrowFromPayment } from '@/lib/pi-payment-handlers'
 import { handleServicePaymentComplete } from '@/lib/service-settlement'
 
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
  * would so the admin ledger and driver earnings stay consistent.
  */
 export async function POST(request: Request) {
-  if (!isPiSandboxEnv()) {
+  if (!isPiSandboxRequest(request)) {
     return NextResponse.json({ error: 'mock payment is testnet-only' }, { status: 403 })
   }
 

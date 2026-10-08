@@ -1,6 +1,6 @@
 import { after, NextResponse } from 'next/server'
 import { approvePiPayment, assertPiPaymentCompleted, completePiPayment, describeError, verifyPiTxidOnChain } from '@/lib/pi-platform'
-import { isPiSandboxEnv } from '@/lib/pi-sandbox'
+import { isPiSandboxEnv, isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 /**
  * 승인 경로는 지갑 만료 시간 안에 응답해야 하므로, 완료 처리에만 필요한
@@ -119,11 +119,15 @@ export async function handlePiApprove(request: Request) {
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const kind = requestKind(body)
   const sandboxHint = requestSandboxHint(body)
+  // 힌트(결제 생성 네트워크) → 요청 host(테스트 전용 도메인 강제) → env 순으로
+  // 최종 네트워크를 결정해 키 선택·Horizon 조회가 같은 값을 쓰게 한다.
+  const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
   console.log('[Pi] /api/pi/approve incoming', {
     paymentId: paymentId || '(empty)',
     kind,
     sandboxHint,
-    serverSandbox: isPiSandboxEnv(),
+    effectiveSandbox,
+    envSandbox: isPiSandboxEnv(),
   })
   if (!paymentId) {
     console.error('[Pi] /api/pi/approve rejected: paymentId required')
@@ -131,7 +135,7 @@ export async function handlePiApprove(request: Request) {
   }
 
   try {
-    const payment = await approvePiPayment(paymentId, sandboxHint)
+    const payment = await approvePiPayment(paymentId, effectiveSandbox)
     console.log('[Pi] /api/pi/approve ok', { paymentId })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
@@ -156,12 +160,14 @@ export async function handlePiComplete(request: Request) {
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
   const kind = requestKind(body)
   const sandboxHint = requestSandboxHint(body)
+  const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
   console.log('[Pi] /api/pi/complete incoming', {
     paymentId: paymentId || '(empty)',
     txid: txid || '(empty)',
     kind,
     sandboxHint,
-    serverSandbox: isPiSandboxEnv(),
+    effectiveSandbox,
+    envSandbox: isPiSandboxEnv(),
   })
   if (!paymentId || !txid) {
     console.error('[Pi] /api/pi/complete rejected: paymentId and txid required')
@@ -172,9 +178,9 @@ export async function handlePiComplete(request: Request) {
     body?.metadata && typeof body.metadata === 'object' ? (body.metadata as Record<string, unknown>) : null
 
   try {
-    const { payment, info } = await completePiPayment(paymentId, txid, sandboxHint)
+    const { payment, info } = await completePiPayment(paymentId, txid, effectiveSandbox)
     assertPiPaymentCompleted(payment, paymentId, txid)
-    await verifyPiTxidOnChain(txid, sandboxHint)
+    await verifyPiTxidOnChain(txid, effectiveSandbox)
     console.log('[Pi] /api/pi/complete verified', { paymentId, txid })
     // kind는 Pi Platform이 보관하는 결제 메타데이터(서버가 조회한 원본)가 권위.
     // 서버 조회가 실패(info null)하거나 원본에 kind가 없으면 클라이언트 주장을
@@ -201,7 +207,7 @@ export async function handlePiComplete(request: Request) {
     after(async () => {
       console.log('[Pi] /api/pi/complete background work start', { paymentId, txid, metaKind })
       if (metaKind === 'wallet-charge') {
-        await creditWalletChargeDeposit(paymentId, txid, info, sandboxHint)
+        await creditWalletChargeDeposit(paymentId, txid, info, effectiveSandbox)
       }
       await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
         console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })

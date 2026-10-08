@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { hydrateDispatchFromKv, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { rideReviews, submitRideReview } from '@/lib/review-engine'
 import { recordWalletTx, REVIEW_REWARD_PI } from '@/lib/wallet-history'
-import { isPiSandboxEnv } from '@/lib/pi-sandbox'
+import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 import type { RatingRole } from '@/lib/review-types'
 
 export const runtime = 'nodejs'
@@ -49,7 +49,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       amount: REVIEW_REWARD_PI,
       memo: '리뷰 감사 포인트',
       status: 'confirmed',
-      network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
+      network: isPiSandboxRequest(request) ? 'testnet' : 'mainnet',
     }).catch(() => undefined)
   }
   return NextResponse.json({ ok: true, review: result.review, rating: result.rating })

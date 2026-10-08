@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { apiFetch } from '@/lib/app-origin'
+import { resolvePiSandbox } from '@/lib/pi-sandbox'
 
 type IncompletePiPayment = {
   identifier?: string
@@ -34,9 +35,14 @@ declare global {
 
 export type PiCheckoutResult = { paymentId: string; txid: string }
 
-const PI_SANDBOX_RAW = (process.env.NEXT_PUBLIC_PI_SANDBOX ?? 'true').trim().toLowerCase()
-/** Developer portal testnet → true. Mainnet app → NEXT_PUBLIC_PI_SANDBOX=false */
-export const PI_SANDBOX = PI_SANDBOX_RAW !== 'false' && PI_SANDBOX_RAW !== '0' && PI_SANDBOX_RAW !== 'mainnet'
+/**
+ * Developer portal testnet → true. Mainnet app → NEXT_PUBLIC_PI_SANDBOX=false.
+ * test.* / localhost / preview 호스트는 env가 메인넷이어도 sandbox로 강제된다 —
+ * 메인넷 심사 빌드가 테스트 도메인에 붙어도 라이브 키·네트워크가 섞이지 않는다.
+ */
+export const PI_SANDBOX = resolvePiSandbox({
+  host: typeof window === 'undefined' ? null : window.location.hostname,
+})
 
 const PI_AUTH_SCOPES = ['username', 'payments'] as const
 

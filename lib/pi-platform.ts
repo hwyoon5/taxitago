@@ -10,26 +10,71 @@ const PI_API_BASE = 'https://api.minepi.com/v2/payments'
  */
 const PI_TESTNET_API_KEY = 'Uyu7admbaeoeucn1yfqsg57l71oa2ah5ldyoe5urrpyjzr9mse2pdmof3o1ee1nd'
 
-type PiKeyChoice = { key: string; source: 'forced-testnet' | 'env' }
+type PiNetwork = 'testnet' | 'mainnet'
+type PiKeyChoice = { key: string; source: string }
+
+/**
+ * 키의 네트워크 스코프 — sk_live_ 는 메인넷 전용, sk_test_/sk_sandbox_ 는
+ * 테스트넷 전용. 접두사가 없는 레거시 키는 'unknown'으로 두고 호출 시점에
+ * 결정된 네트워크에만 사용한다(교차 네트워크 재시도는 없다).
+ */
+function piKeyNetworkScope(key: string): PiNetwork | 'unknown' {
+  const k = key.trim().toLowerCase()
+  if (k.startsWith('sk_live_')) return 'mainnet'
+  if (k.startsWith('sk_test_') || k.startsWith('sk_sandbox_')) return 'testnet'
+  return 'unknown'
+}
+
+function readEnvKeys(names: readonly string[]): string[] {
+  return names
+    .map((name) => (process.env[name] || '').trim())
+    .filter((value, index, all) => Boolean(value) && all.indexOf(value) === index)
+}
 
 /**
  * 결제가 실제로 생성된 네트워크를 우선으로 키를 고른다. 클라이언트 SDK가
  * sandbox=true로 만든 테스트넷 결제를 서버 env(메인넷) 키로 승인하면
  * Pi Platform이 401/403으로 거부해 지갑이 "결제 만료"로 끝난다 — 그래서
- * 클라이언트가 보낸 sandbox 힌트를 서버 env보다 우선한다. 첫 키가
- * 401/403으로 거부되면 남은 키로 한 번씩 자동 재시도한다.
+ * 클라이언트가 보낸 sandbox 힌트를 서버 env보다 우선한다.
+ *
+ * 네트워크 분리는 엄격하다 — 결정된 네트워크의 키만 시도한다:
+ *   testnet → 강제 테스트넷 키 + PI_API_KEY_TESTNET계 env
+ *   mainnet → PI_API_KEY_MAINNET계 env (테스트넷 키는 절대 시도 안 함)
+ * 공용 키(PI_NETWORK_API_KEY/PI_API_KEY)는 스코프 접두사가 없을 때만 해당
+ * 네트워크 후보로 쓰인다 — sk_live_ 키가 테스트넷 호출에 새지 않는다.
+ * 첫 키가 401/403으로 거부되면 남은 후보로 한 번씩 자동 재시도한다.
  */
 function resolvePiApiKeys(sandboxHint?: boolean | null): PiKeyChoice[] {
   const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
-  const testnet: PiKeyChoice = { key: PI_TESTNET_API_KEY, source: 'forced-testnet' }
-  // PI_NETWORK_API_KEY(App Studio/최신 문서 명칭)와 PI_API_KEY 모두를 키
-  // 후보로 인식 — 둘 다 있으면 순서대로 폴백 시도한다.
-  const env: PiKeyChoice[] = [process.env.PI_NETWORK_API_KEY, process.env.PI_API_KEY]
-    .map((value) => (value || '').trim())
-    .filter((value, index, all) => Boolean(value) && all.indexOf(value) === index)
-    .map((key) => ({ key, source: 'env' as const }))
-  const choices = sandbox ? [testnet, ...env] : [...env, testnet]
-  if (!choices.length) throw new Error('PI_API_KEY is not configured')
+  const network: PiNetwork = sandbox ? 'testnet' : 'mainnet'
+  const choices: PiKeyChoice[] = []
+  if (sandbox) choices.push({ key: PI_TESTNET_API_KEY, source: 'forced-testnet' })
+  // 네트워크 전용 env — 이름으로 스코프가 고정되므로 자기 네트워크에서만 읽는다.
+  const scopedNames = sandbox
+    ? (['PI_API_KEY_TESTNET', 'PI_TESTNET_API_KEY', 'PI_SANDBOX_API_KEY'] as const)
+    : (['PI_API_KEY_MAINNET', 'PI_MAINNET_API_KEY'] as const)
+  for (const key of readEnvKeys(scopedNames)) {
+    const scope = piKeyNetworkScope(key)
+    if (scope !== 'unknown' && scope !== network) {
+      console.warn('[Pi] scoped API key skipped: key prefix does not match its env scope', { network })
+      continue
+    }
+    choices.push({ key, source: 'env-scoped' })
+  }
+  // 공용 레거시 키 — 스코프 접두사가 붙은 키는 네트워크가 다르면 건너뛴다.
+  for (const key of readEnvKeys(['PI_NETWORK_API_KEY', 'PI_API_KEY'])) {
+    const scope = piKeyNetworkScope(key)
+    if (scope !== 'unknown' && scope !== network) {
+      console.warn('[Pi] shared API key skipped: key prefix does not match resolved network', { network })
+      continue
+    }
+    choices.push({ key, source: 'env' })
+  }
+  if (!choices.length) {
+    throw new Error(
+      `PI_API_KEY is not configured for ${network} — set PI_API_KEY_${sandbox ? 'TESTNET' : 'MAINNET'} or a shared PI_API_KEY/PI_NETWORK_API_KEY`,
+    )
+  }
   return choices
 }
 

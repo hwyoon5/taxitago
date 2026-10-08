@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { isPiSandboxEnv, parseChargeAmount } from '@/lib/pi-sandbox'
+import { isPiSandboxRequest, parseChargeAmount } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: Request) {
-  if (!isPiSandboxEnv()) {
+  if (!isPiSandboxRequest(request)) {
     return NextResponse.json(
       { error: 'mainnet charge must complete window.Pi.createPayment first' },
       { status: 403 },

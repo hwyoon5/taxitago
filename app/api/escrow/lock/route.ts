@@ -3,6 +3,7 @@ import { getPublicRide } from '@/lib/dispatch-engine'
 import { lockEscrow, toPublicEscrow } from '@/lib/escrow-engine'
 import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
 import { flushEscrowPersist, hydrateEscrowFromKv } from '@/lib/escrow-store'
+import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
     passengerId,
     paymentId: typeof body?.paymentId === 'string' ? body.paymentId : undefined,
     txid: typeof body?.txid === 'string' ? body.txid : undefined,
-    sandbox: body?.sandbox === true,
+    sandbox: isPiSandboxRequest(request, body?.sandbox === true ? true : null),
   })
   if (!result.ok) {
     return NextResponse.json({ error: result.error, escrow: toPublicEscrow(result.escrow) }, { status: result.error === 'not_found' ? 404 : 409 })

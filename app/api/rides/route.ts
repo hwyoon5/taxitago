@@ -9,7 +9,7 @@ import { isUsableCoord } from '@/lib/ride-session'
 import { getFareConfig } from '@/lib/fare-config-server'
 import { piRound } from '@/lib/pi-format'
 import { verifyPiAccessToken } from '@/lib/pi-platform'
-import { isPiSandboxEnv } from '@/lib/pi-sandbox'
+import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
   if (!piUid) {
     return NextResponse.json({ error: 'Pi 계정 연동 및 로그인 후 이용해 주세요.' }, { status: 401 })
   }
-  const sandboxSession = isPiSandboxEnv() && piUid === 'sandbox-uid-taxitago'
+  const sandboxSession = isPiSandboxRequest(request) && piUid === 'sandbox-uid-taxitago'
   if (!sandboxSession) {
     if (!piToken) {
       return NextResponse.json({ error: 'Pi 계정 연동 및 로그인 후 이용해 주세요.' }, { status: 401 })
