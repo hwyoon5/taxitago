@@ -5,12 +5,8 @@
  */
 const PI_WALLET_RE = /^G[A-Z0-9]{55}$/
 
-/**
- * 플랫폼 공식 Pi 입금 수신지 — 서버 기본값이며 클라이언트 폴백으로도 쓰인다.
- * testnet 플랫폼 지갑(PI_ADMIN_WALLET_SECRET이 파생하는 주소와 동일 계정).
- * 서버는 PI_PLATFORM_WALLET env로 무엇이든 덮어쓸 수 있다.
- */
-export const PLATFORM_DEPOSIT_WALLET = 'GBBMSI2255PP7AGRHEKKAQ567H5BZ5IWGU4XV3FAXAQ67ZZ7NWWKNJDM'
+/** 플랫폼 공식 Pi 입금 수신지 — 서버 기본값이며 클라이언트 폴백으로도 쓰인다. */
+export const PLATFORM_DEPOSIT_WALLET = 'GDQW3DP4XK46AL2YYKDB5SJ7RVRYCE5PNBIWGPFQ7ZEZ4CEWMS5WGUWS'
 
 export function isPiWalletAddress(value: unknown): boolean {
   return typeof value === 'string' && PI_WALLET_RE.test(value.trim())
