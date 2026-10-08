@@ -313,7 +313,10 @@ function initPi(pi: PiSdk) {
     initialized = true
     logPi('log', 'Pi.init', config)
   } catch (error) {
+    // init 실패를 삼키면 초기화되지 않은 SDK로 authenticate가 실행돼
+    // 시트가 뜨지 않고 무한 대기할 수 있다 — 즉시 실패로 올려보낸다.
     logPi('error', 'Pi.init failed', error)
+    throw error instanceof Error ? error : new Error(`Pi.init failed: ${errorText(error)}`)
   }
 }
 
@@ -477,7 +480,11 @@ export async function signInWithPi(): Promise<PiSession> {
   try {
     const pi = await preparePiSdk()
     if (!pi) throw new Error('Pi SDK(window.Pi)가 로드되지 않았습니다. Pi Browser에서 열어 주세요.')
-    resetPiSession()
+    // 인증 직전 resetPiSession()을 하면 마운트 시 자동 인증(autoVerifyPiAppStudio)이
+    // 띄운 진행 중 authenticate와 충돌한다 — SDK는 in-flight authenticate 위에 두
+    // 번째 호출을 얹지 못하고 두 프라미스 모두 영원히 pending 상태가 될 수 있다.
+    // 대신 진행 중/완료된 인증 프라미스를 그대로 재사용하고, 세션 무결성은 직후
+    // /v2/me 검증으로 확인한다.
     const auth = await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate')
     const session = parsePiAuthResult(auth)
     if (!session) throw new Error('파이 계정 UID를 받지 못했습니다.')
