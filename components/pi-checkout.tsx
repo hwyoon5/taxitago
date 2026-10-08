@@ -247,6 +247,9 @@ async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Rec
 }
 
 const PI_CALL_TIMEOUT_MS = 8000
+/** 로그인 시트는 사용자 상호작용이 필요 — 8초 제한은 테스트넷에서 세션
+ *  만료 오류로 오인될 만큼 짧아 별도 여유를 둔다. */
+const PI_AUTH_TIMEOUT_MS = 30_000
 /**
  * 승인은 지갑 만료 창 안에서 끝나야 하지만, 느린 네트워크/콜드 스타트에서의
  * 정상 승인까지 자르지 않도록 여유를 둔다(서버는 시도당 8초·최대 2회로 제한).
@@ -411,9 +414,12 @@ export async function signInWithPi(): Promise<PiSession> {
     const pi = await preparePiSdk()
     if (!pi) throw new Error('Pi SDK(window.Pi)가 로드되지 않았습니다. Pi Browser에서 열어 주세요.')
     resetPiSession()
-    const auth = await withTimeout(authenticatePi(pi), PI_CALL_TIMEOUT_MS, 'Pi.authenticate')
+    const auth = await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate')
     const session = parsePiAuthResult(auth)
     if (!session) throw new Error('파이 계정 UID를 받지 못했습니다.')
+    // 발급된 accessToken을 서버 /v2/me로 재검증 — 만료·네트워크 불일치 세션이
+    // "연동됨"으로 남았다가 호출 시점에야 깨지는 상황을 로그인 시점에 차단한다.
+    await verifyPiSessionOnServer(session)
     logPi('log', 'sign-in session', session)
     return session
   } catch (error) {
@@ -428,6 +434,38 @@ export async function signInWithPi(): Promise<PiSession> {
       return session
     }
     throw error instanceof Error ? error : new Error(describePiUserMessage(error))
+  }
+}
+
+/**
+ * 발급 토큰을 백엔드(/api/pi/auth → Pi /v2/me)로 재검증한다. 명시적 거절
+ * (401)만 세션 오류로 throw하고, 검증 서버 장애·네트워크 실패는 경고 후
+ * 통과 — 방금 authenticate로 받은 토큰이 권위라 일시 장애로 연동을 막지 않는다.
+ */
+async function verifyPiSessionOnServer(session: PiSession) {
+  if (!session.accessToken) {
+    logPi('warn', 'sign-in token missing; server verification skipped', { uid: session.uid })
+    return
+  }
+  try {
+    const res = await apiFetch('/api/pi/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: session.uid, accessToken: session.accessToken }),
+    })
+    const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
+    if (res.status === 401) {
+      resetPiSession()
+      throw new Error(typeof data?.error === 'string' ? data.error : 'Pi 로그인 세션이 끊겼습니다. 다시 로그인해 주세요.')
+    }
+    if (!res.ok || data?.ok !== true) {
+      logPi('warn', 'sign-in verification unreachable', { status: res.status, data })
+      return
+    }
+    logPi('log', 'sign-in verified on server', { uid: session.uid })
+  } catch (error) {
+    if (error instanceof Error && /로그인 세션이 끊겼습니다/.test(error.message)) throw error
+    logPi('warn', 'sign-in verification failed; continuing', error)
   }
 }
 
@@ -614,7 +652,16 @@ export async function startPiCheckout(options: {
     return mocked
   }
   pi ??= requirePiSdk()
-  await withTimeout(authenticatePi(pi), 20_000, 'Pi.authenticate')
+  try {
+    await withTimeout(authenticatePi(pi), 20_000, 'Pi.authenticate')
+  } catch (error) {
+    // 캐시된 세션 토큰이 만료됐을 수 있다 — 리셋 후 재인증을 한 번 시도해
+    // "세션 끊김"이 곧바로 결제 실패로 번지지 않게 한다.
+    if (!isSessionError(error)) throw error
+    logPi('warn', 'stale session; re-authenticating', error)
+    resetPiSession()
+    await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate retry')
+  }
 
   const label = checkoutLabel(options.metadata)
   if (options.advanceOnApproval && pendingIncomplete?.txid && isMobilityReturnLabel(label) && pendingIncomplete.label === label && pendingIncomplete.paymentId) {

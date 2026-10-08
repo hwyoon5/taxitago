@@ -262,9 +262,16 @@ export function assertPiPaymentCompleted(payment: unknown, paymentId: string, tx
  * Bearer로 받는다. 유효하면 토큰 소유자의 Pi uid, 아니면 null을 돌려준다.
  * 장애·타임아웃도 null(fail-closed) — 인증 확인이 불가한 호출을 통과시키지 않는다.
  */
-export async function verifyPiAccessToken(accessToken: string): Promise<string | null> {
+export type PiTokenInspection = {
+  uid: string | null
+  /** 'ok' — 토큰 유효 · 'invalid' — 401/403으로 명시적 거절(만료/위조)
+   *  'unreachable' — /v2/me 장애·타임아웃·파싱 실패로 판정 불가 */
+  status: 'ok' | 'invalid' | 'unreachable'
+}
+
+export async function inspectPiAccessToken(accessToken: string): Promise<PiTokenInspection> {
   const token = accessToken.trim()
-  if (!token) return null
+  if (!token) return { uid: null, status: 'invalid' }
   try {
     const res = await fetch('https://api.minepi.com/v2/me', {
       headers: { Authorization: `Bearer ${token}` },
@@ -273,14 +280,21 @@ export async function verifyPiAccessToken(accessToken: string): Promise<string |
     })
     if (!res.ok) {
       console.warn('[Pi] access token rejected', { status: res.status })
-      return null
+      return { uid: null, status: res.status === 401 || res.status === 403 ? 'invalid' : 'unreachable' }
     }
     const data = (await res.json().catch(() => null)) as { uid?: unknown } | null
-    return typeof data?.uid === 'string' && data.uid.trim() ? data.uid.trim() : null
+    const uid = typeof data?.uid === 'string' && data.uid.trim() ? data.uid.trim() : null
+    return uid ? { uid, status: 'ok' } : { uid: null, status: 'unreachable' }
   } catch (error) {
     console.error('[Pi] access token verification failed', error)
-    return null
+    return { uid: null, status: 'unreachable' }
   }
+}
+
+export async function verifyPiAccessToken(accessToken: string): Promise<string | null> {
+  const result = await inspectPiAccessToken(accessToken)
+  // 장애·타임아웃도 null(fail-closed) — 인증 확인이 불가한 호출을 통과시키지 않는다.
+  return result.status === 'ok' ? result.uid : null
 }
 
 function piHorizonUrl(sandboxHint?: boolean | null) {
