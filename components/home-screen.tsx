@@ -71,7 +71,7 @@ import DriverLostWatcher from '@/components/driver-lost-watcher'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
-import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, PI_CHARGE_MAX_PI, signInWithPi, type PiSession } from '@/components/pi-checkout'
+import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, PI_CHARGE_MAX_PI, signInWithPi, autoVerifyPiAppStudio, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
@@ -9010,6 +9010,11 @@ export default function HomeScreen() {
     void recordReviewReward(localPassengerId(), key)
     showNotice('평가 감사합니다. 0.1 Pi가 적립되었습니다.')
   }
+  // Pi App Studio "Verified" 검증 — Pi Browser에서 앱이 열리면 사용자 클릭
+  // 없이 authenticate를 자동 실행하고 토큰을 App Studio 로그인으로 즉시 전달.
+  useEffect(() => {
+    void autoVerifyPiAppStudio()
+  }, [])
   // 앱이 열려 있는 동안에는 지갑 모달을 열지 않아도 온체인 입금이 감지되면
   // 즉시 잔액에 반영한다(수동 동기화로 기록된 입금 포함, txid 멱등).
   useEffect(() => {

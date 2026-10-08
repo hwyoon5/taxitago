@@ -339,6 +339,37 @@ async function loginPiAppStudio(accessToken: string) {
   }
 }
 
+let appStudioAutoAuthStarted = false
+/**
+ * Pi App Studio "Verified" 검증 전용 — Pi Browser에서 앱이 마운트되면
+ * 사용자 클릭을 기다리지 않고 authenticate를 자동 실행하고, 발급된
+ * accessToken을 App Studio 로그인 엔드포인트(직접 + 서버 포워딩)로 즉시
+ * 전달한다. 일반 브라우저/비 Pi 환경에서는 아무것도 하지 않는다.
+ */
+export async function autoVerifyPiAppStudio() {
+  if (appStudioAutoAuthStarted) return
+  if (!isPiBrowser()) return
+  appStudioAutoAuthStarted = true
+  logPi('log', 'auto auth for App Studio verification start')
+  try {
+    const pi = await preparePiSdk()
+    if (!pi) return
+    const auth = await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate (auto)')
+    const session = parsePiAuthResult(auth)
+    if (!session?.accessToken) {
+      logPi('warn', 'auto auth: accessToken missing', session)
+      return
+    }
+    void loginPiAppStudio(session.accessToken)
+    void verifyPiSessionOnServer(session).catch((error) =>
+      logPi('warn', 'auto auth server verify rejected', error),
+    )
+    logPi('log', 'auto auth done; token dispatched to App Studio')
+  } catch (error) {
+    logPi('warn', 'auto auth failed', error)
+  }
+}
+
 function loadPiSdkScript() {
   if (typeof window === 'undefined') return Promise.reject(new Error('Pi SDK는 브라우저에서만 불러옵니다.'))
   if (typeof window.Pi?.init === 'function' && typeof window.Pi.createPayment === 'function') return Promise.resolve()
