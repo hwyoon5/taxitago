@@ -181,6 +181,9 @@ export function describePiUserMessage(error: unknown) {
     return 'Pi Browser 환경이 아닙니다. 파이 브라우저에서 다시 열어 주세요.'
   }
   if (/cancel/i.test(text)) return '결제가 취소되었습니다.'
+  if (/timed out|TimeoutError|AbortError/i.test(text)) {
+    return 'Pi 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
+  }
   if (isSessionError(error)) {
     return 'Pi 로그인 세션이 끊겼습니다. 파이 브라우저에서 다시 로그인한 뒤 시도해 주세요.'
   }
@@ -235,6 +238,9 @@ async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Rec
     body: JSON.stringify(body),
     // keepalive: 지갑 모달로 페이지가 백그라운드돼도 요청이 끝까지 전달된다.
     keepalive: true,
+    // 서버 승인 예산(시도당 8s × 최대 2회 + 왕복)에 맞춘 상한 — 네트워크가
+    // 멈춰도 결제 스피너가 무한 대기하지 않게 한다.
+    signal: AbortSignal.timeout(PI_APPROVE_SERVER_TIMEOUT_MS),
   })
   const payload = (await response.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
   if (!response.ok || payload?.ok !== true) {
@@ -329,6 +335,7 @@ async function loginPiAppStudio(accessToken: string) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accessToken }),
+      signal: AbortSignal.timeout(10_000),
     })
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null
     logPi(res.ok ? 'log' : 'warn', 'App Studio login', { status: res.status, data })
@@ -512,6 +519,9 @@ async function verifyPiSessionOnServer(session: PiSession) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: session.uid, accessToken: session.accessToken }),
+      // apiFetch엔 기본 타임아웃이 없다 — 검증 서버가 멈추면 로그인 스피너가
+      // 무한 대기하므로 상한을 둔다(서버 /v2/me 8s + 포워딩 여유).
+      signal: AbortSignal.timeout(15_000),
     })
     const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
     if (res.status === 401) {

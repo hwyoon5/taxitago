@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 
 const PI_APP_STUDIO_LOGIN_URL =
@@ -27,19 +27,23 @@ export async function POST(request: Request) {
 
   const result = await inspectPiAccessToken(accessToken)
 
-  // App Studio 검증 포워딩 — 결과는 로그로만 남기고 응답을 막지 않는다.
-  try {
-    const studioRes = await fetch(PI_APP_STUDIO_LOGIN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken }),
-      signal: AbortSignal.timeout(8_000),
-    })
-    const studioBody = await studioRes.text().catch(() => '')
-    console.log('[Pi] App Studio login forwarded', { status: studioRes.status, body: studioBody.slice(0, 200) })
-  } catch (error) {
-    console.warn('[Pi] App Studio login forward failed', error)
-  }
+  // App Studio 검증 포워딩 — 응답을 지연시키지 않도록 after()로 백그라운드
+  // 처리한다. 직렬로 기다리면 최대 8초가 로그인 응답에 붙어 클라이언트
+  // 타임아웃(15s)과 합쳐져 로그인이 느려진다.
+  after(async () => {
+    try {
+      const studioRes = await fetch(PI_APP_STUDIO_LOGIN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken }),
+        signal: AbortSignal.timeout(8_000),
+      })
+      const studioBody = await studioRes.text().catch(() => '')
+      console.log('[Pi] App Studio login forwarded', { status: studioRes.status, body: studioBody.slice(0, 200) })
+    } catch (error) {
+      console.warn('[Pi] App Studio login forward failed', error)
+    }
+  })
 
   if (result.status === 'ok' && result.uid === uid) {
     return NextResponse.json({ ok: true, uid })
