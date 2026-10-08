@@ -77,7 +77,7 @@ function authenticatePi(pi: PiSdk) {
     // Fire-and-forget: if the SDK awaits this callback before resolving
     // authenticate, a leftover incomplete payment would stall every checkout
     // behind a /api/pi/complete round-trip.
-    const pending = pi.authenticate(['username', 'payments'], (payment) => {
+    const pending = pi.authenticate([...PI_AUTH_SCOPES], (payment) => {
       void onIncompletePaymentFound(payment)
     })
     authPromise = pending
