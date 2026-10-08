@@ -59,7 +59,7 @@ export async function DELETE(request: Request) {
   const body = (await request.json().catch(() => null)) as { uid?: unknown; wallet?: unknown } | null
   const fromBody = typeof body?.uid === 'string' ? body.uid.trim() : ''
   const uid = fromBody || new URL(request.url).searchParams.get('uid')?.trim() || ''
-  if (!uid) return NextResponse.json({ error: 'uid required' }, { status: 400 })
+  if (!uid) return NextResponse.json({ success: false, error: 'uid required' }, { status: 400 })
   // 보유 파이 잔액이 남아 있으면 탈퇴를 원천 차단 — 잔액 출금·소진 후에만
   // 계정 해제를 진행한다. 잔액은 서버 장부의 uid/지갑 귀속 크레딧 롤업이 권위.
   const wallet =
@@ -77,7 +77,7 @@ export async function DELETE(request: Request) {
   } catch (error) {
     console.error('[Withdraw] balance lookup failed; withdrawal blocked', { uid, error })
     return NextResponse.json(
-      { error: '보유 잔액을 확인하지 못해 탈퇴를 진행할 수 없습니다. 잠시 후 다시 시도해 주세요.' },
+      { success: false, error: '보유 잔액을 확인하지 못해 탈퇴를 진행할 수 없습니다. 잠시 후 다시 시도해 주세요.' },
       { status: 500 },
     )
   }
@@ -85,13 +85,14 @@ export async function DELETE(request: Request) {
     console.warn('[Withdraw] blocked: remaining balance', { uid, total: remaining })
     return NextResponse.json(
       {
+        success: false,
         error: `보유 중인 파이 잔액(${piRound(remaining)} Pi)이 남아있어 탈퇴할 수 없습니다. 잔액을 모두 출금하거나 소진한 후 다시 시도해 주세요.`,
       },
       { status: 400 },
     )
   }
   deletePartnerLink(uid)
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, success: true })
 }
 
 export async function GET(request: Request) {
