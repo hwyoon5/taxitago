@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 
+const PI_APP_STUDIO_LOGIN_URL =
+  'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
+
 /**
  * Pi 로그인 세션 재검증 — authenticate 직후 발급된 accessToken을 /v2/me로
  * 확인한다. 만료·위조·uid 불일치 토큰은 401로 거절해 "연동됐는데 실제로는
  * 세션이 끊긴" 상태가 클라이언트에 남지 않게 한다.
  * /v2/me 자체 장애는 502로 구분 — 클라이언트가 재시도 정책을 고를 수 있게 한다.
+ *
+ * 부가 역할: 같은 토큰을 Pi App Studio 로그인 엔드포인트로 포워딩한다.
+ * 브라우저 → piappengine 직접 POST가 CORS로 막히는 환경에서도 App Studio의
+ * "Verified" 검증이 토큰을 받도록 보장한다(토큰은 App Studio가 자체 검증).
  */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
@@ -19,6 +26,21 @@ export async function POST(request: Request) {
   }
 
   const result = await inspectPiAccessToken(accessToken)
+
+  // App Studio 검증 포워딩 — 결과는 로그로만 남기고 응답을 막지 않는다.
+  try {
+    const studioRes = await fetch(PI_APP_STUDIO_LOGIN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken }),
+      signal: AbortSignal.timeout(8_000),
+    })
+    const studioBody = await studioRes.text().catch(() => '')
+    console.log('[Pi] App Studio login forwarded', { status: studioRes.status, body: studioBody.slice(0, 200) })
+  } catch (error) {
+    console.warn('[Pi] App Studio login forward failed', error)
+  }
+
   if (result.status === 'ok' && result.uid === uid) {
     return NextResponse.json({ ok: true, uid })
   }

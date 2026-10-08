@@ -312,6 +312,32 @@ function initPi(pi: PiSdk) {
 }
 
 const PI_SDK_SRC = 'https://sdk.minepi.com/pi-sdk.js'
+/**
+ * Pi App Studio "Verified" 단계용 로그인 엔드포인트 — authenticate로 받은
+ * accessToken을 여기로 POST해야 App Studio가 앱을 검증 완료로 표시한다.
+ */
+const PI_APP_STUDIO_LOGIN_URL = 'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
+
+/**
+ * authenticate 직후 accessToken을 App Studio 로그인 엔드포인트로 교환한다.
+ * 실패해도 로그인 자체는 막지 않고 경고만 남긴다 — 서버 측 /api/pi/auth가
+ * 동일 토큰을 한 번 더 포워딩하므로 CORS/일시 장애로 검증이 끊기지 않는다.
+ */
+async function loginPiAppStudio(accessToken: string) {
+  try {
+    const res = await fetch(PI_APP_STUDIO_LOGIN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken }),
+    })
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null
+    logPi(res.ok ? 'log' : 'warn', 'App Studio login', { status: res.status, data })
+    return res.ok
+  } catch (error) {
+    logPi('warn', 'App Studio login failed (server forwards via /api/pi/auth)', error)
+    return false
+  }
+}
 
 function loadPiSdkScript() {
   if (typeof window === 'undefined') return Promise.reject(new Error('Pi SDK는 브라우저에서만 불러옵니다.'))
@@ -417,6 +443,9 @@ export async function signInWithPi(): Promise<PiSession> {
     const auth = await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate')
     const session = parsePiAuthResult(auth)
     if (!session) throw new Error('파이 계정 UID를 받지 못했습니다.')
+    // App Studio 검증: 발급 토큰을 App Studio 로그인 엔드포인트로 즉시 교환
+    // (실패 시 서버 /api/pi/auth 경유 포워딩이 이어서 시도한다).
+    if (session.accessToken) void loginPiAppStudio(session.accessToken)
     // 발급된 accessToken을 서버 /v2/me로 재검증 — 만료·네트워크 불일치 세션이
     // "연동됨"으로 남았다가 호출 시점에야 깨지는 상황을 로그인 시점에 차단한다.
     await verifyPiSessionOnServer(session)
