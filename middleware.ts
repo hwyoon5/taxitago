@@ -19,6 +19,7 @@ export function middleware(request: NextRequest) {
   if (
     pathname === '/api/pi/approve' ||
     pathname === '/api/pi/complete' ||
+    pathname === '/api/pi/auth' ||
     pathname === '/api/escrow/lock' ||
     pathname === '/api/partner/link' ||
     pathname === '/api/drivers/active' ||
@@ -70,5 +71,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/validation-key.txt', '/validation-key.txt/', '/api/geocode', '/api/pi/approve', '/api/pi/complete', '/api/escrow/lock', '/api/partner/link', '/api/drivers/active', '/api/drivers/earnings', '/api/deliveries', '/api/deliveries/:id', '/api/deliveries/:id/accept', '/api/rides/:id/cancel', '/api/rides/:id/progress', '/api/rides/:id/abandon', '/api/rides/:id/complete', '/api/naver-maps/upstream/:path*'],
+  matcher: ['/validation-key.txt', '/validation-key.txt/', '/api/geocode', '/api/pi/approve', '/api/pi/complete', '/api/pi/auth', '/api/escrow/lock', '/api/partner/link', '/api/drivers/active', '/api/drivers/earnings', '/api/deliveries', '/api/deliveries/:id', '/api/deliveries/:id/accept', '/api/rides/:id/cancel', '/api/rides/:id/progress', '/api/rides/:id/abandon', '/api/rides/:id/complete', '/api/naver-maps/upstream/:path*'],
 }

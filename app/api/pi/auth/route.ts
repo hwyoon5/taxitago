@@ -1,5 +1,5 @@
 import { after, NextResponse } from 'next/server'
-import { inspectPiAccessToken } from '@/lib/pi-platform'
+import { describeError, inspectPiAccessToken } from '@/lib/pi-platform'
 
 const PI_APP_STUDIO_LOGIN_URL =
   'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
       { status: 401 },
     )
   } catch (error) {
-    console.error('[Pi] /api/pi/auth unhandled error', error)
+    console.error('[Pi] /api/pi/auth unhandled error', describeError(error))
     return NextResponse.json(
       { ok: false, error: '인증 처리 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' },
       { status: 500 },

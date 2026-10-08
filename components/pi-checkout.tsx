@@ -528,9 +528,11 @@ export async function signInWithPi(): Promise<PiSession> {
 }
 
 /**
- * 발급 토큰을 백엔드(/api/pi/auth → Pi /v2/me)로 재검증한다. 명시적 거절
- * (401)만 세션 오류로 throw하고, 검증 서버 장애·네트워크 실패는 경고 후
- * 통과 — 방금 authenticate로 받은 토큰이 권위라 일시 장애로 연동을 막지 않는다.
+ * 발급 토큰을 백엔드(/api/pi/auth → Pi /v2/me)로 재검증한다. 로그인 시점에서는
+ * 감사 용도로만 쓰고 절대 throw하지 않는다 — 방금 authenticate로 받은 토큰이
+ * 권위이고, /v2/me가 테스트넷 토큰을 거절(401)하는 환경에서 이 검사로 모든
+ * 정상 로그인이 차단되는 사태를 막기 위함이다. 위조 방지는 API 호출 시점의
+ * 서버 검증(/api/rides의 verifyPiAccessToken)이 그대로 담당한다.
  */
 async function verifyPiSessionOnServer(session: PiSession) {
   if (!session.accessToken) {
@@ -543,21 +545,17 @@ async function verifyPiSessionOnServer(session: PiSession) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: session.uid, accessToken: session.accessToken }),
       // apiFetch엔 기본 타임아웃이 없다 — 검증 서버가 멈추면 로그인 스피너가
-      // 무한 대기하므로 상한을 둔다(서버 /v2/me 8s + 포워딩 여유).
+      // 무한 대기하므로 상한을 둔다(서버 /v2/me 8s + 왕복 여유).
       signal: AbortSignal.timeout(15_000),
     })
     const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
-    if (res.status === 401) {
-      resetPiSession()
-      throw new Error(typeof data?.error === 'string' ? data.error : 'Pi 로그인 세션이 끊겼습니다. 다시 로그인해 주세요.')
-    }
     if (!res.ok || data?.ok !== true) {
-      logPi('warn', 'sign-in verification unreachable', { status: res.status, data })
+      // 401 포함 어떤 거절도 로그인을 차단하지 않는다 — 로그만 남기고 진행.
+      logPi('warn', 'sign-in verification rejected', { status: res.status, data })
       return
     }
     logPi('log', 'sign-in verified on server', { uid: session.uid })
   } catch (error) {
-    if (error instanceof Error && /로그인 세션이 끊겼습니다/.test(error.message)) throw error
     logPi('warn', 'sign-in verification failed; continuing', error)
   }
 }
