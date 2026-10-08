@@ -144,10 +144,19 @@ export async function requestAccountWithdrawal(uid?: string) {
   const id = uid?.trim() || identity?.uid || loadPartnerProfile()?.uid || ''
   // 백엔드가 잔액 검사의 최종 권위 — uid가 없어도 호출해 서버가 거절
   // (400 uid required)하게 두고, 로컬만으로 탈퇴를 완료하지 않는다.
+  // 서버는 탈퇴 요청자가 해당 uid의 소유자인지 accessToken으로 검증한다 —
+  // 헤더와 body 양쪽에 실어 프록시·rewrite에서의 헤더 손실에 대비한다.
   const res = await apiFetch('/api/partner/link/', {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ uid: id, wallet: identity?.wallet || loadPartnerProfile()?.wallet || '' }),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(identity?.accessToken ? { 'x-pi-access-token': identity.accessToken } : {}),
+    },
+    body: JSON.stringify({
+      uid: id,
+      wallet: identity?.wallet || loadPartnerProfile()?.wallet || '',
+      accessToken: identity?.accessToken || undefined,
+    }),
   })
   const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
   if (!res.ok || data?.ok !== true) {

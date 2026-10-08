@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { deletePartnerLink, getPartnerLink, upsertPartnerLink } from '@/lib/partner-ledger-server'
 import { piRound } from '@/lib/pi-format'
+import { inspectPiAccessToken } from '@/lib/pi-platform'
+import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -56,11 +58,40 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const body = (await request.json().catch(() => null)) as { uid?: unknown; wallet?: unknown } | null
+  const body = (await request.json().catch(() => null)) as {
+    uid?: unknown
+    wallet?: unknown
+    accessToken?: unknown
+  } | null
   const fromBody = typeof body?.uid === 'string' ? body.uid.trim() : ''
   const uid = fromBody || new URL(request.url).searchParams.get('uid')?.trim() || ''
   if (!uid) return NextResponse.json({ success: false, error: 'uid required' }, { status: 400 })
-  // 보유 파이 잔액이 남아 있으면 탈퇴를 원천 차단 — 잔액 출금·소진 후에만
+  // 1. 인증 — 탈퇴 요청자가 해당 Pi uid 소유자인지 확인한다. 토큰 없는 호출로
+  // 잔액 0인 타인 계정을 해제할 수 없게 막는다. /api/rides와 같은 정책:
+  // 메인넷은 fail-closed, 테스트넷은 /v2/me 판정 불가(unreachable)만 통과.
+  const sandbox = isPiSandboxRequest(request)
+  const sandboxSession = sandbox && uid === 'sandbox-uid-taxitago'
+  if (!sandboxSession) {
+    const token =
+      request.headers.get('x-pi-access-token')?.trim() ||
+      (typeof body?.accessToken === 'string' ? body.accessToken.trim() : '')
+    if (!token) {
+      return NextResponse.json(
+        { success: false, error: 'Pi 계정 인증이 필요합니다. 다시 로그인해 주세요.' },
+        { status: 401 },
+      )
+    }
+    const inspection = await inspectPiAccessToken(token, sandbox)
+    const verifiedUid = inspection.status === 'ok' ? inspection.uid : null
+    const allowed = verifiedUid === uid || (sandbox && inspection.status === 'unreachable')
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' },
+        { status: 401 },
+      )
+    }
+  }
+  // 2. 보유 파이 잔액이 남아 있으면 탈퇴를 원천 차단 — 잔액 출금·소진 후에만
   // 계정 해제를 진행한다. 잔액은 서버 장부의 uid/지갑 귀속 크레딧 롤업이 권위.
   const wallet =
     (typeof body?.wallet === 'string' ? body.wallet.trim() : '') ||
