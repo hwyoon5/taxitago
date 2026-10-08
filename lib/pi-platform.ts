@@ -22,8 +22,12 @@ type PiKeyChoice = { key: string; source: 'forced-testnet' | 'env' }
 function resolvePiApiKeys(sandboxHint?: boolean | null): PiKeyChoice[] {
   const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
   const testnet: PiKeyChoice = { key: PI_TESTNET_API_KEY, source: 'forced-testnet' }
-  const envKey = (process.env.PI_API_KEY || '').trim()
-  const env: PiKeyChoice[] = envKey ? [{ key: envKey, source: 'env' }] : []
+  // PI_NETWORK_API_KEY(App Studio/최신 문서 명칭)와 PI_API_KEY 모두를 키
+  // 후보로 인식 — 둘 다 있으면 순서대로 폴백 시도한다.
+  const env: PiKeyChoice[] = [process.env.PI_NETWORK_API_KEY, process.env.PI_API_KEY]
+    .map((value) => (value || '').trim())
+    .filter((value, index, all) => Boolean(value) && all.indexOf(value) === index)
+    .map((key) => ({ key, source: 'env' as const }))
   const choices = sandbox ? [testnet, ...env] : [...env, testnet]
   if (!choices.length) throw new Error('PI_API_KEY is not configured')
   return choices
