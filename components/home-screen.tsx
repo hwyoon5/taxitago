@@ -5071,7 +5071,7 @@ function Home({
         <button
           type="button"
           onClick={() => setQrPayOpen(true)}
-          className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#4C1FB8] to-[#7C3AED] px-3 py-3 text-[13px] font-black text-white shadow-[0_8px_18px_rgba(76,31,184,0.28)] transition active:scale-[0.99]"
+          className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] px-3 py-3 text-[13px] font-black text-white shadow-[0_8px_18px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] active:scale-[0.99]"
         >
           <ScanLine className="h-5 w-5" />
           QR 코드로 결제하기
