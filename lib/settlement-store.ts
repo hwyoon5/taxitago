@@ -135,6 +135,7 @@ export async function recordSettlement(input: {
   gross: number
   passengerId?: string
   driverWallet?: string
+  channel?: SettlementEntry['channel']
 }): Promise<SettlementEntry | null> {
   if (!input.refId || !Number.isFinite(input.gross) || input.gross <= 0) return null
   const entries = await readEntries()
@@ -158,6 +159,7 @@ export async function recordSettlement(input: {
     commission,
     net: piRound(input.gross - commission),
     status: 'pending',
+    channel: input.channel,
     settledAt: '',
     createdAt: new Date().toISOString(),
   }
@@ -166,12 +168,13 @@ export async function recordSettlement(input: {
   return entry
 }
 
-export async function markSettlementSettled(id: string): Promise<SettlementEntry | null> {
+export async function markSettlementSettled(id: string, payoutTxid?: string): Promise<SettlementEntry | null> {
   const entries = await readEntries()
   const entry = entries.find((row) => row.id === id)
   if (!entry) return null
   entry.status = 'settled'
   entry.settledAt = new Date().toISOString()
+  if (payoutTxid?.trim()) entry.payoutTxid = payoutTxid.trim()
   await writeEntries(entries)
   return entry
 }

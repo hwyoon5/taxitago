@@ -18,6 +18,13 @@ export type SettlementEntry = {
   commission: number
   net: number
   status: 'pending' | 'settled'
+  /**
+   * inapp — 승객이 플랫폼 지갑으로 Pi 결제 → 플랫폼이 기사에게 net을 송금해야 함.
+   * manual — 기사가 현장에서 직접 수령 → 수수료는 플랫폼의 기사에 대한 미수금.
+   */
+  channel?: 'inapp' | 'manual'
+  /** 기사에게 실제 송금된 A2U 트랜잭션 txid — 수수료 공제 후 net 송금의 증거. */
+  payoutTxid?: string
   settledAt: string
   createdAt: string
 }

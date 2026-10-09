@@ -4,7 +4,8 @@ import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { getFareConfig } from '@/lib/fare-config-server'
 import { piRound } from '@/lib/pi-format'
 import { getPartnerLink } from '@/lib/partner-ledger-server'
-import { listSettlements, recordSettlement } from '@/lib/settlement-store'
+import { getCommissionRates, listSettlements, markSettlementSettled, recordSettlement } from '@/lib/settlement-store'
+import type { SettlementService } from '@/lib/settlement-types'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { createA2UPayment } from '@/lib/pi-platform'
 import {
@@ -203,17 +204,26 @@ export async function releaseEscrow(
   const baseAmount = validMeasured != null ? estimateTaxiFarePi(validMeasured, fareConfig, ride.kind) : escrow.amount
   const settleAmount = piRound(baseAmount + trafficSurcharge)
 
+  // 플랫폼 수수료 분리 — 기사에게는 수수료 공제 후 net만 송금하고,
+  // 수수료는 승객 결제가 입금된 플랫폼 지갑에 그대로 남는다.
+  const settleService: SettlementService = ride.kind === 'daeri' ? 'daeri' : 'taxi'
+  const settleRate = (await getCommissionRates().catch(() => null))?.[settleService] ?? 0
+  const commission = piRound(settleAmount * settleRate / 100)
+  const payoutAmount = piRound(settleAmount - commission)
+
   const target = driverPayoutTarget(driverId)
   let payoutTxid = `a2u-${escrow.id.slice(0, 10)}`
-  if (!isPiSandboxEnv() && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
+  let payoutSent = false
+  if (!isPiSandboxEnv() && payoutAmount > 0 && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
     try {
       const payment = await createA2UPayment({
-        amount: settleAmount,
+        amount: payoutAmount,
         memo: '택시 정산',
         uid: target.uid,
-        metadata: { kind: 'escrow-release', rideId, escrowId: escrow.id },
+        metadata: { kind: 'escrow-release', rideId, escrowId: escrow.id, gross: settleAmount, commission },
       })
       payoutTxid = payment.transaction?.txid || payment.identifier || payoutTxid
+      payoutSent = true
     } catch (error) {
       if (!isPiSandboxEnv()) throw error
     }
@@ -261,16 +271,22 @@ export async function releaseEscrow(
     at: receipt.settledAt,
   })
   if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: nowIso() })
-  await recordSettlement({
+  const settleEntry = await recordSettlement({
     refId: `ride:${rideId}`,
-    service: ride.kind === 'daeri' ? 'daeri' : 'taxi',
+    service: settleService,
     driverId,
     driverName: target.name,
     passengerId: ride.passengerId,
     memo: receipt.route,
     gross: escrow.amount,
     driverWallet: target.wallet,
+    channel: 'inapp',
   }).catch(() => null)
+  // net 송금이 온체인에서 확인됐으면 장부도 즉시 '정산 완료'로 마감하고
+  // 송금 txid를 장부에 남겨 기사 net 송금과 수수료 귀속의 증거를 연결한다.
+  if (payoutSent && settleEntry) {
+    await markSettlementSettled(settleEntry.id, payoutTxid).catch(() => null)
+  }
   return { ok: true as const, escrow, receipt }
   } finally {
     releasingRides.delete(rideId)
@@ -287,17 +303,24 @@ export async function settlePassengerCancelFee(rideId: string) {
   if (!driverId || ride.status !== 'assigned') return { ok: false as const, error: 'not_assigned' }
   const fareConfig = await getFareConfig()
   const settlement = settleMidTripCancelFee(ride.estimatedFare, { rate: fareConfig.cancel.rate / 100, min: fareConfig.cancel.min })
+  const cancelService: SettlementService = ride.kind === 'daeri' ? 'daeri' : 'taxi'
+  const cancelRate = (await getCommissionRates().catch(() => null))?.[cancelService] ?? 0
+  const cancelCommission = piRound(settlement.cancelFee * cancelRate / 100)
+  // 취소 수수료에도 동일한 수수료율을 적용 — 기사에게는 net만 송금.
+  const cancelPayout = piRound(settlement.cancelFee - cancelCommission)
   const target = driverPayoutTarget(driverId)
   let payoutTxid = `cancel-fee-${rideId.slice(0, 10)}`
-  if (settlement.cancelFee > 0 && !isPiSandboxEnv() && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
+  let cancelPayoutSent = false
+  if (cancelPayout > 0 && !isPiSandboxEnv() && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
     try {
       const payment = await createA2UPayment({
-        amount: settlement.cancelFee,
+        amount: cancelPayout,
         memo: '취소 수수료',
         uid: target.uid,
-        metadata: { kind: 'cancel-fee', rideId },
+        metadata: { kind: 'cancel-fee', rideId, gross: settlement.cancelFee, commission: cancelCommission },
       })
       payoutTxid = payment.transaction?.txid || payment.identifier || payoutTxid
+      cancelPayoutSent = true
     } catch (error) {
       if (!isPiSandboxEnv()) throw error
     }
@@ -352,16 +375,20 @@ export async function settlePassengerCancelFee(rideId: string) {
     at: settledAt,
   })
   if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: settledAt })
-  await recordSettlement({
+  const cancelEntry = await recordSettlement({
     refId: `ride:${rideId}:cancel`,
-    service: ride.kind === 'daeri' ? 'daeri' : 'taxi',
+    service: cancelService,
     driverId,
     driverName: target.name,
     passengerId: ride.passengerId,
     memo: `취소 수수료 · ${routeLabel(ride)}`,
     gross: settlement.cancelFee,
     driverWallet: target.wallet,
+    channel: 'inapp',
   }).catch(() => null)
+  if (cancelPayoutSent && cancelEntry) {
+    await markSettlementSettled(cancelEntry.id, payoutTxid).catch(() => null)
+  }
   return { ok: true as const, settlement, payoutTxid }
 }
 

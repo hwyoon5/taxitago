@@ -1,4 +1,5 @@
 import { recordSettlement } from '@/lib/settlement-store'
+import { payoutSettlementNet } from '@/lib/settlement-payout'
 import { driverPayoutTarget } from '@/lib/escrow-engine'
 import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
 import type { SettlementService } from '@/lib/settlement-types'
@@ -53,7 +54,7 @@ export async function handleServicePaymentComplete(input: {
   // No linked partner → deterministic platform wallet so the 90/10 split is
   // still recorded instead of leaving the driver leg blank.
   const driverWallet = driverPayoutTarget(partnerId || 'platform').wallet
-  return recordSettlement({
+  const entry = await recordSettlement({
     refId: `pay:${paymentId}`,
     service,
     driverId: partnerId || 'platform',
@@ -61,5 +62,11 @@ export async function handleServicePaymentComplete(input: {
     memo: [label || '서비스 결제', place, input.txid ? `txid ${input.txid.slice(0, 10)}` : ''].filter(Boolean).join(' · '),
     gross,
     driverWallet,
+    channel: 'inapp',
   })
+  // 승객 결제는 플랫폼 지갑에 입금되므로, 수수료를 뺀 net을 파트너에게 A2U 송금한다.
+  if (entry && partnerId) {
+    await payoutSettlementNet(entry, `${label || '서비스 결제'} 정산`).catch(() => null)
+  }
+  return entry
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { piRound } from '@/lib/pi-format'
 import { recordSettlement } from '@/lib/settlement-store'
+import { payoutSettlementNet } from '@/lib/settlement-payout'
 
 /**
  * 현장 수동 결제 — 기사가 앱 배차 없이 현장 승객에게 청구하는 건.
@@ -104,9 +105,13 @@ function settlementMemo(record: ManualPayRecord, via: 'pi' | 'manual') {
     .join(' · ')
 }
 
-/** 정산 장부 기록 — refId가 멱등키라 Pi 완료/수동 확정이 중복 반영되지 않는다. */
+/**
+ * 정산 장부 기록 — refId가 멱등키라 Pi 완료/수동 확정이 중복 반영되지 않는다.
+ * via 'pi'는 플랫폼 지갑 입금분이라 기사에게 net을 A2U 송금하고,
+ * via 'manual'은 기사가 현장 수령했으므로 수수료가 플랫폼의 미수금으로 남는다.
+ */
 async function bookSettlement(record: ManualPayRecord, via: 'pi' | 'manual') {
-  return recordSettlement({
+  const entry = await recordSettlement({
     refId: `ride:manual-${record.id}`,
     service: 'taxi',
     driverId: record.driverId,
@@ -114,7 +119,12 @@ async function bookSettlement(record: ManualPayRecord, via: 'pi' | 'manual') {
     memo: settlementMemo(record, via),
     gross: record.amount,
     driverWallet: record.driverWallet,
+    channel: via === 'pi' ? 'inapp' : 'manual',
   })
+  if (entry && via === 'pi') {
+    await payoutSettlementNet(entry, '현장 수동 결제 정산').catch(() => null)
+  }
+  return entry
 }
 
 /** 기사가 "현장에서 직접 받음"을 확정 — Pi 트랜잭션 없이 정산만 기록한다. */
