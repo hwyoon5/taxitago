@@ -16,6 +16,7 @@ const AUDIT_LABEL: Record<string, string> = {
   withdraw: '수수료 출금',
   login: '직원 로그인',
   staff: '직원 계정',
+  user: '가입자 관리',
   partner: '기사·파트너',
   zone: '회피 구역',
   ticket: '문의·분실물',
@@ -24,6 +25,7 @@ const AUDIT_LABEL: Record<string, string> = {
 const KIND_TONE: Record<string, string> = {
   login: 'bg-[#DCFCE7] text-[#15803D]',
   staff: 'bg-[#DBEAFE] text-[#1D4ED8]',
+  user: 'bg-[#FEE2E2] text-[#B91C1C]',
   withdraw: 'bg-[#FEE2E2] text-[#B91C1C]',
   settle: 'bg-[#EDE9FE] text-[#4C1FB8]',
   'settle-all': 'bg-[#EDE9FE] text-[#4C1FB8]',

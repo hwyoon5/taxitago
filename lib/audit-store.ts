@@ -4,7 +4,7 @@ import path from 'path'
 export type AuditKind =
   | 'rates' | 'fare' | 'settle' | 'settle-all' | 'adjust' | 'reconcile'
   | 'wallet' | 'deposit' | 'withdraw' | 'spend'
-  | 'login' | 'staff' | 'partner' | 'zone' | 'ticket'
+  | 'login' | 'staff' | 'partner' | 'zone' | 'ticket' | 'user'
 
 export type AuditEntry = {
   id: string

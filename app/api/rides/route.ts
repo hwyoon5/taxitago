@@ -10,6 +10,7 @@ import { getFareConfig } from '@/lib/fare-config-server'
 import { piRound } from '@/lib/pi-format'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
+import { isUserLocked } from '@/lib/user-registry'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -70,6 +71,10 @@ export async function POST(request: Request) {
     if (!allowed) {
       return NextResponse.json({ error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' }, { status: 401 })
     }
+  }
+  // 이용 정지(Lock) 계정은 호출을 만들 수 없다.
+  if (await isUserLocked(piUid).catch(() => false)) {
+    return NextResponse.json({ error: '관리자에 의해 이용이 정지된 계정입니다.' }, { status: 403 })
   }
   const pickup = asPoint(body?.pickupLat, body?.pickupLng, { address: body?.pickupAddress })
   const dest = asPoint(body?.destLat, body?.destLng, { address: body?.destAddress, label: body?.destLabel })

@@ -523,10 +523,26 @@ export async function signInWithPi(): Promise<PiSession> {
     // 발급된 accessToken을 서버 /v2/me로 재검증 — 만료·네트워크 불일치 세션이
     // "연동됨"으로 남았다가 호출 시점에야 깨지는 상황을 로그인 시점에 차단한다.
     await verifyPiSessionOnServer(session)
+    // 관리자 이용 정지(Lock) 계정은 로그인 완료 직전에 차단한다.
+    // 조회 실패(404 미등록·네트워크)는 로그인을 막지 않고 서비스 게이트가 처리한다.
+    try {
+      const res = await apiFetch(`/api/partner/link?uid=${encodeURIComponent(session.uid)}`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8_000),
+      })
+      const data = (await res.json().catch(() => null)) as { locked?: boolean } | null
+      if (res.ok && data?.locked) {
+        throw new Error('관리자에 의해 이용이 정지된 계정입니다.')
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === '관리자에 의해 이용이 정지된 계정입니다.') throw error
+    }
     logPi('log', 'sign-in session', session)
     return session
   } catch (error) {
     resetPiSession()
+    // Lock 차단은 샌드박스 폴백으로 삼키지 않고 그대로 이용자에게 전달한다.
+    if (error instanceof Error && error.message === '관리자에 의해 이용이 정지된 계정입니다.') throw error
     if (PI_SANDBOX && !isPiBrowser()) {
       const session: PiSession = {
         uid: 'sandbox-uid-taxitago',

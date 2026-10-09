@@ -8,6 +8,7 @@ import AdminPartners from '@/components/admin-partners'
 import AdminSettlements from '@/components/admin-settlements'
 import AdminFareSettings from '@/components/admin-fare-settings'
 import AdminStaff from '@/components/admin-staff'
+import AdminUsers from '@/components/admin-users'
 import AdminAuditLog from '@/components/admin-audit-log'
 import AttachmentGallery from '@/components/photo-gallery'
 import { positionDisplayLabel } from '@/lib/staff-positions'
@@ -97,7 +98,7 @@ export default function AdminSupportDesk() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState('')
   const [storage, setStorage] = useState<'kv' | 'file' | null>(null)
-  const [view, setView] = useState<'inbox' | 'partners' | 'fare' | 'ledger' | 'staff' | 'audit'>('inbox')
+  const [view, setView] = useState<'inbox' | 'users' | 'partners' | 'fare' | 'ledger' | 'staff' | 'audit'>('inbox')
   const seenRef = useRef<Set<string> | null>(null)
   const { logout, actor } = useAdminAuth()
 
@@ -329,7 +330,7 @@ export default function AdminSupportDesk() {
         </div>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
-        {(['inbox', 'partners', 'fare', 'ledger', 'staff', 'audit'] as const).map((tab) => (
+        {(['inbox', 'users', 'partners', 'fare', 'ledger', 'staff', 'audit'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -338,8 +339,10 @@ export default function AdminSupportDesk() {
           >
             {tab === 'inbox'
               ? '문의 관리'
-              : tab === 'partners'
-                ? '기사·파트너'
+              : tab === 'users'
+                ? '가입자'
+                : tab === 'partners'
+                  ? '기사·파트너'
                 : tab === 'fare'
                   ? '수수료 설정'
                   : tab === 'ledger'
@@ -354,6 +357,8 @@ export default function AdminSupportDesk() {
         <div className="mt-4">
           <AdminPartners />
         </div>
+      ) : view === 'users' ? (
+        <AdminUsers />
       ) : view === 'fare' ? (
         <AdminFareSettings />
       ) : view === 'ledger' ? (

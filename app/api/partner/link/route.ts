@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { deletePartnerLink, getPartnerLink, upsertPartnerLink } from '@/lib/partner-ledger-server'
+import { findLockedUser, getRegistryUser, upsertRegistryUser } from '@/lib/user-registry'
 import { piRound } from '@/lib/pi-format'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
@@ -35,6 +36,14 @@ export async function POST(request: Request) {
   if (!uid || !wallet) {
     return NextResponse.json({ error: 'uid and wallet required' }, { status: 400 })
   }
+  // 이용 정지(Lock) 계정은 연동·로그인 동기화 자체를 차단한다.
+  const locked = await findLockedUser(uid, wallet).catch(() => null)
+  if (locked) {
+    return NextResponse.json(
+      { error: '관리자에 의해 이용이 정지된 계정입니다.', locked: true, lockReason: locked.lockReason || undefined },
+      { status: 403 },
+    )
+  }
   const previous = getPartnerLink(uid)
   const text = (value: unknown, fallback?: string) => (typeof value === 'string' ? value.trim() : fallback)
   const record = upsertPartnerLink({
@@ -55,6 +64,10 @@ export async function POST(request: Request) {
     insuranceDocName: text(body?.insuranceDocName, previous?.insuranceDocName),
     insuranceDocAt: text(body?.insuranceDocAt, previous?.insuranceDocAt),
     linkedAt: typeof body?.linkedAt === 'string' ? body.linkedAt : previous?.linkedAt || new Date().toISOString(),
+  })
+  // 영속 가입자 레지스트리에도 반영 — 관리자 가입자 목록·통계의 데이터 소스.
+  await upsertRegistryUser(record).catch((error) => {
+    console.error('[users] registry upsert failed', { uid, error })
   })
   return NextResponse.json({ ok: true, profile: record })
 }
@@ -168,6 +181,13 @@ export async function GET(request: Request) {
   const uid = new URL(request.url).searchParams.get('uid')?.trim() || ''
   if (!uid) return NextResponse.json({ error: 'uid required' }, { status: 400 })
   const profile = getPartnerLink(uid)
-  if (!profile) return NextResponse.json({ ok: false, profile: null }, { status: 404 })
-  return NextResponse.json({ ok: true, profile })
+  const registered = await getRegistryUser(uid).catch(() => null)
+  if (!profile && !registered) return NextResponse.json({ ok: false, profile: null }, { status: 404 })
+  return NextResponse.json({
+    ok: true,
+    profile: profile ?? registered,
+    // Lock 상태는 로그인 시점 게이트가 확인한다 — 민감 정보가 아닌 이용 가능 플래그.
+    locked: Boolean(registered?.lockedAt),
+    lockReason: registered?.lockReason || undefined,
+  })
 }

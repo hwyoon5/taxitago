@@ -77,6 +77,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' }, { status: 401 })
     }
   }
+  // 이용 정지(Lock) 계정은 출금도 차단한다 — 보정·조사가 끝날 때까지 자금 이동을 멈춘다.
+  const { isUserLocked } = await import('@/lib/user-registry')
+  if (await isUserLocked(uid).catch(() => false)) {
+    return NextResponse.json({ ok: false, error: '관리자에 의해 이용이 정지된 계정입니다.' }, { status: 403 })
+  }
 
   // 2. 멱등 — 같은 requestId의 재시도는 한 번만 처리한다.
   if (!(await claimWithdraw(requestId))) {

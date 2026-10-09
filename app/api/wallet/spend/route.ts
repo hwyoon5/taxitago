@@ -104,6 +104,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' }, { status: 401 })
     }
   }
+  // 이용 정지(Lock) 계정은 잔액 결제를 쓸 수 없다.
+  const { isUserLocked } = await import('@/lib/user-registry')
+  if (await isUserLocked(uid).catch(() => false)) {
+    return NextResponse.json({ ok: false, error: '관리자에 의해 이용이 정지된 계정입니다.' }, { status: 403 })
+  }
 
   // 2. 목적별 대상·금액 확정 — 멱등키는 건 단위로 결정해 재시도가 같은 건을 가리키게 한다.
   let amount = piRound(Number(body?.amount))
