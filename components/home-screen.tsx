@@ -34,7 +34,7 @@ import {
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { piCompact } from '@/lib/pi-format'
 import { DEFAULT_FARE_CONFIG, fetchDepositWallet, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
-import { isPiWalletAddress, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
+import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
@@ -716,6 +716,8 @@ function LocationMapModal({
 const FAVORITES_KEY = 'taxitago-favorite-places'
 const WALLET_KEY = 'taxitago-pi-wallet'
 const DEPOSIT_ADDRESS_KEY = 'taxitago-pi-deposit-address'
+/** 이용자가 지정한 출금 주소 — {uid, address} 형태로 uid 범위로 저장한다. */
+const WITHDRAW_ADDRESS_KEY = 'taxitago-pi-withdraw-address'
 const DEPOSIT_CREDITED_KEY = 'taxitago-pi-deposit-credited'
 
 /** txid 단위 멱등 — 지갑 모달과 앱 레벨 폴러가 같은 입금을 두 번 충전하지 못하게 공유한다. */
@@ -5689,8 +5691,10 @@ function WalletModal({
 }) {
   const [tab, setTab] = useState<'charge' | 'refund' | 'history'>('charge')
   const [chargeValue, setChargeValue] = useState<number | ''>(10)
-  // 출금은 연동된 Pi 계정(uid) 지갑으로만 전송된다 — 주소는 확인용 표시.
-  const [address, setAddress] = useState(() => loadPiIdentity()?.wallet || '')
+  // 출금 주소 — Pi 연동 지갑으로 자동 채워지고, 이용자가 수정해 저장할 수 있다.
+  const [address, setAddress] = useState('')
+  const [addressDraft, setAddressDraft] = useState('')
+  const [editingAddress, setEditingAddress] = useState(false)
   const [amount, setAmount] = useState('')
   const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
   const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number; txid?: string } | null>(null)
@@ -5735,6 +5739,49 @@ function WalletModal({
   }, [])
 
   const depositAddressValid = isPiWalletAddress(depositAddress)
+
+  // 출금 주소 초기화 — 저장된 지정 주소를 우선 쓰되, 다른 uid의 저장값은
+  // 재사용하지 않는다(계정 전환 시 타인 주소가 남는 사고 방지). 없으면
+  // Pi 연동으로 확인된 본인 지갑 주소를 자동 기입한다.
+  useEffect(() => {
+    const identity = loadPiIdentity()
+    const uid = identity?.uid?.trim() || ''
+    const linked = identity?.wallet?.trim() || ''
+    let saved = ''
+    try {
+      const parsed = JSON.parse(localStorage.getItem(WITHDRAW_ADDRESS_KEY) || 'null') as { uid?: string; address?: string } | null
+      if (parsed?.address && (!parsed.uid || parsed.uid === uid)) saved = parsed.address.trim()
+    } catch {
+      /* ignore malformed cache */
+    }
+    setAddress(saved || linked)
+    setAddressDraft(saved || linked)
+  }, [])
+
+  const saveWithdrawAddress = () => {
+    const next = addressDraft.trim()
+    if (!isPiWalletAddress(next)) {
+      onNotice('Pi 지갑 주소 형식을 확인해 주세요. (G로 시작하는 56자리)')
+      return
+    }
+    try {
+      localStorage.setItem(WITHDRAW_ADDRESS_KEY, JSON.stringify({ uid: loadPiIdentity()?.uid || '', address: next }))
+    } catch {
+      /* storage may be unavailable */
+    }
+    setAddress(next)
+    setEditingAddress(false)
+    onNotice('출금 주소를 저장했습니다.')
+  }
+
+  const copyWithdrawAddress = async () => {
+    try {
+      await navigator.clipboard.writeText(address)
+    } catch {
+      /* clipboard may be unavailable in some browsers */
+    }
+    onNotice('출금 주소가 복사되었습니다')
+  }
 
   // 자동 입금 감지 — 연동된 내 Pi 지갑에서 플랫폼 수신지로 들어온 온체인 결제를
   // 서버가 Horizon으로 스캔해 장부화하고, 여기서 잔액에 즉시 반영한다.
@@ -5800,7 +5847,12 @@ function WalletModal({
 
   const requestWithdraw = () => {
     if (process) return
-    if (!(address.trim() || loadPiIdentity()?.uid) || !withdrawValue || withdrawValue <= 0 || withdrawValue > balance) {
+    const dest = address.trim()
+    if (dest && !isPiWalletAddress(dest)) {
+      onNotice('저장된 출금 주소 형식이 올바르지 않습니다. 주소를 다시 확인해 주세요.')
+      return
+    }
+    if (!(dest || loadPiIdentity()?.uid) || !withdrawValue || withdrawValue <= 0 || withdrawValue > balance) {
       onNotice('Pi 계정 연동과 출금 가능 금액을 확인해 주세요.')
       return
     }
@@ -6021,14 +6073,66 @@ function WalletModal({
         {tab === 'refund' && (
           <section className="mt-4 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
             <p className="font-black">출금ㆍ환불</p>
-            <p className="mt-1 text-xs font-bold text-[#8b8495]">보유 Pi를 연동된 Pi 계정 지갑으로 출금하거나, 결제 금액을 환불받을 때 사용합니다. 실제 블록체인 전송 후 txid가 기록에 남습니다.</p>
-            <input
-              value={address || '연동된 Pi 계정 지갑'}
-              readOnly
-              placeholder="연동된 Pi 계정 지갑"
-              className="mt-4 w-full rounded-2xl border-2 border-[#D8CCF5] bg-[#F1EDF9] px-4 py-3 text-sm font-bold text-[#64748B] outline-none"
-            />
-            <p className="mt-1.5 text-[10px] font-bold text-[#8b8495]">출금은 연동된 본인 Pi 계정의 지갑으로 전송됩니다. 다른 주소로는 보낼 수 없습니다.</p>
+            <p className="mt-1 text-xs font-bold text-[#8b8495]">보유 Pi를 저장된 출금 주소로 보내거나, 결제 금액을 환불받을 때 사용합니다. 실제 블록체인 전송 후 txid가 기록에 남습니다.</p>
+            <div className="mt-4 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] p-3.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-black text-[#334155]">내 출금 주소</p>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={copyWithdrawAddress}
+                    disabled={!address}
+                    className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-[#4C1FB8] disabled:opacity-50"
+                  >
+                    복사
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddressDraft(address)
+                      setEditingAddress((value) => !value)
+                    }}
+                    className="rounded-full bg-[#EDE5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8]"
+                  >
+                    {editingAddress ? '취소' : '수정'}
+                  </button>
+                </div>
+              </div>
+              {editingAddress ? (
+                <>
+                  <input
+                    value={addressDraft}
+                    onChange={(event) => setAddressDraft(event.target.value)}
+                    placeholder="G로 시작하는 56자리 Pi 지갑 주소"
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="mt-2 w-full rounded-xl border-2 border-[#D8CCF5] bg-white px-3 py-2 font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
+                  />
+                  {addressDraft.trim() && !isPiWalletAddress(addressDraft) ? (
+                    <p className="mt-1 text-[10px] font-black text-[#DC2626]">
+                      ⚠ {piWalletError(addressDraft) ?? 'Pi 지갑 주소 형식이 올바르지 않습니다.'}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={!isPiWalletAddress(addressDraft)}
+                    onClick={saveWithdrawAddress}
+                    className="mt-2 w-full rounded-xl bg-[#4C1FB8] py-2 text-xs font-black text-white disabled:opacity-50"
+                  >
+                    주소 저장
+                  </button>
+                </>
+              ) : (
+                <p className="mt-1.5 break-all font-mono text-[11px] font-bold leading-4 text-[#0F172A]">
+                  {address || '연동된 Pi 계정 지갑'}
+                </p>
+              )}
+              <p className="mt-1.5 text-[10px] font-bold text-[#8b8495]">
+                {isPiWalletAddress(address)
+                  ? '이 주소로 출금됩니다. 주소를 다시 한 번 확인해 주세요.'
+                  : '주소가 없으면 연동된 Pi 계정 지갑으로 출금됩니다.'}
+              </p>
+            </div>
             <div className="mt-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-black text-[#334155]">출금ㆍ환불할 파이 개수</p>
@@ -9123,6 +9227,7 @@ export default function HomeScreen() {
       body: JSON.stringify({
         uid,
         wallet: identity?.wallet || '',
+        address: isPiWalletAddress(dest) ? dest : undefined,
         amount,
         requestId: crypto.randomUUID(),
         accessToken: identity?.accessToken || undefined,

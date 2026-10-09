@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createA2UPayment, inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
+import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
+import { sendPiToAddress } from '@/lib/pi-direct-send'
 import { piRound } from '@/lib/pi-format'
 import { recordUserSpend, userSpendableBalance } from '@/lib/user-credit-store'
 import { recordSentWithdrawal } from '@/lib/withdrawal-queue'
@@ -48,12 +50,21 @@ export async function POST(request: Request) {
     amount?: unknown
     requestId?: unknown
     accessToken?: unknown
+    address?: unknown
     sandbox?: unknown
   } | null
   const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
   const wallet = typeof body?.wallet === 'string' ? body.wallet.trim() : ''
   const amount = piRound(Number(body?.amount))
   const requestId = typeof body?.requestId === 'string' && body.requestId.trim() ? body.requestId.trim() : crypto.randomUUID()
+  // 사용자가 지정한 출금 주소 — 있으면 그 주소로 직접 송금, 없으면 연동 uid로 A2U.
+  const address = typeof body?.address === 'string' ? body.address.trim() : ''
+  if (address && !isPiWalletAddress(address)) {
+    return NextResponse.json(
+      { ok: false, error: piWalletError(address) ?? '출금 지갑 주소가 올바르지 않습니다.' },
+      { status: 400 },
+    )
+  }
   if (!uid) return NextResponse.json({ ok: false, error: 'Pi 계정 연동 후 출금할 수 있습니다.' }, { status: 400 })
   if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_WITHDRAW_PI) {
     return NextResponse.json({ ok: false, error: '출금 금액을 확인해 주세요.' }, { status: 400 })
@@ -106,10 +117,30 @@ export async function POST(request: Request) {
   // 4. 실제 송금 — 실패하면 지출 장부를 쓰지 않고 에러를 돌려 클라이언트 차감도 막는다.
   let txid = ''
   let paymentId = ''
+  let destination = wallet || uid
   if (sandbox) {
     // 테스트넷은 실제 A2U 없이 장부 흐름만 검증한다(모의 결제와 같은 정책).
     txid = `sandbox-withdraw-${requestId}`
     paymentId = txid
+    destination = address || destination
+  } else if (address) {
+    // 사용자 지정 주소 — 플랫폼 지갑에서 해당 주소로 직접 송금한다.
+    const sent = await sendPiToAddress({
+      recipient: address,
+      amount,
+      memoText: 'TaxiTago withdraw',
+      reason: '사용자 잔액 출금',
+      sandbox,
+    })
+    if (!sent.ok) {
+      console.error('[Withdraw] direct payout failed', { uid, address, amount, error: sent.error })
+      return NextResponse.json(
+        { ok: false, error: `${sent.error} 잔액은 차감되지 않았습니다.` },
+        { status: sent.status >= 500 ? 502 : sent.status },
+      )
+    }
+    txid = sent.txid
+    destination = address
   } else {
     try {
       const payment = await createA2UPayment(
@@ -133,7 +164,7 @@ export async function POST(request: Request) {
     console.error('[Withdraw] spend record failed after payout', { uid, txid: spendTxid, error })
   })
   await recordSentWithdrawal({
-    recipient: wallet || uid,
+    recipient: destination,
     amount,
     memo: '사용자 잔액 출금',
     reason: 'user-withdraw',
@@ -146,8 +177,8 @@ export async function POST(request: Request) {
     actor: uid,
     refId: requestId,
     reason: '사용자 잔액 출금',
-    detail: `${piRound(amount)} Pi → ${wallet || uid} · txid ${spendTxid}`,
+    detail: `${piRound(amount)} Pi → ${destination} · txid ${spendTxid}`,
   }).catch(() => undefined)
 
-  return NextResponse.json({ ok: true, txid: spendTxid, paymentId, amount, destination: wallet || uid })
+  return NextResponse.json({ ok: true, txid: spendTxid, paymentId, amount, destination })
 }
