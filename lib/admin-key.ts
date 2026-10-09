@@ -2,14 +2,25 @@ const STORAGE_KEY = 'taxitago.admin.key'
 
 export function getAdminKey() {
   if (typeof window === 'undefined') return ''
-  return window.sessionStorage.getItem(STORAGE_KEY) || ''
+  const stored = window.localStorage.getItem(STORAGE_KEY)
+  if (stored) return stored
+  // sessionStorage 시대 토큰 마이그레이션 — 새 탭에서도 세션이 유지되도록
+  // 영구 저장소로 옮긴다.
+  const legacy = window.sessionStorage.getItem(STORAGE_KEY)
+  if (legacy) {
+    window.localStorage.setItem(STORAGE_KEY, legacy)
+    window.sessionStorage.removeItem(STORAGE_KEY)
+    return legacy
+  }
+  return ''
 }
 
 export function setAdminKey(key: string) {
   if (typeof window === 'undefined') return
   const value = key.trim()
-  if (value) window.sessionStorage.setItem(STORAGE_KEY, value)
-  else window.sessionStorage.removeItem(STORAGE_KEY)
+  if (value) window.localStorage.setItem(STORAGE_KEY, value)
+  else window.localStorage.removeItem(STORAGE_KEY)
+  window.sessionStorage.removeItem(STORAGE_KEY)
 }
 
 export function adminHeaders(): Record<string, string> {
@@ -29,13 +40,22 @@ export async function adminLogin(password: string, staffId?: string) {
   return data
 }
 
-export async function adminSetup(password: string) {
+export type AdminSetupResult = {
+  token?: string
+  expiresAt?: string
+  totpSecret?: string
+  otpauthUri?: string
+  qrDataUrl?: string
+  error?: string
+}
+
+export async function adminSetup(password: string): Promise<AdminSetupResult> {
   const res = await fetch('/api/admin/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'setup', password }),
   })
-  const data = (await res.json().catch(() => null)) as { token?: string; expiresAt?: string; error?: string } | null
+  const data = (await res.json().catch(() => null)) as AdminSetupResult | null
   if (!res.ok || !data?.token) throw new Error(data?.error || 'setup_failed')
   setAdminKey(data.token)
   return data

@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
+import { toDataURL as qrToDataURL } from 'qrcode'
 import {
   adminActor,
   createAdminSession,
   deleteAdminSession,
   hasAdminPassword,
+  hasStoredAdminPassword,
+  provisionTotpSecret,
   setupAdminPassword,
   verifyAdminPassword,
 } from '@/lib/admin-auth'
@@ -14,8 +17,10 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
-  const [actor, configured] = await Promise.all([adminActor(request), hasAdminPassword()])
-  return NextResponse.json({ ok: true, authenticated: Boolean(actor), needsSetup: !configured, actor })
+  // needsSetup은 "DB에 저장된 비밀번호" 기준 — env 비밀번호만 있으면 초기 설정
+  // 화면을 열어 새 비밀번호 + OTP를 등록하게 한다.
+  const [actor, stored] = await Promise.all([adminActor(request), hasStoredAdminPassword()])
+  return NextResponse.json({ ok: true, authenticated: Boolean(actor), needsSetup: !stored, actor })
 }
 
 export async function POST(request: Request) {
@@ -34,8 +39,10 @@ export async function POST(request: Request) {
       const status = result.error === 'already_configured' ? 409 : 400
       return NextResponse.json({ error: result.error }, { status })
     }
+    const totp = await provisionTotpSecret()
+    const qrDataUrl = await qrToDataURL(totp.uri, { margin: 1, width: 256 }).catch(() => '')
     const session = await createAdminSession()
-    return NextResponse.json({ ok: true, ...session })
+    return NextResponse.json({ ok: true, ...session, totpSecret: totp.secret, otpauthUri: totp.uri, qrDataUrl })
   }
 
   if (staffId) {

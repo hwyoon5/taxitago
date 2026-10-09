@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import AdminLogin from '@/components/admin-login'
 import { adminLogout, getAdminKey, setAdminKey } from '@/lib/admin-key'
 
@@ -17,11 +17,14 @@ export function useAdminAuth() {
 
 type GateState = 'checking' | 'login' | 'setup' | 'authed'
 
+const MAX_AUTH_RETRIES = 4
+
 export default function AdminGuard({ children }: { children: ReactNode }) {
   const [gate, setGate] = useState<GateState>('checking')
   const [actor, setActor] = useState<AdminActorInfo | null>(null)
+  const cancelledRef = useRef(false)
 
-  const checkAuth = () => {
+  const checkAuth = useCallback((attempt = 0) => {
     const token = getAdminKey()
     fetch('/api/admin/auth', {
       method: 'GET',
@@ -35,70 +38,45 @@ export default function AdminGuard({ children }: { children: ReactNode }) {
           actor?: AdminActorInfo | null
         } | null
         return {
+          definite: res.ok,
           authenticated: Boolean(res.ok && data?.authenticated),
           needsSetup: Boolean(res.ok && data?.needsSetup),
           actor: data?.actor ?? null,
         }
       })
-      .then(({ authenticated, needsSetup, actor: nextActor }) => {
+      .catch(() => ({ definite: false, authenticated: false, needsSetup: false, actor: null }))
+      .then(({ definite, authenticated, needsSetup, actor: nextActor }) => {
+        if (cancelledRef.current) return
         if (authenticated) {
           setActor(nextActor)
           setGate('authed')
           return
         }
-        setAdminKey('')
-        setActor(null)
-        setGate(needsSetup ? 'setup' : 'login')
-      })
-      .catch(() => {
-        setAdminKey('')
-        setActor(null)
-        setGate('login')
-      })
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    const token = getAdminKey()
-    fetch('/api/admin/auth', {
-      method: 'GET',
-      headers: token ? { 'x-admin-key': token } : {},
-      cache: 'no-store',
-    })
-      .then(async (res) => {
-        const data = (await res.json().catch(() => null)) as {
-          authenticated?: boolean
-          needsSetup?: boolean
-          actor?: AdminActorInfo | null
-        } | null
-        return {
-          authenticated: Boolean(res.ok && data?.authenticated),
-          needsSetup: Boolean(res.ok && data?.needsSetup),
-          actor: data?.actor ?? null,
-        }
-      })
-      .then(({ authenticated, needsSetup, actor: nextActor }) => {
-        if (cancelled) return
-        if (authenticated) {
-          setActor(nextActor)
-          setGate('authed')
-          return
-        }
-        setAdminKey('')
-        setActor(null)
-        setGate(needsSetup ? 'setup' : 'login')
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAdminKey('')
+        if (!definite) {
+          // 네트워크/서버 일시 오류 — 세션이 무효인지 알 수 없으므로 토큰을
+          // 지우지 않고 잠시 후 다시 확인한다.
+          if (attempt < MAX_AUTH_RETRIES) {
+            window.setTimeout(() => checkAuth(attempt + 1), 1200)
+            return
+          }
           setActor(null)
           setGate('login')
+          return
         }
+        // 서버가 명시적으로 미인증이라고 답한 경우에만 토큰을 폐기한다.
+        setAdminKey('')
+        setActor(null)
+        setGate(needsSetup ? 'setup' : 'login')
       })
-    return () => {
-      cancelled = true
-    }
   }, [])
+
+  useEffect(() => {
+    cancelledRef.current = false
+    checkAuth()
+    return () => {
+      cancelledRef.current = true
+    }
+  }, [checkAuth])
 
   const logout = () => {
     void adminLogout()

@@ -1,6 +1,27 @@
-import { createHmac, timingSafeEqual } from 'crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+
+export function base32Encode(input: Buffer): string {
+  let bits = 0
+  let value = 0
+  let out = ''
+  for (const byte of input) {
+    value = (value << 8) | byte
+    bits += 8
+    while (bits >= 5) {
+      out += BASE32_ALPHABET[(value >>> (bits - 5)) & 0x1f]
+      bits -= 5
+    }
+  }
+  if (bits > 0) out += BASE32_ALPHABET[(value << (5 - bits)) & 0x1f]
+  return out
+}
+
+/** 새 TOTP 시크릿 — 160bit(32자 Base32), Google OTP 권장 길이. */
+export function randomTotpSecret(): string {
+  return base32Encode(randomBytes(20))
+}
 
 export function base32Decode(input: string): Buffer {
   const cleaned = input.replace(/=+$/, '').replace(/\s+/g, '').toUpperCase()

@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { adminLogin, adminResetPassword, adminSetup } from '@/lib/admin-key'
+import { adminLogin, adminResetPassword, adminSetup, type AdminSetupResult } from '@/lib/admin-key'
 
 export default function AdminLogin({ mode, onSuccess }: { mode: 'login' | 'setup'; onSuccess: () => void }) {
+  const [setupResult, setSetupResult] = useState<AdminSetupResult | null>(null)
   const [password, setPassword] = useState('')
   const [loginAs, setLoginAs] = useState<'master' | 'staff'>('master')
   const [staffId, setStaffId] = useState('')
@@ -35,9 +36,11 @@ export default function AdminLogin({ mode, onSuccess }: { mode: 'login' | 'setup
         setError(
           reason === 'setup_required'
             ? '비밀번호가 아직 설정되지 않았습니다.'
-            : loginAs === 'staff'
+            : reason === 'invalid_credentials'
               ? '직원 ID 또는 비밀번호가 올바르지 않습니다.'
-              : '비밀번호가 올바르지 않습니다.',
+              : reason === 'invalid_password'
+                ? '비밀번호가 올바르지 않습니다.'
+                : '서버 오류로 로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.',
         )
       })
       .finally(() => setBusy(false))
@@ -57,10 +60,12 @@ export default function AdminLogin({ mode, onSuccess }: { mode: 'login' | 'setup
     setBusy(true)
     setError('')
     void adminSetup(value)
-      .then(() => {
+      .then((result) => {
         setSetupPassword('')
         setSetupConfirm('')
-        onSuccess()
+        // OTP QR를 먼저 보여준 뒤 사용자가 등록을 마치면 관리자 화면으로 진입한다.
+        if (result.totpSecret) setSetupResult(result)
+        else onSuccess()
       })
       .catch((setupError) => {
         const reason = setupError instanceof Error ? setupError.message : ''
@@ -110,7 +115,33 @@ export default function AdminLogin({ mode, onSuccess }: { mode: 'login' | 'setup
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center bg-[#F8FAFC] px-6 text-[#0F172A]">
       <p className="text-xs font-black text-[#4C1FB8]">ADMIN</p>
-      {mode === 'setup' ? (
+      {mode === 'setup' && setupResult?.totpSecret ? (
+        <>
+          <h1 className="mt-1 text-2xl font-black">OTP 등록</h1>
+          <p className="mt-1 text-sm font-bold text-[#64748B]">
+            비밀번호가 설정되었습니다. Google OTP(Authenticator) 앱으로 아래 QR을 스캔해 OTP를 등록해 주세요.
+          </p>
+          {setupResult.qrDataUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={setupResult.qrDataUrl}
+              alt="Google OTP 등록 QR 코드"
+              className="mx-auto mt-4 h-48 w-48 rounded-2xl border-2 border-[#E0D4FF] bg-white p-2"
+            />
+          ) : null}
+          <p className="mt-3 text-center text-xs font-black text-[#4C1FB8]">수동 입력 키</p>
+          <p className="mt-1 select-all break-all rounded-xl bg-[#EDE9FE] px-3 py-2 text-center text-sm font-black tracking-widest">
+            {setupResult.totpSecret}
+          </p>
+          <button
+            type="button"
+            onClick={onSuccess}
+            className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white"
+          >
+            OTP 등록 완료 — 관리자 시작
+          </button>
+        </>
+      ) : mode === 'setup' ? (
         <>
           <h1 className="mt-1 text-2xl font-black">관리자 비밀번호 설정</h1>
           <p className="mt-1 text-sm font-bold text-[#64748B]">최초 접속입니다. 관리자 비밀번호를 새로 설정해 주세요.</p>
