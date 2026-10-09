@@ -104,10 +104,23 @@ export async function saveCommissionRates(rates: CommissionRates): Promise<Commi
   return next
 }
 
+/**
+ * commission/rate/net 필드가 없는 옛 레코드(또는 손상 로우)를 읽는 시점에
+ * 재계산해 복구한다 — NaN이 summarize 합계 전체를 0으로 오염시키는 것을 막는다.
+ * rate가 없으면 서비스 기본 수수료율(DEFAULT_RATES)을 적용한다.
+ */
+function normalizeEntry(entry: SettlementEntry): SettlementEntry {
+  const gross = Number.isFinite(entry.gross) ? entry.gross : 0
+  const rate = Number.isFinite(entry.rate) ? entry.rate : (DEFAULT_RATES[entry.service] ?? 0)
+  const commission = Number.isFinite(entry.commission) ? entry.commission : piRound(gross * rate / 100)
+  const net = Number.isFinite(entry.net) ? entry.net : piRound(gross - commission)
+  if (gross === entry.gross && rate === entry.rate && commission === entry.commission && net === entry.net) return entry
+  return { ...entry, gross, rate, commission, net }
+}
+
 async function readEntries(): Promise<SettlementEntry[]> {
-  if (useKv) return (await kvGet<SettlementEntry[]>(ENTRIES_KEY)) ?? []
-  warnEphemeral()
-  return db().entries
+  const rows = useKv ? ((await kvGet<SettlementEntry[]>(ENTRIES_KEY)) ?? []) : (warnEphemeral(), db().entries)
+  return rows.map(normalizeEntry)
 }
 
 async function writeEntries(entries: SettlementEntry[]) {

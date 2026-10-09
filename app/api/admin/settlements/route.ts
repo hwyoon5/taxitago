@@ -49,19 +49,23 @@ function summarize(entries: SettlementEntry[]) {
   let pendingCount = 0
   let pendingNet = 0
   for (const entry of entries) {
+    // NaN/누락 필드가 합계 전체를 0으로 오염시키지 않도록 값을 강제한다.
+    const g = Number.isFinite(entry.gross) ? entry.gross : 0
+    const c = Number.isFinite(entry.commission) ? entry.commission : 0
+    const n = Number.isFinite(entry.net) ? entry.net : 0
     const bucket = byService[entry.service]
     if (bucket) {
       bucket.count += 1
-      bucket.gross += entry.gross
-      bucket.commission += entry.commission
-      bucket.net += entry.net
+      bucket.gross += g
+      bucket.commission += c
+      bucket.net += n
     }
-    gross += entry.gross
-    commission += entry.commission
-    net += entry.net
+    gross += g
+    commission += c
+    net += n
     if (entry.status === 'pending') {
       pendingCount += 1
-      pendingNet += entry.net
+      pendingNet += n
     }
   }
   const round = (value: number) => piRound(value)
