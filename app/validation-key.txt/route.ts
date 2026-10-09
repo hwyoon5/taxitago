@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 const MAINNET_VALIDATION_KEY =
   '20c4eeae564a9cea37284830e5e69624b5bc032e80ec163ccffd1b4ebd65c1bfb849508d6ded35afc3c70f0b5cd608105cf07a71a1e1b9cbb7b9971c568874dc'
 const TESTNET_VALIDATION_KEY =
-  '2d1fa67d40dd05dc60b6e98c533abe2c924963aa22709e24de8020575c1c4479c2d23dbcaad8d8df8a4b727dcbb9b684112ec08ce2a08093f6072c36e039e3e3'
+  '419256b525bd05773e27cb47259a3e10f68db14c28fcdbebb4b5e05c5aa17a761ee897c50bb0d33836a605fce058d386bde7048db478fd75da3cd1c168c8c610'
 
 export function GET(request: Request) {
   const host = (
