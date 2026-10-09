@@ -60,15 +60,6 @@ function warnEphemeral() {
 // KV가 있으면 레코드도 함께 저장해 로그아웃/버전 무효화를 지원한다.
 let cachedSecret: string | null = null
 async function sessionSecret(): Promise<string> {
-  const envSecret = (
-    process.env.ADMIN_SESSION_SECRET ||
-    process.env.ADMIN_PASSWORD_HASH ||
-    process.env.ADMIN_PASSWORD ||
-    process.env.ADMIN_SUPPORT_KEY ||
-    process.env.ADMIN_TOTP_SECRET ||
-    ''
-  ).trim()
-  if (envSecret) return envSecret
   if (cachedSecret) return cachedSecret
   if (useKv) {
     try {
@@ -165,32 +156,17 @@ function safeEqual(a: string, b: string) {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-function envPasswordConfigured() {
-  return Boolean(
-    process.env.ADMIN_PASSWORD_HASH?.trim() || process.env.ADMIN_PASSWORD?.trim() || process.env.ADMIN_SUPPORT_KEY?.trim(),
-  )
-}
-
-export async function hasAdminPassword() {
-  if (envPasswordConfigured()) return true
-  return Boolean(await getStoredPassword().catch(() => null))
-}
-
-/** DB에 저장된 비밀번호가 있는지 — env 비밀번호와 무관하게 최초 설정 여부를 판단한다. */
+/** DB에 저장된 비밀번호가 있는지 — 최초 설정 여부와 로그인 가능 여부의 유일한 기준. */
 export async function hasStoredAdminPassword() {
   return Boolean(await getStoredPassword().catch(() => null))
 }
 
 export async function verifyAdminPassword(password: string) {
-  // KV 일시 장애 시 저장된 비밀번호를 못 읽는 것뿐 — env 비밀번호 경로는
-  // 계속 동작해야 로그인이 통째로 죽지 않는다.
+  // 비밀번호는 DB에 저장된 해시만으로 검증한다 — env 잔존 값이 로그인을
+  // 가로채거나 구 비밀번호가 살아나는 일이 없도록 env 경로는 두지 않는다.
   const stored = await getStoredPassword().catch(() => null)
-  if (stored) return safeEqual(hashPassword(password, stored.salt), stored.hash)
-  const expectedHash = process.env.ADMIN_PASSWORD_HASH?.trim().toLowerCase()
-  if (expectedHash) return safeEqual(createHash('sha256').update(password).digest('hex'), expectedHash)
-  const expected = (process.env.ADMIN_PASSWORD || process.env.ADMIN_SUPPORT_KEY || '').trim()
-  if (!expected) return false
-  return safeEqual(password, expected)
+  if (!stored) return false
+  return safeEqual(hashPassword(password, stored.salt), stored.hash)
 }
 
 export async function setupAdminPassword(newPassword: string) {
@@ -317,15 +293,13 @@ export async function isAdminRequest(request: Request) {
   return Boolean(await adminActor(request))
 }
 
-/** OTP 시크릿 — DB에 저장된 값이 우선, 없으면 env를 사용한다. */
+/** OTP 시크릿 — DB에 저장된 값만 사용한다(초기 설정 플로우가 생성). */
 async function getTotpSecret(): Promise<string | null> {
   if (useKv) {
     const raw = await kvCommand<string | null>(['GET', TOTP_KEY]).catch(() => null)
-    if (raw?.trim()) return raw.trim()
-  } else if (db().totpSecret) {
-    return db().totpSecret
+    return raw?.trim() || null
   }
-  return process.env.ADMIN_TOTP_SECRET?.trim() || null
+  return db().totpSecret
 }
 
 /**

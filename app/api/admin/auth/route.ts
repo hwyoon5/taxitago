@@ -4,7 +4,6 @@ import {
   adminActor,
   createAdminSession,
   deleteAdminSession,
-  hasAdminPassword,
   hasStoredAdminPassword,
   provisionTotpSecret,
   setupAdminPassword,
@@ -64,7 +63,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, ...session })
   }
 
-  if (!(await hasAdminPassword())) {
+  if (!(await hasStoredAdminPassword())) {
     return NextResponse.json({ error: 'setup_required' }, { status: 409 })
   }
   if (!(await verifyAdminPassword(password))) {
