@@ -853,7 +853,7 @@ function saveActivities(items: ActivityEntry[]) {
 
 type FavoritePlace = { id: string; name: string; address: string }
 type RecentPlace = { id: string; name: string; address: string }
-type PiTransaction = { label: string; amount: number; detail: string; place: string; at: string; ts?: number; estimated?: number }
+type PiTransaction = { label: string; amount: number; detail: string; place: string; at: string; ts?: number; estimated?: number; txid?: string }
 type RideReceipt = {
   rideId?: string
   route: string
@@ -973,7 +973,7 @@ function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
     driver: rideLike ? '김민수' : '-',
     car: rideLike ? '현대 아슬란' : '-',
     plate: rideLike ? '서울 31바 1842' : '-',
-    transactionId: `TX-${String(index + 1).padStart(4, '0')}-${tx.at.replace(/[^0-9]/g, '').slice(0, 8) || '000000'}`,
+    transactionId: tx.txid || `TX-${String(index + 1).padStart(4, '0')}-${tx.at.replace(/[^0-9]/g, '').slice(0, 8) || '000000'}`,
     method: 'Pi 월렛',
   }
 }
@@ -5684,17 +5684,18 @@ function WalletModal({
   balance: number
   onClose: () => void
   onDeposit: (amount: number, ts?: number) => void
-  onWithdraw: (amount: number, address: string) => void
+  onWithdraw: (amount: number, address: string) => Promise<{ txid?: string } | void>
   transactions: PiTransaction[]
   onNotice: (message: string) => void
   onReceipt: (ride: RideReceipt) => void
 }) {
   const [tab, setTab] = useState<'charge' | 'refund' | 'history'>('charge')
   const [chargeValue, setChargeValue] = useState<number | ''>(10)
-  const [address, setAddress] = useState('')
+  // 출금은 연동된 Pi 계정(uid) 지갑으로만 전송된다 — 주소는 확인용 표시.
+  const [address, setAddress] = useState(() => loadPiIdentity()?.wallet || '')
   const [amount, setAmount] = useState('')
   const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
-  const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number } | null>(null)
+  const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number; txid?: string } | null>(null)
   const [historyRange, setHistoryRange] = useState<'all' | 'week' | 'month' | 'year'>('all')
   const chargeUnits = [5, 10, 25, 50]
   // 최근 24시간 충전 누적 — 한도는 최대 50 Pi로 고정(지갑 내역은 localStorage에 보존됨).
@@ -5767,11 +5768,20 @@ function WalletModal({
     if (process?.phase !== 'pending' || process.kind !== 'withdraw') return
     const value = process.amount
     const dest = address.trim()
-    const timer = window.setTimeout(() => {
-      onWithdraw(value, dest)
-      setProcess({ kind: 'withdraw', phase: 'done', amount: value })
-    }, 2200)
-    return () => window.clearTimeout(timer)
+    let cancelled = false
+    // 서버 A2U 송금이 실제로 성공해야만 완료 처리 — 실패 시 차감 없이 에러 안내.
+    void Promise.resolve(onWithdraw(value, dest))
+      .then((result) => {
+        if (!cancelled) setProcess({ kind: 'withdraw', phase: 'done', amount: value, txid: result?.txid })
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setProcess(null)
+        onNotice(error instanceof Error ? error.message : '출금 전송에 실패했어요.')
+      })
+    return () => {
+      cancelled = true
+    }
     // Callbacks are recreated each parent render; only restart when a new pending request starts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [process?.phase, process?.kind, process?.amount])
@@ -5792,8 +5802,8 @@ function WalletModal({
 
   const requestWithdraw = () => {
     if (process) return
-    if (!address.trim() || !withdrawValue || withdrawValue <= 0 || withdrawValue > balance) {
-      onNotice('출금 주소와 출금 가능 금액을 확인해 주세요.')
+    if (!(address.trim() || loadPiIdentity()?.uid) || !withdrawValue || withdrawValue <= 0 || withdrawValue > balance) {
+      onNotice('Pi 계정 연동과 출금 가능 금액을 확인해 주세요.')
       return
     }
     setProcess({ kind: 'withdraw', phase: 'pending', amount: withdrawValue })
@@ -5829,12 +5839,12 @@ function WalletModal({
     historyTransactions.filter(match).reduce((total, tx) => total + Math.abs(tx.amount), 0)
   const historyCategorized = (tx: (typeof transactions)[number]) =>
     (tx.label === 'Pi 충전' && tx.amount > 0) ||
-    (tx.label === 'Pi 환불' && tx.amount < 0) ||
+    ((tx.label === 'Pi 환불' || tx.label === 'Pi 출금') && tx.amount < 0) ||
     (tx.label === '리뷰 적립' && tx.amount > 0) ||
     (tx.amount < 0 && /택시|대리/.test(tx.label))
   const historyStats = [
     { label: '총 충전', value: historySum((tx) => tx.label === 'Pi 충전' && tx.amount > 0), tone: 'text-[#059669]' },
-    { label: '총 출금·환불', value: historySum((tx) => tx.label === 'Pi 환불' && tx.amount < 0), tone: 'text-[#DC2626]' },
+    { label: '총 출금·환불', value: historySum((tx) => (tx.label === 'Pi 환불' || tx.label === 'Pi 출금') && tx.amount < 0), tone: 'text-[#DC2626]' },
     { label: '총 리뷰 이벤트', value: historySum((tx) => tx.label === '리뷰 적립' && tx.amount > 0), tone: 'text-[#D97706]' },
     { label: '총 택시 이용', value: historySum((tx) => tx.amount < 0 && /택시|대리/.test(tx.label)), tone: 'text-[#2563EB]' },
   ]
@@ -6013,13 +6023,14 @@ function WalletModal({
         {tab === 'refund' && (
           <section className="mt-4 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
             <p className="font-black">출금ㆍ환불</p>
-            <p className="mt-1 text-xs font-bold text-[#8b8495]">보유 Pi를 외부 지갑으로 출금하거나, 결제 금액을 환불받을 때 사용합니다. 받을 주소와 수량을 입력해 주세요.</p>
+            <p className="mt-1 text-xs font-bold text-[#8b8495]">보유 Pi를 연동된 Pi 계정 지갑으로 출금하거나, 결제 금액을 환불받을 때 사용합니다. 실제 블록체인 전송 후 txid가 기록에 남습니다.</p>
             <input
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              placeholder="받을 Pi Wallet 주소"
-              className="mt-4 w-full rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-4 py-3 text-sm font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
+              value={address || '연동된 Pi 계정 지갑'}
+              readOnly
+              placeholder="연동된 Pi 계정 지갑"
+              className="mt-4 w-full rounded-2xl border-2 border-[#D8CCF5] bg-[#F1EDF9] px-4 py-3 text-sm font-bold text-[#64748B] outline-none"
             />
+            <p className="mt-1.5 text-[10px] font-bold text-[#8b8495]">출금은 연동된 본인 Pi 계정의 지갑으로 전송됩니다. 다른 주소로는 보낼 수 없습니다.</p>
             <div className="mt-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-black text-[#334155]">출금ㆍ환불할 파이 개수</p>
@@ -6138,10 +6149,15 @@ function WalletModal({
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#4C1FB8] text-white">
               <Check className="h-7 w-7" strokeWidth={3} />
             </div>
-            <h3 className="mt-4 text-xl font-black text-[#0F172A]">{process.kind === 'charge' ? '충전이 완료되었습니다!' : '처리가 완료되었습니다'}</h3>
+            <h3 className="mt-4 text-xl font-black text-[#0F172A]">{process.kind === 'charge' ? '충전이 완료되었습니다!' : '출금이 완료되었습니다'}</h3>
             <p className="mt-2 text-sm font-bold text-[#64748B]">
               {process.kind === 'charge' ? '충전' : '출금ㆍ환불'} {process.amount.toFixed(7)} Pi가 월렛에 반영되었습니다.
             </p>
+            {process.txid ? (
+              <p className="mt-2 break-all rounded-xl bg-[#F8F5FF] px-3 py-2 text-[11px] font-black text-[#4C1FB8]">
+                전송 해시 {process.txid.slice(0, 20)}…
+              </p>
+            ) : null}
             {process.kind === 'charge' ? (
               <p className="mt-2 rounded-xl bg-[#F8F5FF] px-3 py-2 text-sm font-black text-[#4C1FB8]">현재 잔액 {balance.toFixed(7)} Pi</p>
             ) : null}
@@ -9097,12 +9113,37 @@ export default function HomeScreen() {
     recordActivity('Pi 충전 완료', `+${amount.toFixed(7)} Pi`)
     emitLedgerChange()
   }
-  const withdrawWallet = (amount: number, dest: string) => {
+  const withdrawWallet = async (amount: number, dest: string): Promise<{ txid: string }> => {
+    const identity = loadPiIdentity()
+    const uid = identity?.uid?.trim() || ''
+    if (!uid) throw new Error('Pi 계정 연동 후 출금할 수 있습니다.')
+    // 서버가 실제 A2U 송금을 수행하고 txid를 돌려준다 — 성공이 확인되기 전엔
+    // 로컬 장부도 건드리지 않는다.
+    const res = await fetch('/api/wallet/withdraw/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(identity?.accessToken ? { 'x-pi-access-token': identity.accessToken } : {}),
+      },
+      body: JSON.stringify({
+        uid,
+        wallet: identity?.wallet || '',
+        amount,
+        requestId: crypto.randomUUID(),
+        accessToken: identity?.accessToken || undefined,
+        sandbox: PI_SANDBOX,
+      }),
+    })
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; txid?: string; error?: string } | null
+    if (!res.ok || !data?.ok) throw new Error(data?.error || '출금 전송에 실패했어요.')
+    const txid = data.txid || ''
+    const shortTx = txid ? `tx ${txid.slice(0, 8)}…` : 'tx 확인 중'
     const at = formatPiTime()
     setWalletBalance((balance) => Math.max(0, Math.round((balance - amount) * 100) / 100))
-    setTransactions((items) => [{ label: 'Pi 환불', amount: -amount, detail: `${dest.slice(0, 10)}… · ${at}`, place: dest || 'Pi 월렛', at, ts: Date.now() }, ...items])
-    recordActivity('Pi 환불', `-${amount.toFixed(7)} Pi`)
+    setTransactions((items) => [{ label: 'Pi 출금', amount: -amount, detail: `${(dest || 'Pi 월렛').slice(0, 10)}… · ${shortTx} · ${at}`, place: dest || 'Pi 월렛', at, ts: Date.now(), txid }, ...items])
+    recordActivity('Pi 출금', `-${amount.toFixed(7)} Pi · ${shortTx}`)
     emitLedgerChange()
+    return { txid }
   }
   const rewardReview = (key?: string) => {
     const amount = 0.1
