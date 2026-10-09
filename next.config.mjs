@@ -29,13 +29,6 @@ const nextConfig = {
     NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID: process.env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID || naverMapClientId,
   },
   async headers() {
-    const validationKeyHeaders = [
-      { key: 'Content-Type', value: 'text/plain; charset=utf-8' },
-      { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, max-age=0' },
-      { key: 'CDN-Cache-Control', value: 'no-store, max-age=0' },
-      { key: 'Vercel-CDN-Cache-Control', value: 'no-store, max-age=0' },
-      { key: 'X-Content-Type-Options', value: 'nosniff' },
-    ]
     return [
       {
         source: '/sw.js',
@@ -44,8 +37,6 @@ const nextConfig = {
           { key: 'Service-Worker-Allowed', value: '/' },
         ],
       },
-      { source: '/validation-key.txt', headers: validationKeyHeaders },
-      { source: '/validation-key.txt/', headers: validationKeyHeaders },
       {
         source: '/:path*',
         headers: [
@@ -67,10 +58,6 @@ const nextConfig = {
   async rewrites() {
     return {
       beforeFiles: [
-        {
-          source: '/validation-key.txt/',
-          destination: '/validation-key.txt',
-        },
         {
           source: '/api/geocode',
           destination: '/api/geocode/',
