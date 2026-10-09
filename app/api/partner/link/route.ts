@@ -97,14 +97,13 @@ export async function DELETE(request: Request) {
     (typeof body?.wallet === 'string' ? body.wallet.trim() : '') ||
     getPartnerLink(uid)?.wallet?.trim() ||
     ''
-  const { userCreditTotals } = await import('@/lib/user-credit-store')
+  const { userSpendableBalance } = await import('@/lib/user-credit-store')
   // 잔액을 확인할 수 없으면 탈퇴 자체를 중단한다(fail-closed) — 조회 오류를
   // 우회 수단으로 쓸 수 없게 하고, 인프라 장애 시엔 재시도를 요청한다.
   let remaining = 0
   try {
-    const totals = await userCreditTotals(wallet, uid)
-    // 비정상 값(NaN·undefined) 안전 장치 — 숫자로 정규화해 0 이하만 통과시킨다.
-    remaining = Number(totals.total) || 0
+    // 사용 가능 잔액 = 입금 크레딧 − 결제 지출 — 쓴 만큼은 차감된 값이 권위다.
+    remaining = Number(await userSpendableBalance(wallet, uid)) || 0
   } catch (error) {
     console.error('[Withdraw] balance lookup failed; withdrawal blocked', { uid, error })
     return NextResponse.json(

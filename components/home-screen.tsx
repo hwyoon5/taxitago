@@ -4871,6 +4871,7 @@ function Home({
   onOpenMap,
   destSearchTick = 0,
   recentUse = null,
+  onQrPaid,
 }: {
   destination: string
   pickup: string
@@ -4887,6 +4888,8 @@ function Home({
   onOpenMap: () => void
   destSearchTick?: number
   recentUse?: RecentUse | null
+  /** QR 현장 결제 완료 — 루트의 settlePiLedger로 지갑 차감·내역을 기록한다. */
+  onQrPaid?: (record: { driverName: string; amount: number; memo: string }, proof: { paymentId: string; txid: string }) => void
 }) {
   const { t } = useLocale()
   const [searchOpen, setSearchOpen] = useState(false)
@@ -5114,7 +5117,7 @@ function Home({
           onOpenMap={onOpenMap}
         />
       ) : null}
-      {qrPayOpen ? <QrPayScanModal onClose={() => setQrPayOpen(false)} /> : null}
+      {qrPayOpen ? <QrPayScanModal onClose={() => setQrPayOpen(false)} onPaid={onQrPaid} /> : null}
       {waypointSearchIndex !== null ? (
         <DestinationSearchModal
           destination={waypoints[waypointSearchIndex] ?? ''}
@@ -5437,11 +5440,14 @@ function ActivityInbox({
     }
     document.addEventListener('visibilitychange', wake)
     window.addEventListener('focus', wake)
+    // 지갑/정산 변경 브로드캐스트 — 5초 폴링을 기다리지 않고 즉시 갱신한다.
+    window.addEventListener('taxitago:ledger-changed', refresh)
     return () => {
       stopped = true
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', wake)
       window.removeEventListener('focus', wake)
+      window.removeEventListener('taxitago:ledger-changed', refresh)
     }
   }, [identitiesKey])
 
@@ -8786,6 +8792,13 @@ export default function HomeScreen() {
       saveActivities(next)
       return next
     })
+    emitLedgerChange()
+  }
+
+  // 잔액·거래·이용 기록이 바뀔 때마다 브로드캐스트 — 열려 있는 다른 탭/패널이
+  // 다음 폴링을 기다리지 않고 즉시 다시 읽을 수 있게 한다.
+  const emitLedgerChange = () => {
+    window.dispatchEvent(new Event('taxitago:ledger-changed'))
   }
 
   const applyPickup = (place: PickupPlace) => {
@@ -8941,6 +8954,7 @@ export default function HomeScreen() {
     setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated }, ...items])
     recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(7)} Pi · ${place}`)
     setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated, paymentId: proof.paymentId, txid: proof.txid })
+    emitLedgerChange()
     if (!label.includes('취소')) {
       const from = origin.address.trim() || '현재 위치'
       const tripDest = (destPlace?.address || destPlace?.label || destination).trim()
@@ -8984,6 +8998,7 @@ export default function HomeScreen() {
     }
     saveRecentUse(next)
     setRecentUse(next)
+    emitLedgerChange()
   }
   // 앱 첫 진입부터 오디오 잠금 해제 리스너를 걸어, 이후 어떤 알림음도
   // 자동재생 정책에 막혀 누락되지 않게 한다.
@@ -9046,12 +9061,14 @@ export default function HomeScreen() {
     const chargedAt = typeof ts === 'number' && Number.isFinite(ts) ? ts : Date.now()
     setTransactions((items) => [{ label: 'Pi 충전', amount, detail: `Pi 월렛 · ${at}`, place: 'Pi 월렛', at, ts: chargedAt }, ...items])
     recordActivity('Pi 충전 완료', `+${amount.toFixed(7)} Pi`)
+    emitLedgerChange()
   }
   const withdrawWallet = (amount: number, dest: string) => {
     const at = formatPiTime()
     setWalletBalance((balance) => Math.max(0, Math.round((balance - amount) * 100) / 100))
     setTransactions((items) => [{ label: 'Pi 환불', amount: -amount, detail: `${dest.slice(0, 10)}… · ${at}`, place: dest || 'Pi 월렛', at, ts: Date.now() }, ...items])
     recordActivity('Pi 환불', `-${amount.toFixed(7)} Pi`)
+    emitLedgerChange()
   }
   const rewardReview = (key?: string) => {
     const amount = 0.1
@@ -9088,6 +9105,47 @@ export default function HomeScreen() {
       window.clearInterval(timer)
     }
     // depositWallet/showNotice는 매 렌더 새로 만들어지지만 스캔 루프는 마운트 시 한 번이면 충분하다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // 서버/기사 측에서 먼저 정산된 내 운행을 주기적으로 동기화한다 — 결제 시트를
+  // 닫았거나 폴러를 놓친 경우에도 잔액 차감·활동·최근 이용·영수증이 늦지 않게
+  // 반영된다. noteCompletedRide의 settledRideIds/settledPaymentIds 가드가
+  // 직접 결제 경로와의 중복 차감을 막는다.
+  useEffect(() => {
+    const passengerId = localPassengerId()
+    let stopped = false
+    const sync = () => {
+      void fetchRideHistory(passengerId, 'passenger')
+        .then((rides) => {
+          if (stopped) return
+          for (const ride of rides) {
+            // 최근 24시간 안에 갱신된 완료 건만 확인 — 오래된 내역은 재조회하지 않는다.
+            if (ride.status !== 'completed' || settledRideIds.current.has(ride.id)) continue
+            if (Date.now() - Date.parse(ride.updatedAt || '') > 24 * 60 * 60 * 1000) continue
+            void fetchRideReceipt(ride.id)
+              .then((receipt) => {
+                if (stopped || !receipt) return
+                noteCompletedRide(ride.id, receipt, ride.kind === 'daeri' ? '대리운전 결제' : '택시 결제')
+              })
+              .catch(() => undefined)
+          }
+        })
+        .catch(() => undefined)
+    }
+    sync()
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') sync()
+    }, 8000)
+    const wake = () => sync()
+    window.addEventListener('focus', wake)
+    document.addEventListener('visibilitychange', wake)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      window.removeEventListener('focus', wake)
+      document.removeEventListener('visibilitychange', wake)
+    }
+    // noteCompletedRide는 매 렌더 새로 만들어지지만 폴러는 마운트 시 한 번이면 충분하다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const openService = (value: string) => {
@@ -9383,6 +9441,9 @@ export default function HomeScreen() {
             onOpenMap={openPickupMap}
             destSearchTick={destSearchTick}
             recentUse={recentUse}
+            onQrPaid={(record, proof) =>
+              settlePiLedger(record.amount, record.memo || `${record.driverName || '기사'} 현장 결제`, '현장 QR 결제', undefined, proof)
+            }
           />
         )}
         {tab !== '홈' && tab !== '기사/파트너' && (

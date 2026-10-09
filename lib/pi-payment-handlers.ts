@@ -212,6 +212,22 @@ export async function handlePiComplete(request: Request) {
       await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
         console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
       })
+      // 요금 계열 결제는 이용자 크레딧 장부에서 결제액만큼 차감을 같은 완료
+      // 흐름에서 기록한다 — 서버 조회값(uid·from_address·amount)만 쓰고,
+      // txid 멱등이라 콜백 재시도가 이중 차감하지 않는다.
+      const FARE_KINDS = new Set(['service-pay', 'manual-settle', 'escrow-lock'])
+      if (metaKind && FARE_KINDS.has(metaKind)) {
+        const { recordUserSpend } = await import('@/lib/user-credit-store')
+        await recordUserSpend({
+          txid,
+          uid: typeof info?.user_uid === 'string' ? info.user_uid : '',
+          wallet: typeof info?.from_address === 'string' ? info.from_address : '',
+          amount: typeof info?.amount === 'number' ? info.amount : (fallbackAmount ?? 0),
+          label: metaKind,
+        }).catch((spendError) => {
+          console.error('[Pi] /api/pi/complete user spend record failed', { paymentId, spendError })
+        })
+      }
       await recordServiceSettlement({
         paymentId,
         txid,

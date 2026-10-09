@@ -44,7 +44,14 @@ type ManualPayPublic = {
 
 type Stage = 'scan' | 'loading' | 'confirm' | 'paying' | 'done' | 'closed' | 'missing'
 
-export default function QrPayScanModal({ onClose }: { onClose: () => void }) {
+export default function QrPayScanModal({
+  onClose,
+  onPaid,
+}: {
+  onClose: () => void
+  /** 결제 완료 후 호출 — 호출부가 지갑 잔액 차감·거래 내역·활동 기록을 반영한다. */
+  onPaid?: (record: ManualPayPublic, proof: { paymentId: string; txid: string }) => void
+}) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const doneRef = useRef(false)
@@ -173,7 +180,10 @@ export default function QrPayScanModal({ onClose }: { onClose: () => void }) {
       metadata: { kind: 'manual-settle', manualId: record.id, label: '현장 수동 결제' },
       strictCompletion: true,
     })
-      .then(() => setStage('done'))
+      .then((proof) => {
+        onPaid?.(record, proof)
+        setStage('done')
+      })
       .catch((payError) => {
         setError(describePiUserMessage(payError))
         setStage('confirm')

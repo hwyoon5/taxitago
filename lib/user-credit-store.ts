@@ -305,3 +305,129 @@ export async function userCreditBalance(wallet: string, uid: string) {
   const totals = await userCreditTotals(wallet, uid)
   return totals.total
 }
+
+// ── 이용자 지출 장부 ──────────────────────────────────────────────────────────
+// 요금 계열 결제(service-pay·manual-settle·escrow-lock)가 완료되면 결제 금액만큼
+// 이용자 크레딧에서 차감된다. txid 멱등이라 완료 콜백 재시도·폴러가 중복 차감하지
+// 않으며, 입금(크레딧)과 지출을 분리해 둬서 누적 입금과 사용 가능 잔액을 각각
+// 대사할 수 있다.
+
+export type UserSpendEntry = {
+  id: string
+  /** 결제 txid — 글로벌 멱등키: 한 결제는 정확히 한 번 차감된다. */
+  txid: string
+  wallet: string
+  uid: string
+  amount: number
+  label: string
+  spentAt: string
+}
+
+const SPENDS_KEY = 'taxitago:user-spends'
+const spendsPath = path.join(process.cwd(), 'data', 'user-spends.json')
+
+const spendStore = globalThis as typeof globalThis & { __taxitagoUserSpends?: UserSpendEntry[] }
+
+function readFileSpends(): UserSpendEntry[] {
+  try {
+    if (!existsSync(spendsPath)) return []
+    const parsed = JSON.parse(readFileSync(spendsPath, 'utf8')) as { entries?: UserSpendEntry[] }
+    return Array.isArray(parsed.entries) ? parsed.entries : []
+  } catch {
+    return []
+  }
+}
+
+function writeFileSpends(entries: UserSpendEntry[]) {
+  try {
+    mkdirSync(path.dirname(spendsPath), { recursive: true })
+    writeFileSync(spendsPath, JSON.stringify({ entries }, null, 2), 'utf8')
+  } catch {
+    undefined
+  }
+}
+
+async function readSpends(): Promise<UserSpendEntry[]> {
+  if (useKv) {
+    try {
+      const raw = await kvCommand<string | null>(['GET', SPENDS_KEY])
+      const parsed = raw ? (JSON.parse(raw) as UserSpendEntry[]) : []
+      return Array.isArray(parsed) ? parsed : []
+    } catch (error) {
+      console.error('[Spend] user-spend kv read failed; using local fallback', error)
+      if (!spendStore.__taxitagoUserSpends!.length) spendStore.__taxitagoUserSpends = readFileSpends()
+      return spendStore.__taxitagoUserSpends!
+    }
+  }
+  if (!spendStore.__taxitagoUserSpends) spendStore.__taxitagoUserSpends = []
+  if (!spendStore.__taxitagoUserSpends.length) spendStore.__taxitagoUserSpends = readFileSpends()
+  return spendStore.__taxitagoUserSpends
+}
+
+async function writeSpends(entries: UserSpendEntry[]) {
+  const trimmed = entries.slice(-MAX_ENTRIES)
+  if (useKv) {
+    try {
+      await kvCommand(['SET', SPENDS_KEY, JSON.stringify(trimmed)])
+      return
+    } catch (error) {
+      console.error('[Spend] user-spend kv write failed; falling back to local', error)
+    }
+  }
+  spendStore.__taxitagoUserSpends = trimmed
+  writeFileSpends(trimmed)
+}
+
+/** 요금 결제 완료 시 이용자 잔액 차감 — txid 멱등, 결제 금액은 서버 조회값이 권위. */
+export async function recordUserSpend(input: {
+  txid: string
+  wallet?: string
+  uid?: string
+  amount: number
+  label?: string
+}): Promise<UserSpendEntry | null> {
+  const txid = input.txid.trim()
+  const wallet = (input.wallet || '').trim()
+  const uid = (input.uid || '').trim()
+  const amount = piRound(Number(input.amount))
+  if (!txid || (!wallet && !uid) || !Number.isFinite(amount) || amount <= 0) return null
+  const entries = await readSpends()
+  const existing = entries.find((entry) => entry.txid === txid)
+  if (existing) return existing
+  const entry: UserSpendEntry = {
+    id: crypto.randomUUID(),
+    txid,
+    wallet,
+    uid,
+    amount,
+    label: (input.label || '').slice(0, 60),
+    spentAt: new Date().toISOString(),
+  }
+  entries.push(entry)
+  await writeSpends(entries)
+  console.log('[Spend] recordUserSpend debited', { txid, uid: uid || '(none)', amount, label: entry.label })
+  return entry
+}
+
+export async function listUserSpends(): Promise<UserSpendEntry[]> {
+  const entries = await readSpends()
+  return [...entries].sort((a, b) => b.spentAt.localeCompare(a.spentAt))
+}
+
+/** 해당 이용자의 지출 총액·건수. */
+export async function userSpendTotals(wallet: string, uid: string) {
+  const entries = await readSpends()
+  const mine = entries.filter(
+    (entry) => (wallet && entry.wallet === wallet) || (uid && entry.uid && entry.uid === uid),
+  )
+  return {
+    count: mine.length,
+    total: piRound(mine.reduce((sum, entry) => sum + entry.amount, 0)),
+  }
+}
+
+/** 사용 가능 잔액 = 누적 입금 크레딧 − 누적 지출 — 탈퇴 잔액 검사·대사용. */
+export async function userSpendableBalance(wallet: string, uid: string) {
+  const [credits, spends] = await Promise.all([userCreditTotals(wallet, uid), userSpendTotals(wallet, uid)])
+  return piRound(credits.total - spends.total)
+}
