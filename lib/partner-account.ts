@@ -180,6 +180,9 @@ export function purgeLocalUserData() {
 export const WITHDRAW_BALANCE_MESSAGE =
   '잔액이 남아있는 상태에서는 탈퇴할 수 없습니다. 잔액을 모두 소진하거나 정산한 후 다시 시도해 주세요.'
 
+/** 미세 잔여(부동소수점 오차·먼지 크레딧)는 탈퇴를 막지 않는 허용 오차. */
+export const WITHDRAW_BALANCE_EPSILON = 0.000001
+
 export async function requestAccountWithdrawal(uid?: string) {
   const identity = loadPiIdentity()
   const id = uid?.trim() || identity?.uid || loadPartnerProfile()?.uid || ''
@@ -197,7 +200,8 @@ export async function requestAccountWithdrawal(uid?: string) {
       const data = (await probe.json().catch(() => null)) as { spendable?: unknown; balance?: unknown } | null
       // 사용 가능 잔액(크레딧−지출)이 권위 — 구형 응답엔 없을 수 있어 크레딧 총액으로 폴백한다.
       const balance = Number(data?.spendable ?? data?.balance)
-      if (probe.ok && Number.isFinite(balance) && balance > 0) {
+      console.log('[Withdraw] spendable probe', { uid: id, wallet, spendable: data?.spendable, balance: data?.balance, resolved: balance, ok: probe.ok })
+      if (probe.ok && Number.isFinite(balance) && balance > WITHDRAW_BALANCE_EPSILON) {
         throw new Error(WITHDRAW_BALANCE_MESSAGE)
       }
     } catch (error) {

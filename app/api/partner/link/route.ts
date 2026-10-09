@@ -113,7 +113,10 @@ export async function DELETE(request: Request) {
       { status: 500 },
     )
   }
-  if (remaining > 0) {
+  // 먼지 잔액(부동소수점 오차·소수점 7자리 이하 미세 잔여)은 탈퇴를 막지 않는다.
+  console.log('[Withdraw] balance check', { uid, wallet: wallet || '(none)', remaining })
+  const BALANCE_EPSILON = 0.000001
+  if (remaining > BALANCE_EPSILON) {
     console.warn('[Withdraw] blocked: remaining balance', { uid, total: remaining })
     return NextResponse.json(
       {
