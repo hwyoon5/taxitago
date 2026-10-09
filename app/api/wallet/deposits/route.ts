@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { listDeposits } from '@/lib/deposit-store'
 import { creditInboundDeposit, scanInboundDeposits } from '@/lib/deposit-scan'
-import { creditUserDeposit, listUserCredits, userCreditTotals, walletsForUid, withdrawnDepositTxids } from '@/lib/user-credit-store'
+import { creditUserDeposit, listUserCredits, userCreditTotals, userSpendableBalance, walletsForUid, withdrawnDepositTxids } from '@/lib/user-credit-store'
 import { knownServiceTxids } from '@/lib/payment-kind-store'
 import { getPiPayment } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
@@ -76,8 +76,9 @@ export async function GET(request: Request) {
   }
   const deposits = matched.map((entry) => ({ ...entry, userCredited: creditedTxids.has(entry.txid) }))
   const creditsTotal = await userCreditTotals(from, uid)
-  // balance — 서버 장부에 귀속된 해당 이용자의 누적 입금 잔액(크레딧 롤업).
-  return NextResponse.json({ ok: true, configured: true, deposits, creditsTotal, balance: creditsTotal.total })
+  const spendable = await userSpendableBalance(from, uid)
+  // balance — 누적 입금 크레딧(지출 전), spendable — 지출 차감 후 사용 가능 잔액.
+  return NextResponse.json({ ok: true, configured: true, deposits, creditsTotal, balance: creditsTotal.total, spendable })
 }
 
 /**

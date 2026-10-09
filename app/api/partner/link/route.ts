@@ -118,7 +118,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: `보유 중인 파이 잔액(${piRound(remaining)} Pi)이 남아있어 탈퇴할 수 없습니다. 잔액을 모두 출금하거나 소진한 후 다시 시도해 주세요.`,
+        error: `잔액이 남아있는 상태에서는 탈퇴할 수 없습니다. 잔액을 모두 소진하거나 정산한 후 다시 시도해 주세요. (잔액: ${piRound(remaining)} Pi)`,
       },
       { status: 400 },
     )

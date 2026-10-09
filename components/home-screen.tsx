@@ -6160,7 +6160,7 @@ function WithdrawConfirmModal({ busy, onConfirm, onClose }: { busy?: boolean; on
     <div className="fixed inset-0 z-[97] flex items-center justify-center bg-[#1e1033]/55 px-5" onClick={onClose}>
       <section className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <h2 className="text-lg font-bold leading-snug text-[#0F172A]">정말로 회원 탈퇴 하시겠습니까?</h2>
-        <p className="mt-2 text-sm font-medium leading-6 text-[#64748B]">승인하면 계정 연동이 해제되고 로그아웃됩니다.</p>
+        <p className="mt-2 text-sm font-medium leading-6 text-[#64748B]">승인하면 계정 연동이 해제되고 로그아웃됩니다. 지갑 잔액이 남아있으면 탈퇴할 수 없습니다.</p>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-bold text-[#334155] disabled:opacity-60">
             돌아가기

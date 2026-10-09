@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/app-origin'
 import { updateDriverProfile } from '@/lib/dispatch-client'
+import { resolvePiSandbox } from '@/lib/pi-sandbox'
 
 export type PiIdentity = {
   uid: string
@@ -175,9 +176,34 @@ export function purgeLocalUserData() {
   }
 }
 
+/** 잔액 잔존 시 탈퇴 차단 문구 — 클라이언트·서버가 같은 문구를 쓴다. */
+export const WITHDRAW_BALANCE_MESSAGE =
+  '잔액이 남아있는 상태에서는 탈퇴할 수 없습니다. 잔액을 모두 소진하거나 정산한 후 다시 시도해 주세요.'
+
 export async function requestAccountWithdrawal(uid?: string) {
   const identity = loadPiIdentity()
   const id = uid?.trim() || identity?.uid || loadPartnerProfile()?.uid || ''
+  // 클라이언트 사전 차단 — 서버 장부 기준 잔액을 먼저 조회해 0보다 크면 DELETE를
+  // 보내지 않고 거절한다. 이 조회가 미처리 입금 스캔까지 유발하므로 미정산
+  // 크레딧도 함께 잡힌다. 조회 실패 시엔 통과시켜 서버 최종 검증에 맡긴다.
+  const wallet = identity?.wallet || loadPartnerProfile()?.wallet || ''
+  if (wallet || id) {
+    try {
+      const sandbox = resolvePiSandbox({ host: window.location.hostname })
+      const probe = await apiFetch(
+        `/api/wallet/deposits?from=${encodeURIComponent(wallet)}&uid=${encodeURIComponent(id)}&sandbox=${sandbox}`,
+        { cache: 'no-store' },
+      )
+      const data = (await probe.json().catch(() => null)) as { spendable?: unknown; balance?: unknown } | null
+      // 사용 가능 잔액(크레딧−지출)이 권위 — 구형 응답엔 없을 수 있어 크레딧 총액으로 폴백한다.
+      const balance = Number(data?.spendable ?? data?.balance)
+      if (probe.ok && Number.isFinite(balance) && balance > 0) {
+        throw new Error(WITHDRAW_BALANCE_MESSAGE)
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === WITHDRAW_BALANCE_MESSAGE) throw error
+    }
+  }
   // 백엔드가 잔액 검사의 최종 권위 — uid가 없어도 호출해 서버가 거절
   // (400 uid required)하게 두고, 로컬만으로 탈퇴를 완료하지 않는다.
   // 서버는 탈퇴 요청자가 해당 uid의 소유자인지 accessToken으로 검증한다 —
