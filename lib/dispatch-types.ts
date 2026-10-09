@@ -55,6 +55,33 @@ export type RideOfferRecord = {
   decision: OfferDecision
 }
 
+/**
+ * 기사 콜 응답 누적 평판 — 거절/타임아웃 +1점, 수락 −2점(0 미만 하한).
+ * score가 REJECT_PENALTY_SCORE 이상이면 매칭 우선순위가 낮아진다.
+ */
+export type DriverReputation = {
+  score: number
+  rejected: number
+  timedOut: number
+  accepted: number
+  updatedAt: string
+}
+
+export type DriverPenaltyLevel = 'ok' | 'warn' | 'penalty'
+
+export type DriverPenaltyInfo = {
+  driverId: string
+  score: number
+  rejected: number
+  timedOut: number
+  accepted: number
+  level: DriverPenaltyLevel
+}
+
+/** 점수 2부터 경고 문구, 3부터 저우선 배차. */
+export const REJECT_WARN_SCORE = 2
+export const REJECT_PENALTY_SCORE = 3
+
 export type DriverRecord = {
   id: string
   name: string

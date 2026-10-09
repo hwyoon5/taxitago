@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { confirmMatchOnDevice, rememberDriverVehicle, toPublicRide } from '@/lib/dispatch-engine'
 import { openRideComms } from '@/lib/comms-engine'
-import { flushDispatchPersist, hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { driverPenaltyInfo, flushDispatchPersist, hydrateDispatchFromKv } from '@/lib/dispatch-store'
 import { flushEscrowPersist, hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { hydrateAvoidFromKv } from '@/lib/avoid-zone-store'
 import { rideTransitionErrorMessage, transitionRide } from '@/lib/ride-machine'
@@ -103,5 +103,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!result.ok) {
     return NextResponse.json({ error: rideTransitionErrorMessage(result.error), ride: result.ride }, { status: 409 })
   }
-  return NextResponse.json({ ok: true, ride: result.ride })
+  return NextResponse.json({
+    ok: true,
+    ride: result.ride,
+    penalty: action === 'reject' ? driverPenaltyInfo(driverId) : null,
+  })
 }

@@ -1,6 +1,6 @@
 import { apiFetch, localEventSourceUrl } from '@/lib/app-origin'
 import { isUsableCoord } from '@/lib/ride-session'
-import type { PublicRide } from '@/lib/dispatch-types'
+import type { DriverPenaltyInfo, PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 
 async function readJson<T>(res: Response): Promise<T> {
@@ -321,9 +321,9 @@ function aliasQuery(driverId: string, altDriverId?: string) {
 export async function fetchDriverOffer(driverId: string, altDriverId?: string) {
   try {
     const res = await apiFetch(`/api/drivers/offer?driverId=${encodeURIComponent(driverId)}${aliasQuery(driverId, altDriverId)}`, { cache: 'no-store' })
-    const data = await readJson<{ ride?: PublicRide | null; offer?: { pickupDistanceKm: number; expiresAt: string } | null; active?: PublicRide | null; earnings?: DriverEarningsStats | null }>(res)
+    const data = await readJson<{ ride?: PublicRide | null; offer?: { pickupDistanceKm: number; expiresAt: string } | null; active?: PublicRide | null; earnings?: DriverEarningsStats | null; penalty?: DriverPenaltyInfo | null }>(res)
     if (!res.ok) return undefined
-    return { ride: data.ride ?? null, offer: data.offer ?? null, active: data.active ?? null, earnings: data.earnings ?? null }
+    return { ride: data.ride ?? null, offer: data.offer ?? null, active: data.active ?? null, earnings: data.earnings ?? null, penalty: data.penalty ?? null }
   } catch {
     return undefined
   }
@@ -341,9 +341,9 @@ export async function respondToRideOffer(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ driverId, action, ride, name: driver?.name, vehicle: driver?.vehicle, plate: driver?.plate }),
   })
-  const data = await readJson<{ ride?: PublicRide; error?: string }>(res)
+  const data = await readJson<{ ride?: PublicRide; error?: string; penalty?: DriverPenaltyInfo | null }>(res)
   if (!res.ok || !data.ride) throw new Error(data.error || '콜 응답에 실패했어요.')
-  return data.ride
+  return { ride: data.ride, penalty: data.penalty ?? null }
 }
 
 export async function acceptRideOnDevice(

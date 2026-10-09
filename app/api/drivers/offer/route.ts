@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDriverActiveRide, getDriverOffer } from '@/lib/dispatch-engine'
-import { ensureSeedDrivers, hydrateDispatchFromKv } from '@/lib/dispatch-store'
+import { driverPenaltyInfo, ensureSeedDrivers, hydrateDispatchFromKv } from '@/lib/dispatch-store'
 import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { driverEarningsStats } from '@/lib/escrow-engine'
 
@@ -23,5 +23,7 @@ export async function GET(request: Request) {
     offer: pending?.offer ?? null,
     active: ids.map((id) => getDriverActiveRide(id)).find(Boolean) ?? null,
     earnings: await driverEarningsStats(driverId, ids.slice(1)),
+    // 거절 누적 패널티 상태 — 오퍼 폴링마다 함께 내려 UI 경고/복귀를 즉시 반영한다.
+    penalty: driverPenaltyInfo(pending?.offer?.driverId ?? ids[0]),
   })
 }

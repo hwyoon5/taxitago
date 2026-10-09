@@ -69,7 +69,7 @@ import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, release
 import { playCommsAlert, primeCommsAlertAudio } from '@/lib/alert-sound'
 import DriverLostWatcher from '@/components/driver-lost-watcher'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
-import type { PublicRide } from '@/lib/dispatch-types'
+import type { DriverPenaltyInfo, PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, PI_CHARGE_MAX_PI, signInWithPi, autoVerifyPiAppStudio, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
@@ -7461,13 +7461,16 @@ function DriverOfferWatcher({
       },
       { name: partner?.name, vehicle: fleet.vehicle, plate: fleet.plate },
     )
-      .then((next) => {
+      .then(({ ride: next, penalty }) => {
         if (action === 'accept') {
           // 사전 배차 수락이면 진행 중인 운행의 저장본은 유지한다(데스크 복귀 후 서버 active가 승계).
           if (!activeRide || activeRide.id === next.id) writeStoredDriverRide(driverId, next)
           onActivityRef.current?.(activeRide && activeRide.id !== next.id ? '사전 배차 수락' : '콜 수락', rideStops(incoming).chain)
           onOpenDesk()
         } else {
+          if (penalty && penalty.level !== 'ok') {
+            onNotice('거절 횟수가 누적되면 콜 배정이 어렵습니다. 주의해 주세요.')
+          }
           setIncoming(null)
         }
       })
@@ -7610,6 +7613,9 @@ function DriverDashboard({
   }, [])
   const [driverRating, setDriverRating] = useState('5.00')
   const [offerKm, setOfferKm] = useState<number | null>(null)
+  // 서버가 내려주는 거절 누적 패널티 — 경고 배너 표시와 회복 감지에 쓴다.
+  const [driverPenalty, setDriverPenalty] = useState<DriverPenaltyInfo | null>(null)
+  const penaltyLevelRef = useRef<DriverPenaltyInfo['level']>('ok')
   const [busy, setBusy] = useState(false)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
@@ -7950,7 +7956,16 @@ function DriverDashboard({
         activeEndChecks.current.delete(previous.id)
       })
     }
-    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; earnings?: DriverEarningsStats | null; active?: PublicRide | null } | null, active?: PublicRide | null) => {
+    const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; earnings?: DriverEarningsStats | null; active?: PublicRide | null; penalty?: DriverPenaltyInfo | null } | null, active?: PublicRide | null) => {
+      if (pending?.penalty) {
+        const level = pending.penalty.level
+        setDriverPenalty(pending.penalty)
+        // 등급이 올라갈 때만 경고를 띄운다 — 매 폴링마다 반복 알림이 되지 않게 한다.
+        if (level !== 'ok' && penaltyLevelRef.current !== level) {
+          onNotice('거절 횟수가 누적되면 콜 배정이 어렵습니다. 주의해 주세요.')
+        }
+        penaltyLevelRef.current = level
+      }
       if (active && endedRideIds.current.has(active.id)) active = null
       const fetched = pending?.ride ?? null
       if (fetched && dismissedOfferIds.current.has(fetched.id) && localOfferRef.current?.ride.id === fetched.id) {
@@ -8135,7 +8150,7 @@ function DriverDashboard({
       vehicle: fleet.vehicle,
       plate: fleet.plate,
     })
-      .then((ride) => {
+      .then(({ ride, penalty }) => {
         if (action === 'accept') {
           if (ride.status === 'assigned') {
             endedRideIds.current.delete(ride.id)
@@ -8156,7 +8171,11 @@ function DriverDashboard({
           }
         } else {
           noteActivity(`reject:${incoming.id}`, '거절', rideRoute(incoming))
-          onNotice('요청을 거절했어요. 다음 기사에게 콜이 넘어갑니다.')
+          onNotice(
+            penalty && penalty.level !== 'ok'
+              ? '거절 횟수가 누적되면 콜 배정이 어렵습니다. 주의해 주세요.'
+              : '요청을 거절했어요. 다음 기사에게 콜이 넘어갑니다.',
+          )
         }
         void fetchDriverEarnings(driverId, driverAliasRef.current).then((stats) => applyEarnings(driverId, stats))
         setIncoming(null)
@@ -8512,6 +8531,21 @@ function DriverDashboard({
           >
             배차 수락
           </button>
+        </section>
+      ) : null}
+      {driverPenalty && driverPenalty.level !== 'ok' ? (
+        <section className={`mt-2 rounded-xl border px-3 py-2.5 ${
+          driverPenalty.level === 'penalty'
+            ? 'border-[#FCA5A5] bg-[#FEF2F2]'
+            : 'border-[#FCD34D] bg-[#FFFBEB]'
+        }`}>
+          <p className={`text-xs font-black ${driverPenalty.level === 'penalty' ? 'text-[#B91C1C]' : 'text-[#B45309]'}`}>
+            {driverPenalty.level === 'penalty' ? '콜 배정 우선순위가 낮아졌어요' : '콜 거절 누적 경고'}
+          </p>
+          <p className="mt-0.5 text-[11px] font-semibold text-[#475569]">
+            거절 횟수가 누적되면 콜 배정이 어렵습니다. 주의해 주세요.
+            {driverPenalty.rejected + driverPenalty.timedOut > 0 ? ` (최근 미응답·거절 ${driverPenalty.rejected + driverPenalty.timedOut}건)` : ''}
+          </p>
         </section>
       ) : null}
       {online && incoming ? (

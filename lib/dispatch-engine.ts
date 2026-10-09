@@ -4,12 +4,14 @@ import { openEscrowForRide, lockEscrow, refundEscrow, toPublicEscrow } from '@/l
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { archiveRideComms, openRideComms } from '@/lib/comms-engine'
 import {
+  driverPenaltyInfo,
   ensureSeedDrivers,
   getDriver,
   getRide,
   listDrivers,
   listRides,
   listSearchingRides,
+  noteOfferOutcome,
   nowIso,
   publishDriverLive,
   saveDriver,
@@ -108,6 +110,12 @@ function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: nu
   return Number.isFinite(haversineKm({ lat: driver.lat, lng: driver.lng }, ride.pickup))
 }
 
+/** 배차 우선순위 등급 — 정상 실기사(0) > 거절 패널티 실기사(1) > 가상 기사(2). */
+function priorityTier(driver: DriverRecord) {
+  if (driver.virtual) return 2
+  return driverPenaltyInfo(driver.id).level === 'penalty' ? 1 : 0
+}
+
 function rankedCandidates(ride: RideRequestRecord) {
   const now = Date.now()
   return listDrivers()
@@ -117,7 +125,9 @@ function rankedCandidates(ride: RideRequestRecord) {
       km: haversineKm({ lat: driver.lat, lng: driver.lng }, ride.pickup),
     }))
     .sort((a, b) => {
-      if (a.driver.virtual !== b.driver.virtual) return Number(a.driver.virtual) - Number(b.driver.virtual)
+      const tierA = priorityTier(a.driver)
+      const tierB = priorityTier(b.driver)
+      if (tierA !== tierB) return tierA - tierB
       if (a.km !== b.km) return a.km - b.km
       return a.driver.id.localeCompare(b.driver.id)
     })
@@ -246,6 +256,7 @@ export function expireCurrentOffer(rideId: string) {
   ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
   ride.status = 'searching'
   stamp(ride)
+  if (!getDriver(previousDriverId)?.virtual) noteOfferOutcome(previousDriverId, 'timeout')
   publishDriverLive(previousDriverId)
   recordZoneOutcome(ride.dest, 'timeout')
   return assignNextDriver(ride.id)
@@ -471,6 +482,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     ride.currentOffer = { ...ride.currentOffer, decision: 'rejected' }
     ride.status = 'searching'
     stamp(ride)
+    if (!getDriver(driverId)?.virtual) noteOfferOutcome(driverId, 'reject')
     publishDriverLive(driverId)
     recordZoneOutcome(ride.dest, 'reject')
     return { ok: true as const, ride: assignNextDriver(ride.id) ?? ride }
@@ -482,6 +494,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
     ride.status = 'searching'
     stamp(ride)
+    if (!driver?.virtual) noteOfferOutcome(driverId, 'timeout')
     publishDriverLive(driverId)
     recordZoneOutcome(ride.dest, 'timeout')
     return { ok: false as const, error: 'driver_unavailable', ride: assignNextDriver(ride.id) ?? ride }
@@ -497,6 +510,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
     ride.currentOffer = { ...ride.currentOffer, decision: 'timeout' }
     ride.status = 'searching'
     stamp(ride)
+    if (!driver.virtual) noteOfferOutcome(driverId, 'timeout')
     publishDriverLive(driverId)
     recordZoneOutcome(ride.dest, 'timeout')
     return { ok: false as const, error: 'driver_busy', ride: assignNextDriver(ride.id) ?? ride }
@@ -506,6 +520,7 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   ride.assignedDriverId = driverId
   ride.status = 'assigned'
   stamp(ride)
+  if (!driver.virtual) noteOfferOutcome(driverId, 'accept')
   publishDriverLive(driverId)
   recordZoneOutcome(ride.dest, 'accept')
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })

@@ -1,13 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { BUSAN_CITY_HALL } from '@/lib/user-location'
-import type { DriverRecord, RideRequestRecord } from '@/lib/dispatch-types'
+import type { DriverPenaltyInfo, DriverRecord, DriverReputation, RideRequestRecord } from '@/lib/dispatch-types'
+import { REJECT_PENALTY_SCORE, REJECT_WARN_SCORE } from '@/lib/dispatch-types'
 
 type LiveListener = (payload: string) => void
 
 type DispatchDb = {
   rides: Map<string, RideRequestRecord>
   drivers: Map<string, DriverRecord>
+  /** 기사별 콜 응답 평판 — 거절 패널티 점수의 영속 저장소. */
+  reputation: Map<string, DriverReputation>
   listeners: Map<string, Set<LiveListener>>
   driverListeners: Map<string, Set<() => void>>
   seeded: boolean
@@ -17,6 +20,7 @@ type DispatchDb = {
 type PersistShape = {
   rides: RideRequestRecord[]
   drivers: DriverRecord[]
+  reputation?: Record<string, DriverReputation>
   seeded: boolean
 }
 
@@ -110,6 +114,13 @@ function mergePersisted(store: DispatchDb, parsed: PersistShape) {
       })
     }
   }
+  for (const [driverId, rep] of Object.entries(parsed.reputation ?? {})) {
+    const current = store.reputation.get(driverId)
+    if (!rep || typeof rep.score !== 'number') continue
+    if (!current || !(Date.parse(current.updatedAt || '') > Date.parse(rep.updatedAt || ''))) {
+      store.reputation.set(driverId, rep)
+    }
+  }
   store.seeded = store.seeded || Boolean(parsed.seeded)
 }
 
@@ -135,6 +146,7 @@ function db(): DispatchDb {
     globalStore.__taxitagoDispatch = {
       rides: new Map(),
       drivers: new Map(),
+      reputation: new Map(),
       listeners: new Map(),
       driverListeners: new Map(),
       seeded: false,
@@ -173,6 +185,9 @@ function hydrateFromDisk(store: DispatchDb) {
         heading: Number.isFinite(driver.heading) ? driver.heading : 0,
       })
     }
+    for (const [driverId, rep] of Object.entries(parsed.reputation ?? {})) {
+      if (rep && typeof rep.score === 'number') store.reputation.set(driverId, rep)
+    }
     store.seeded = Boolean(parsed.seeded) || store.drivers.size > 0
   } catch {
     undefined
@@ -192,6 +207,7 @@ function writePersistNow() {
   const payload: PersistShape = {
     rides: [...store.rides.values()],
     drivers: [...store.drivers.values()],
+    reputation: Object.fromEntries(store.reputation),
     seeded: store.seeded,
   }
   try {
@@ -217,7 +233,17 @@ function writePersistNow() {
           const local = driverMap.get(driver.id)
           if (!local || Date.parse(driver.lastSeenAt || '') > Date.parse(local.lastSeenAt || '')) driverMap.set(driver.id, driver)
         }
-        merged = { rides: [...rideMap.values()], drivers: [...driverMap.values()], seeded: payload.seeded || Boolean(remote.seeded) }
+        const repMap = new Map(Object.entries(remote.reputation ?? {}))
+        for (const [driverId, rep] of Object.entries(payload.reputation ?? {})) {
+          const remoteRep = repMap.get(driverId)
+          if (!remoteRep || !(Date.parse(remoteRep.updatedAt || '') > Date.parse(rep.updatedAt || ''))) repMap.set(driverId, rep)
+        }
+        merged = {
+          rides: [...rideMap.values()],
+          drivers: [...driverMap.values()],
+          reputation: Object.fromEntries(repMap),
+          seeded: payload.seeded || Boolean(remote.seeded),
+        }
       }
       return kvCommand(['SET', dispatchKvKey, JSON.stringify(merged)])
     })
@@ -328,6 +354,47 @@ export function listDrivers() {
 
 export function nowIso() {
   return new Date().toISOString()
+}
+
+/** 마지막 평판 갱신 이후 하루마다 패널티 1점씩 자연 감점 — 장기간 무거절 시 자동 복귀. */
+const PENALTY_DECAY_MS = 24 * 60 * 60 * 1000
+
+function effectiveScore(rep: DriverReputation) {
+  const idleDays = Math.floor((Date.now() - Date.parse(rep.updatedAt || '')) / PENALTY_DECAY_MS)
+  return Math.max(0, rep.score - (Number.isFinite(idleDays) ? idleDays : 0))
+}
+
+export function driverPenaltyInfo(driverId: string): DriverPenaltyInfo {
+  const rep = db().reputation.get(driverId)
+  const score = rep ? effectiveScore(rep) : 0
+  return {
+    driverId,
+    score,
+    rejected: rep?.rejected ?? 0,
+    timedOut: rep?.timedOut ?? 0,
+    accepted: rep?.accepted ?? 0,
+    level: score >= REJECT_PENALTY_SCORE ? 'penalty' : score >= REJECT_WARN_SCORE ? 'warn' : 'ok',
+  }
+}
+
+/**
+ * 콜 응답 결과를 기사 평판에 반영 — 거절/타임아웃 +1, 수락 −2.
+ * 오퍼 한 건은 한 번만 결정되므로(declined/timedOut 중복 방지) 재시도 요청이 이중 집계되지 않는다.
+ */
+export function noteOfferOutcome(driverId: string, outcome: 'accept' | 'reject' | 'timeout') {
+  if (!driverId) return null
+  const store = db()
+  const rep = store.reputation.get(driverId) ?? { score: 0, rejected: 0, timedOut: 0, accepted: 0, updatedAt: nowIso() }
+  const next: DriverReputation = {
+    score: Math.max(0, rep.score + (outcome === 'accept' ? -2 : 1)),
+    rejected: rep.rejected + (outcome === 'reject' ? 1 : 0),
+    timedOut: rep.timedOut + (outcome === 'timeout' ? 1 : 0),
+    accepted: rep.accepted + (outcome === 'accept' ? 1 : 0),
+    updatedAt: nowIso(),
+  }
+  store.reputation.set(driverId, next)
+  persist()
+  return driverPenaltyInfo(driverId)
 }
 
 export function subscribeRideLive(rideId: string, listener: LiveListener) {
