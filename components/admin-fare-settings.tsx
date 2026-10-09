@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
+import { useAdminAuth } from '@/components/admin-guard'
 import { DEFAULT_RATES, type CommissionRates, type SettlementService } from '@/lib/settlement-types'
 import { DEFAULT_FARE_CONFIG, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
+import { ADMIN_PRIVILEGED_POSITIONS } from '@/lib/staff-positions'
 import type { DepositEntry } from '@/lib/deposit-store'
 
 const SERVICES: SettlementService[] = ['taxi', 'daeri', 'delivery', 'bicycle', 'kickboard', 'ev', 'parking']
@@ -19,6 +21,9 @@ const SERVICE_LABEL: Record<SettlementService, string> = {
 }
 
 export default function AdminFareSettings() {
+  const { actor } = useAdminAuth()
+  // 설정 변경은 최고책임자(마스터 또는 최고책임자 직급)와 팀장만 허용 — 그 외엔 읽기 전용.
+  const canEdit = actor?.role === 'master' || ADMIN_PRIVILEGED_POSITIONS.has((actor?.position || '').trim())
   const [wallet, setWallet] = useState(PLATFORM_DEPOSIT_WALLET)
   const [walletDraft, setWalletDraft] = useState(PLATFORM_DEPOSIT_WALLET)
   const [rates, setRates] = useState<CommissionRates>({ ...DEFAULT_RATES })
@@ -78,7 +83,7 @@ export default function AdminFareSettings() {
     })
 
   const saveWallet = () => {
-    if (busy) return
+    if (!canEdit || busy) return
     const address = walletDraft.trim()
     if (!isPiWalletAddress(address)) return
     setBusy(true)
@@ -109,7 +114,7 @@ export default function AdminFareSettings() {
   }
 
   const saveRates = () => {
-    if (busy) return
+    if (!canEdit || busy) return
     setBusy(true)
     void patch({ action: 'rates', rates: rateDraft })
       .then(() => {
@@ -122,7 +127,7 @@ export default function AdminFareSettings() {
   }
 
   const saveFare = () => {
-    if (busy) return
+    if (!canEdit || busy) return
     setBusy(true)
     void patch({ action: 'fare', fare: fareDraft })
       .then(() => {
@@ -148,6 +153,7 @@ export default function AdminFareSettings() {
               type="number"
               min={0}
               step={0.01}
+              disabled={!canEdit}
               value={fareDraft[key][field]}
               onChange={(event) => setFareDraft((prev) => ({ ...prev, [key]: { ...prev[key], [field]: Number(event.target.value) } }))}
               className="mt-0.5 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
@@ -161,12 +167,18 @@ export default function AdminFareSettings() {
   return (
     <div className="mt-4 space-y-4">
       {error ? <p className="text-xs font-black text-[#DC2626]">{error}</p> : null}
+      {!canEdit ? (
+        <p className="rounded-xl bg-[#FFFBEB] px-3 py-2 text-xs font-black text-[#B45309]">
+          읽기 전용 — 수수료·요금 설정 변경은 최고책임자 및 팀장만 가능합니다.
+        </p>
+      ) : null}
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <p className="text-sm font-black">관리자 Pi 지갑 주소 설정</p>
         <p className="mt-0.5 text-xs font-bold text-[#64748B]">플랫폼 수수료가 적립될 관리자(운영자)의 Pi 테스트넷 입금 주소를 입력하세요. 주소는 <span className="font-black text-[#0F172A]">G로 시작하는 56자리</span> 대문자·숫자(Stellar 규격)여야 합니다. (현재는 데모용 주소가 기본 세팅되어 있습니다.)</p>
         <input
           type="text"
           value={walletDraft}
+          disabled={!canEdit}
           onChange={(event) => setWalletDraft(event.target.value)}
           placeholder="G로 시작하는 56자리 테스트넷 주소"
           spellCheck={false}
@@ -185,7 +197,7 @@ export default function AdminFareSettings() {
         ) : null}
         <button
           type="button"
-          disabled={busy || !isPiWalletAddress(walletDraft) || walletDraft.trim() === wallet}
+          disabled={!canEdit || busy || !isPiWalletAddress(walletDraft) || walletDraft.trim() === wallet}
           onClick={saveWallet}
           className="mt-3 w-full rounded-xl bg-[#047857] py-2.5 text-xs font-black text-white disabled:opacity-50"
         >
@@ -283,6 +295,7 @@ export default function AdminFareSettings() {
                   min={0}
                   max={50}
                   step={0.5}
+                  disabled={!canEdit}
                   value={rateDraft[service]}
                   onChange={(event) => setRateDraft((prev) => ({ ...prev, [service]: Number(event.target.value) }))}
                   className="w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-sm font-black outline-none focus:border-[#4C1FB8]"
@@ -294,7 +307,7 @@ export default function AdminFareSettings() {
         </div>
         <button
           type="button"
-          disabled={busy || !ratesDirty}
+          disabled={!canEdit || busy || !ratesDirty}
           onClick={saveRates}
           className="mt-3 w-full rounded-xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white disabled:opacity-50"
         >
@@ -317,6 +330,7 @@ export default function AdminFareSettings() {
                 type="number"
                 min={0}
                 step={0.01}
+                disabled={!canEdit}
                 value={fareDraft.flatBase[key]}
                 onChange={(event) => setFareDraft((prev) => ({ ...prev, flatBase: { ...prev.flatBase, [key]: Number(event.target.value) } }))}
                 className="mt-1 w-full rounded-lg border border-[#CBD5E1] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4C1FB8]"
@@ -333,6 +347,7 @@ export default function AdminFareSettings() {
                 min={0}
                 max={100}
                 step={1}
+                disabled={!canEdit}
                 value={fareDraft.cancel.rate}
                 onChange={(event) => setFareDraft((prev) => ({ ...prev, cancel: { ...prev.cancel, rate: Number(event.target.value) } }))}
                 className="w-full rounded-lg border border-[#FDE68A] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#B45309]"
@@ -347,6 +362,7 @@ export default function AdminFareSettings() {
                 type="number"
                 min={0}
                 step={0.01}
+                disabled={!canEdit}
                 value={fareDraft.cancel.min}
                 onChange={(event) => setFareDraft((prev) => ({ ...prev, cancel: { ...prev.cancel, min: Number(event.target.value) } }))}
                 className="w-full rounded-lg border border-[#FDE68A] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#B45309]"
@@ -357,7 +373,7 @@ export default function AdminFareSettings() {
         </div>
         <button
           type="button"
-          disabled={busy || !fareDirty}
+          disabled={!canEdit || busy || !fareDirty}
           onClick={saveFare}
           className="mt-3 w-full rounded-xl bg-[#0F172A] py-2.5 text-xs font-black text-white disabled:opacity-50"
         >

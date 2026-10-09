@@ -4,13 +4,13 @@ import { useEffect, useState } from 'react'
 import { Copy, Eye, EyeOff, KeyRound, Pencil, Trash2, UserPlus, X } from 'lucide-react'
 import { adminHeaders } from '@/lib/admin-key'
 import type { PublicStaff } from '@/lib/staff-store'
-import { STAFF_POSITIONS } from '@/lib/staff-positions'
+import { positionDisplayLabel, STAFF_POSITIONS } from '@/lib/staff-positions'
 
 const CUSTOM_POSITION = '__custom__'
 
 /** position이 없는 기존 직원의 레거시 표시 — 권한 등급으로 폴백한다. */
 const LEGACY_ROLE_LABEL: Record<string, string> = { master: '최고 관리자', manager: '매니저', staff: '직원' }
-const positionLabel = (row: Pick<PublicStaff, 'role' | 'position'>) => row.position || LEGACY_ROLE_LABEL[row.role] || row.role
+const positionLabel = (row: Pick<PublicStaff, 'role' | 'position'>) => positionDisplayLabel(row.position || LEGACY_ROLE_LABEL[row.role] || row.role)
 
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_login_id: '직원 ID는 영문·숫자·_.- 조합 3~32자여야 합니다.',
@@ -18,6 +18,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   password_too_short: '비밀번호는 8자 이상이어야 합니다.',
   duplicate_login_id: '이미 사용 중인 직원 ID입니다.',
   master_only: '직원 관리는 최고 관리자만 가능합니다.',
+  privileged_only: '직원 등록 및 관리 권한이 없습니다 (최고책임자 및 팀장만 가능합니다).',
   not_found: '해당 직원을 찾을 수 없습니다.',
 }
 
@@ -157,7 +158,8 @@ export default function AdminStaff() {
   if (denied) {
     return (
       <section className="mt-4 rounded-[24px] border-2 border-[#CBD5E1] bg-white p-5 text-center">
-        <p className="text-sm font-black text-[#0F172A]">직원 관리는 최고 관리자만 사용할 수 있습니다.</p>
+        <p className="text-sm font-black text-[#0F172A]">직원 등록 및 관리 권한이 없습니다.</p>
+        <p className="mt-1 text-xs font-bold text-[#64748B]">최고책임자 및 팀장만 가능합니다.</p>
         <p className="mt-1 text-xs font-bold text-[#64748B]">마스터 계정으로 로그인하면 직원 계정을 등록·수정·삭제할 수 있습니다.</p>
       </section>
     )
@@ -210,7 +212,7 @@ export default function AdminStaff() {
             className="rounded-xl border-2 border-[#CBD5E1] px-3 py-2.5 text-sm font-bold outline-none focus:border-[#4C1FB8]"
           >
             {STAFF_POSITIONS.map((position) => (
-              <option key={position} value={position}>{position}</option>
+              <option key={position} value={position}>{positionDisplayLabel(position)}</option>
             ))}
             <option value={CUSTOM_POSITION}>직접 입력</option>
           </select>
@@ -262,7 +264,7 @@ export default function AdminStaff() {
                     className="rounded-xl border-2 border-[#CBD5E1] bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#4C1FB8]"
                   >
                     {STAFF_POSITIONS.map((position) => (
-                      <option key={position} value={position}>{position}</option>
+                      <option key={position} value={position}>{positionDisplayLabel(position)}</option>
                     ))}
                     <option value={CUSTOM_POSITION}>직접 입력</option>
                   </select>

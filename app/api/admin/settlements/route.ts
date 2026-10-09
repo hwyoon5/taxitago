@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { adminActor, isAdminRequest } from '@/lib/admin-auth'
+import { adminActor, hasAdminPrivilege, isAdminRequest } from '@/lib/admin-auth'
 import {
   getCommissionRates,
   healZeroCommissionEntries,
@@ -181,6 +181,12 @@ export async function PATCH(request: Request) {
   } | null
   const action = body?.action
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+
+  // 설정 변경(수수료율·요금·수수료 수취 지갑)은 최고책임자 또는 팀장만 허용된다.
+  const PRIVILEGED_ACTIONS = new Set(['wallet', 'rates', 'fare'])
+  if (typeof action === 'string' && PRIVILEGED_ACTIONS.has(action) && !hasAdminPrivilege(actor)) {
+    return NextResponse.json({ error: '설정 변경 권한이 없습니다 (최고책임자 및 팀장만 가능합니다)' }, { status: 403 })
+  }
 
   if (action === 'wallet') {
     const address = typeof body?.wallet === 'string' ? body.wallet.trim() : ''

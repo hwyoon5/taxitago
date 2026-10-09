@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import AdminLogin from '@/components/admin-login'
 import { adminLogout, getAdminKey, setAdminKey } from '@/lib/admin-key'
 
-export type AdminActorInfo = { staffId: string; staffName: string; role: 'master' | 'manager' | 'staff' }
+export type AdminActorInfo = { staffId: string; staffName: string; role: 'master' | 'manager' | 'staff'; position?: string }
 
 type AdminAuthContextValue = { logout: () => void; actor: AdminActorInfo | null }
 

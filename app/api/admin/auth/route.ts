@@ -53,6 +53,7 @@ export async function POST(request: Request) {
       staffId: staff.loginId,
       staffName: staff.name,
       staffRole: staff.role,
+      staffPosition: staff.position || '',
     })
     await recordAudit({
       kind: 'login',

@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto'
 import { randomTotpSecret, verifyTotpCode } from '@/lib/totp'
 import { staffVersion } from '@/lib/staff-store'
+import { ADMIN_PRIVILEGED_POSITIONS } from '@/lib/staff-positions'
 
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000
 
@@ -9,12 +10,24 @@ export type AdminActor = {
   staffId: string
   staffName: string
   role: 'master' | 'manager' | 'staff'
+  /** 직원 직급(position) — 팀장·최고책임자 등 고위 기능 권한 판별용. */
+  position?: string
 }
 
-const MASTER_ACTOR: AdminActor = { staffId: 'master', staffName: '최고 관리자', role: 'master' }
+const MASTER_ACTOR: AdminActor = { staffId: 'master', staffName: '최고 관리자', role: 'master', position: '최고책임자' }
+
+/**
+ * 직원 관리·수수료 설정 같은 고위 기능 권한 — 최고책임자(마스터 계정 또는
+ * 최고책임자 직급 직원) 또는 팀장 직급만 허용된다.
+ */
+export function hasAdminPrivilege(actor: AdminActor | null | undefined): boolean {
+  if (!actor) return false
+  if (actor.role === 'master') return true
+  return ADMIN_PRIVILEGED_POSITIONS.has((actor.position || '').trim())
+}
 
 type StoredPassword = { hash: string; salt: string; updatedAt: string }
-type SessionRecord = { v: number; exp: number; staffId?: string; staffName?: string; staffRole?: string; sv?: number }
+type SessionRecord = { v: number; exp: number; staffId?: string; staffName?: string; staffRole?: string; staffPosition?: string; sv?: number }
 
 type AdminDb = {
   password: StoredPassword | null
@@ -187,13 +200,14 @@ export async function setupAdminPassword(newPassword: string) {
   return { ok: true as const }
 }
 
-export async function createAdminSession(actor?: { staffId: string; staffName: string; staffRole: string }) {
+export async function createAdminSession(actor?: { staffId: string; staffName: string; staffRole: string; staffPosition?: string }) {
   // 버전 조회 실패 시 -1 — 검증 측에서 "확인 불가"로 취급해 무효화를 건너뛴다.
   const record: SessionRecord = { v: await getVersion().catch(() => -1), exp: Date.now() + SESSION_TTL_MS }
   if (actor) {
     record.staffId = actor.staffId
     record.staffName = actor.staffName
     record.staffRole = actor.staffRole
+    record.staffPosition = actor.staffPosition || ''
     record.sv = await staffVersion().catch(() => -1)
   }
   const token = await signSession(record)
@@ -276,6 +290,7 @@ async function sessionActor(token: string): Promise<AdminActor | null> {
     staffId: session.staffId,
     staffName: session.staffName || session.staffId,
     role: session.staffRole === 'manager' ? 'manager' : 'staff',
+    position: session.staffPosition || undefined,
   }
 }
 

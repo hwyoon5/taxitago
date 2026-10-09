@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { adminActor } from '@/lib/admin-auth'
+import { adminActor, hasAdminPrivilege } from '@/lib/admin-auth'
 import { recordAudit } from '@/lib/audit-store'
 import { createStaff, deleteStaff, listStaff, positionToRole, publicStaff, sanitizePosition, updateStaff } from '@/lib/staff-store'
 
@@ -19,8 +19,9 @@ export async function GET(request: Request) {
   if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  if (actor.role !== 'master') {
-    return NextResponse.json({ error: 'master_only' }, { status: 403 })
+  // 직원 관리는 최고책임자(마스터·최고책임자 직급) 또는 팀장만 허용된다.
+  if (!hasAdminPrivilege(actor)) {
+    return NextResponse.json({ error: 'privileged_only' }, { status: 403 })
   }
   const staff = await listStaff()
   return NextResponse.json({ ok: true, staff: staff.map(publicStaff) })
@@ -31,8 +32,9 @@ export async function POST(request: Request) {
   if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  if (actor.role !== 'master') {
-    return NextResponse.json({ error: 'master_only' }, { status: 403 })
+  // 직원 관리는 최고책임자(마스터·최고책임자 직급) 또는 팀장만 허용된다.
+  if (!hasAdminPrivilege(actor)) {
+    return NextResponse.json({ error: 'privileged_only' }, { status: 403 })
   }
   const body = (await request.json().catch(() => null)) as {
     loginId?: unknown; name?: unknown; password?: unknown; role?: unknown; position?: unknown
@@ -64,8 +66,9 @@ export async function PATCH(request: Request) {
   if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  if (actor.role !== 'master') {
-    return NextResponse.json({ error: 'master_only' }, { status: 403 })
+  // 직원 관리는 최고책임자(마스터·최고책임자 직급) 또는 팀장만 허용된다.
+  if (!hasAdminPrivilege(actor)) {
+    return NextResponse.json({ error: 'privileged_only' }, { status: 403 })
   }
   const body = (await request.json().catch(() => null)) as {
     id?: unknown; name?: unknown; password?: unknown; role?: unknown; position?: unknown
@@ -100,8 +103,9 @@ export async function DELETE(request: Request) {
   if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
-  if (actor.role !== 'master') {
-    return NextResponse.json({ error: 'master_only' }, { status: 403 })
+  // 직원 관리는 최고책임자(마스터·최고책임자 직급) 또는 팀장만 허용된다.
+  if (!hasAdminPrivilege(actor)) {
+    return NextResponse.json({ error: 'privileged_only' }, { status: 403 })
   }
   const body = (await request.json().catch(() => null)) as { id?: unknown } | null
   const id = typeof body?.id === 'string' ? body.id.trim() : ''

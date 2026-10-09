@@ -10,6 +10,7 @@ import AdminFareSettings from '@/components/admin-fare-settings'
 import AdminStaff from '@/components/admin-staff'
 import AdminAuditLog from '@/components/admin-audit-log'
 import AttachmentGallery from '@/components/photo-gallery'
+import { positionDisplayLabel } from '@/lib/staff-positions'
 import {
   editTicketReply,
   fetchAdminInbox,
@@ -288,7 +289,7 @@ export default function AdminSupportDesk() {
           <p className="mt-1 text-sm font-bold text-[#64748B]">1:1 문의와 분실물 접수를 확인하고 답변을 남깁니다.</p>
           {actor ? (
             <p className="mt-1 text-[11px] font-black text-[#4C1FB8]">
-              로그인: {actor.staffName}({actor.staffId}) · {actor.role === 'master' ? '최고 관리자' : actor.role === 'manager' ? '매니저' : '직원'}
+              로그인: {actor.staffName}({actor.staffId}) · {actor.position ? positionDisplayLabel(actor.position) : actor.role === 'master' ? '최고 관리자' : actor.role === 'manager' ? '매니저' : '직원'}
             </p>
           ) : null}
         </div>
