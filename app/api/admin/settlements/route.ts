@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { adminActor, isAdminRequest } from '@/lib/admin-auth'
 import {
   getCommissionRates,
+  healZeroCommissionEntries,
   listSettlements,
   markAllSettlementsSettled,
   markSettlementSettled,
@@ -263,8 +264,10 @@ export async function PATCH(request: Request) {
     }
     const before = await getCommissionRates()
     const rates = await saveCommissionRates(next)
+    // 과거에 수수료율 0으로 기록된 pending 건을 새 수수료율로 복구한다.
+    const healed = await healZeroCommissionEntries(rates).catch(() => 0)
     await recordAudit({ kind: 'rates', actor: actor.staffId, actorName: actor.staffName, reason, before, after: rates }).catch(() => undefined)
-    return NextResponse.json({ ok: true, rates })
+    return NextResponse.json({ ok: true, rates, healed })
   }
 
   if (action === 'settle') {

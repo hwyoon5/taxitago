@@ -119,18 +119,35 @@ function normalizeEntry(entry: SettlementEntry): SettlementEntry {
 }
 
 async function readEntries(): Promise<SettlementEntry[]> {
-  const rows = useKv ? ((await kvGet<SettlementEntry[]>(ENTRIES_KEY)) ?? []) : (warnEphemeral(), db().entries)
-  return rows.map(normalizeEntry)
+  if (useKv) {
+    // KV 읽기 실패가 정산 기록 경로를 죽이지 않게 로컬 메모리/파일로 폴백한다.
+    try {
+      const rows = (await kvGet<SettlementEntry[]>(ENTRIES_KEY)) ?? []
+      return rows.map(normalizeEntry)
+    } catch (error) {
+      console.error('[settlement-store] kv read failed; using local fallback', error)
+      return db().entries.map(normalizeEntry)
+    }
+  }
+  warnEphemeral()
+  return db().entries.map(normalizeEntry)
 }
 
 async function writeEntries(entries: SettlementEntry[]) {
   const trimmed = entries.slice(-MAX_ENTRIES)
   db().entries = trimmed
-  if (useKv) await kvCommand(['SET', ENTRIES_KEY, JSON.stringify(trimmed)])
-  else {
-    warnEphemeral()
-    persistFile()
+  if (useKv) {
+    try {
+      await kvCommand(['SET', ENTRIES_KEY, JSON.stringify(trimmed)])
+    } catch (error) {
+      // 쓰기 실패를 삼키면 정산 건이 무소식 유실된다 — 로컬 파일에라도 남기고 경고한다.
+      console.error('[settlement-store] kv write failed; kept in memory/file only', error)
+      persistFile()
+    }
+    return
   }
+  warnEphemeral()
+  persistFile()
 }
 
 export async function listSettlements(): Promise<SettlementEntry[]> {
@@ -156,6 +173,10 @@ export async function recordSettlement(input: {
   if (existing) return existing
   const [rates, adminWallet] = await Promise.all([getCommissionRates(), getAdminWallet()])
   const rate = rates[input.service] ?? 0
+  if (!(rate > 0)) {
+    // 수수료율 0으로 쓰인 건은 총 수수료 수익이 0으로 보이는 직접 원인 — 경고를 남긴다.
+    console.warn('[settlement-store] zero commission rate at record time', { refId: input.refId, service: input.service, gross: input.gross })
+  }
   const commission = piRound(input.gross * rate / 100)
   const entry: SettlementEntry = {
     id: crypto.randomUUID(),
@@ -218,6 +239,27 @@ export async function updateSettlementEntry(id: string, patch: {
   }
   await writeEntries(entries)
   return entry
+}
+
+/**
+ * 수수료율이 0으로 저장된 시점에 기록된 건(rate 0 → commission 0)을 현재
+ * 수수료율로 재계산한다. settled 건은 이미 정산·송금이 끝났으므로 pending 건만
+ * 손댄다. 수수료율 저장(PATCH 'rates') 이후 호출해 과거 누락분을 복구한다.
+ */
+export async function healZeroCommissionEntries(rates: CommissionRates): Promise<number> {
+  const entries = await readEntries()
+  let healed = 0
+  for (const entry of entries) {
+    const expected = rates[entry.service] ?? 0
+    if (entry.status !== 'pending' || !(expected > 0) || !(Number.isFinite(entry.gross) && entry.gross > 0)) continue
+    if (entry.commission > 0) continue
+    entry.rate = expected
+    entry.commission = piRound(entry.gross * expected / 100)
+    entry.net = piRound(entry.gross - entry.commission)
+    healed += 1
+  }
+  if (healed) await writeEntries(entries)
+  return healed
 }
 
 export async function markAllSettlementsSettled(): Promise<number> {

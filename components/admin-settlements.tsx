@@ -112,7 +112,15 @@ export default function AdminSettlements() {
   useEffect(() => {
     reload()
     const timer = window.setInterval(reload, 10000)
-    return () => window.clearInterval(timer)
+    // 탭 복귀·창 포커스 시 즉시 재조회 — 수수료 갱신이 폴링 주기까지 지연되지 않게 한다.
+    const onWake = () => { if (document.visibilityState === 'visible') reload() }
+    window.addEventListener('focus', reload)
+    document.addEventListener('visibilitychange', onWake)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', reload)
+      document.removeEventListener('visibilitychange', onWake)
+    }
   }, [reload])
 
   const patch = (body: Record<string, unknown>) =>
