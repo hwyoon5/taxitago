@@ -3,7 +3,7 @@ import path from 'path'
 
 export type AuditKind =
   | 'rates' | 'fare' | 'settle' | 'settle-all' | 'adjust' | 'reconcile'
-  | 'wallet' | 'deposit' | 'withdraw'
+  | 'wallet' | 'deposit' | 'withdraw' | 'spend'
   | 'login' | 'staff' | 'partner' | 'zone' | 'ticket'
 
 export type AuditEntry = {

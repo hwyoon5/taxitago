@@ -71,7 +71,8 @@ import DriverLostWatcher from '@/components/driver-lost-watcher'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import type { DriverPenaltyInfo, PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
-import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, PI_CHARGE_MAX_PI, signInWithPi, autoVerifyPiAppStudio, type PiSession } from '@/components/pi-checkout'
+import { BalanceCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, PI_CHARGE_MAX_PI, signInWithPi, autoVerifyPiAppStudio, type PiSession } from '@/components/pi-checkout'
+import { payFromBalance } from '@/lib/balance-pay'
 import MyPage from '@/components/my-page'
 import ManualPayModal from '@/components/manual-pay-modal'
 import QrPayScanModal from '@/components/qr-pay-scan'
@@ -1690,15 +1691,15 @@ function PiPayPanel({
         {!enough ? <p className="mt-2 text-xs font-black text-[#BE123C]">잔액이 부족합니다. 충전 후 결제해 주세요.</p> : null}
       </div>
       {enough ? (
-        <PiCheckoutButton
+        <BalanceCheckoutButton
           amount={amount}
           memo={`TaxiTago ${amount} Pi 결제`}
-          metadata={{ kind: 'service-pay' }}
+          metadata={{ kind: 'service-pay', label: '서비스 결제' }}
           className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
           onPaid={() => onPay()}
         >
           {`Pi로 ${amount.toFixed(7)} 결제하기`}
-        </PiCheckoutButton>
+        </BalanceCheckoutButton>
       ) : (
         <button type="button" onClick={onPay} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
           잔액 충전하기
@@ -2100,7 +2101,7 @@ function DestinationSheet({
                 채팅하기
               </button>
             </div>
-            <PiCheckoutButton
+            <BalanceCheckoutButton
               amount={billed.actual}
               memo={`${selectedService} ${billed.actual} Pi`}
               metadata={{ kind: 'service-pay', place, label: selectedService }}
@@ -2118,7 +2119,7 @@ function DestinationSheet({
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
               이용 완료
-            </PiCheckoutButton>
+            </BalanceCheckoutButton>
             <p className="text-center text-[11px] font-bold text-[#8b8495]">목적지 도착 후 눌러 주세요 · 하차 완료</p>
             <button onClick={cancelMatching} className="w-full rounded-2xl border border-[#d8d1e5] bg-white py-3.5 font-black text-[#5f566d]">
               호출 취소
@@ -2715,16 +2716,13 @@ function TaxiMatchingSheet({
     void (async () => {
       let proof: { paymentId: string; txid: string } | undefined
       if (ride.escrow?.status !== 'held' && ride.escrow?.status !== 'released') {
+        // 앱 잔액에서 즉시 차감 — Pi SDK는 충전/출금에서만 쓰고 운행 요금은
+        // 서버 잔액 장부가 권위다. 차감이 성공하면 서버가 에스크로를 잠근다.
         try {
-          proof = await startPiCheckout({
-            amount,
-            memo: `택시 ${amount} Pi`,
-            metadata: { kind: 'escrow-lock', rideId: ride.id },
-          })
+          proof = await payFromBalance({ purpose: 'ride', rideId: ride.id, amount, label: '택시' })
         } catch (error) {
           if (!PI_SANDBOX) throw error
-        }
-        if (!proof) {
+          // 테스트넷에서는 잔액이 없어도 완료 흐름을 검증할 수 있게 기존 모의 잠금을 유지한다.
           await lockRideEscrow({
             rideId: ride.id,
             passengerId: ride.passengerId,
@@ -3745,7 +3743,7 @@ function ServiceSheet({
               onContinue={() => undefined}
               onPrepaidSettled={() => setPrepaidSettled(true)}
             />
-            <PiCheckoutButton
+            <BalanceCheckoutButton
               amount={chargeAmount}
               memo={`${service} ${chargeAmount} Pi`}
               metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
@@ -3758,7 +3756,7 @@ function ServiceSheet({
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
               {vehicle ? '이용 완료 · 반납 결제' : settleTiming === 'qr_auto' ? '이용 완료 · 자동결제' : settleTiming === 'postpaid' ? '이용 완료 · 후결제' : '이용 완료'}
-            </PiCheckoutButton>
+            </BalanceCheckoutButton>
             <p className="text-center text-[11px] font-bold text-[#64748B]">이용이 끝나면 눌러 주세요</p>
           </div>
         )}
@@ -3885,7 +3883,7 @@ function ServiceSheet({
                     : '운행 중 취소 시 취소 수수료가 기사님께 지급되고 나머지는 청구되지 않습니다'
                 }
               >
-                <PiCheckoutButton
+                <BalanceCheckoutButton
                   amount={rideStage === 'moving' ? billed.actual : fare}
                   memo={`${service} ${(rideStage === 'moving' ? billed.actual : fare)} Pi`}
                   metadata={{
@@ -3945,12 +3943,12 @@ function ServiceSheet({
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
                 >
                   이용 완료
-                </PiCheckoutButton>
+                </BalanceCheckoutButton>
               </RideCompleteCancelBar>
               )
             ) : (
               <>
-                <PiCheckoutButton
+                <BalanceCheckoutButton
                   amount={fare}
                   memo={`${service} ${fare} Pi`}
                   metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
@@ -3962,7 +3960,7 @@ function ServiceSheet({
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
                 >
                   이용 완료
-                </PiCheckoutButton>
+                </BalanceCheckoutButton>
                 <p className="text-center text-[11px] font-bold text-[#8b8495]">도착 후 눌러 주세요 · 하차 완료</p>
               </>
             )}
@@ -9091,15 +9089,12 @@ export default function HomeScreen() {
   }
   const payWithPi = async (amount: number, place: string, label: string, estimated?: number) => {
     try {
-      const proof = await startPiCheckout({
-        amount,
-        memo: `${label} ${amount} Pi`,
-        metadata: { kind: 'service-pay', place, label },
-      })
+      // 앱 잔액 즉시 차감 — Pi SDK는 충전/출금 전용이다.
+      const proof = await payFromBalance({ purpose: 'service', amount, label, place })
       settlePiLedger(amount, place, label, estimated, proof)
       return true
     } catch (error) {
-      showNotice(describePiUserMessage(error))
+      showNotice(error instanceof Error ? error.message : describePiUserMessage(error))
       return false
     }
   }

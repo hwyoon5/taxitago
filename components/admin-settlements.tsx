@@ -53,6 +53,7 @@ const AUDIT_LABEL: Record<string, string> = {
   wallet: '지갑 주소 변경',
   deposit: '입금 기록',
   withdraw: '수수료 출금',
+  spend: '잔액 결제 차감',
 }
 
 const pi = (value: number) => `${value.toFixed(7)} Pi`

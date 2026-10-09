@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
-import { describePiUserMessage, isPiBrowser, PI_SANDBOX, startPiCheckout } from '@/components/pi-checkout'
+import { payFromBalance } from '@/lib/balance-pay'
 
 type ManualPayPublic = {
   id: string
@@ -44,23 +44,13 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
 
   const pay = () => {
     if (!record || view !== 'ready') return
-    // 일반 브라우저에서는 authenticate가 열리지 않아 세션 오류로 오인된다 —
-    // 메인넷이면 Pi Browser 안내를 바로 보여주고, 테스트넷은 모의 결제가 처리한다.
-    if (!isPiBrowser() && !PI_SANDBOX) {
-      setError('Pi 결제는 Pi Browser 안에서만 진행할 수 있습니다. 이 결제 링크를 Pi Browser에서 열어 주세요.')
-      return
-    }
     setView('paying')
     setError('')
-    void startPiCheckout({
-      amount: record.amount,
-      memo: `TaxiTago 현장 결제`.slice(0, 25),
-      metadata: { kind: 'manual-settle', manualId: record.id, label: '현장 수동 결제' },
-      strictCompletion: true,
-    })
+    // 앱 잔액에서 즉시 차감 — 금액은 서버의 결제 요청 레코드가 권위다.
+    void payFromBalance({ purpose: 'manual', manualId: record.id, label: '현장 수동 결제' })
       .then(() => setView('done'))
       .catch((payError) => {
-        setError(describePiUserMessage(payError))
+        setError(payError instanceof Error ? payError.message : '결제를 처리하지 못했습니다.')
         setView('ready')
       })
   }
@@ -106,17 +96,11 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
             onClick={pay}
             className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white disabled:opacity-60"
           >
-            {view === 'paying' ? 'Pi 지갑에서 승인 중…' : 'Pi 지갑으로 결제하기'}
+            {view === 'paying' ? '잔액 결제 처리 중…' : '앱 잔액으로 결제하기'}
           </button>
-          {isPiBrowser() ? (
-            <p className="mt-2 text-center text-[11px] font-bold text-[#94A3B8]">Pi Browser에서 결제 시트가 열립니다.</p>
-          ) : (
-            <p className="mt-2 text-center text-[11px] font-bold leading-5 text-[#B45309]">
-              {PI_SANDBOX
-                ? '일반 브라우저입니다. 테스트넷 환경에서는 모의 결제로 진행됩니다. 실제 결제는 Pi Browser에서 열어 주세요.'
-                : '일반 브라우저에서는 결제가 시작되지 않습니다. 이 링크를 Pi Browser에서 열어 주세요.'}
-            </p>
-          )}
+          <p className="mt-2 text-center text-[11px] font-bold leading-5 text-[#94A3B8]">
+            앱 내 충전 잔액에서 즉시 차감됩니다. 잔액이 부족하면 앱 지갑에서 Pi를 먼저 충전해 주세요.
+          </p>
         </>
       ) : null}
     </main>

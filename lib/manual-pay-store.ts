@@ -20,6 +20,8 @@ export type ManualPayRecord = {
   status: ManualPayStatus
   paymentId: string
   txid: string
+  /** 잔액 결제로 지불한 승객의 Pi uid — Pi 결제 건은 없을 수 있다. */
+  paidByUid?: string
   createdAt: string
   settledAt: string
 }
@@ -137,6 +139,27 @@ export async function settleManualPayByDriver(id: string, driverId: string) {
   record.settledAt = new Date().toISOString()
   await save(record)
   await bookSettlement(record, 'manual')
+  return { ok: true as const, record }
+}
+
+/**
+ * 승객의 앱 잔액으로 현장 결제 — /api/wallet/spend가 잔액 차감을 마친 뒤 호출한다.
+ * 잔액은 플랫폼 지갑에 이미 충전된 Pi이므로 'pi' 경로로 정산해 기사에게 net을
+ * A2U 송금하고 수수료가 플랫폼 수익으로 남는다. paymentId/txid는 잔액 결제
+ * 식별자(balance-*)로 멱등.
+ */
+export async function settleManualPayByBalance(id: string, payer: { uid?: string; txid: string }) {
+  const record = await getManualPay(id)
+  if (!record) return { ok: false as const, error: 'not_found' }
+  if (record.status === 'paid' || record.status === 'manual') return { ok: true as const, record }
+  if (record.status === 'cancelled') return { ok: false as const, error: 'cancelled' }
+  record.status = 'paid'
+  record.paymentId = payer.txid
+  record.txid = payer.txid
+  record.paidByUid = (payer.uid || '').trim() || undefined
+  record.settledAt = new Date().toISOString()
+  await save(record)
+  await bookSettlement(record, 'pi')
   return { ok: true as const, record }
 }
 

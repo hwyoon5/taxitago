@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link2, QrCode, ScanLine, X } from 'lucide-react'
 import { apiFetch } from '@/lib/app-origin'
-import { describePiUserMessage, isPiBrowser, PI_SANDBOX, startPiCheckout } from '@/components/pi-checkout'
+import { payFromBalance } from '@/lib/balance-pay'
 
 /**
  * 승객용 QR 결제 스캐너 — 기사 모달이 생성한 /pay/manual/{id} QR(또는 링크)을
@@ -168,24 +168,16 @@ export default function QrPayScanModal({
 
   const pay = () => {
     if (!record || stage !== 'confirm') return
-    if (!isPiBrowser() && !PI_SANDBOX) {
-      setError('Pi 결제는 Pi Browser 안에서만 진행할 수 있습니다. Pi Browser로 앱을 열어 다시 시도해 주세요.')
-      return
-    }
     setStage('paying')
     setError('')
-    void startPiCheckout({
-      amount: record.amount,
-      memo: 'TaxiTago 현장 결제'.slice(0, 25),
-      metadata: { kind: 'manual-settle', manualId: record.id, label: '현장 수동 결제' },
-      strictCompletion: true,
-    })
+    // 앱 잔액에서 즉시 차감 — 금액은 서버의 결제 요청 레코드가 권위다.
+    void payFromBalance({ purpose: 'manual', manualId: record.id, label: '현장 수동 결제' })
       .then((proof) => {
         onPaid?.(record, proof)
         setStage('done')
       })
       .catch((payError) => {
-        setError(describePiUserMessage(payError))
+        setError(payError instanceof Error ? payError.message : '결제를 처리하지 못했습니다.')
         setStage('confirm')
       })
   }
@@ -284,14 +276,10 @@ export default function QrPayScanModal({
               className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(76,31,184,0.3)] disabled:opacity-70"
             >
               <ScanLine className="h-5 w-5" />
-              {stage === 'paying' ? 'Pi 지갑에서 승인 중…' : 'Pi 지갑으로 결제하기'}
+              {stage === 'paying' ? '잔액 결제 처리 중…' : '앱 잔액으로 결제하기'}
             </button>
             <p className="mt-2 text-center text-[11px] font-bold leading-5 text-[#94A3B8]">
-              {isPiBrowser()
-                ? 'Pi Browser에서 결제 시트가 열립니다. 플랫폼 수수료가 자동 정산됩니다.'
-                : PI_SANDBOX
-                  ? '테스트넷 환경에서는 모의 결제로 진행됩니다.'
-                  : 'Pi Browser 안에서 결제를 진행해 주세요.'}
+              앱 내 충전 잔액에서 즉시 차감됩니다. 플랫폼 수수료가 자동 정산됩니다.
             </p>
             <button type="button" onClick={reset} className="mt-2 w-full py-2 text-xs font-black text-[#64748B]">
               다른 QR 스캔하기
