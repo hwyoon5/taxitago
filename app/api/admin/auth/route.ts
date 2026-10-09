@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       kind: 'login',
       actor: staff.loginId,
       actorName: staff.name,
-      detail: `직원 로그인 (${staff.role === 'manager' ? '매니저' : '직원'})`,
+      detail: `직원 로그인 (${staff.position || (staff.role === 'manager' ? '매니저' : '직원')})`,
     }).catch(() => undefined)
     return NextResponse.json({ ok: true, ...session })
   }

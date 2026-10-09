@@ -3,9 +3,14 @@
 import { useEffect, useState } from 'react'
 import { Copy, Eye, EyeOff, KeyRound, Pencil, Trash2, UserPlus, X } from 'lucide-react'
 import { adminHeaders } from '@/lib/admin-key'
-import type { PublicStaff, StaffRole } from '@/lib/staff-store'
+import type { PublicStaff } from '@/lib/staff-store'
+import { STAFF_POSITIONS } from '@/lib/staff-positions'
 
-const ROLE_LABEL: Record<string, string> = { master: '최고 관리자', manager: '매니저', staff: '직원' }
+const CUSTOM_POSITION = '__custom__'
+
+/** position이 없는 기존 직원의 레거시 표시 — 권한 등급으로 폴백한다. */
+const LEGACY_ROLE_LABEL: Record<string, string> = { master: '최고 관리자', manager: '매니저', staff: '직원' }
+const positionLabel = (row: Pick<PublicStaff, 'role' | 'position'>) => row.position || LEGACY_ROLE_LABEL[row.role] || row.role
 
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_login_id: '직원 ID는 영문·숫자·_.- 조합 3~32자여야 합니다.',
@@ -16,7 +21,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   not_found: '해당 직원을 찾을 수 없습니다.',
 }
 
-type EditState = { id: string; name: string; password: string; role: StaffRole }
+type EditState = { id: string; name: string; password: string; position: string; customPosition: string }
 
 export default function AdminStaff() {
   const [staff, setStaff] = useState<PublicStaff[]>([])
@@ -26,7 +31,7 @@ export default function AdminStaff() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<EditState | null>(null)
-  const [form, setForm] = useState({ loginId: '', name: '', password: '', role: 'staff' as StaffRole })
+  const [form, setForm] = useState({ loginId: '', name: '', password: '', position: '사원', customPosition: '' })
   const [showPw, setShowPw] = useState(false)
   const [showEditPw, setShowEditPw] = useState(false)
   const [tempPw, setTempPw] = useState<{ loginId: string; name: string; password: string } | null>(null)
@@ -70,13 +75,18 @@ export default function AdminStaff() {
     void fetch('/api/admin/staff', {
       method: 'POST',
       headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify({
+        loginId: form.loginId,
+        name: form.name,
+        password: form.password,
+        position: form.position === CUSTOM_POSITION ? form.customPosition : form.position,
+      }),
     })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { staff?: PublicStaff; error?: string } | null
         if (!res.ok) throw new Error(data?.error || 'create_failed')
         setStaff((rows) => [...rows, data!.staff!])
-        setForm({ loginId: '', name: '', password: '', role: 'staff' })
+        setForm({ loginId: '', name: '', password: '', position: '사원', customPosition: '' })
         tell(`직원 계정 ${data!.staff!.loginId}을(를) 등록했습니다.`)
       })
       .catch((err) => fail(err instanceof Error ? err.message : 'create_failed'))
@@ -92,7 +102,7 @@ export default function AdminStaff() {
       body: JSON.stringify({
         id: editing.id,
         name: editing.name,
-        role: editing.role,
+        position: editing.position === CUSTOM_POSITION ? editing.customPosition : editing.position,
         ...(editing.password.trim() ? { password: editing.password } : {}),
       }),
     })
@@ -195,17 +205,28 @@ export default function AdminStaff() {
             </button>
           </div>
           <select
-            value={form.role}
-            onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value as StaffRole }))}
+            value={form.position}
+            onChange={(event) => setForm((prev) => ({ ...prev, position: event.target.value }))}
             className="rounded-xl border-2 border-[#CBD5E1] px-3 py-2.5 text-sm font-bold outline-none focus:border-[#4C1FB8]"
           >
-            <option value="staff">직원</option>
-            <option value="manager">매니저</option>
+            {STAFF_POSITIONS.map((position) => (
+              <option key={position} value={position}>{position}</option>
+            ))}
+            <option value={CUSTOM_POSITION}>직접 입력</option>
           </select>
+          {form.position === CUSTOM_POSITION ? (
+            <input
+              value={form.customPosition}
+              onChange={(event) => setForm((prev) => ({ ...prev, customPosition: event.target.value }))}
+              placeholder="직급 직접 입력 (예: 주임연구원)"
+              maxLength={20}
+              className="col-span-2 rounded-xl border-2 border-[#CBD5E1] px-3 py-2.5 text-sm font-bold outline-none focus:border-[#4C1FB8]"
+            />
+          ) : null}
         </div>
         <button
           type="button"
-          disabled={busy || !form.loginId.trim() || !form.name.trim() || form.password.trim().length < 8}
+          disabled={busy || !form.loginId.trim() || !form.name.trim() || form.password.trim().length < 8 || (form.position === CUSTOM_POSITION && !form.customPosition.trim())}
           onClick={create}
           className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-2.5 text-sm font-black text-white disabled:opacity-50"
         >
@@ -236,13 +257,24 @@ export default function AdminStaff() {
                     className="rounded-xl border-2 border-[#CBD5E1] bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#4C1FB8]"
                   />
                   <select
-                    value={editing.role}
-                    onChange={(event) => setEditing((prev) => (prev ? { ...prev, role: event.target.value as StaffRole } : prev))}
+                    value={editing.position}
+                    onChange={(event) => setEditing((prev) => (prev ? { ...prev, position: event.target.value } : prev))}
                     className="rounded-xl border-2 border-[#CBD5E1] bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#4C1FB8]"
                   >
-                    <option value="staff">직원</option>
-                    <option value="manager">매니저</option>
+                    {STAFF_POSITIONS.map((position) => (
+                      <option key={position} value={position}>{position}</option>
+                    ))}
+                    <option value={CUSTOM_POSITION}>직접 입력</option>
                   </select>
+                  {editing.position === CUSTOM_POSITION ? (
+                    <input
+                      value={editing.customPosition}
+                      onChange={(event) => setEditing((prev) => (prev ? { ...prev, customPosition: event.target.value } : prev))}
+                      placeholder="직급 직접 입력"
+                      maxLength={20}
+                      className="col-span-2 rounded-xl border-2 border-[#CBD5E1] bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#4C1FB8]"
+                    />
+                  ) : null}
                   <div className="relative col-span-2">
                     <input
                       type={showEditPw ? 'text' : 'password'}
@@ -285,7 +317,7 @@ export default function AdminStaff() {
                   <p className="flex items-center gap-1.5 text-sm font-black">
                     {row.name}
                     <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${row.role === 'manager' ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-[#F1F5F9] text-[#475569]'}`}>
-                      {ROLE_LABEL[row.role] || row.role}
+                      {positionLabel(row)}
                     </span>
                   </p>
                   <p className="mt-0.5 text-[11px] font-bold text-[#64748B]">
@@ -295,7 +327,16 @@ export default function AdminStaff() {
                 <div className="flex shrink-0 gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setEditing({ id: row.id, name: row.name, password: '', role: row.role })}
+                    onClick={() => {
+                      const known = row.position && (STAFF_POSITIONS as readonly string[]).includes(row.position)
+                      setEditing({
+                        id: row.id,
+                        name: row.name,
+                        password: '',
+                        position: known ? row.position! : CUSTOM_POSITION,
+                        customPosition: known ? '' : row.position || '',
+                      })
+                    }}
                     className="flex items-center gap-1 rounded-full border-2 border-[#D8CCF5] bg-white px-2.5 py-1.5 text-[10px] font-black text-[#4C1FB8]"
                   >
                     <Pencil size={11} /> 수정

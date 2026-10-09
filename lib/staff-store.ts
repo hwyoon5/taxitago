@@ -2,6 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { createHash, randomUUID, timingSafeEqual } from 'crypto'
 
+import { sanitizePosition } from '@/lib/staff-positions'
+
+export { MANAGER_POSITIONS, STAFF_POSITIONS, positionToRole, sanitizePosition } from '@/lib/staff-positions'
+
 export type StaffRole = 'manager' | 'staff'
 
 export type StaffEntry = {
@@ -10,6 +14,8 @@ export type StaffEntry = {
   loginId: string
   name: string
   role: StaffRole
+  /** 직급/분류 — 사원·주임·대리·과장·차장·부장·팀장·이사 또는 직접 입력 문구. */
+  position?: string
   passwordHash: string
   salt: string
   createdAt: string
@@ -127,7 +133,7 @@ export function validateStaffInput(input: { loginId?: string; name?: string; pas
   return null
 }
 
-export async function createStaff(input: { loginId: string; name: string; password: string; role: StaffRole }) {
+export async function createStaff(input: { loginId: string; name: string; password: string; role: StaffRole; position?: string }) {
   const loginId = input.loginId.trim()
   const invalid = validateStaffInput({ loginId, name: input.name, password: input.password }, true)
   if (invalid) return { ok: false as const, error: invalid }
@@ -139,6 +145,7 @@ export async function createStaff(input: { loginId: string; name: string; passwo
     loginId,
     name: input.name.trim(),
     role: input.role === 'manager' ? 'manager' : 'staff',
+    position: sanitizePosition(input.position) || (input.role === 'manager' ? '매니저' : '사원'),
     passwordHash: hashPassword(input.password.trim(), salt),
     salt,
     createdAt: now,
@@ -150,7 +157,7 @@ export async function createStaff(input: { loginId: string; name: string; passwo
   return { ok: true as const, staff }
 }
 
-export async function updateStaff(id: string, input: { name?: string; password?: string; role?: StaffRole }) {
+export async function updateStaff(id: string, input: { name?: string; password?: string; role?: StaffRole; position?: string }) {
   const entries = await readEntries()
   const staff = entries.find((entry) => entry.id === id)
   if (!staff) return { ok: false as const, error: 'not_found' }
@@ -161,6 +168,10 @@ export async function updateStaff(id: string, input: { name?: string; password?:
   if (invalid) return { ok: false as const, error: invalid }
   if (typeof input.name === 'string' && input.name.trim()) staff.name = input.name.trim()
   if (input.role === 'manager' || input.role === 'staff') staff.role = input.role
+  if (input.position !== undefined) {
+    const position = sanitizePosition(input.position)
+    if (position) staff.position = position
+  }
   if (typeof input.password === 'string' && input.password.trim()) {
     staff.salt = randomUUID()
     staff.passwordHash = hashPassword(input.password.trim(), staff.salt)
@@ -190,6 +201,7 @@ export function publicStaff(staff: StaffEntry): PublicStaff {
     loginId: staff.loginId,
     name: staff.name,
     role: staff.role,
+    position: staff.position,
     createdAt: staff.createdAt,
     updatedAt: staff.updatedAt,
   }
