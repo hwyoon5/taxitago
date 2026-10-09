@@ -750,19 +750,24 @@ function isPiDepositCredited(txid: string) {
  * 이 이용자에게 귀속되는 confirmed 입금을 돌려준다 — 각 건은 txid 멱등으로
  * 정확히 한 번만 onCredit 된다.
  */
-async function scanPiDeposits(wallet: string, uid: string, onCredit: (amount: number, txid: string) => void) {
+async function scanPiDeposits(wallet: string, uid: string, onCredit: (amount: number, txid: string, at?: number) => void) {
   try {
     const uidParam = uid ? `&uid=${encodeURIComponent(uid)}` : ''
     const res = await fetch(
       `/api/wallet/deposits?from=${encodeURIComponent(wallet)}${uidParam}&sandbox=${PI_SANDBOX}`,
       { cache: 'no-store' },
     )
-    const data = (await res.json().catch(() => null)) as { deposits?: { txid: string; amount: number }[] } | null
+    const data = (await res.json().catch(() => null)) as {
+      deposits?: { txid: string; amount: number; createdAt?: string }[]
+    } | null
     if (!res.ok || !data?.deposits) return
     for (const deposit of data.deposits) {
       if (!deposit.txid || isPiDepositCredited(deposit.txid) || !(deposit.amount > 0)) continue
       markPiDepositCredited(deposit.txid)
-      onCredit(deposit.amount, deposit.txid)
+      // 서버 장부의 실제 입금 시각을 넘긴다 — 재동기화된 과거 입금이 "오늘 충전"
+      // 으로 오인돼 24시간 한도를 깎아먹지 않게 한다.
+      const at = typeof deposit.createdAt === 'string' ? Date.parse(deposit.createdAt) : NaN
+      onCredit(deposit.amount, deposit.txid, Number.isFinite(at) ? at : undefined)
     }
   } catch {
     undefined
@@ -5660,7 +5665,7 @@ function WalletModal({
 }: {
   balance: number
   onClose: () => void
-  onDeposit: (amount: number) => void
+  onDeposit: (amount: number, ts?: number) => void
   onWithdraw: (amount: number, address: string) => void
   transactions: PiTransaction[]
   onNotice: (message: string) => void
@@ -5725,9 +5730,9 @@ function WalletModal({
     if (!uid && !isPiWalletAddress(wallet)) return
     let stopped = false
     const scan = () =>
-      scanPiDeposits(isPiWalletAddress(wallet) ? wallet : '', uid, (amount) => {
+      scanPiDeposits(isPiWalletAddress(wallet) ? wallet : '', uid, (amount, _txid, ts) => {
         if (stopped) return
-        onDeposit(amount)
+        onDeposit(amount, ts)
         setProcess((prev) => (prev?.phase === 'pending' ? prev : { kind: 'charge', phase: 'done', amount }))
       })
     void scan()
@@ -9021,10 +9026,13 @@ export default function HomeScreen() {
       return false
     }
   }
-  const depositWallet = (amount: number) => {
+  const depositWallet = (amount: number, ts?: number) => {
     const at = formatPiTime()
     setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
-    setTransactions((items) => [{ label: 'Pi 충전', amount, detail: `Pi 월렛 · ${at}`, place: 'Pi 월렛', at, ts: Date.now() }, ...items])
+    // ts가 없으면 이용자가 직접 누른 충전 — 지금 시각. 스캐너 감지분은 서버의
+    // 실제 입금 시각을 받아 일일 한도 계산에서 제대로 날짜가 찍히게 한다.
+    const chargedAt = typeof ts === 'number' && Number.isFinite(ts) ? ts : Date.now()
+    setTransactions((items) => [{ label: 'Pi 충전', amount, detail: `Pi 월렛 · ${at}`, place: 'Pi 월렛', at, ts: chargedAt }, ...items])
     recordActivity('Pi 충전 완료', `+${amount.toFixed(7)} Pi`)
   }
   const withdrawWallet = (amount: number, dest: string) => {
@@ -9056,9 +9064,9 @@ export default function HomeScreen() {
     if (!uid && !isPiWalletAddress(wallet)) return
     let stopped = false
     const scan = () =>
-      scanPiDeposits(isPiWalletAddress(wallet) ? wallet : '', uid, (amount) => {
+      scanPiDeposits(isPiWalletAddress(wallet) ? wallet : '', uid, (amount, _txid, ts) => {
         if (stopped) return
-        depositWallet(amount)
+        depositWallet(amount, ts)
         showNotice(`${amount.toFixed(2)} Pi 입금 확인 — 지갑에 자동 충전되었습니다.`)
       })
     void scan()

@@ -51,7 +51,7 @@ export async function GET(request: Request) {
     if (entry.toWallet !== adminWallet) return false
     if (serviceTxids.has(entry.txid)) return false
     return (
-      entry.fromWallet === from ||
+      (from !== '' && entry.fromWallet === from) ||
       (uid !== '' && (entry.fromUid === uid || linkedWallets.has(entry.fromWallet)))
     )
   })
