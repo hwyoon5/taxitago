@@ -9,6 +9,7 @@ import AdminSettlements from '@/components/admin-settlements'
 import AdminFareSettings from '@/components/admin-fare-settings'
 import AdminStaff from '@/components/admin-staff'
 import AdminUsers from '@/components/admin-users'
+import AdminNotepad from '@/components/admin-notepad'
 import AdminAuditLog from '@/components/admin-audit-log'
 import AttachmentGallery from '@/components/photo-gallery'
 import { positionDisplayLabel } from '@/lib/staff-positions'
@@ -98,7 +99,7 @@ export default function AdminSupportDesk() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState('')
   const [storage, setStorage] = useState<'kv' | 'file' | null>(null)
-  const [view, setView] = useState<'inbox' | 'users' | 'partners' | 'fare' | 'ledger' | 'staff' | 'audit'>('inbox')
+  const [view, setView] = useState<'inbox' | 'users' | 'partners' | 'fare' | 'ledger' | 'staff' | 'audit' | 'memo'>('inbox')
   const seenRef = useRef<Set<string> | null>(null)
   const { logout, actor } = useAdminAuth()
 
@@ -329,8 +330,8 @@ export default function AdminSupportDesk() {
           <Link href="/" className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]">홈</Link>
         </div>
       </div>
-      <div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
-        {(['inbox', 'users', 'partners', 'fare', 'ledger', 'staff', 'audit'] as const).map((tab) => (
+      <div className="mt-4 grid grid-cols-4 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
+        {(['inbox', 'users', 'partners', 'fare', 'ledger', 'staff', 'audit', 'memo'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -349,7 +350,9 @@ export default function AdminSupportDesk() {
                     ? '정산 내역'
                     : tab === 'staff'
                       ? '직원 관리'
-                      : '업무 기록'}
+                      : tab === 'memo'
+                        ? '메모장'
+                        : '업무 기록'}
           </button>
         ))}
       </div>
@@ -367,6 +370,8 @@ export default function AdminSupportDesk() {
         <AdminStaff />
       ) : view === 'audit' ? (
         <AdminAuditLog />
+      ) : view === 'memo' ? (
+        <AdminNotepad />
       ) : (
       <>
       {storage === 'file' ? (
