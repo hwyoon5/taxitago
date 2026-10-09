@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Navigation, Phone, PhoneOff, Plus, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { translateService } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -74,6 +74,7 @@ import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, PI_CHARGE_MAX_PI, signInWithPi, autoVerifyPiAppStudio, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 import ManualPayModal from '@/components/manual-pay-modal'
+import QrPayScanModal from '@/components/qr-pay-scan'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
@@ -4891,6 +4892,7 @@ function Home({
   const [searchOpen, setSearchOpen] = useState(false)
   const [waypointSearchIndex, setWaypointSearchIndex] = useState<number | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [qrPayOpen, setQrPayOpen] = useState(false)
   const [favorites, setFavorites] = useState<FavoritePlace[]>([])
   const [recents, setRecents] = useState<RecentPlace[]>([])
 
@@ -5066,6 +5068,15 @@ function Home({
             {t('home.callDaeri')}
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => setQrPayOpen(true)}
+          className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#4C1FB8] to-[#7C3AED] px-3 py-3 text-[13px] font-black text-white shadow-[0_8px_18px_rgba(76,31,184,0.28)] transition active:scale-[0.99]"
+        >
+          <ScanLine className="h-5 w-5" />
+          QR 코드로 결제하기
+          <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black">현장 결제</span>
+        </button>
         <section className="mt-4">
           <div className="flex items-end justify-between px-0.5">
             <h2 className="text-sm font-black tracking-tight text-[#0F172A]">{t('home.whatToUse')}</h2>
@@ -5103,6 +5114,7 @@ function Home({
           onOpenMap={onOpenMap}
         />
       ) : null}
+      {qrPayOpen ? <QrPayScanModal onClose={() => setQrPayOpen(false)} /> : null}
       {waypointSearchIndex !== null ? (
         <DestinationSearchModal
           destination={waypoints[waypointSearchIndex] ?? ''}
