@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { listDeposits } from '@/lib/deposit-store'
 import { creditInboundDeposit, scanInboundDeposits } from '@/lib/deposit-scan'
-import { creditUserDeposit, listUserCredits, userCreditTotals, walletsForUid } from '@/lib/user-credit-store'
+import { creditUserDeposit, listUserCredits, userCreditTotals, walletsForUid, withdrawnDepositTxids } from '@/lib/user-credit-store'
 import { knownServiceTxids } from '@/lib/payment-kind-store'
 import { getPiPayment } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
@@ -43,6 +43,8 @@ export async function GET(request: Request) {
   const entries = await listDeposits()
   // 서비스 결제로 확정된 txid는 이용자 입금이 아니다 — 잔액 크레딧 대상에서 제외.
   const serviceTxids = await knownServiceTxids().catch(() => new Set<string>())
+  // 탈퇴 계정의 과거 입금 — 재가입자(동일 uid·지갑)에게 다시 귀속되면 안 된다.
+  const withdrawnTxids = await withdrawnDepositTxids().catch(() => new Set<string>())
   // 클라이언트가 보내는 from은 uid 유사주소일 수 있어 실제 on-chain 주소와
   // 불일치한다 — 과거 결제로 확인된 지갑↔uid 연결로 진짜 주소 매칭도 커버.
   const linkedWallets = uid ? await walletsForUid(uid).catch(() => new Set<string>()) : new Set<string>()
@@ -50,6 +52,7 @@ export async function GET(request: Request) {
     if (entry.status !== 'confirmed') return false
     if (entry.toWallet !== adminWallet) return false
     if (serviceTxids.has(entry.txid)) return false
+    if (withdrawnTxids.has(entry.txid)) return false
     return (
       (from !== '' && entry.fromWallet === from) ||
       (uid !== '' && (entry.fromUid === uid || linkedWallets.has(entry.fromWallet)))

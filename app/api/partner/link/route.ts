@@ -3,6 +3,8 @@ import { deletePartnerLink, getPartnerLink, upsertPartnerLink } from '@/lib/part
 import { piRound } from '@/lib/pi-format'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
+import { removeDriverPushSubscription } from '@/lib/driver-push'
+import { recordAudit } from '@/lib/audit-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -121,6 +123,40 @@ export async function DELETE(request: Request) {
       { status: 400 },
     )
   }
+
+  // 3. 개인 장부 파기 — 크레딧·지출 엔트리에 withdrawnAt을 찍어 잔액을 0으로
+  // 초기화하고 지갑↔uid 매핑을 끊는다. 엔트리 자체는 감사용으로 보존된다.
+  const { archiveUserCredits } = await import('@/lib/user-credit-store')
+  await archiveUserCredits({ uid, wallet }).catch((error) => {
+    console.error('[Withdraw] credit archive failed', { uid, error })
+  })
+
+  // 4. 기사 활성 상태 정리 — 탈퇴한 기사가 온라인으로 남아 콜을 받지 않게
+  // 오프라인 처리하고 콜 알림용 푸시 구독을 해제한다.
+  try {
+    const { getDriver, nowIso, saveDriver } = await import('@/lib/dispatch-store')
+    const driver = getDriver(uid)
+    if (driver && driver.status !== 'offline' && !driver.virtual) {
+      saveDriver({ ...driver, status: 'offline', lastSeenAt: nowIso() })
+    }
+    removeDriverPushSubscription(uid)
+  } catch (error) {
+    console.error('[Withdraw] driver state cleanup failed', { uid, error })
+  }
+
+  // 5. 탈퇴 감사 로그 — 정산 장부·운행 이력은 그대로 남기고, 어뷰징 추적용
+  // 최소 식별 이력(uid·지갑·탈퇴 시점)을 관리자 감사에 기록한다.
+  const link = getPartnerLink(uid)
+  await recordAudit({
+    kind: 'partner',
+    actor: uid,
+    actorName: link?.name || link?.username,
+    refId: uid,
+    reason: '회원 탈퇴',
+    detail: `wallet ${wallet || '(없음)'} · 최종 잔액 ${piRound(remaining)} Pi`,
+    after: { uid, wallet, role: link?.role },
+  }).catch((error) => console.error('[Withdraw] audit log failed', { uid, error }))
+
   deletePartnerLink(uid)
   return NextResponse.json({ ok: true, success: true })
 }

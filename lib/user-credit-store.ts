@@ -14,6 +14,8 @@ export type UserCreditEntry = {
   amount: number
   source: 'scan' | 'manual'
   creditedAt: string
+  /** 회원탈퇴 시각 — 찍히면 잔액 집계·재귀속 대상에서 빠지고 감사용으로만 남는다. */
+  withdrawnAt?: string
 }
 
 const useKv = kvConfigured
@@ -252,7 +254,7 @@ export async function creditUserDeposit(input: {
     const key = balanceKey(existing.wallet || wallet, existing.uid || uid)
     const expected = piRound(
       entries
-        .filter((e) => e.wallet === existing.wallet || (existing.uid && e.uid === existing.uid))
+        .filter((e) => !e.withdrawnAt && (e.wallet === existing.wallet || (existing.uid && e.uid === existing.uid)))
         .reduce((sum, e) => sum + e.amount, 0),
     )
     if (balances[key] !== expected) {
@@ -287,11 +289,13 @@ export async function listUserCredits(): Promise<UserCreditEntry[]> {
   return [...entries].sort((a, b) => b.creditedAt.localeCompare(a.creditedAt))
 }
 
-/** 해당 이용자에게 귀속된 크레딧 총액·건수 — 잔액 대사·관리자 확인용. */
+/** 해당 이용자에게 귀속된 크레딧 총액·건수 — 잔액 대사·관리자 확인용. 탈퇴 아카이브분은 제외. */
 export async function userCreditTotals(wallet: string, uid: string) {
   const entries = await readEntries()
   const mine = entries.filter(
-    (entry) => (wallet && entry.wallet === wallet) || (uid && entry.uid && entry.uid === uid),
+    (entry) =>
+      !entry.withdrawnAt &&
+      ((wallet && entry.wallet === wallet) || (uid && entry.uid && entry.uid === uid)),
   )
   return {
     count: mine.length,
@@ -321,6 +325,8 @@ export type UserSpendEntry = {
   amount: number
   label: string
   spentAt: string
+  /** 회원탈퇴 시각 — 잔액 집계에서 빠지고 감사용으로만 남는다. */
+  withdrawnAt?: string
 }
 
 const SPENDS_KEY = 'taxitago:user-spends'
@@ -414,11 +420,13 @@ export async function listUserSpends(): Promise<UserSpendEntry[]> {
   return [...entries].sort((a, b) => b.spentAt.localeCompare(a.spentAt))
 }
 
-/** 해당 이용자의 지출 총액·건수. */
+/** 해당 이용자의 지출 총액·건수. 탈퇴 아카이브분은 제외해 재가입 잔액이 오염되지 않게 한다. */
 export async function userSpendTotals(wallet: string, uid: string) {
   const entries = await readSpends()
   const mine = entries.filter(
-    (entry) => (wallet && entry.wallet === wallet) || (uid && entry.uid && entry.uid === uid),
+    (entry) =>
+      !entry.withdrawnAt &&
+      ((wallet && entry.wallet === wallet) || (uid && entry.uid && entry.uid === uid)),
   )
   return {
     count: mine.length,
@@ -430,4 +438,50 @@ export async function userSpendTotals(wallet: string, uid: string) {
 export async function userSpendableBalance(wallet: string, uid: string) {
   const [credits, spends] = await Promise.all([userCreditTotals(wallet, uid), userSpendTotals(wallet, uid)])
   return piRound(credits.total - spends.total)
+}
+
+/**
+ * 회원탈퇴 — 해당 이용자의 크레딧·지출 엔트리에 withdrawnAt을 찍어
+ * 개인 잔액을 0으로 초기화한다. 엔트리 자체는 삭제하지 않아 플랫폼 감사
+ * 장부(입금/지출 이력)는 보존되고, 재가입 시 옛 txid가 다시 귀속·충전되지
+ * 않게 지갑↔uid 매핑과 잔액 롤업을 함께 제거한다.
+ */
+export async function archiveUserCredits(input: { uid?: string; wallet?: string }) {
+  const uid = (input.uid || '').trim()
+  const wallet = (input.wallet || '').trim()
+  if (!uid && !wallet) return { archived: 0 }
+  const now = new Date().toISOString()
+  const [entries, spends, balances, wallets] = await Promise.all([readEntries(), readSpends(), readBalances(), readWallets()])
+  const mine = (row: { wallet?: string; uid?: string }) =>
+    (wallet && row.wallet === wallet) || (uid && row.uid === uid)
+  let archived = 0
+  for (const entry of entries) {
+    if (!entry.withdrawnAt && mine(entry)) {
+      entry.withdrawnAt = now
+      archived += 1
+    }
+  }
+  for (const entry of spends) {
+    if (!entry.withdrawnAt && mine(entry)) entry.withdrawnAt = now
+  }
+  // 잔액 롤업 — 지갑 키와 uid 네임스페이스 키 모두 0으로 초기화한다.
+  for (const key of Object.keys(balances)) {
+    if ((wallet && key === wallet) || (uid && key === `uid:${uid}`)) balances[key] = 0
+  }
+  // 온체인 지갑→uid 매핑을 끊는다 — 끊지 않으면 재가입자에게 과거 입금이 다시 귀속된다.
+  const uidWallets = Object.keys(wallets).filter((w) => wallets[w] === uid || w === wallet)
+  for (const w of uidWallets) delete wallets[w]
+  await Promise.all([
+    archived ? writeEntries(entries) : Promise.resolve(),
+    writeSpends(spends),
+    writeBalances(balances),
+    uidWallets.length ? writeWallets(wallets) : Promise.resolve(),
+  ])
+  return { archived }
+}
+
+/** 탈퇴로 아카이브된 입금 txid — 재가입자의 입금 스캔/조회에서 제외할 툼스톤. */
+export async function withdrawnDepositTxids(): Promise<Set<string>> {
+  const entries = await readEntries()
+  return new Set(entries.filter((entry) => entry.withdrawnAt).map((entry) => entry.txid))
 }

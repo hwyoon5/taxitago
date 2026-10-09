@@ -9405,6 +9405,9 @@ export default function HomeScreen() {
     setHeaderModal(null)
     setTab('홈')
     showNotice('회원 탈퇴가 완료되어 로그아웃되었습니다')
+    // 메모리에 남은 사용자 상태(지갑 잔액·내역·입금 멱등 캐시)까지 비우기 위해
+    // 완전히 새로고침한다 — 재가입이 깨끗한 신규 상태로 시작된다.
+    window.setTimeout(() => window.location.reload(), 800)
     return true
   }
 

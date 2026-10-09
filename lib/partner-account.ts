@@ -139,6 +139,42 @@ export function clearPartnerAccount() {
   window.localStorage.removeItem(LEDGER_KEY)
 }
 
+/**
+ * 회원탈퇴 시 기기에 남은 사용자 범위 데이터를 전부 파기한다 — 지갑 잔액·
+ * 거래 내역·활동 로그·최근 이용·입금 멱등 캐시·배차 세션 등 taxitago-* 키를
+ * 지워 재가입이 완전한 신규 상태로 시작되게 한다. 기기 환경 설정(언어·초대
+ * 코드)과 관리자 세션은 사용자 데이터가 아니므로 남긴다.
+ */
+const DEVICE_LEVEL_KEYS = new Set(['taxitago-locale', 'taxitago-invite-code'])
+
+export function purgeLocalUserData() {
+  try {
+    const doomed: string[] = []
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i)
+      if (!key || !key.startsWith('taxitago-')) continue
+      if (key.startsWith('taxitago-admin') || DEVICE_LEVEL_KEYS.has(key)) continue
+      doomed.push(key)
+    }
+    for (const key of doomed) window.localStorage.removeItem(key)
+    // 세션 스토리지의 사용자 범위 키도 같은 규칙으로 제거한다.
+    try {
+      const sessionDoomed: string[] = []
+      for (let i = 0; i < window.sessionStorage.length; i += 1) {
+        const key = window.sessionStorage.key(i)
+        if (!key || !key.startsWith('taxitago-')) continue
+        if (key.startsWith('taxitago-admin') || DEVICE_LEVEL_KEYS.has(key)) continue
+        sessionDoomed.push(key)
+      }
+      for (const key of sessionDoomed) window.sessionStorage.removeItem(key)
+    } catch {
+      undefined
+    }
+  } catch {
+    undefined
+  }
+}
+
 export async function requestAccountWithdrawal(uid?: string) {
   const identity = loadPiIdentity()
   const id = uid?.trim() || identity?.uid || loadPartnerProfile()?.uid || ''
@@ -168,7 +204,8 @@ export async function requestAccountWithdrawal(uid?: string) {
         : serverError || '회원 탈퇴에 실패했어요.',
     )
   }
-  clearPartnerAccount()
+  // 서버가 승인한 뒤에만 파기 — 세션·프로필·지갑·활동 등 사용자 범위 전부 제거.
+  purgeLocalUserData()
 }
 
 export async function syncPartnerLink(profile: PartnerProfile) {
