@@ -121,7 +121,7 @@ function resetPiSession() {
   initialized = false
 }
 
-function isPiBrowser() {
+export function isPiBrowser() {
   if (typeof navigator === 'undefined') return false
   return /PiBrowser|PiNetwork/i.test(navigator.userAgent)
 }
@@ -203,8 +203,13 @@ export function describePiUserMessage(error: unknown) {
     return 'Pi Browser 환경이 아닙니다. 파이 브라우저에서 다시 열어 주세요.'
   }
   if (/cancel/i.test(text)) return '결제가 취소되었습니다.'
-  if (/timed out|TimeoutError|AbortError/i.test(text)) {
+  if (/timed out|TimeoutError|AbortError|응답 없음/i.test(text)) {
     return 'Pi 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
+  }
+  // 인증 시트가 뜨지 않는 환경(일반 브라우저 등)은 세션 문제가 아니다 —
+  // "authenticate" 문자열이 세션 정규식에 걸려 오진하는 것을 막는다.
+  if (!isPiBrowser() && /authenticate|pi browser|window\.Pi/i.test(text)) {
+    return 'Pi Browser 환경이 아닙니다. 파이 브라우저에서 다시 열어 주세요.'
   }
   if (isSessionError(error)) {
     return 'Pi 로그인 세션이 끊겼습니다. 파이 브라우저에서 다시 로그인한 뒤 시도해 주세요.'
@@ -743,7 +748,10 @@ export async function startPiCheckout(options: {
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
   let pi = await preparePiSdk()
-  if (!pi && PI_SANDBOX) {
+  // SDK 스크립트는 일반 브라우저에서도 로드되지만 authenticate는 Pi Browser
+  // 안에서만 동작한다 — 테스트넷에서는 SDK가 있어도 Pi Browser 밖이면
+  // 모의 결제로 빠져야 QR로 연 수동 결제 흐름이 끊기지 않는다.
+  if ((!pi || !isPiBrowser()) && PI_SANDBOX) {
     const mocked = await mockPiCheckout(options)
     options.onSettled?.(mocked)
     return mocked

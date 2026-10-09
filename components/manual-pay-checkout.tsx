@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
-import { describePiUserMessage, startPiCheckout } from '@/components/pi-checkout'
+import { describePiUserMessage, isPiBrowser, PI_SANDBOX, startPiCheckout } from '@/components/pi-checkout'
 
 type ManualPayPublic = {
   id: string
@@ -44,6 +44,12 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
 
   const pay = () => {
     if (!record || view !== 'ready') return
+    // 일반 브라우저에서는 authenticate가 열리지 않아 세션 오류로 오인된다 —
+    // 메인넷이면 Pi Browser 안내를 바로 보여주고, 테스트넷은 모의 결제가 처리한다.
+    if (!isPiBrowser() && !PI_SANDBOX) {
+      setError('Pi 결제는 Pi Browser 안에서만 진행할 수 있습니다. 이 결제 링크를 Pi Browser에서 열어 주세요.')
+      return
+    }
     setView('paying')
     setError('')
     void startPiCheckout({
@@ -102,7 +108,15 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
           >
             {view === 'paying' ? 'Pi 지갑에서 승인 중…' : 'Pi 지갑으로 결제하기'}
           </button>
-          <p className="mt-2 text-center text-[11px] font-bold text-[#94A3B8]">Pi Browser에서 결제 시트가 열립니다.</p>
+          {isPiBrowser() ? (
+            <p className="mt-2 text-center text-[11px] font-bold text-[#94A3B8]">Pi Browser에서 결제 시트가 열립니다.</p>
+          ) : (
+            <p className="mt-2 text-center text-[11px] font-bold leading-5 text-[#B45309]">
+              {PI_SANDBOX
+                ? '일반 브라우저입니다. 테스트넷 환경에서는 모의 결제로 진행됩니다. 실제 결제는 Pi Browser에서 열어 주세요.'
+                : '일반 브라우저에서는 결제가 시작되지 않습니다. 이 링크를 Pi Browser에서 열어 주세요.'}
+            </p>
+          )}
         </>
       ) : null}
     </main>
