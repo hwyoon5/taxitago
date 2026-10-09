@@ -73,6 +73,7 @@ import type { PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import { startPiCheckout, PiCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, PI_CHARGE_MAX_PI, signInWithPi, autoVerifyPiAppStudio, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
+import ManualPayModal from '@/components/manual-pay-modal'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
@@ -7589,6 +7590,7 @@ function DriverDashboard({
   const [busy, setBusy] = useState(false)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [manualPayOpen, setManualPayOpen] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
@@ -8265,6 +8267,23 @@ function DriverDashboard({
           <p className="mt-1 text-base font-bold leading-tight text-[#0F172A]">{driverRating}</p>
         </div>
       </section>
+      <button
+        type="button"
+        onClick={() => {
+          if (!driverId) {
+            onNotice('기사/파트너 로그인이 필요합니다.')
+            return
+          }
+          setManualPayOpen(true)
+        }}
+        className="mt-2 flex w-full items-center justify-between gap-2 rounded-2xl bg-gradient-to-r from-[#4C1FB8] to-[#7C3AED] px-4 py-3.5 text-left shadow-lg shadow-[#4C1FB8]/30 transition active:scale-[0.99]"
+      >
+        <span>
+          <span className="block text-sm font-black text-white">현장 수동 승객 탑승 · Pi 결제 (수동 정산)</span>
+          <span className="mt-0.5 block text-[10px] font-bold text-white/80">배차 없이 현장 승객에게 바로 청구하고 오늘의 수익에 반영합니다</span>
+        </span>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/20 text-base font-black text-white">＋</span>
+      </button>
       {activeRide ? (
         <section className="mt-4 rounded-[26px] border-2 border-[#86EFAC] bg-[#F0FDF4] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
           <p className="text-xs font-bold text-[#047857]">배차된 운행</p>
@@ -8592,6 +8611,18 @@ function DriverDashboard({
         />
       ) : null}
       {statSheet ? <EarningsStatSheet kind={statSheet} stats={earnings} onClose={() => setStatSheet(null)} /> : null}
+      {manualPayOpen ? (
+        <ManualPayModal
+          driverId={driverId}
+          driverName={partner?.name || partner?.username || ''}
+          driverWallet={partner?.wallet || ''}
+          onSettled={() => {
+            if (driverId) void fetchDriverEarnings(driverId, driverAliasRef.current).then((stats) => applyEarnings(driverId, stats))
+          }}
+          onClose={() => setManualPayOpen(false)}
+          onNotice={onNotice}
+        />
+      ) : null}
       {profileEditOpen && partner ? (
         <PartnerProfileEditModal
           profile={partner}

@@ -220,6 +220,14 @@ export async function handlePiComplete(request: Request) {
       }).catch((settleError) => {
         console.error('[Pi] /api/pi/complete settlement record failed', { paymentId, settleError })
       })
+      const { handleManualPayComplete } = await import('@/lib/manual-pay-store')
+      await handleManualPayComplete({
+        paymentId,
+        txid,
+        metadata: info?.metadata ?? fallbackMetadata,
+      }).catch((manualError) => {
+        console.error('[Pi] /api/pi/complete manual-pay settle failed', { paymentId, manualError })
+      })
       console.log('[Pi] /api/pi/complete background work done', { paymentId, txid })
     })
     return NextResponse.json({ ok: true, payment })
