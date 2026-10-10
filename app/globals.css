@@ -588,59 +588,8 @@
 }
 
 /* ===== Destination card — symmetric shimmer border ===== */
-/* 래퍼 패딩(2px)이 테두리 링 역할을 하고, 그 아래 놓인 초대형 conic-gradient
-   레이어가 plain transform 회전으로 흐른다 — @property/mask 없이 모든
-   브라우저에서 동작한다. 빛줄기는 0°·180° 두 지점 대칭으로 무한 반복. */
-.dest-glow-wrap {
-  --dest-glow-1: rgba(76, 31, 184, 0.9);
-  --dest-glow-soft: rgba(124, 58, 237, 0.4);
-  position: relative;
-  border-radius: 28px;
-  padding: 2px;
-  overflow: hidden;
-  background: #cbd5e1; /* 테두리 베이스 — 라이트 slate-300 */
-}
-.dest-glow-wrap::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 170%;
-  aspect-ratio: 1 / 1;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    var(--dest-glow-soft) 16deg,
-    var(--dest-glow-1) 32deg,
-    var(--dest-glow-soft) 48deg,
-    transparent 64deg,
-    transparent 180deg,
-    var(--dest-glow-soft) 196deg,
-    var(--dest-glow-1) 212deg,
-    var(--dest-glow-soft) 228deg,
-    transparent 244deg,
-    transparent 360deg
-  );
-  animation: dest-glow-rotate 4.5s linear infinite;
-  pointer-events: none;
-}
-@keyframes dest-glow-rotate {
-  from {
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-.dest-glow-inner {
-  position: relative;
-  border-radius: 26px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .dest-glow-wrap::before {
-    animation: none;
-  }
-}
+/* 스타일은 SearchCard(home-screen.tsx) 내부의 <style jsx>에 인라인 정의 —
+   전역 캐스케이드/캐시에 의해 무력화되지 않게 컴포넌트에 귀속시킨다. */
 
 /* ===== Dark theme (manual/time-based) — remaps the literal-hex palette ===== */
 html.dark {
@@ -654,15 +603,7 @@ html.dark {
 .dark ::placeholder {
   color: #64748B;
 }
-/* 다크 모드 — 어두운 배경에 대비되는 라벤더 네온 광원 + 외곽 후광 */
-.dark .dest-glow-wrap {
-  --dest-glow-1: rgba(196, 181, 253, 0.95);
-  --dest-glow-soft: rgba(139, 92, 246, 0.45);
-  background: #353d4a; /* 테두리 베이스 — 다크 slate 리맵과 동일 톤 */
-}
-.dark .dest-glow-wrap::before {
-  filter: drop-shadow(0 0 4px rgba(167, 139, 250, 0.4));
-}
+/* 다크 모드 글로우는 SearchCard의 <style jsx> 안 :global(html.dark) 규칙에 정의 */
 .dark input,
 .dark textarea,
 .dark select {
