@@ -20,6 +20,11 @@ export type RegistryUser = {
   plate?: string
   region?: string
   serviceType?: string
+  insuranceCompany?: string
+  insurancePolicyNo?: string
+  insuranceExpiresAt?: string
+  insuranceDocName?: string
+  insuranceDocAt?: string
   linkedAt: string
   updatedAt: string
   /** 이용 정지(Lock) — 설정되면 로그인·호출·결제·출금이 차단된다. */
@@ -107,6 +112,11 @@ export async function upsertRegistryUser(input: {
   plate?: string
   region?: string
   serviceType?: string
+  insuranceCompany?: string
+  insurancePolicyNo?: string
+  insuranceExpiresAt?: string
+  insuranceDocName?: string
+  insuranceDocAt?: string
   linkedAt?: string
 }): Promise<RegistryUser | null> {
   const uid = input.uid.trim()
@@ -125,6 +135,11 @@ export async function upsertRegistryUser(input: {
     plate: text(input.plate, prev?.plate),
     region: text(input.region, prev?.region),
     serviceType: text(input.serviceType, prev?.serviceType),
+    insuranceCompany: text(input.insuranceCompany, prev?.insuranceCompany),
+    insurancePolicyNo: text(input.insurancePolicyNo, prev?.insurancePolicyNo),
+    insuranceExpiresAt: text(input.insuranceExpiresAt, prev?.insuranceExpiresAt),
+    insuranceDocName: text(input.insuranceDocName, prev?.insuranceDocName),
+    insuranceDocAt: text(input.insuranceDocAt, prev?.insuranceDocAt),
     linkedAt: text(input.linkedAt, prev?.linkedAt) || prev?.linkedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     lockedAt: prev?.lockedAt,

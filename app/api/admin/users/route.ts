@@ -51,6 +51,11 @@ async function mergedUsers(): Promise<RegistryUser[]> {
       plate: link.plate,
       region: link.region,
       serviceType: link.serviceType,
+      insuranceCompany: link.insuranceCompany,
+      insurancePolicyNo: link.insurancePolicyNo,
+      insuranceExpiresAt: link.insuranceExpiresAt,
+      insuranceDocName: link.insuranceDocName,
+      insuranceDocAt: link.insuranceDocAt,
       linkedAt: link.linkedAt,
       updatedAt: link.updatedAt,
     })
@@ -70,6 +75,11 @@ function pickLinkFields(link: ReturnType<typeof listPartnerLinks>[number]) {
     plate: link.plate,
     region: link.region,
     serviceType: link.serviceType,
+    insuranceCompany: link.insuranceCompany,
+    insurancePolicyNo: link.insurancePolicyNo,
+    insuranceExpiresAt: link.insuranceExpiresAt,
+    insuranceDocName: link.insuranceDocName,
+    insuranceDocAt: link.insuranceDocAt,
     linkedAt: link.linkedAt,
     updatedAt: link.updatedAt,
   }

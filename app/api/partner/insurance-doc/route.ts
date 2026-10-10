@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getInsuranceDoc, saveInsuranceDoc } from '@/lib/insurance-doc-store'
 import { getPartnerLink, upsertPartnerLink } from '@/lib/partner-ledger-server'
+import { upsertRegistryUser } from '@/lib/user-registry'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,6 +35,11 @@ export async function POST(request: Request) {
   if (record) {
     upsertPartnerLink({ ...record, insuranceDocName: saved.name, insuranceDocAt: saved.uploadedAt })
   }
+  // 영속 레지스트리에도 증권 메타데이터를 반영 — 다른 인스턴스의 관리자
+  // '기사·파트너' 목록에서도 업로드 사실이 보이게 한다.
+  await upsertRegistryUser({ uid, insuranceDocName: saved.name, insuranceDocAt: saved.uploadedAt }).catch((error) =>
+    console.error('[partners] insurance doc registry upsert failed', { uid, error }),
+  )
   return NextResponse.json({ ok: true, doc: { name: saved.name, uploadedAt: saved.uploadedAt } })
 }
 
