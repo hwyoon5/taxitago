@@ -11,6 +11,7 @@ import AdminStaff from '@/components/admin-staff'
 import AdminUsers from '@/components/admin-users'
 import AdminNotepad from '@/components/admin-notepad'
 import AdminAuditLog from '@/components/admin-audit-log'
+import AdminDevices from '@/components/admin-devices'
 import AttachmentGallery from '@/components/photo-gallery'
 import { positionDisplayLabel } from '@/lib/staff-positions'
 import {
@@ -100,7 +101,7 @@ export default function AdminSupportDesk() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState('')
   const [storage, setStorage] = useState<'kv' | 'file' | null>(null)
-  const [view, setView] = useState<'inbox' | 'users' | 'partners' | 'fare' | 'ledger' | 'staff' | 'audit' | 'memo'>('inbox')
+  const [view, setView] = useState<'inbox' | 'users' | 'partners' | 'devices' | 'fare' | 'ledger' | 'staff' | 'audit' | 'memo'>('inbox')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
   const seenRef = useRef<Set<string> | null>(null)
@@ -351,7 +352,7 @@ export default function AdminSupportDesk() {
         </div>
       </div>
       <div className="mt-4 grid grid-cols-4 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
-        {(['inbox', 'users', 'partners', 'fare', 'ledger', 'staff', 'audit', 'memo'] as const).map((tab) => (
+        {(['inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'staff', 'audit', 'memo'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -364,6 +365,8 @@ export default function AdminSupportDesk() {
                 ? '가입자'
                 : tab === 'partners'
                   ? '기사·파트너'
+                : tab === 'devices'
+                  ? '기기 관리'
                 : tab === 'fare'
                   ? '수수료 설정'
                   : tab === 'ledger'
@@ -382,6 +385,8 @@ export default function AdminSupportDesk() {
         </div>
       ) : view === 'users' ? (
         <AdminUsers />
+      ) : view === 'devices' ? (
+        <AdminDevices />
       ) : view === 'fare' ? (
         <AdminFareSettings />
       ) : view === 'ledger' ? (
