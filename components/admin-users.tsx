@@ -19,6 +19,7 @@ export type AdminUserRow = {
   lockedAt?: string
   lockedBy?: string
   lockReason?: string
+  withdrawnAt?: string
   spendable?: number
   creditTotal?: number
   spendTotal?: number
@@ -214,6 +215,9 @@ export default function AdminUsers() {
                     </span>
                     {user.locked ? (
                       <span className="rounded-full bg-[#FEE2E2] px-1.5 py-0.5 text-[9px] font-black text-[#DC2626]">정지됨</span>
+                    ) : null}
+                    {user.withdrawnAt ? (
+                      <span className="rounded-full bg-[#F1F5F9] px-1.5 py-0.5 text-[9px] font-black text-[#64748B]">탈퇴</span>
                     ) : null}
                   </p>
                   <p className="mt-0.5 truncate font-mono text-[10px] font-bold text-[#64748B]">

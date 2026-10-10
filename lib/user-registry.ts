@@ -31,6 +31,8 @@ export type RegistryUser = {
   lockedAt?: string
   lockedBy?: string
   lockReason?: string
+  /** 회원탈퇴 시각 — 찍히면 프로필 필드는 비워지고 uid·지갑·가입일만 감사용으로 남는다. */
+  withdrawnAt?: string
 }
 
 const useKv = kvConfigured
@@ -145,6 +147,8 @@ export async function upsertRegistryUser(input: {
     lockedAt: prev?.lockedAt,
     lockedBy: prev?.lockedBy,
     lockReason: prev?.lockReason,
+    // 재가입(재연동)이면 이전 탈퇴 마킹을 해제한다 — 복귀 이용자는 정상 계정이다.
+    withdrawnAt: undefined,
   }
   users[uid] = next
   await writeUsers(users)
@@ -154,6 +158,31 @@ export async function upsertRegistryUser(input: {
 export async function getRegistryUser(uid: string): Promise<RegistryUser | null> {
   const users = await readUsers()
   return users[uid.trim()] ?? null
+}
+
+/**
+ * 회원탈퇴 — 프로필·서비스 필드(역할·이름·연락처·차량·보험 등)를 지우고
+ * withdrawnAt을 찍는다. uid·username·지갑·가입일·정지 상태는 감사·Lock
+ * 추적용으로 보존하고, 재가입 시 옛 프로필이 되살아나지 않게 한다.
+ */
+export async function markRegistryUserWithdrawn(uid: string): Promise<RegistryUser | null> {
+  const users = await readUsers()
+  const user = users[uid.trim()]
+  if (!user) return null
+  const next: RegistryUser = {
+    uid: user.uid,
+    username: user.username,
+    wallet: user.wallet,
+    linkedAt: user.linkedAt,
+    updatedAt: new Date().toISOString(),
+    lockedAt: user.lockedAt,
+    lockedBy: user.lockedBy,
+    lockReason: user.lockReason,
+    withdrawnAt: new Date().toISOString(),
+  }
+  users[user.uid] = next
+  await writeUsers(users)
+  return next
 }
 
 export async function listRegistryUsers(): Promise<RegistryUser[]> {

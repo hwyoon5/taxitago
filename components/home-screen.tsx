@@ -942,54 +942,6 @@ type RideReceipt = {
   method: string
 }
 
-const SAMPLE_RIDES: RideReceipt[] = [
-  {
-    route: '서울시청 → 강남역',
-    origin: '서울시청',
-    dest: '강남역',
-    fare: '3.2 Pi',
-    vehicle: '택시',
-    date: '오늘 · 09:20',
-    distance: '5.2 km',
-    duration: '18분',
-    driver: '김민수',
-    car: '현대 아슬란',
-    plate: '서울 31바 1842',
-    transactionId: 'TX-240618-0920',
-    method: 'Pi 월렛',
-  },
-  {
-    route: '인천공항 → 홍대입구',
-    origin: '인천공항',
-    dest: '홍대입구',
-    fare: '12.5 Pi',
-    vehicle: '프리미엄',
-    date: '어제 · 18:40',
-    distance: '54.8 km',
-    duration: '72분',
-    driver: '이준호',
-    car: '제네시스 G80',
-    plate: '서울 12아 5521',
-    transactionId: 'TX-240617-1840',
-    method: 'Pi 월렛',
-  },
-  {
-    route: '홍대입구 → 서울역',
-    origin: '홍대입구',
-    dest: '서울역',
-    fare: '2.1 Pi',
-    vehicle: '택시',
-    date: '6월 12일 · 14:10',
-    distance: '3.4 km',
-    duration: '14분',
-    driver: '박서연',
-    car: '현대 소나타',
-    plate: '서울 33바 9081',
-    transactionId: 'TX-240612-1410',
-    method: 'Pi 월렛',
-  },
-]
-
 function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
   return {
     rideId: item.rideId,
@@ -1016,17 +968,15 @@ function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
 }
 
 function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
-  const matched = SAMPLE_RIDES.find((ride) => ride.route === tx.place)
   const estimatedFare = tx.estimated != null ? `${tx.estimated.toFixed(7)} Pi` : undefined
-  if (matched) {
-    return { ...matched, fare: `${Math.abs(tx.amount).toFixed(7)} Pi`, estimatedFare, date: tx.at, vehicle: tx.label }
-  }
   const isRoute = tx.place.includes('→')
   const parts = isRoute ? tx.place.split('→').map((part) => part.trim()).filter(Boolean) : [tx.place]
   const origin = parts[0] ?? tx.place
   const dest = parts.length > 1 ? parts[parts.length - 1] : ''
   const waypoints = parts.length > 2 ? parts.slice(1, -1) : undefined
   const rideLike = isRoute || (tx.amount < 0 && /택시|대리|호출/.test(tx.label))
+  // 기사·차량·거리·시간은 지갑 거래만으로는 알 수 없다 — 샘플 더미로 채우지
+  // 않고 '-'로 둔다(실제 운행 영수증은 ride 기록의 실제 값으로 생성된다).
   return {
     route: isRoute ? tx.place : `${tx.label}`,
     origin: origin.trim() || tx.label,
@@ -1036,11 +986,11 @@ function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
     estimatedFare,
     vehicle: tx.label,
     date: tx.at,
-    distance: rideLike ? '5.2 km' : '-',
-    duration: rideLike ? '18분' : '-',
-    driver: rideLike ? '김민수' : '-',
-    car: rideLike ? '현대 아슬란' : '-',
-    plate: rideLike ? '서울 31바 1842' : '-',
+    distance: '-',
+    duration: '-',
+    driver: '-',
+    car: '-',
+    plate: '-',
     transactionId: tx.txid || `TX-${String(index + 1).padStart(4, '0')}-${tx.at.replace(/[^0-9]/g, '').slice(0, 8) || '000000'}`,
     method: 'Pi 월렛',
   }
@@ -1059,7 +1009,11 @@ const DEFAULT_PI_TX: PiTransaction[] = [
  */
 const SIGNUP_WALLET_SEED_TESTNET = 18.4
 const SIGNUP_WALLET_SEED = PI_SANDBOX ? SIGNUP_WALLET_SEED_TESTNET : 0
-const SIGNUP_WALLET_TX: PiTransaction[] = PI_SANDBOX ? DEFAULT_PI_TX : []
+// 시드 잔액에는 가짜 이용 내역을 섞지 않는다 — '테스트 지급' 한 건만 명시해
+// 장부 합계가 맞고, 재가입/메인넷에서 '서울시청 → 강남역' 같은 더미가 안 뜬다.
+const SIGNUP_WALLET_TX: PiTransaction[] = PI_SANDBOX
+  ? [{ label: '테스트 지급', amount: SIGNUP_WALLET_SEED, detail: '테스트넷 가입 시드', place: 'Pi 월렛 (테스트)', at: '가입 시 자동 지급', ts: 0 }]
+  : []
 
 function formatPiTime() {
   const now = new Date()
@@ -5176,12 +5130,19 @@ function Home({
             </div>
           </div>
         </section>
-        <button type="button" onClick={() => onReceipt(recentUse ? receiptFromRecent(recentUse) : SAMPLE_RIDES[0])} className="mt-3 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
-          <p className="text-[10px] font-bold text-[#64748B]">{t('home.recent')}</p>
-          <p className="line-clamp-2 text-[13px] font-black leading-tight">
-            {recentUse ? `${recentUse.route} · ${formatRecentFare(recentUse.fare)}` : '서울시청 → 강남역 · 3.2 Pi'}
-          </p>
-        </button>
+        {recentUse ? (
+          <button type="button" onClick={() => onReceipt(receiptFromRecent(recentUse))} className="mt-3 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
+            <p className="text-[10px] font-bold text-[#64748B]">{t('home.recent')}</p>
+            <p className="line-clamp-2 text-[13px] font-black leading-tight">
+              {recentUse.route} · {formatRecentFare(recentUse.fare)}
+            </p>
+          </button>
+        ) : (
+          <div className="mt-3 w-full rounded-xl border border-dashed border-[#E2E8F0] bg-white/70 px-3 py-2.5">
+            <p className="text-[10px] font-bold text-[#64748B]">{t('home.recent')}</p>
+            <p className="text-[13px] font-bold leading-tight text-[#94A3B8]">아직 이용 내역이 없습니다</p>
+          </div>
+        )}
         <HomeEventBanners onAction={onService} />
         <HomePartnerBanners />
       {searchOpen ? (

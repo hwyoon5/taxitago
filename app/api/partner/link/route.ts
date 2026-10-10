@@ -146,6 +146,12 @@ export async function DELETE(request: Request) {
   await archiveUserCredits({ uid, wallet }).catch((error) => {
     console.error('[Withdraw] credit archive failed', { uid, error })
   })
+  // 가입자 레지스트리도 탈퇴 처리 — 프로필·서비스 필드를 지워 재가입 시
+  // 옛 정보(역할·차량·보험 등)가 되살아나지 않게 하고 withdrawnAt만 남긴다.
+  const { markRegistryUserWithdrawn } = await import('@/lib/user-registry')
+  await markRegistryUserWithdrawn(uid).catch((error) => {
+    console.error('[Withdraw] registry withdraw mark failed', { uid, error })
+  })
 
   // 4. 기사 활성 상태 정리 — 탈퇴한 기사가 온라인으로 남아 콜을 받지 않게
   // 오프라인 처리하고 콜 알림용 푸시 구독을 해제한다.

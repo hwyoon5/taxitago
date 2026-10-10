@@ -33,11 +33,6 @@ import {
 
 type Tab = 'ask' | 'lost' | 'tickets'
 
-const SAMPLE_RIDES = [
-  { id: '', route: '서울시청 → 강남역', driverName: '김민수', plate: '서울 31바 1842', vehicle: '현대 아슬란' },
-  { id: '', route: '인천공항 → 홍대입구', driverName: '이준호', plate: '서울 12아 5521', vehicle: '제네시스 G80' },
-]
-
 export type LostPrefill = {
   rideId?: string
   route?: string
@@ -402,10 +397,9 @@ function LostForm({
     void fetchLostRides(actorId, actorRole).then(setRides)
   }, [actorId, actorRole])
 
-  const options = [
-    ...rides.map((ride) => ({ key: ride.id, rideId: ride.id, route: ride.route, driverName: ride.driverName, plate: ride.plate, vehicle: ride.vehicle })),
-    ...SAMPLE_RIDES.map((ride) => ({ key: ride.route, rideId: '', route: ride.route, driverName: ride.driverName, plate: ride.plate, vehicle: ride.vehicle })),
-  ]
+  // 실제 탑승 내역만 선택지로 둔다 — 더미 운행을 섞으면 이용 기록이 없는
+  // 이용자에게도 '서울시청 → 강남역' 같은 가짜 내역이 보인다.
+  const options = rides.map((ride) => ({ key: ride.id, rideId: ride.id, route: ride.route, driverName: ride.driverName, plate: ride.plate, vehicle: ride.vehicle }))
   const selected = options.find((item) => item.key === rideKey) || (prefill ? { key: prefill.rideId || prefill.route || '', rideId: prefill.rideId || '', route: prefill.route || '', driverName: prefill.driverName || '', plate: prefill.plate || '', vehicle: prefill.vehicle || '' } : options[0])
 
   return (
@@ -416,6 +410,7 @@ function LostForm({
         <button type="button" onClick={() => setKind('found')} className={`rounded-2xl py-2 text-xs font-black ${kind === 'found' ? 'bg-[#4C1FB8] text-white' : 'border border-[#D8CCF5] text-[#4C1FB8]'}`}>습득</button>
       </div>
       <select value={selected?.key} onChange={(event) => setRideKey(event.target.value)} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold">
+        {options.length === 0 ? <option value="">연결할 탑승 내역이 없습니다</option> : null}
         {options.map((item) => (
           <option key={item.key} value={item.key}>
             {item.route} · {item.driverName || '기사'}
