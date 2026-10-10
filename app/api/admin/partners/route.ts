@@ -3,6 +3,7 @@ import { adminActor, isAdminRequest } from '@/lib/admin-auth'
 import { recordAudit } from '@/lib/audit-store'
 import { getPartnerLink, listPartnerLinks, upsertPartnerLink, type PartnerLinkRecord } from '@/lib/partner-ledger-server'
 import { listRegistryUsers, upsertRegistryUser, type RegistryUser } from '@/lib/user-registry'
+import { ALL_PARTNER_SERVICE_TYPES } from '@/lib/partner-services'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -91,7 +92,9 @@ export async function POST(request: Request) {
   const previous = getPartnerLink(uid)
   const role = body?.role === '파트너' ? '파트너' : '기사'
   const serviceType =
-    body?.serviceType === '대리운전' || body?.serviceType === '택배' ? body.serviceType : '택시'
+    typeof body?.serviceType === 'string' && (ALL_PARTNER_SERVICE_TYPES as readonly string[]).includes(body.serviceType.trim())
+      ? body.serviceType.trim()
+      : '택시'
   const text = (value: unknown, fallback?: string) => (typeof value === 'string' && value.trim() ? value.trim() : fallback)
   const record = upsertPartnerLink({
     uid,

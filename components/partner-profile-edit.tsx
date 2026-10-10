@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { partnerVehicle, updatePartnerProfile, uploadInsuranceDoc, type PartnerProfile } from '@/lib/partner-account'
+import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-services'
 
 const DOC_MAX_BYTES = 2.5 * 1024 * 1024
 
@@ -27,7 +28,7 @@ export default function PartnerProfileEditModal({
   const initialFleet = partnerVehicle(profile)
   const [name, setName] = useState(profile.name)
   const [phone, setPhone] = useState(profile.phone)
-  const [vehicleName, setVehicleName] = useState(isDriver ? initialFleet.vehicle : profile.detail)
+  const [vehicleName, setVehicleName] = useState(initialFleet.vehicle)
   const [plateNumber, setPlateNumber] = useState(initialFleet.plate)
   const [region, setRegion] = useState(profile.region)
   const [insuranceCompany, setInsuranceCompany] = useState(profile.insuranceCompany ?? '')
@@ -90,14 +91,14 @@ export default function PartnerProfileEditModal({
         ? needsVehicle
           ? `${vehicleName.trim()} · ${plateNumber.trim()}`
           : profile.detail
-        : vehicleName.trim()
+        : [vehicleName.trim(), plateNumber.trim()].filter(Boolean).join(' · ')
       const next = await updatePartnerProfile({
         name: name.trim(),
         phone: phone.trim(),
         region: region.trim() || profile.region,
         detail,
-        vehicle: needsVehicle ? vehicleName.trim() : '',
-        plate: needsVehicle ? plateNumber.trim() : '',
+        vehicle: isDriver ? (needsVehicle ? vehicleName.trim() : '') : vehicleName.trim(),
+        plate: isDriver ? (needsVehicle ? plateNumber.trim() : '') : plateNumber.trim(),
         insuranceCompany: insuranceCompany.trim(),
         insurancePolicyNo: insurancePolicyNo.trim(),
         insuranceExpiresAt: insuranceExpiresAt.trim(),
@@ -180,10 +181,16 @@ export default function PartnerProfileEditModal({
                 <p className="mt-3 text-[11px] font-bold text-[#8b8495]">* 대리운전 기사는 차량 정보 없이 활동합니다.</p>
               )
             ) : (
-              <label className="mt-3 block">
-                <span className="text-xs font-black text-[#334155]">업체/가맹점명</span>
-                <input value={vehicleName} onChange={(event) => setVehicleName(event.target.value)} placeholder="파이 모빌리티 강남점" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
-              </label>
+              <div className="mt-3 grid grid-cols-1 gap-3">
+                <label className="block">
+                  <span className="text-xs font-black text-[#334155]">업체/가맹점명</span>
+                  <input value={vehicleName} onChange={(event) => setVehicleName(event.target.value)} placeholder="파이 모빌리티 강남점" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-black text-[#334155]">{facilityUnitLabel(profile.serviceType)} (선택)</span>
+                  <input value={plateNumber} onChange={(event) => setPlateNumber(event.target.value)} placeholder={facilityUnitPlaceholder(profile.serviceType)} className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
+                </label>
+              </div>
             )}
             <label className="mt-3 block">
               <span className="text-xs font-black text-[#334155]">활동 지역</span>

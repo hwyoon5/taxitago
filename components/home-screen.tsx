@@ -31,6 +31,7 @@ import {
   syncPartnerLink,
   uploadInsuranceDoc,
 } from '@/lib/partner-account'
+import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-services'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { piCompact } from '@/lib/pi-format'
 import { DEFAULT_FARE_CONFIG, fetchDepositWallet, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
@@ -6595,9 +6596,9 @@ function PartnerSignupModal({
       role,
       name: name.trim(),
       phone: phone.trim(),
-      detail: role === '기사' ? (skipVehicle ? '' : `${vehicleName.trim()} · ${plateNumber.trim()}`) : vehicleName.trim(),
-      vehicle: role === '기사' && !skipVehicle ? vehicleName.trim() : '',
-      plate: role === '기사' && !skipVehicle ? plateNumber.trim() : '',
+      detail: role === '기사' ? (skipVehicle ? '' : `${vehicleName.trim()} · ${plateNumber.trim()}`) : [vehicleName.trim(), plateNumber.trim()].filter(Boolean).join(' · '),
+      vehicle: role === '기사' && skipVehicle ? '' : vehicleName.trim(),
+      plate: role === '기사' && skipVehicle ? '' : plateNumber.trim(),
       region: region.trim() || '서울',
       serviceType: role === '기사' ? serviceType : facilityType,
       insuranceCompany: insuranceCompany.trim(),
@@ -6793,15 +6794,26 @@ function PartnerSignupModal({
                 {skipVehicle ? <p className="text-[11px] font-bold text-[#8b8495]">* 대리운전은 차량 정보 입력 제외</p> : null}
               </div>
             ) : (
-            <label className="mt-3 block">
-              <span className="text-xs font-black text-[#334155]">업체/가맹점명</span>
-              <input
-                value={vehicleName}
-                onChange={(event) => setVehicleName(event.target.value)}
-                placeholder="파이 모빌리티 강남점"
-                className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]"
-              />
-            </label>
+            <div className="mt-3 grid grid-cols-1 gap-3">
+              <label className="block">
+                <span className="text-xs font-black text-[#334155]">업체/가맹점명</span>
+                <input
+                  value={vehicleName}
+                  onChange={(event) => setVehicleName(event.target.value)}
+                  placeholder="파이 모빌리티 강남점"
+                  className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-black text-[#334155]">{facilityUnitLabel(facilityType)} (선택)</span>
+                <input
+                  value={plateNumber}
+                  onChange={(event) => setPlateNumber(event.target.value)}
+                  placeholder={facilityUnitPlaceholder(facilityType)}
+                  className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]"
+                />
+              </label>
+            </div>
             )}
             <label className="mt-3 block">
               <span className="text-xs font-black text-[#334155]">활동 지역</span>

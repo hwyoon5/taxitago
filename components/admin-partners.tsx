@@ -4,6 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
 import { adminHeaders } from '@/lib/admin-key'
 import type { PartnerLinkRecord } from '@/lib/partner-ledger-server'
+import {
+  ALL_PARTNER_SERVICE_TYPES,
+  DRIVER_SERVICE_TYPES,
+  PARTNER_FACILITY_TYPES,
+  facilityUnitLabel,
+  facilityUnitPlaceholder,
+  vehicleRequiredFor,
+} from '@/lib/partner-services'
 
 type FormState = {
   uid: string
@@ -41,7 +49,7 @@ const EMPTY_FORM: FormState = {
 
 const DOC_MAX_BYTES = 2.5 * 1024 * 1024
 
-const SERVICE_TYPES = ['택시', '대리운전', '택배']
+const SERVICE_TYPES: readonly string[] = ALL_PARTNER_SERVICE_TYPES
 const PAGE_SIZE = 20
 
 function formatDate(value: string) {
@@ -127,8 +135,16 @@ export default function AdminPartners() {
     reader.readAsDataURL(file)
   }
 
+  // 역할·서비스에 따른 필수 입력 — 사용자 가입 폼(home-screen.tsx)과 동일 규칙.
+  const needsVehicle = form.role === '기사' && vehicleRequiredFor(form.serviceType)
+  const canSubmit = Boolean(
+    form.name.trim() &&
+      form.phone.trim() &&
+      (form.role === '파트너' ? form.vehicle.trim() : !needsVehicle || (form.vehicle.trim() && form.plate.trim())),
+  )
+
   const submit = () => {
-    if (busy || !form.name.trim() || !form.phone.trim()) return
+    if (busy || !canSubmit) return
     const insuranceTouched = Boolean(form.insuranceCompany.trim() || form.insurancePolicyNo.trim() || form.insuranceExpiresAt.trim())
     if (insuranceTouched && !(form.insuranceCompany.trim() && form.insurancePolicyNo.trim() && form.insuranceExpiresAt.trim())) {
       setError('보험 정보를 입력하려면 보험사·증권번호·유효기간을 모두 채워 주세요.')
@@ -136,10 +152,16 @@ export default function AdminPartners() {
     }
     setBusy(true)
     setError('')
+    // 대리운전 기사는 차량 정보를 저장하지 않는다 — 사용자 가입 레코드와 동일 형태.
+    const payload = {
+      ...form,
+      vehicle: form.role === '파트너' || needsVehicle ? form.vehicle : '',
+      plate: form.role === '파트너' ? form.plate : needsVehicle ? form.plate : '',
+    }
     void apiFetch('/api/admin/partners', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-      body: JSON.stringify(form),
+      body: JSON.stringify(payload),
     })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { partner?: PartnerLinkRecord; error?: string } | null
@@ -210,21 +232,31 @@ export default function AdminPartners() {
         <div className="mt-3 grid grid-cols-2 gap-3">
           <div>
             <label className={label}>구분</label>
-            <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value === '파트너' ? '파트너' : '기사' }))} className={input}>
+            <select
+              value={form.role}
+              onChange={(e) =>
+                setForm((f) => {
+                  const role = e.target.value === '파트너' ? ('파트너' as const) : ('기사' as const)
+                  const options: readonly string[] = role === '파트너' ? PARTNER_FACILITY_TYPES : DRIVER_SERVICE_TYPES
+                  return { ...f, role, serviceType: options.includes(f.serviceType) ? f.serviceType : options[0] }
+                })
+              }
+              className={input}
+            >
               <option value="기사">기사</option>
               <option value="파트너">파트너</option>
             </select>
           </div>
           <div>
-            <label className={label}>서비스</label>
+            <label className={label}>{form.role === '파트너' ? '등록 서비스(시설)' : '서비스'}</label>
             <select value={form.serviceType} onChange={(e) => setForm((f) => ({ ...f, serviceType: e.target.value }))} className={input}>
-              {SERVICE_TYPES.map((type) => (
+              {(form.role === '파트너' ? PARTNER_FACILITY_TYPES : DRIVER_SERVICE_TYPES).map((type) => (
                 <option key={type} value={type}>{type}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className={label}>이름 *</label>
+            <label className={label}>{form.role === '파트너' ? '대표자 성함 *' : '이름 *'}</label>
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="홍길동" className={input} />
           </div>
           <div>
@@ -232,13 +264,26 @@ export default function AdminPartners() {
             <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" className={input} />
           </div>
           <div>
-            <label className={label}>차량명</label>
-            <input value={form.vehicle} onChange={(e) => setForm((f) => ({ ...f, vehicle: e.target.value }))} placeholder="현대 그랜저" className={input} />
+            <label className={label}>{form.role === '파트너' ? '업체/가맹점명 *' : needsVehicle ? '차량명 *' : '차량명'}</label>
+            <input
+              value={form.role === '기사' && !needsVehicle ? '' : form.vehicle}
+              onChange={(e) => setForm((f) => ({ ...f, vehicle: e.target.value }))}
+              disabled={form.role === '기사' && !needsVehicle}
+              placeholder={form.role === '파트너' ? '파이 모빌리티 강남점' : form.role === '기사' && !needsVehicle ? '대리운전은 차량 정보 입력 제외' : '현대 그랜저'}
+              className={input}
+            />
           </div>
           <div>
-            <label className={label}>차량번호</label>
-            <input value={form.plate} onChange={(e) => setForm((f) => ({ ...f, plate: e.target.value }))} placeholder="12가 3456" className={input} />
+            <label className={label}>{form.role === '파트너' ? facilityUnitLabel(form.serviceType) : needsVehicle ? '차량번호 *' : '차량번호'}</label>
+            <input
+              value={form.role === '기사' && !needsVehicle ? '' : form.plate}
+              onChange={(e) => setForm((f) => ({ ...f, plate: e.target.value }))}
+              disabled={form.role === '기사' && !needsVehicle}
+              placeholder={form.role === '파트너' ? facilityUnitPlaceholder(form.serviceType) : form.role === '기사' && !needsVehicle ? '대리운전은 차량 정보 입력 제외' : '12가 3456'}
+              className={input}
+            />
           </div>
+          {form.role === '기사' && !needsVehicle ? <p className="col-span-2 text-[10px] font-bold text-[#94A3B8]">* 대리운전은 차량 정보 입력 제외</p> : null}
           <div>
             <label className={label}>활동 지역</label>
             <input value={form.region} onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))} placeholder="부산 해운대구" className={input} />
@@ -300,7 +345,7 @@ export default function AdminPartners() {
         </div>
         <button
           type="button"
-          disabled={busy || !form.name.trim() || !form.phone.trim()}
+          disabled={busy || !canSubmit}
           onClick={submit}
           className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white disabled:opacity-50"
         >
@@ -360,7 +405,7 @@ export default function AdminPartners() {
                   <tr key={row.uid} className="border-b border-[#F1F5F9]">
                     <td className="px-2 py-2.5">
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${row.role === '파트너' ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#DBEAFE] text-[#1D4ED8]'}`}>
-                        {row.role === '파트너' ? '파트너' : `${row.serviceType || '택시'} 기사`}
+                        {row.role === '파트너' ? `${row.serviceType || ''} 파트너` : `${row.serviceType || '택시'} 기사`}
                       </span>
                     </td>
                     <td className="px-2 py-2.5 font-black">{row.name || '-'}</td>
