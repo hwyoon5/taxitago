@@ -1666,97 +1666,7 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
     `inline-flex shrink-0 items-center rounded-full border-2 px-4 py-2 text-xs font-black transition active:scale-95 ${active ? 'border-[#4C1FB8] bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.35)]' : 'border-[#94A3B8] bg-white text-[#1E293B] hover:bg-[#F1F5F9]'}`
 
   return (
-    <div className="dest-glow-wrap">
-      <style jsx>{`
-        .dest-glow-wrap {
-          position: relative;
-          border-radius: 28px;
-          padding: 3px;
-          overflow: hidden;
-          isolation: isolate;
-          background: #cbd5e1;
-          box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
-          animation: dest-glow-breathe 3s ease-in-out infinite;
-        }
-        /* 테두리 링 뒤에서 회전하는 대형 conic-gradient — 0°/180° 대칭 빛줄기 2개 */
-        .dest-glow-wrap::before {
-          content: '';
-          position: absolute;
-          left: 50%;
-          top: 50%;
-          width: 220%;
-          padding-bottom: 220%;
-          background: conic-gradient(
-            from 0deg,
-            transparent 0deg,
-            rgba(124, 58, 237, 0.55) 14deg,
-            rgba(76, 31, 184, 1) 30deg,
-            rgba(124, 58, 237, 0.55) 46deg,
-            transparent 60deg,
-            transparent 180deg,
-            rgba(124, 58, 237, 0.55) 194deg,
-            rgba(76, 31, 184, 1) 210deg,
-            rgba(124, 58, 237, 0.55) 226deg,
-            transparent 240deg,
-            transparent 360deg
-          );
-          animation: dest-glow-rotate 4s linear infinite;
-          pointer-events: none;
-        }
-        .dest-glow-inner {
-          position: relative;
-          z-index: 1;
-          border-radius: 25px;
-          background: #ffffff;
-        }
-        @keyframes dest-glow-rotate {
-          from {
-            transform: translate(-50%, -50%) rotate(0deg);
-          }
-          to {
-            transform: translate(-50%, -50%) rotate(360deg);
-          }
-        }
-        /* 카드 전체가 은은하게 숨쉬는 외곽 광 — 빛줄기와 별개로 항상 보이는 효과 */
-        @keyframes dest-glow-breathe {
-          0%, 100% {
-            box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14), 0 0 0 0 rgba(124, 58, 237, 0);
-          }
-          50% {
-            box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14), 0 0 18px 2px rgba(124, 58, 237, 0.28);
-          }
-        }
-        :global(html.dark) .dest-glow-wrap {
-          background: #3f4655;
-        }
-        :global(html.dark) .dest-glow-wrap::before {
-          background: conic-gradient(
-            from 0deg,
-            transparent 0deg,
-            rgba(167, 139, 250, 0.7) 12deg,
-            rgba(221, 214, 254, 1) 28deg,
-            rgba(167, 139, 250, 0.7) 44deg,
-            transparent 58deg,
-            transparent 180deg,
-            rgba(167, 139, 250, 0.7) 192deg,
-            rgba(221, 214, 254, 1) 208deg,
-            rgba(167, 139, 250, 0.7) 224deg,
-            transparent 238deg,
-            transparent 360deg
-          );
-          filter: drop-shadow(0 0 5px rgba(196, 181, 253, 0.5));
-        }
-        :global(html.dark) .dest-glow-inner {
-          background: #0f172a; /* .dark .bg-white 리맵과 동일 */
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .dest-glow-wrap,
-          .dest-glow-wrap::before {
-            animation: none;
-          }
-        }
-      `}</style>
-    <section className="dest-glow-inner relative overflow-visible bg-white p-4">
+    <section className="rounded-[28px] border border-[#CBD5E1] bg-white p-4 shadow-[0_14px_32px_rgba(15,23,42,0.14)]">
       <div className="mb-3 flex items-end justify-between gap-3">
         <p className="text-[22px] font-bold leading-tight text-[#0f172a]">어디로 갈까요?</p>
         <span className="shrink-0 pb-0.5 text-xs font-semibold text-[#334155]">목적지 검색</span>
@@ -1817,7 +1727,6 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
       {mapOpen ? <LocationMapModal key={`search-loc-${locationMapSession}`} onClose={() => setMapOpen(false)} /> : null}
       {formOpen ? <FavoritePlaceModal onClose={() => setFormOpen(false)} onSave={addFavorite} /> : null}
     </section>
-    </div>
   )
 }
 
@@ -5173,7 +5082,7 @@ function Home({
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="mt-1 flex w-full items-stretch overflow-hidden rounded-lg border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
+            className="dest-glow mt-1 flex w-full items-stretch overflow-hidden rounded-lg bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
             style={{ WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
             aria-label={destination ? `${t('home.dest')} ${destination}` : t('home.destSearch')}
           >

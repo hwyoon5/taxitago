@@ -587,9 +587,88 @@
   }
 }
 
-/* ===== Destination card — symmetric shimmer border ===== */
-/* 스타일은 SearchCard(home-screen.tsx) 내부의 <style jsx>에 인라인 정의 —
-   전역 캐스케이드/캐시에 의해 무력화되지 않게 컴포넌트에 귀속시킨다. */
+/* ===== Destination card — animated glow border ===== */
+/* 홈 화면 '목적지' 버튼(.dest-glow, home-screen.tsx Home 컴포넌트)에 적용.
+   ::before: 카드보다 큰 conic-gradient를 회전시켜 0°/180° 대칭 빛줄기 2개를 만든다.
+   ::after: 불투명 커버가 안쪽을 덮어 가장자리 3px 링만 보이게 한다.
+   @property·mask 미사용 — 모든 브라우저에서 동작하는 transform 회전만 사용. */
+@keyframes dest-glow-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+.dest-glow {
+  position: relative;
+}
+.dest-glow::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 220%;
+  padding-bottom: 220%; /* 너비 기준 정사각형 — 회전해도 모서리가 가려지지 않음 */
+  transform: translate(-50%, -50%);
+  background:
+    conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      rgba(139, 92, 246, 0.7) 14deg,
+      #5b21b6 30deg,
+      rgba(139, 92, 246, 0.7) 46deg,
+      transparent 62deg,
+      transparent 180deg,
+      rgba(139, 92, 246, 0.7) 194deg,
+      #5b21b6 210deg,
+      rgba(139, 92, 246, 0.7) 226deg,
+      transparent 242deg,
+      transparent 360deg
+    ),
+    #d9cefb;
+  animation: dest-glow-spin 4s linear infinite;
+  pointer-events: none;
+}
+.dest-glow::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: calc(0.5rem - 3px);
+  background: #ffffff;
+  pointer-events: none;
+}
+.dest-glow > * {
+  position: relative;
+  z-index: 1;
+}
+html.dark .dest-glow::before {
+  background:
+    conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      rgba(167, 139, 250, 0.8) 14deg,
+      #ddd6fe 30deg,
+      rgba(167, 139, 250, 0.8) 46deg,
+      transparent 62deg,
+      transparent 180deg,
+      rgba(167, 139, 250, 0.8) 194deg,
+      #ddd6fe 210deg,
+      rgba(167, 139, 250, 0.8) 226deg,
+      transparent 242deg,
+      transparent 360deg
+    ),
+    #3d3480;
+  filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.55));
+}
+html.dark .dest-glow::after {
+  background: #0f172a; /* .dark .bg-white 리맵과 동일 값 */
+}
+@media (prefers-reduced-motion: reduce) {
+  .dest-glow::before {
+    animation: none;
+  }
+}
 
 /* ===== Dark theme (manual/time-based) — remaps the literal-hex palette ===== */
 html.dark {
@@ -603,7 +682,6 @@ html.dark {
 .dark ::placeholder {
   color: #64748B;
 }
-/* 다크 모드 글로우는 SearchCard의 <style jsx> 안 :global(html.dark) 규칙에 정의 */
 .dark input,
 .dark textarea,
 .dark select {
