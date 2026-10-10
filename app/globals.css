@@ -587,6 +587,57 @@
   }
 }
 
+/* ===== Destination card — symmetric shimmer border ===== */
+/* 테두리 링을 따라 180° 대칭의 빛줄기 두 개가 무한 회전한다.
+   @property 미지원 브라우저는 정적 대칭 그라데이션 테두리로 보인다. */
+@property --dest-glow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.dest-glow-card {
+  /* 라이트 모드 — 브랜드 바이올렛이 연회색 테두리 위에서 선명하게 읽히도록 높은 불투명도 */
+  --dest-glow-1: rgba(76, 31, 184, 0.9);
+  --dest-glow-soft: rgba(124, 58, 237, 0.35);
+}
+.dest-glow-card::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 28px;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--dest-glow-angle),
+    transparent 0deg,
+    var(--dest-glow-soft) 18deg,
+    var(--dest-glow-1) 34deg,
+    var(--dest-glow-soft) 50deg,
+    transparent 68deg,
+    transparent 180deg,
+    var(--dest-glow-soft) 198deg,
+    var(--dest-glow-1) 214deg,
+    var(--dest-glow-soft) 230deg,
+    transparent 248deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: dest-glow-spin 4.5s linear infinite;
+  pointer-events: none;
+}
+@keyframes dest-glow-spin {
+  to {
+    --dest-glow-angle: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dest-glow-card::before {
+    animation: none;
+  }
+}
+
 /* ===== Dark theme (manual/time-based) — remaps the literal-hex palette ===== */
 html.dark {
   color-scheme: dark;
@@ -598,6 +649,14 @@ html.dark {
 }
 .dark ::placeholder {
   color: #64748B;
+}
+/* 다크 모드 — 라벤더 톤의 은은한 광원 + 가벼운 외곽 후광 */
+.dark .dest-glow-card {
+  --dest-glow-1: rgba(196, 181, 253, 0.95);
+  --dest-glow-soft: rgba(139, 92, 246, 0.4);
+}
+.dark .dest-glow-card::before {
+  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.35));
 }
 .dark input,
 .dark textarea,

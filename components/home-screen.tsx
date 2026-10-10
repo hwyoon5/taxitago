@@ -1666,7 +1666,7 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
     `inline-flex shrink-0 items-center rounded-full border-2 px-4 py-2 text-xs font-black transition active:scale-95 ${active ? 'border-[#4C1FB8] bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.35)]' : 'border-[#94A3B8] bg-white text-[#1E293B] hover:bg-[#F1F5F9]'}`
 
   return (
-    <section className="relative overflow-visible rounded-[26px] border-2 border-[#CBD5E1] bg-white p-4 shadow-[0_14px_32px_rgba(15,23,42,0.14)]">
+    <section className="dest-glow-card relative overflow-visible rounded-[26px] border-2 border-[#CBD5E1] bg-white p-4 shadow-[0_14px_32px_rgba(15,23,42,0.14)]">
       <div className="mb-3 flex items-end justify-between gap-3">
         <p className="text-[22px] font-bold leading-tight text-[#0f172a]">어디로 갈까요?</p>
         <span className="shrink-0 pb-0.5 text-xs font-semibold text-[#334155]">목적지 검색</span>
