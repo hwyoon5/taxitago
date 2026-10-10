@@ -118,13 +118,9 @@ export async function POST(request: Request) {
   let txid = ''
   let paymentId = ''
   let destination = wallet || uid
-  if (sandbox) {
-    // 테스트넷은 실제 A2U 없이 장부 흐름만 검증한다(모의 결제와 같은 정책).
-    txid = `sandbox-withdraw-${requestId}`
-    paymentId = txid
-    destination = address || destination
-  } else if (address) {
+  if (address) {
     // 사용자 지정 주소 — 플랫폼 지갑에서 해당 주소로 직접 송금한다.
+    // 테스트넷/메인넷 모두 실제 Horizon 트랜잭션으로 전송된다(모의 처리 없음).
     const sent = await sendPiToAddress({
       recipient: address,
       amount,
@@ -141,6 +137,10 @@ export async function POST(request: Request) {
     }
     txid = sent.txid
     destination = address
+  } else if (sandbox) {
+    // 주소 미지정 + 테스트넷은 실제 A2U 없이 장부 흐름만 검증한다(모의 결제와 같은 정책).
+    txid = `sandbox-withdraw-${requestId}`
+    paymentId = txid
   } else {
     try {
       const payment = await createA2UPayment(
