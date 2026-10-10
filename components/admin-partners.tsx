@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
 import { adminHeaders } from '@/lib/admin-key'
+import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 import type { PartnerLinkRecord } from '@/lib/partner-ledger-server'
 import {
   ALL_PARTNER_SERVICE_TYPES,
@@ -50,7 +51,6 @@ const EMPTY_FORM: FormState = {
 const DOC_MAX_BYTES = 2.5 * 1024 * 1024
 
 const SERVICE_TYPES: readonly string[] = ALL_PARTNER_SERVICE_TYPES
-const PAGE_SIZE = 20
 
 function formatDate(value: string) {
   const date = new Date(value)
@@ -75,6 +75,7 @@ export default function AdminPartners() {
   const [roleFilter, setRoleFilter] = useState<'all' | '기사' | '파트너'>('all')
   const [serviceFilter, setServiceFilter] = useState<'all' | string>('all')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [docFile, setDocFile] = useState<{ name: string; mime: string; dataUrl: string } | null>(null)
   const docInput = useRef<HTMLInputElement>(null)
 
@@ -95,7 +96,7 @@ export default function AdminPartners() {
 
   useEffect(() => {
     setPage(1)
-  }, [query, roleFilter, serviceFilter])
+  }, [query, roleFilter, serviceFilter, pageSize])
 
   const needle = query.replace(/[\s-]/g, '').toLowerCase()
   const filtered = partners.filter((row) => {
@@ -105,9 +106,15 @@ export default function AdminPartners() {
     const haystack = [row.name, row.phone, row.plate].map((v) => (v || '').replace(/[\s-]/g, '').toLowerCase())
     return haystack.some((v) => v.includes(needle))
   })
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const currentPage = Math.min(page, totalPages)
-  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const pageButtons = (() => {
+    const span = 2
+    const start = Math.max(1, Math.min(currentPage - span, totalPages - span * 2))
+    const end = Math.min(totalPages, start + span * 2)
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  })()
 
   const tell = (message: string) => {
     setNotice(message)
@@ -378,6 +385,11 @@ export default function AdminPartners() {
               <option key={type} value={type}>{type}</option>
             ))}
           </select>
+          <PageSizeSelect
+            pageSize={pageSize}
+            onChange={setPageSize}
+            className="w-full rounded-xl border-2 border-[#CBD5E1] px-2 py-2.5 text-xs font-black text-[#475569] outline-none focus:border-[#4C1FB8] sm:col-start-3"
+          />
         </div>
         {loading ? (
           <p className="mt-4 text-center text-xs font-bold text-[#64748B]">불러오는 중…</p>
@@ -451,28 +463,16 @@ export default function AdminPartners() {
             </table>
           </div>
         )}
-        {filtered.length > PAGE_SIZE ? (
-          <div className="mt-3 flex items-center justify-between">
-            <button
-              type="button"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="rounded-xl border-2 border-[#D8CCF5] px-3 py-1.5 text-xs font-black text-[#4C1FB8] disabled:opacity-40"
-            >
-              이전
-            </button>
-            <p className="text-xs font-black text-[#64748B]">
-              {currentPage} / {totalPages} 페이지 · {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)}번째
-            </p>
-            <button
-              type="button"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="rounded-xl border-2 border-[#D8CCF5] px-3 py-1.5 text-xs font-black text-[#4C1FB8] disabled:opacity-40"
-            >
-              다음
-            </button>
-          </div>
+        {filtered.length > 0 ? (
+          <PaginationBar
+            total={filtered.length}
+            rangeStart={(currentPage - 1) * pageSize + 1}
+            rangeEnd={Math.min(currentPage * pageSize, filtered.length)}
+            page={currentPage}
+            totalPages={totalPages}
+            pageButtons={pageButtons}
+            onPage={setPage}
+          />
         ) : null}
       </section>
     </div>

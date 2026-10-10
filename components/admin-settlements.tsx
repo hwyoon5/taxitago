@@ -11,6 +11,7 @@ import type { AuditEntry } from '@/lib/audit-store'
 import type { DepositEntry } from '@/lib/deposit-store'
 import type { WalletTxEntry } from '@/lib/wallet-history'
 import { buildSettlementCsv } from '@/lib/settlement-csv'
+import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 
 type ServiceSummary = { label: string; count: number; gross: number; commission: number; net: number }
 type TxBucket = { count: number; total: number; fee?: number }
@@ -70,7 +71,6 @@ const AUDIT_LABEL: Record<string, string> = {
 }
 
 const pi = (value: number) => `${value.toFixed(7)} Pi`
-const PAGE_SIZE = 10
 
 export default function AdminSettlements() {
   const [entries, setEntries] = useState<SettlementEntry[]>([])
@@ -96,6 +96,9 @@ export default function AdminSettlements() {
   const [view, setView] = useState<'summary' | 'detail' | 'wallet'>('summary')
   const [queryDate, setQueryDate] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [auditPage, setAuditPage] = useState(1)
+  const [auditPageSize, setAuditPageSize] = useState(10)
 
   const tell = (message: string) => {
     setNotice(message)
@@ -252,9 +255,15 @@ export default function AdminSettlements() {
     (!start || new Date(entry.createdAt) >= start) &&
     (!queryDate || entry.createdAt.slice(0, 10) === queryDate),
   )
-  const maxPage = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
+  const maxPage = Math.max(1, Math.ceil(visible.length / pageSize))
   const pageSafe = Math.min(page, maxPage)
-  const paged = visible.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE)
+  const paged = visible.slice((pageSafe - 1) * pageSize, pageSafe * pageSize)
+  const pageButtons = (() => {
+    const span = 2
+    const start = Math.max(1, Math.min(pageSafe - span, maxPage - span * 2))
+    const end = Math.min(maxPage, start + span * 2)
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  })()
 
   const exportCsv = () => {
     if (!visible.length) {
@@ -538,6 +547,10 @@ export default function AdminSettlements() {
             aria-label="날짜로 검색"
             className="w-full rounded-lg border border-[#E2E8F0] px-2.5 py-1.5 text-[11px] font-bold outline-none focus:border-[#4C1FB8]"
           />
+          <PageSizeSelect
+            pageSize={pageSize}
+            onChange={(size) => { setPageSize(size); setPage(1) }}
+          />
           {queryDate ? (
             <button
               type="button"
@@ -674,39 +687,45 @@ export default function AdminSettlements() {
           ))}
           {visible.length === 0 ? <p className="py-6 text-center text-xs font-bold text-[#94A3B8]">정산 내역이 없습니다.</p> : null}
         </div>
-        <div className="mt-3 flex items-center justify-between">
-          <button
-            type="button"
-            disabled={pageSafe <= 1}
-            onClick={() => setPage(pageSafe - 1)}
-            className="rounded-full bg-[#F1F5F9] px-3 py-1.5 text-[11px] font-black text-[#475569] disabled:opacity-40"
-          >
-            ‹ 이전
-          </button>
-          <span className="text-[11px] font-black text-[#64748B]">
-            {visible.length}건 · {pageSafe}/{maxPage} 페이지
-          </span>
-          <button
-            type="button"
-            disabled={pageSafe >= maxPage}
-            onClick={() => setPage(pageSafe + 1)}
-            className="rounded-full bg-[#F1F5F9] px-3 py-1.5 text-[11px] font-black text-[#475569] disabled:opacity-40"
-          >
-            다음 ›
-          </button>
-        </div>
+        {visible.length > 0 ? (
+          <PaginationBar
+            total={visible.length}
+            rangeStart={(pageSafe - 1) * pageSize + 1}
+            rangeEnd={Math.min(visible.length, pageSafe * pageSize)}
+            page={pageSafe}
+            totalPages={maxPage}
+            pageButtons={pageButtons}
+            onPage={setPage}
+          />
+        ) : null}
       </section>
       ) : null}
 
       {view === 'detail' ? (
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
-        <button type="button" onClick={() => setShowAudit((prev) => !prev)} className="flex w-full items-center justify-between">
-          <p className="text-sm font-black">조정·동기화 이력 <span className="text-[#94A3B8]">({audit.length})</span></p>
-          <span className="text-xs font-black text-[#4C1FB8]">{showAudit ? '접기' : '펼치기'}</span>
-        </button>
-        {showAudit ? (
+        <div className="flex w-full items-center justify-between gap-2">
+          <button type="button" onClick={() => setShowAudit((prev) => !prev)} className="flex items-center gap-2">
+            <p className="text-sm font-black">조정·동기화 이력 <span className="text-[#94A3B8]">({audit.length})</span></p>
+            <span className="text-xs font-black text-[#4C1FB8]">{showAudit ? '접기' : '펼치기'}</span>
+          </button>
+          {showAudit ? (
+            <PageSizeSelect
+              pageSize={auditPageSize}
+              onChange={(size) => { setAuditPageSize(size); setAuditPage(1) }}
+            />
+          ) : null}
+        </div>
+        {showAudit ? (() => {
+          const auditTotalPages = Math.max(1, Math.ceil(audit.length / auditPageSize))
+          const auditPageSafe = Math.min(auditPage, auditTotalPages)
+          const auditPaged = audit.slice((auditPageSafe - 1) * auditPageSize, auditPageSafe * auditPageSize)
+          const span = 2
+          const start = Math.max(1, Math.min(auditPageSafe - span, auditTotalPages - span * 2))
+          const end = Math.min(auditTotalPages, start + span * 2)
+          const auditPageButtons = Array.from({ length: end - start + 1 }, (_, i) => start + i)
+          return (
           <div className="mt-3 space-y-2">
-            {audit.map((log) => (
+            {auditPaged.map((log) => (
               <div key={log.id} className="rounded-xl bg-[#F8FAFC] p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="rounded-full bg-[#EDE9FE] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{AUDIT_LABEL[log.kind] || log.kind}</span>
@@ -723,8 +742,20 @@ export default function AdminSettlements() {
               </div>
             ))}
             {audit.length === 0 ? <p className="py-4 text-center text-xs font-bold text-[#94A3B8]">기록된 조정 이력이 없습니다.</p> : null}
+            {audit.length > 0 ? (
+              <PaginationBar
+                total={audit.length}
+                rangeStart={(auditPageSafe - 1) * auditPageSize + 1}
+                rangeEnd={Math.min(audit.length, auditPageSafe * auditPageSize)}
+                page={auditPageSafe}
+                totalPages={auditTotalPages}
+                pageButtons={auditPageButtons}
+                onPage={setAuditPage}
+              />
+            ) : null}
           </div>
-        ) : null}
+          )
+        })() : null}
       </section>
       ) : null}
       {notice ? <p className="text-center text-xs font-black text-[#047857]">{notice}</p> : null}

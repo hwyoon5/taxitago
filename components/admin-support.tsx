@@ -29,6 +29,7 @@ import {
   type SupportTicket,
   type TicketStatus,
 } from '@/lib/support-types'
+import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 
 const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'in_progress', 'waiting', 'resolved', 'closed']
@@ -100,6 +101,8 @@ export default function AdminSupportDesk() {
   const [lastSync, setLastSync] = useState('')
   const [storage, setStorage] = useState<'kv' | 'file' | null>(null)
   const [view, setView] = useState<'inbox' | 'users' | 'partners' | 'fare' | 'ledger' | 'staff' | 'audit' | 'memo'>('inbox')
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const seenRef = useRef<Set<string> | null>(null)
   const { logout, actor } = useAdminAuth()
 
@@ -171,6 +174,23 @@ export default function AdminSupportDesk() {
     (row.needsReview === true || row.status === 'received' || row.status === 'waiting')
   const pendingTickets = tickets.filter(needsAdmin)
   const otherTickets = tickets.filter((row) => !needsAdmin(row))
+  const otherList: ({ type: 'ticket'; row: SupportTicket } | { type: 'lost'; row: LostItem })[] = [
+    ...otherTickets.map((row) => ({ type: 'ticket' as const, row })),
+    ...lost.map((row) => ({ type: 'lost' as const, row })),
+  ]
+  const inboxTotalPages = Math.max(1, Math.ceil(otherList.length / pageSize))
+  const inboxPageSafe = Math.min(page, inboxTotalPages - 1)
+  const inboxPaged = otherList.slice(inboxPageSafe * pageSize, inboxPageSafe * pageSize + pageSize)
+  const inboxPageButtons = (() => {
+    const span = 2
+    const start = Math.max(0, Math.min(inboxPageSafe - span, inboxTotalPages - span * 2 - 1))
+    const end = Math.min(inboxTotalPages, start + span * 2 + 1)
+    return Array.from({ length: end - start }, (_, i) => start + i + 1)
+  })()
+
+  useEffect(() => {
+    setPage(0)
+  }, [pageSize])
   const pendingCount = pendingTickets.length + lost.filter((row) => row.status === 'open').length
 
   const openTicket = (next: SupportTicket) => {
@@ -401,10 +421,13 @@ export default function AdminSupportDesk() {
       {notice ? <p className="mt-3 rounded-full bg-[#0F172A] px-3 py-2 text-center text-xs font-black text-white">{notice}</p> : null}
       <div className="mt-4 grid gap-3 md:grid-cols-[1.1fr_0.9fr]">
         <section className="space-y-2">
-          <p className="flex items-center justify-between text-xs font-black text-[#4C1FB8]">
+          <div className="flex items-center justify-between gap-2 text-xs font-black text-[#4C1FB8]">
             <span>접수 목록 · {tickets.length + lost.length}건</span>
-            {lastSync ? <span className="font-bold text-[#94A3B8]">마지막 새로고침 {lastSync}</span> : null}
-          </p>
+            <span className="flex items-center gap-2">
+              {lastSync ? <span className="font-bold text-[#94A3B8]">마지막 새로고침 {lastSync}</span> : null}
+              <PageSizeSelect pageSize={pageSize} onChange={setPageSize} />
+            </span>
+          </div>
           {tickets.length + lost.length === 0 ? (
             <p className="rounded-2xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">아직 접수된 문의가 없습니다.</p>
           ) : null}
@@ -414,22 +437,33 @@ export default function AdminSupportDesk() {
               {pendingTickets.map((row) => ticketCard(row, true))}
             </div>
           ) : null}
-          {otherTickets.map((row) => ticketCard(row, false))}
-          {lost.map((row) => (
-            <button key={row.id} type="button" onClick={() => openLost(row)} className={`w-full rounded-2xl border-2 bg-white p-3 text-left ${selectedId === row.id && kind === 'lost' ? 'border-[#4C1FB8]' : 'border-[#CBD5E1]'}`}>
+          {inboxPaged.map((entry) =>
+            entry.type === 'ticket' ? ticketCard(entry.row, false) : (
+            <button key={`l:${entry.row.id}`} type="button" onClick={() => openLost(entry.row)} className={`w-full rounded-2xl border-2 bg-white p-3 text-left ${selectedId === entry.row.id && kind === 'lost' ? 'border-[#4C1FB8]' : 'border-[#CBD5E1]'}`}>
               <div className="flex items-center justify-between gap-2">
                 <p className="flex items-center gap-1.5 text-[11px] font-black text-[#4C1FB8]">
-                  {roleBadge(row.reporter?.label ?? (row.reporterRole === 'driver' ? '기사' : '이용자(승객)'))}
-                  분실물 · {row.kind === 'lost' ? '분실' : '습득'}
-                  {freshIds.includes(`l:${row.id}`) ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">NEW</span> : null}
+                  {roleBadge(entry.row.reporter?.label ?? (entry.row.reporterRole === 'driver' ? '기사' : '이용자(승객)'))}
+                  분실물 · {entry.row.kind === 'lost' ? '분실' : '습득'}
+                  {freshIds.includes(`l:${entry.row.id}`) ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">NEW</span> : null}
                 </p>
-                <span className="rounded-full bg-[#F8F5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{LOST_STATUS_LABEL[row.status]}</span>
+                <span className="rounded-full bg-[#F8F5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{LOST_STATUS_LABEL[entry.row.status]}</span>
               </div>
-              <p className="mt-1 text-sm font-black">{row.itemType}</p>
-              <p className="mt-1 line-clamp-2 text-xs font-bold text-[#64748B]">{row.description || row.route}</p>
-              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{reporterLine(row.reporter, row.reporterId)}</p>
+              <p className="mt-1 text-sm font-black">{entry.row.itemType}</p>
+              <p className="mt-1 line-clamp-2 text-xs font-bold text-[#64748B]">{entry.row.description || entry.row.route}</p>
+              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{reporterLine(entry.row.reporter, entry.row.reporterId)}</p>
             </button>
           ))}
+          {otherList.length > 0 ? (
+            <PaginationBar
+              total={otherList.length}
+              rangeStart={inboxPageSafe * pageSize + 1}
+              rangeEnd={Math.min(otherList.length, (inboxPageSafe + 1) * pageSize)}
+              page={inboxPageSafe + 1}
+              totalPages={inboxTotalPages}
+              pageButtons={inboxPageButtons}
+              onPage={(p) => setPage(p - 1)}
+            />
+          ) : null}
         </section>
         <section className="rounded-[24px] border-2 border-[#CBD5E1] bg-white p-4">
           {!ticket && !item ? <p className="text-sm font-bold text-[#64748B]">왼쪽 목록에서 문의를 선택해 주세요.</p> : null}

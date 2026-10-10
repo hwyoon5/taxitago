@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { WalletTxEntry, WalletTxKind } from '@/lib/wallet-history'
+import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 
 type Props = {
   entries: WalletTxEntry[]
@@ -31,8 +32,6 @@ const short = (value: string) => (value.length > 14 ? `${value.slice(0, 8)}…${
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 const pi = (value: number) => `${value.toFixed(7)} Pi`
-
-const PAGE_SIZES = [10, 20, 30, 50]
 
 export default function AdminWalletHistory({ entries, totals }: Props) {
   const [kind, setKind] = useState<'all' | WalletTxKind>('all')
@@ -115,15 +114,11 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
             </button>
           ))}
         </div>
-        <select
-          value={pageSize}
-          onChange={(event) => setPageSize(Number(event.target.value))}
+        <PageSizeSelect
+          pageSize={pageSize}
+          onChange={setPageSize}
           className="ml-auto rounded-lg border border-[#CBD5E1] bg-white px-2 py-1 text-[11px] font-black text-[#334155] outline-none"
-        >
-          {PAGE_SIZES.map((size) => (
-            <option key={size} value={size}>{size}개씩 보기</option>
-          ))}
-        </select>
+        />
         <select
           value={sort}
           onChange={(event) => setSort(event.target.value as typeof sort)}
@@ -191,39 +186,15 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
       </div>
 
       {visible.length > 0 ? (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#E2E8F0] pt-3">
-          <p className="text-[10px] font-bold text-[#94A3B8]">
-            전체 {visible.length}건 중 {rangeStart}-{rangeEnd}번
-          </p>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage <= 1}
-              className="rounded-lg border border-[#CBD5E1] px-2.5 py-1 text-[11px] font-black text-[#475569] disabled:opacity-40"
-            >
-              이전
-            </button>
-            {pageButtons.map((number) => (
-              <button
-                key={number}
-                type="button"
-                onClick={() => setPage(number)}
-                className={`min-w-7 rounded-lg px-2 py-1 text-[11px] font-black ${number === currentPage ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
-              >
-                {number}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage >= totalPages}
-              className="rounded-lg border border-[#CBD5E1] px-2.5 py-1 text-[11px] font-black text-[#475569] disabled:opacity-40"
-            >
-              다음
-            </button>
-          </div>
-        </div>
+        <PaginationBar
+          total={visible.length}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          page={currentPage}
+          totalPages={totalPages}
+          pageButtons={pageButtons}
+          onPage={setPage}
+        />
       ) : null}
     </section>
   )

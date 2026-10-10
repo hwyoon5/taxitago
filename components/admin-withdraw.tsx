@@ -6,6 +6,7 @@ import { adminHeaders } from '@/lib/admin-key'
 import { useAdminAuth } from '@/components/admin-guard'
 import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import type { WithdrawalRequest } from '@/lib/withdrawal-queue'
+import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 
 type Props = {
   /** Currently configured platform wallet — shown for context only. */
@@ -44,6 +45,8 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
   const [notice, setNotice] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
   const [requests, setRequests] = useState<WithdrawalRequest[]>([])
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const [threshold, setThreshold] = useState(10)
   const [available, setAvailable] = useState<number | null>(null)
 
@@ -178,6 +181,15 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
   const confirmAmount = confirmTarget?.kind === 'send' ? confirmTarget.amount : confirmTarget?.request.amount ?? 0
 
   const pendingCount = requests.filter((row) => row.status === 'pending').length
+  const totalPages = Math.max(1, Math.ceil(requests.length / pageSize))
+  const safePage = Math.min(page, totalPages - 1)
+  const paged = requests.slice(safePage * pageSize, safePage * pageSize + pageSize)
+  const pageButtons = (() => {
+    const span = 2
+    const start = Math.max(0, Math.min(safePage - span, totalPages - span * 2 - 1))
+    const end = Math.min(totalPages, start + span * 2 + 1)
+    return Array.from({ length: end - start }, (_, i) => start + i + 1)
+  })()
 
   return (
     <section className="rounded-2xl border-2 border-[#FDE68A] bg-white p-4">
@@ -263,18 +275,21 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
 
       {requests.length ? (
         <div className="mt-4 border-t-2 border-dashed border-[#E2E8F0] pt-3">
-          <p className="flex items-center justify-between text-xs font-black text-[#B45309]">
+          <div className="flex items-center justify-between gap-2 text-xs font-black text-[#B45309]">
             <span>출금 승인·집행 내역{pendingCount ? ` · 대기 ${pendingCount}건` : ''}</span>
-            <button
-              type="button"
-              onClick={loadRequests}
-              className="rounded-full border border-[#FDE68A] bg-white px-2 py-0.5 text-[10px] font-black text-[#B45309]"
-            >
-              새로고침
-            </button>
-          </p>
+            <span className="flex items-center gap-2">
+              <PageSizeSelect pageSize={pageSize} onChange={(size) => { setPageSize(size); setPage(0) }} />
+              <button
+                type="button"
+                onClick={loadRequests}
+                className="rounded-full border border-[#FDE68A] bg-white px-2 py-0.5 text-[10px] font-black text-[#B45309]"
+              >
+                새로고침
+              </button>
+            </span>
+          </div>
           <div className="mt-2 space-y-2">
-            {requests.slice(0, 10).map((row) => (
+            {paged.map((row) => (
               <div key={row.id} className="rounded-xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-black text-[#0F172A]">
@@ -320,6 +335,17 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
               </div>
             ))}
           </div>
+          {requests.length > 0 ? (
+            <PaginationBar
+              total={requests.length}
+              rangeStart={safePage * pageSize + 1}
+              rangeEnd={Math.min(requests.length, (safePage + 1) * pageSize)}
+              page={safePage + 1}
+              totalPages={totalPages}
+              pageButtons={pageButtons}
+              onPage={(p) => setPage(p - 1)}
+            />
+          ) : null}
         </div>
       ) : null}
 

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import type { AuditEntry } from '@/lib/audit-store'
+import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 
 const AUDIT_LABEL: Record<string, string> = {
   rates: '수수료율 변경',
@@ -32,8 +33,6 @@ const KIND_TONE: Record<string, string> = {
   ticket: 'bg-[#FEF3C7] text-[#92400E]',
 }
 
-const PAGE_SIZE = 15
-
 const dateKey = (iso: string) => {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
@@ -50,6 +49,7 @@ export default function AdminAuditLog() {
   const [dateTo, setDateTo] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(15)
 
   const load = (silent = false) => {
     if (!silent) setLoading(true)
@@ -94,13 +94,19 @@ export default function AdminAuditLog() {
     })
   }, [entries, staffFilter, kindFilter, dateFrom, dateTo, query])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, totalPages - 1)
-  const paged = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
+  const paged = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize)
+  const pageButtons = (() => {
+    const span = 2
+    const start = Math.max(0, Math.min(safePage - span, totalPages - span * 2 - 1))
+    const end = Math.min(totalPages, start + span * 2 + 1)
+    return Array.from({ length: end - start }, (_, i) => start + i + 1)
+  })()
 
   useEffect(() => {
     setPage(0)
-  }, [staffFilter, kindFilter, dateFrom, dateTo, query])
+  }, [staffFilter, kindFilter, dateFrom, dateTo, query, pageSize])
 
   return (
     <section className="mt-4 space-y-3">
@@ -159,6 +165,11 @@ export default function AdminAuditLog() {
             placeholder="내용·사유·참조 검색"
             className="col-span-2 rounded-xl border-2 border-[#CBD5E1] px-3 py-2 text-xs font-bold outline-none focus:border-[#4C1FB8]"
           />
+          <PageSizeSelect
+            pageSize={pageSize}
+            onChange={setPageSize}
+            className="col-span-2 rounded-xl border-2 border-[#CBD5E1] px-2.5 py-2 text-xs font-black text-[#475569] outline-none focus:border-[#4C1FB8]"
+          />
         </div>
         {dateFrom || dateTo ? (
           <button
@@ -203,27 +214,17 @@ export default function AdminAuditLog() {
         ))}
       </div>
 
-      {filtered.length > PAGE_SIZE ? (
-        <div className="flex items-center justify-between rounded-2xl border-2 border-[#CBD5E1] bg-white px-3 py-2">
-          <button
-            type="button"
-            disabled={safePage === 0}
-            onClick={() => setPage((prev) => Math.max(0, prev - 1))}
-            className="rounded-full border-2 border-[#D8CCF5] bg-white px-3 py-1.5 text-[10px] font-black text-[#4C1FB8] disabled:opacity-40"
-          >
-            ‹ 이전
-          </button>
-          <span className="text-[11px] font-black text-[#64748B]">
-            {filtered.length}건 · {safePage + 1}/{totalPages} 페이지
-          </span>
-          <button
-            type="button"
-            disabled={safePage >= totalPages - 1}
-            onClick={() => setPage((prev) => Math.min(totalPages - 1, prev + 1))}
-            className="rounded-full border-2 border-[#D8CCF5] bg-white px-3 py-1.5 text-[10px] font-black text-[#4C1FB8] disabled:opacity-40"
-          >
-            다음 ›
-          </button>
+      {filtered.length > 0 ? (
+        <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white px-3 py-2">
+          <PaginationBar
+            total={filtered.length}
+            rangeStart={safePage * pageSize + 1}
+            rangeEnd={Math.min(filtered.length, (safePage + 1) * pageSize)}
+            page={safePage + 1}
+            totalPages={totalPages}
+            pageButtons={pageButtons}
+            onPage={(p) => setPage(p - 1)}
+          />
         </div>
       ) : null}
     </section>

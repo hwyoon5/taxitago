@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { PaginationBar, PageSizeSelect, usePagination } from '@/components/admin-pagination'
 import { adminHeaders } from '@/lib/admin-key'
 
 export type AdminUserRow = {
@@ -132,6 +133,7 @@ export default function AdminUsers() {
   }
 
   const maxMonth = useMemo(() => Math.max(1, ...(stats?.monthly ?? []).map((m) => m.count)), [stats])
+  const pg = usePagination(users, 10, [users])
 
   return (
     <div className="mt-4 space-y-4">
@@ -171,14 +173,21 @@ export default function AdminUsers() {
         </section>
       ) : null}
 
-      {/* 검색 */}
-      <input
-        type="search"
-        value={q}
-        onChange={(event) => setQ(event.target.value)}
-        placeholder="이름 · 전화번호 · 지갑 주소 · UID 검색"
-        className="w-full rounded-xl border-2 border-[#CBD5E1] bg-white px-4 py-2.5 text-sm font-bold outline-none focus:border-[#4C1FB8]"
-      />
+      {/* 검색 + 페이지 크기 */}
+      <div className="flex items-center gap-2">
+        <input
+          type="search"
+          value={q}
+          onChange={(event) => setQ(event.target.value)}
+          placeholder="이름 · 전화번호 · 지갑 주소 · UID 검색"
+          className="min-w-0 flex-1 rounded-xl border-2 border-[#CBD5E1] bg-white px-4 py-2.5 text-sm font-bold outline-none focus:border-[#4C1FB8]"
+        />
+        <PageSizeSelect
+          pageSize={pg.pageSize}
+          onChange={pg.setPageSize}
+          className="shrink-0 rounded-xl border-2 border-[#CBD5E1] bg-white px-2 py-2.5 text-xs font-black text-[#475569] outline-none focus:border-[#4C1FB8]"
+        />
+      </div>
 
       {/* 가입자 목록 */}
       <section className="space-y-2">
@@ -188,7 +197,7 @@ export default function AdminUsers() {
             {q ? '검색 결과가 없습니다.' : '등록된 가입자가 없습니다.'}
           </p>
         ) : null}
-        {users.map((user) => {
+        {pg.paged.map((user) => {
           const open = openUid === user.uid
           return (
             <div key={user.uid} className={`rounded-2xl border-2 bg-white p-3.5 ${user.locked ? 'border-[#FCA5A5]' : 'border-[#CBD5E1]'}`}>
@@ -300,6 +309,15 @@ export default function AdminUsers() {
             </div>
           )
         })}
+        <PaginationBar
+          total={pg.total}
+          rangeStart={pg.rangeStart}
+          rangeEnd={pg.rangeEnd}
+          page={pg.page}
+          totalPages={pg.totalPages}
+          pageButtons={pg.pageButtons}
+          onPage={pg.setPage}
+        />
       </section>
       {notice ? <p className="text-center text-xs font-black text-[#047857]">{notice}</p> : null}
     </div>

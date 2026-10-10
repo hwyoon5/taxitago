@@ -8,6 +8,7 @@ import { DEFAULT_FARE_CONFIG, FLAT_SERVICE_LABEL, type FareConfig, type FlatServ
 import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { ADMIN_PRIVILEGED_POSITIONS } from '@/lib/staff-positions'
 import type { DepositEntry } from '@/lib/deposit-store'
+import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 
 const SERVICES: SettlementService[] = ['taxi', 'daeri', 'delivery', 'bicycle', 'kickboard', 'ev', 'parking']
 const SERVICE_LABEL: Record<SettlementService, string> = {
@@ -36,6 +37,8 @@ export default function AdminFareSettings() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [depPage, setDepPage] = useState(0)
+  const [depPageSize, setDepPageSize] = useState(10)
 
   const tell = (message: string) => {
     setNotice(message)
@@ -206,18 +209,29 @@ export default function AdminFareSettings() {
       </section>
 
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-sm font-black">플랫폼 지갑 입금 내역</p>
-          {depositTotal ? (
-            <span className="rounded-full bg-[#DBEAFE] px-2.5 py-1 text-[10px] font-black text-[#1D4ED8]">
-              {depositTotal.count}건 · {depositTotal.total.toFixed(7)} Pi
-            </span>
-          ) : null}
+          <span className="flex items-center gap-2">
+            <PageSizeSelect pageSize={depPageSize} onChange={(size) => { setDepPageSize(size); setDepPage(0) }} />
+            {depositTotal ? (
+              <span className="rounded-full bg-[#DBEAFE] px-2.5 py-1 text-[10px] font-black text-[#1D4ED8]">
+                {depositTotal.count}건 · {depositTotal.total.toFixed(7)} Pi
+              </span>
+            ) : null}
+          </span>
         </div>
         <p className="mt-0.5 text-xs font-bold text-[#64748B]">사용자 테스트넷 지갑 → 플랫폼 입금 주소로 들어온 전송 기록입니다. txid 기준 중복 없이 기록됩니다.</p>
-        {deposits.length ? (
+        {deposits.length ? (() => {
+          const totalPages = Math.max(1, Math.ceil(deposits.length / depPageSize))
+          const safePage = Math.min(depPage, totalPages - 1)
+          const paged = deposits.slice(safePage * depPageSize, safePage * depPageSize + depPageSize)
+          const span = 2
+          const start = Math.max(0, Math.min(safePage - span, totalPages - span * 2 - 1))
+          const end = Math.min(totalPages, start + span * 2 + 1)
+          const pageButtons = Array.from({ length: end - start }, (_, i) => start + i + 1)
+          return (
           <div className="mt-3 space-y-1.5">
-            {deposits.slice(0, 10).map((deposit) => (
+            {paged.map((deposit) => (
               <div key={deposit.id} className="rounded-xl bg-[#F8FAFC] px-3 py-2">
                 <div className="flex items-center justify-between gap-2 text-[11px] font-black">
                   <span>{deposit.amount.toFixed(7)} Pi</span>
@@ -229,8 +243,18 @@ export default function AdminFareSettings() {
                 {deposit.memo ? <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">{deposit.memo}</p> : null}
               </div>
             ))}
+            <PaginationBar
+              total={deposits.length}
+              rangeStart={safePage * depPageSize + 1}
+              rangeEnd={Math.min(deposits.length, (safePage + 1) * depPageSize)}
+              page={safePage + 1}
+              totalPages={totalPages}
+              pageButtons={pageButtons}
+              onPage={(p) => setDepPage(p - 1)}
+            />
           </div>
-        ) : (
+          )
+        })() : (
           <p className="mt-3 rounded-xl bg-[#F8FAFC] px-3 py-2.5 text-center text-[11px] font-bold text-[#94A3B8]">아직 기록된 입금이 없습니다.</p>
         )}
         <div className="mt-3 space-y-1.5 rounded-xl border-2 border-dashed border-[#CBD5E1] p-3">

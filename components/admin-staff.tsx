@@ -5,6 +5,7 @@ import { Copy, Eye, EyeOff, KeyRound, Pencil, Trash2, UserPlus, X } from 'lucide
 import { adminHeaders } from '@/lib/admin-key'
 import type { PublicStaff } from '@/lib/staff-store'
 import { positionDisplayLabel, STAFF_POSITIONS } from '@/lib/staff-positions'
+import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 
 const CUSTOM_POSITION = '__custom__'
 
@@ -36,6 +37,8 @@ export default function AdminStaff() {
   const [showPw, setShowPw] = useState(false)
   const [showEditPw, setShowEditPw] = useState(false)
   const [tempPw, setTempPw] = useState<{ loginId: string; name: string; password: string } | null>(null)
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
 
   const tell = (message: string) => {
     setNotice(message)
@@ -165,6 +168,16 @@ export default function AdminStaff() {
     )
   }
 
+  const totalPages = Math.max(1, Math.ceil(staff.length / pageSize))
+  const safePage = Math.min(page, totalPages - 1)
+  const paged = staff.slice(safePage * pageSize, safePage * pageSize + pageSize)
+  const pageButtons = (() => {
+    const span = 2
+    const start = Math.max(0, Math.min(safePage - span, totalPages - span * 2 - 1))
+    const end = Math.min(totalPages, start + span * 2 + 1)
+    return Array.from({ length: end - start }, (_, i) => start + i + 1)
+  })()
+
   return (
     <section className="mt-4 space-y-3">
       {notice ? <p className="rounded-full bg-[#0F172A] px-3 py-2 text-center text-xs font-black text-white">{notice}</p> : null}
@@ -240,7 +253,10 @@ export default function AdminStaff() {
       </div>
 
       <div className="rounded-[24px] border-2 border-[#CBD5E1] bg-white p-4">
-        <p className="text-xs font-black text-[#4C1FB8]">등록된 직원 · {staff.length}명</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-black text-[#4C1FB8]">등록된 직원 · {staff.length}명</p>
+          <PageSizeSelect pageSize={pageSize} onChange={(size) => { setPageSize(size); setPage(0) }} />
+        </div>
         {loading ? <p className="mt-3 text-sm font-bold text-[#64748B]">불러오는 중…</p> : null}
         {!loading && !staff.length ? (
           <p className="mt-3 rounded-2xl border-2 border-dashed border-[#CBD5E1] p-5 text-center text-sm font-bold text-[#64748B]">
@@ -248,7 +264,7 @@ export default function AdminStaff() {
           </p>
         ) : null}
         <div className="mt-3 space-y-2">
-          {staff.map((row) =>
+          {paged.map((row) =>
             editing?.id === row.id ? (
               <div key={row.id} className="rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] p-3">
                 <div className="grid grid-cols-2 gap-2">
@@ -362,6 +378,17 @@ export default function AdminStaff() {
               </div>
             ),
           )}
+          {staff.length > 0 ? (
+            <PaginationBar
+              total={staff.length}
+              rangeStart={safePage * pageSize + 1}
+              rangeEnd={Math.min(staff.length, (safePage + 1) * pageSize)}
+              page={safePage + 1}
+              totalPages={totalPages}
+              pageButtons={pageButtons}
+              onPage={(p) => setPage(p - 1)}
+            />
+          ) : null}
         </div>
       </div>
 
