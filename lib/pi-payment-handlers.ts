@@ -1,5 +1,5 @@
 import { after, NextResponse } from 'next/server'
-import { approvePiPayment, assertPiPaymentCompleted, completePiPayment, describeError, verifyPiTxidOnChain } from '@/lib/pi-platform'
+import { approvePiPayment, assertPiPaymentCompleted, cancelPiPayment, completePiPayment, describeError, getPiPayment, verifyPiTxidOnChain } from '@/lib/pi-platform'
 import { isPiSandboxEnv, isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 /**
@@ -143,6 +143,55 @@ export async function handlePiApprove(request: Request) {
     // 않은 결제는 지갑에서 어차피 만료되며, 진짜 오류만 로그에서 가려진다.
     const message = error instanceof Error ? error.message : 'approve failed'
     console.error('[Pi] /api/pi/approve error', { paymentId, kind, message, ...describeError(error) })
+    return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
+  }
+}
+
+/**
+ * 미완료 결제 정리 전용 — txid가 없어 complete할 수 없는(승인 후 체인 미제출)
+ * 결제를 Pi Platform cancel로 종료한다. 이미 완료·취소된 건은 복구 목적상
+ * 성공으로 간주한다(어느 쪽이든 '미완료' 상태는 아니므로 락은 풀려 있다).
+ * 이미 체인에 제출된 건을 발견하면 취소 대신 완료 경로로 전환할 수 있게
+ * txid를 응답에 담아 돌려준다.
+ */
+export async function handlePiCancel(request: Request) {
+  const body = (await request.json().catch(() => null)) as {
+    paymentId?: unknown
+    sandbox?: unknown
+  } | null
+  const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
+  const sandboxHint = requestSandboxHint(body)
+  const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
+  if (!paymentId) {
+    return NextResponse.json({ error: 'paymentId required' }, { status: 400 })
+  }
+  try {
+    // 취소 전에 상태를 조회 — 체인 제출이 끝난 건(txid 존재)은 취소할 수 없고
+    // complete 경로로 마감해야 하므로 클라이언트에 txid를 돌려준다.
+    const info = await getPiPayment(paymentId, effectiveSandbox).catch(() => null)
+    const transaction =
+      info && typeof info.transaction === 'object' ? (info.transaction as Record<string, unknown>) : null
+    const onChainTxid = typeof transaction?.txid === 'string' ? transaction.txid.trim() : ''
+    if (onChainTxid) {
+      return NextResponse.json({ ok: true, redirected: 'complete', txid: onChainTxid })
+    }
+    const status = info?.status && typeof info.status === 'object' ? (info.status as Record<string, unknown>) : null
+    if (status?.developer_completed === true || status?.cancelled === true || status?.user_cancelled === true) {
+      return NextResponse.json({ ok: true, already: 'final' })
+    }
+    const payment = await cancelPiPayment(paymentId, effectiveSandbox)
+    console.log('[Pi] /api/pi/cancel ok', { paymentId })
+    return NextResponse.json({ ok: true, payment })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'cancel failed'
+    const upstream = (error as { piHttpStatus?: number } | null)?.piHttpStatus
+    // Pi가 '더 이상 취소 불가(이미 완료/만료)'로 4xx를 돌려주면 미완료 락은
+    // 이미 해소된 상태 — 복구 호출자가 실패로 오인해 매번 재시도하지 않게 ok로 돌린다.
+    if (typeof upstream === 'number' && upstream >= 400 && upstream < 500) {
+      console.warn('[Pi] /api/pi/cancel not needed (already final)', { paymentId, upstream, message })
+      return NextResponse.json({ ok: true, already: 'final', note: message })
+    }
+    console.error('[Pi] /api/pi/cancel error', { paymentId, message, ...describeError(error) })
     return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
   }
 }

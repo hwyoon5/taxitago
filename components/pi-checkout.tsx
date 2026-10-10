@@ -55,6 +55,64 @@ type PendingIncompletePayment = { paymentId: string; txid: string; label: string
 
 let pendingIncomplete: PendingIncompletePayment | null = null
 
+/**
+ * 미완료 결제 추적 — Pi SDK는 onIncompletePaymentFound를 authenticate 안에서만
+ * 호출하므로, 세션 중에 완료 처리에 실패한 결제는 여기 남겨 다음 createPayment
+ * 전에 drainIncompletePayments가 마저 정리한다. 남은 미완료 건이 새 결제의
+ * 승인을 붙잡아 지갑이 '결제 만료(승인 프로세스 시간 초과)'로 끝나는 것을 막는다.
+ * 값: txid — ''이면 체인 미제출 건으로 complete 대신 cancel로 종료한다.
+ */
+const knownIncomplete = new Map<string, string>()
+const recoveringIds = new Set<string>()
+const incompleteInFlight = new Set<Promise<void>>()
+
+function queueIncompleteRecovery(paymentId: string, txid: string) {
+  if (!paymentId || recoveringIds.has(paymentId)) return
+  knownIncomplete.set(paymentId, txid)
+  recoveringIds.add(paymentId)
+  const request = txid
+    ? postPiApiRetry('/api/pi/complete', { paymentId, txid, sandbox: PI_SANDBOX })
+    : postPiApiRetry('/api/pi/cancel', { paymentId, sandbox: PI_SANDBOX })
+  const task = request
+    .then((payload) => {
+      // 취소 요청이 '사실상 완료된 건'을 발견하면 서버가 txid를 돌려준다 —
+      // 그 경우 complete로 전환해 마감한다.
+      const redirectedTxid = txidFromPiPayload(payload)
+      if (!txid && redirectedTxid && payload && typeof payload === 'object' && (payload as Record<string, unknown>).redirected === 'complete') {
+        if (knownIncomplete.get(paymentId) === '') knownIncomplete.set(paymentId, redirectedTxid)
+        queueIncompleteRecovery(paymentId, redirectedTxid)
+        return
+      }
+      if (knownIncomplete.get(paymentId) === txid) knownIncomplete.delete(paymentId)
+    })
+    .catch((error) => {
+      // 이미 최종 상태(완료·취소·만료)라 Pi가 거절한 건은 더 이상 락을 잡지
+      // 않으므로 추적에서 제외한다 — 매 결제마다 재시도되는 좀비 건 방지.
+      if (/already|final|complet|cancel|expir|not.?found|만료/i.test(errorText(error))) {
+        knownIncomplete.delete(paymentId)
+      }
+      logPi('warn', 'incomplete payment recovery failed', { paymentId, txid, error: errorText(error) })
+    })
+    .finally(() => {
+      recoveringIds.delete(paymentId)
+      incompleteInFlight.delete(task)
+    })
+  incompleteInFlight.add(task)
+}
+
+/**
+ * createPayment 직전에 미완료 결제를 모두 정리한다. 진행 중인 복구를 기다리고,
+ * 실패로 남은 건을 다시 큐에 넣어 최대 몇 번까지 회수를 시도한다.
+ */
+async function drainIncompletePayments() {
+  for (let round = 0; round < 4; round += 1) {
+    if (incompleteInFlight.size) await Promise.allSettled([...incompleteInFlight])
+    const retry = [...knownIncomplete.keys()].filter((id) => !recoveringIds.has(id))
+    if (!retry.length) break
+    for (const id of retry) queueIncompleteRecovery(id, knownIncomplete.get(id) ?? '')
+  }
+}
+
 function checkoutLabel(metadata?: Record<string, unknown>) {
   return typeof metadata?.label === 'string' ? metadata.label.trim() : ''
 }
@@ -71,12 +129,10 @@ async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<v
   if (paymentId && isMobilityReturnLabel(label)) {
     pendingIncomplete = { paymentId, txid, label }
   }
-  if (!paymentId || !txid) return
-  try {
-    await postPiApiRetry('/api/pi/complete', { paymentId, txid, sandbox: PI_SANDBOX })
-  } catch (error) {
-    logPi('warn', 'incomplete payment complete failed', error)
-  }
+  if (!paymentId) return
+  // txid가 있으면 서버 complete로 마감, 없으면(승인 후 체인 미제출) cancel로 종료 —
+  // 둘 중 하나로 반드시 '미완료' 상태를 해소해야 다음 결제가 막히지 않는다.
+  queueIncompleteRecovery(paymentId, txid)
 }
 
 /**
@@ -249,7 +305,9 @@ function waitForPi(timeoutMs = 12000) {
  * 있다 — 서버가 승인 요청을 "아예 못 받는" 상황을 막기 위해 sendBeacon으로
  * 같은 payload를 OS 큐에 한 번 더 실어둔다(서버 승인은 멱등이라 중복 안전).
  */
-function beaconPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, unknown>) {
+type PiApiPath = '/api/pi/approve' | '/api/pi/complete' | '/api/pi/cancel'
+
+function beaconPiApi(path: PiApiPath, body: Record<string, unknown>) {
   try {
     if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return
     const queued = navigator.sendBeacon(`${path}/`, new Blob([JSON.stringify(body)], { type: 'application/json' }))
@@ -259,7 +317,7 @@ function beaconPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Record<
   }
 }
 
-async function postPiApi(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, unknown>) {
+async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
   logPi('log', `${path} request`, body)
   const response = await apiFetch(path, {
     method: 'POST',
@@ -309,12 +367,12 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
   })
 }
 
-function piApiLabel(path: '/api/pi/approve' | '/api/pi/complete') {
-  return path === '/api/pi/approve' ? 'Pi 결제 승인' : 'Pi 결제 완료'
+function piApiLabel(path: PiApiPath) {
+  return path === '/api/pi/approve' ? 'Pi 결제 승인' : path === '/api/pi/complete' ? 'Pi 결제 완료' : 'Pi 결제 취소'
 }
 
 /** Serverless cold starts and Pi API latency can push one call past the window — retry once. */
-async function postPiApiRetry(path: '/api/pi/approve' | '/api/pi/complete', body: Record<string, unknown>, retries = 1) {
+async function postPiApiRetry(path: PiApiPath, body: Record<string, unknown>, retries = 1) {
   const timeoutMs = path === '/api/pi/approve' ? PI_APPROVE_SERVER_TIMEOUT_MS : PI_SERVER_TIMEOUT_MS
   let lastError: unknown
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -811,6 +869,56 @@ export async function startPiCheckout(options: {
   }
   logPi('log', 'window.Pi.createPayment', payment)
 
+  // 이전 결제가 미완료로 남아 있으면 새 결제의 승인이 막혀 지갑이 만료된다 —
+  // createPayment 전에 미완료 건을 complete/cancel로 반드시 정리한다.
+  await drainIncompletePayments()
+
+  // 승인 타임아웃·만료 류 실패이고 아직 paymentId가 생성되지 않았다면
+  // (체인 청구가 물리적으로 불가능한 단계) 세션 리셋 + 미완료 정리 후 1회 재시도.
+  let lastError: unknown
+  for (let attemptIndex = 0; attemptIndex < 2; attemptIndex += 1) {
+    const attempt: { paymentId: string; txid: string } = { paymentId: '', txid: '' }
+    try {
+      return await runCreatePayment(pi, payment, options, attempt)
+    } catch (error) {
+      lastError = error
+      if (attemptIndex === 0 && !attempt.paymentId && isExpiryLikeError(error)) {
+        logPi('warn', 'createPayment failed pre-initiation; resetting session and retrying once', error)
+        resetPiSession()
+        try {
+          await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate (retry)')
+        } catch (authError) {
+          logPi('warn', 'retry authenticate failed', authError)
+        }
+        await drainIncompletePayments()
+        continue
+      }
+      throw error
+    }
+  }
+  throw lastError
+}
+
+/** 만료·승인 타임아웃 류 — 미완료 결제 락이 원인일 때 재시도 가치가 있는 오류. */
+function isExpiryLikeError(error: unknown) {
+  return /만료|expired|timeout|timed out|승인|approv/i.test(errorText(error))
+}
+
+type PaymentAttemptState = { paymentId: string; txid: string }
+
+function runCreatePayment(
+  pi: PiSdk,
+  payment: { amount: number; memo: string; metadata: Record<string, unknown> },
+  options: {
+    amount: number
+    memo: string
+    metadata?: Record<string, unknown>
+    advanceOnApproval?: boolean
+    strictCompletion?: boolean
+    onSettled?: (result: PiCheckoutResult) => void
+  },
+  attempt: PaymentAttemptState,
+) {
   return new Promise<PiCheckoutResult>((resolve, reject) => {
     let settled = false
     let paymentInitiated = false
@@ -833,6 +941,9 @@ export async function startPiCheckout(options: {
       settled = true
       logPi('error', label, { error, extra })
       if (isSessionError(error)) resetPiSession()
+      // 이 시도에서 생성된 결제는 미완료로 남았을 수 있다 — 다음 결제가
+      // 막히지 않도록 복구 큐에 올린다(txid 없으면 cancel로 종료된다).
+      if (attempt.paymentId) queueIncompleteRecovery(attempt.paymentId, attempt.txid)
       const failure: PiCheckoutError = error instanceof Error ? error : new Error(describePiUserMessage(error))
       if (paymentInitiated) failure.piInitiated = true
       reject(failure)
@@ -843,6 +954,8 @@ export async function startPiCheckout(options: {
         onReadyForServerApproval: (paymentIdArg) => {
           const paymentId = readPaymentId(paymentIdArg)
           const approvedTxid = txidFromPiPayload(paymentIdArg)
+          if (paymentId) attempt.paymentId = paymentId
+          if (approvedTxid) attempt.txid = approvedTxid
           paymentInitiated = true
           logPi('log', 'onReadyForServerApproval', { paymentId, approvedTxid })
           if (!paymentId) {
@@ -868,6 +981,8 @@ export async function startPiCheckout(options: {
         onReadyForServerCompletion: (paymentIdArg, txidArg) => {
           const paymentId = readPaymentId(paymentIdArg) || readPaymentId(txidArg)
           const txid = txidFromPiPayload(txidArg) || txidFromPiPayload(paymentIdArg)
+          if (paymentId) attempt.paymentId = paymentId
+          if (txid) attempt.txid = txid
           paymentInitiated = true
           logPi('log', 'onReadyForServerCompletion', { paymentId, txid })
           if (!paymentId) {
@@ -884,7 +999,7 @@ export async function startPiCheckout(options: {
           beaconPiApi('/api/pi/complete', {
             paymentId,
             txid,
-            amount,
+            amount: payment.amount,
             metadata: payment.metadata,
             kind: checkoutKind(payment.metadata),
             sandbox: PI_SANDBOX,
@@ -892,7 +1007,7 @@ export async function startPiCheckout(options: {
           return postPiApiRetry('/api/pi/complete', {
             paymentId,
             txid,
-            amount,
+            amount: payment.amount,
             metadata: payment.metadata,
             kind: checkoutKind(payment.metadata),
             sandbox: PI_SANDBOX,
@@ -902,6 +1017,9 @@ export async function startPiCheckout(options: {
             })
             .catch((error) => {
               if (settled) return undefined
+              // 완료 확인에 실패한 결제는 미완료로 남는다 — 다음 결제가 이 건에
+              // 막혀 만료되지 않도록 복구 큐에 올려 재시도·정리한다.
+              queueIncompleteRecovery(paymentId, txid)
               // 지갑 충전은 서버 검증 완료만이 충전 근거 — 실패 시 절대 잔액을 올리지 않는다.
               // 실제 체인 결제가 됐다면 Horizon 입금 폴러가 txid로 검증 후 충전한다.
               if (options.strictCompletion) {
@@ -916,6 +1034,8 @@ export async function startPiCheckout(options: {
             })
         },
         onCancel: (paymentId) => {
+          const id = readPaymentId(paymentId)
+          if (id) attempt.paymentId = id
           paymentInitiated = true
           logPi('warn', 'onCancel', { paymentId })
           finishError('cancelled', new Error('결제가 취소되었습니다.'))
@@ -923,6 +1043,8 @@ export async function startPiCheckout(options: {
         onError: (error, paymentInfo) => {
           const paymentId = readPaymentId(paymentInfo)
           const txid = txidFromPiPayload(paymentInfo)
+          if (paymentId) attempt.paymentId = paymentId
+          if (txid) attempt.txid = txid
           logPi('error', 'onError', { error, paymentInfo, paymentId, txid })
           if (options.advanceOnApproval && paymentId && txid) {
             succeed({ paymentId, txid })

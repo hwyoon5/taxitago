@@ -255,6 +255,14 @@ export async function approvePiPayment(paymentId: string, sandboxHint?: boolean 
   throw lastError
 }
 
+/**
+ * 승인 후 체인 제출 전까지 남은 미완료 결제는 txid가 없어 complete할 수 없다 —
+ * Pi Platform의 cancel로 종료해 다음 결제의 승인 락을 푼다.
+ */
+export async function cancelPiPayment(paymentId: string, sandboxHint?: boolean | null) {
+  return piPaymentsRequestAuthed(paymentId, 'POST', '/cancel', undefined, PI_FETCH_TIMEOUT_MS, sandboxHint)
+}
+
 export async function completePiPayment(paymentId: string, txid: string, sandboxHint?: boolean | null) {
   const infoPromise = getPiPayment(paymentId, sandboxHint).catch(() => null)
   const payment = await piPaymentsRequestAuthed(
