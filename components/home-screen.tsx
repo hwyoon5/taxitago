@@ -748,13 +748,67 @@ function isPiDepositCredited(txid: string) {
   const value = txid.trim()
   return Boolean(value) && piDepositCreditedSet().has(value)
 }
+const SETTLED_RIDES_KEY = 'taxitago-settled-rides'
+const SETTLED_PAYMENTS_KEY = 'taxitago-settled-payments'
+
+/** rideId/paymentId 단위 멱등 — 새로고침해도 유지돼 완료 폴러가 같은 건을 다시 차감하지 못한다. */
+let settledRideIdCache: Set<string> | null = null
+let settledPaymentIdCache: Set<string> | null = null
+function loadPersistedIds(key: string) {
+  const ids = new Set<string>()
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(key) || '[]') as unknown
+    if (Array.isArray(stored)) for (const id of stored) ids.add(String(id))
+  } catch {
+    undefined
+  }
+  return ids
+}
+function persistIds(key: string, ids: Set<string>) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify([...ids].slice(-500)))
+  } catch {
+    undefined
+  }
+}
+function markSettledRide(id: string | undefined) {
+  const value = (id || '').trim()
+  if (!value) return
+  if (!settledRideIdCache) settledRideIdCache = loadPersistedIds(SETTLED_RIDES_KEY)
+  settledRideIdCache.add(value)
+  persistIds(SETTLED_RIDES_KEY, settledRideIdCache)
+}
+function markSettledPayment(id: string | undefined) {
+  const value = (id || '').trim()
+  if (!value) return
+  if (!settledPaymentIdCache) settledPaymentIdCache = loadPersistedIds(SETTLED_PAYMENTS_KEY)
+  settledPaymentIdCache.add(value)
+  persistIds(SETTLED_PAYMENTS_KEY, settledPaymentIdCache)
+}
+function isSettledRide(id: string | undefined) {
+  const value = (id || '').trim()
+  if (!value) return false
+  if (!settledRideIdCache) settledRideIdCache = loadPersistedIds(SETTLED_RIDES_KEY)
+  return settledRideIdCache.has(value)
+}
+function isSettledPayment(id: string | undefined) {
+  const value = (id || '').trim()
+  if (!value) return false
+  if (!settledPaymentIdCache) settledPaymentIdCache = loadPersistedIds(SETTLED_PAYMENTS_KEY)
+  return settledPaymentIdCache.has(value)
+}
 
 /**
  * 서버(/api/wallet/deposits)가 Horizon 스캔+장부 기록까지 처리한 뒤
  * 이 이용자에게 귀속되는 confirmed 입금을 돌려준다 — 각 건은 txid 멱등으로
  * 정확히 한 번만 onCredit 된다.
  */
-async function scanPiDeposits(wallet: string, uid: string, onCredit: (amount: number, txid: string, at?: number) => void) {
+async function scanPiDeposits(
+  wallet: string,
+  uid: string,
+  onCredit: (amount: number, txid: string, at?: number) => void,
+  onBalance?: (spendable: number) => void,
+) {
   try {
     const uidParam = uid ? `&uid=${encodeURIComponent(uid)}` : ''
     const res = await fetch(
@@ -763,6 +817,8 @@ async function scanPiDeposits(wallet: string, uid: string, onCredit: (amount: nu
     )
     const data = (await res.json().catch(() => null)) as {
       deposits?: { txid: string; amount: number; createdAt?: string }[]
+      spendable?: number
+      creditsTotal?: { total?: number }
     } | null
     if (!res.ok || !data?.deposits) return
     for (const deposit of data.deposits) {
@@ -773,6 +829,12 @@ async function scanPiDeposits(wallet: string, uid: string, onCredit: (amount: nu
       const at = typeof deposit.createdAt === 'string' ? Date.parse(deposit.createdAt) : NaN
       onCredit(deposit.amount, deposit.txid, Number.isFinite(at) ? at : undefined)
     }
+    // 서버 장부가 권위 — 크레딧이 실제로 기록된 이용자는 spendable로 로컬 잔액을
+    // 교정한다(새로고침 중복 차감 등으로 깨진 표시 자가치유). 서버 장부가 비어
+    // 있으면 로컬 잔액을 건드리지 않는다(KV 미설정 등 판별 불가).
+    const spendable = Number(data.spendable)
+    const creditsTotal = Number(data.creditsTotal?.total)
+    if (onBalance && Number.isFinite(spendable) && spendable >= 0 && creditsTotal > 0) onBalance(spendable)
   } catch {
     undefined
   }
@@ -8918,9 +8980,9 @@ export default function HomeScreen() {
   const [inboxItem, setInboxItem] = useState<Notice | null>(null)
   const [readNoticeIds, setReadNoticeIds] = useState<string[]>([])
   const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number; estimated?: number; paymentId: string; txid: string } | null>(null)
-  const settledPaymentIds = useRef(new Set<string>())
-  // 서버/기사 측에서 먼저 완료된 운행도 '최근 이용'·활동 기록에 한 번만 반영한다.
-  const settledRideIds = useRef(new Set<string>())
+  // 결제·운행 멱등 키는 모듈 레벨 영속 세트(markSettledPayment/markSettledRide,
+  // localStorage)로 관리한다 — useRef는 새로고침마다 비워져 완료 폴러가 과거
+  // 운행을 다시 차감하는 중복 결제 버그가 있었다.
   const [driverReview, setDriverReview] = useState<{ name: string; vehicle: string; plate: string; kind?: 'driver' | 'service' } | null>(null)
   const [rideReview, setRideReview] = useState<RideReviewTarget | null>(null)
   const [supportDesk, setSupportDesk] = useState<LostPrefill | null | true>(null)
@@ -9096,14 +9158,15 @@ export default function HomeScreen() {
       showNotice('파이 지갑 승인이 완료되어야 영수증으로 넘어갑니다.')
       return
     }
-    if (settledPaymentIds.current.has(proof.paymentId)) return
-    settledPaymentIds.current.add(proof.paymentId)
-    if (rideId) settledRideIds.current.add(rideId)
+    if (isSettledPayment(proof.paymentId) || isSettledPayment(proof.txid)) return
+    markSettledPayment(proof.paymentId)
+    markSettledPayment(proof.txid)
+    if (rideId) markSettledRide(rideId)
     const remaining = Math.round((walletBalance - amount) * 100) / 100
     const at = formatPiTime()
     const ts = Date.now()
     setWalletBalance(Math.max(0, remaining))
-    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated }, ...items])
+    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated, txid: proof.txid }, ...items])
     recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(7)} Pi · ${place}`)
     setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated, paymentId: proof.paymentId, txid: proof.txid })
     emitLedgerChange()
@@ -9129,16 +9192,19 @@ export default function HomeScreen() {
   // 활동 기록/지갑 내역에 동기화한다. 수동 결제 경로와 rideId 중복 방지를 공유한다.
   const noteCompletedRide = (rideId: string, receipt: SettlementReceipt, label: string) => {
     const key = rideId || receipt.rideId || receipt.payoutTxid || receipt.lockTxid
-    if (key && settledRideIds.current.has(key)) return
-    if ((receipt.payoutTxid && settledPaymentIds.current.has(receipt.payoutTxid)) || (receipt.lockTxid && settledPaymentIds.current.has(receipt.lockTxid))) return
-    if (key) settledRideIds.current.add(key)
+    if ((key && isSettledRide(key)) || isSettledRide(receipt.rideId)) return
+    if (isSettledPayment(receipt.payoutTxid) || isSettledPayment(receipt.lockTxid)) return
+    if (key) markSettledRide(key)
+    if (receipt.rideId) markSettledRide(receipt.rideId)
+    markSettledPayment(receipt.payoutTxid)
+    markSettledPayment(receipt.lockTxid)
     const amount = receipt.amount
     if (!(amount > 0)) return
     const at = formatPiTime()
     const ts = Date.now()
     const place = receipt.route
     setWalletBalance((balance) => Math.max(0, Math.round((balance - amount) * 100) / 100))
-    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated: receipt.estimatedFare }, ...items])
+    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated: receipt.estimatedFare, txid: receipt.payoutTxid || receipt.lockTxid }, ...items])
     recordActivity('운행 완료', `${place} · ${amount.toFixed(7)} Pi · 정산 완료`)
     const next: RecentUse = {
       route: place,
@@ -9268,11 +9334,25 @@ export default function HomeScreen() {
     if (!uid && !isPiWalletAddress(wallet)) return
     let stopped = false
     const scan = () =>
-      scanPiDeposits(isPiWalletAddress(wallet) ? wallet : '', uid, (amount, _txid, ts) => {
-        if (stopped) return
-        depositWallet(amount, ts)
-        showNotice(`${amount.toFixed(2)} Pi 입금 확인 — 지갑에 자동 충전되었습니다.`)
-      })
+      scanPiDeposits(
+        isPiWalletAddress(wallet) ? wallet : '',
+        uid,
+        (amount, _txid, ts) => {
+          if (stopped) return
+          depositWallet(amount, ts)
+          showNotice(`${amount.toFixed(2)} Pi 입금 확인 — 지갑에 자동 충전되었습니다.`)
+        },
+        (spendable) => {
+          if (stopped) return
+          // 서버 장부(권위)와 다른 로컬 잔액은 교정한다 — 새로고침 중복 차감 등으로
+          // 깨진 값을 자가치유. 입금 직후 onCredit 반영분도 서버 spendable에 포함된다.
+          setWalletBalance((balance) => {
+            if (Math.abs(balance - spendable) < 0.000001) return balance
+            console.log('[Wallet] balance reconciled to server ledger', { local: balance, spendable })
+            return Math.round(spendable * 100) / 100
+          })
+        },
+      )
     void scan()
     const timer = window.setInterval(scan, 10_000)
     return () => {
@@ -9284,8 +9364,8 @@ export default function HomeScreen() {
   }, [])
   // 서버/기사 측에서 먼저 정산된 내 운행을 주기적으로 동기화한다 — 결제 시트를
   // 닫았거나 폴러를 놓친 경우에도 잔액 차감·활동·최근 이용·영수증이 늦지 않게
-  // 반영된다. noteCompletedRide의 settledRideIds/settledPaymentIds 가드가
-  // 직접 결제 경로와의 중복 차감을 막는다.
+  // 반영된다. 영속 멱등 세트(isSettledRide/isSettledPayment)가 직접 결제 경로와의
+  // 중복 차감을 막고, 새로고침 후에도 과거 완료 건이 재차감되지 않는다.
   useEffect(() => {
     const passengerId = localPassengerId()
     let stopped = false
@@ -9295,7 +9375,7 @@ export default function HomeScreen() {
           if (stopped) return
           for (const ride of rides) {
             // 최근 24시간 안에 갱신된 완료 건만 확인 — 오래된 내역은 재조회하지 않는다.
-            if (ride.status !== 'completed' || settledRideIds.current.has(ride.id)) continue
+            if (ride.status !== 'completed' || isSettledRide(ride.id)) continue
             if (Date.now() - Date.parse(ride.updatedAt || '') > 24 * 60 * 60 * 1000) continue
             void fetchRideReceipt(ride.id)
               .then((receipt) => {
