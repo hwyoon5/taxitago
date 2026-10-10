@@ -600,8 +600,24 @@
     transform: translate(-50%, -50%) rotate(360deg);
   }
 }
+/* 빛줄기와 별개로 카드 외곽 광이 숨쉬듯 밝아졌다 어두워지는 두 번째 무한 애니메이션 —
+   회전 레이어가 어떤 이유로든 합성되지 않아도 이 펄스는 반드시 움직인다. */
+@keyframes dest-glow-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 6px 12px rgba(124, 58, 237, 0.1),
+      0 0 0 0 rgba(124, 58, 237, 0);
+  }
+  50% {
+    box-shadow:
+      0 6px 12px rgba(124, 58, 237, 0.1),
+      0 0 16px 4px rgba(124, 58, 237, 0.4);
+  }
+}
 .dest-glow {
   position: relative;
+  animation: dest-glow-breathe 3s ease-in-out infinite;
 }
 .dest-glow::before {
   content: '';
@@ -611,6 +627,7 @@
   width: 220%;
   padding-bottom: 220%; /* 너비 기준 정사각형 — 회전해도 모서리가 가려지지 않음 */
   transform: translate(-50%, -50%);
+  will-change: transform; /* 회전 레이어를 합성층으로 올려 프레임 누락 방지 */
   background:
     conic-gradient(
       from 0deg,
@@ -664,9 +681,32 @@ html.dark .dest-glow::before {
 html.dark .dest-glow::after {
   background: #0f172a; /* .dark .bg-white 리맵과 동일 값 */
 }
+@keyframes dest-glow-breathe-dark {
+  0%,
+  100% {
+    box-shadow:
+      0 6px 12px rgba(0, 0, 0, 0.4),
+      0 0 0 0 rgba(167, 139, 250, 0);
+  }
+  50% {
+    box-shadow:
+      0 6px 12px rgba(0, 0, 0, 0.4),
+      0 0 18px 4px rgba(167, 139, 250, 0.5);
+  }
+}
+html.dark .dest-glow {
+  animation: dest-glow-breathe-dark 3s ease-in-out infinite;
+}
+/* reduced-motion에서도 완전 정지 대신 느린 회전으로 — 어떤 환경에서도 애니메이션 유지 */
 @media (prefers-reduced-motion: reduce) {
+  .dest-glow {
+    animation: dest-glow-breathe 9s ease-in-out infinite;
+  }
   .dest-glow::before {
-    animation: none;
+    animation: dest-glow-spin 16s linear infinite;
+  }
+  html.dark .dest-glow {
+    animation: dest-glow-breathe-dark 9s ease-in-out infinite;
   }
 }
 
