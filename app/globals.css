@@ -588,52 +588,56 @@
 }
 
 /* ===== Destination card — symmetric shimmer border ===== */
-/* 테두리 링을 따라 180° 대칭의 빛줄기 두 개가 무한 회전한다.
-   @property 미지원 브라우저는 정적 대칭 그라데이션 테두리로 보인다. */
-@property --dest-glow-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-.dest-glow-card {
-  /* 라이트 모드 — 브랜드 바이올렛이 연회색 테두리 위에서 선명하게 읽히도록 높은 불투명도 */
+/* 래퍼 패딩(2px)이 테두리 링 역할을 하고, 그 아래 놓인 초대형 conic-gradient
+   레이어가 plain transform 회전으로 흐른다 — @property/mask 없이 모든
+   브라우저에서 동작한다. 빛줄기는 0°·180° 두 지점 대칭으로 무한 반복. */
+.dest-glow-wrap {
   --dest-glow-1: rgba(76, 31, 184, 0.9);
-  --dest-glow-soft: rgba(124, 58, 237, 0.35);
-}
-.dest-glow-card::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
+  --dest-glow-soft: rgba(124, 58, 237, 0.4);
+  position: relative;
   border-radius: 28px;
   padding: 2px;
+  overflow: hidden;
+  background: #cbd5e1; /* 테두리 베이스 — 라이트 slate-300 */
+}
+.dest-glow-wrap::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 170%;
+  aspect-ratio: 1 / 1;
   background: conic-gradient(
-    from var(--dest-glow-angle),
+    from 0deg,
     transparent 0deg,
-    var(--dest-glow-soft) 18deg,
-    var(--dest-glow-1) 34deg,
-    var(--dest-glow-soft) 50deg,
-    transparent 68deg,
+    var(--dest-glow-soft) 16deg,
+    var(--dest-glow-1) 32deg,
+    var(--dest-glow-soft) 48deg,
+    transparent 64deg,
     transparent 180deg,
-    var(--dest-glow-soft) 198deg,
-    var(--dest-glow-1) 214deg,
-    var(--dest-glow-soft) 230deg,
-    transparent 248deg,
+    var(--dest-glow-soft) 196deg,
+    var(--dest-glow-1) 212deg,
+    var(--dest-glow-soft) 228deg,
+    transparent 244deg,
     transparent 360deg
   );
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  animation: dest-glow-spin 4.5s linear infinite;
+  animation: dest-glow-rotate 4.5s linear infinite;
   pointer-events: none;
 }
-@keyframes dest-glow-spin {
+@keyframes dest-glow-rotate {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
   to {
-    --dest-glow-angle: 360deg;
+    transform: translate(-50%, -50%) rotate(360deg);
   }
 }
+.dest-glow-inner {
+  position: relative;
+  border-radius: 26px;
+}
 @media (prefers-reduced-motion: reduce) {
-  .dest-glow-card::before {
+  .dest-glow-wrap::before {
     animation: none;
   }
 }
@@ -650,13 +654,14 @@ html.dark {
 .dark ::placeholder {
   color: #64748B;
 }
-/* 다크 모드 — 라벤더 톤의 은은한 광원 + 가벼운 외곽 후광 */
-.dark .dest-glow-card {
+/* 다크 모드 — 어두운 배경에 대비되는 라벤더 네온 광원 + 외곽 후광 */
+.dark .dest-glow-wrap {
   --dest-glow-1: rgba(196, 181, 253, 0.95);
-  --dest-glow-soft: rgba(139, 92, 246, 0.4);
+  --dest-glow-soft: rgba(139, 92, 246, 0.45);
+  background: #353d4a; /* 테두리 베이스 — 다크 slate 리맵과 동일 톤 */
 }
-.dark .dest-glow-card::before {
-  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.35));
+.dark .dest-glow-wrap::before {
+  filter: drop-shadow(0 0 4px rgba(167, 139, 250, 0.4));
 }
 .dark input,
 .dark textarea,
