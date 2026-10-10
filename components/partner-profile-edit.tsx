@@ -1,10 +1,12 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { partnerVehicle, updatePartnerProfile, uploadInsuranceDoc, type PartnerProfile } from '@/lib/partner-account'
 import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-services'
+import { facilityTypeToDeviceKind, type DeviceSpec, type DeviceTelemetry } from '@/lib/device-types'
+import FacilitySpecForm from '@/components/facility-spec-form'
 
 const DOC_MAX_BYTES = 2.5 * 1024 * 1024
 
@@ -39,6 +41,20 @@ export default function PartnerProfileEditModal({
   const [saving, setSaving] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
+  const [facilitySpec, setFacilitySpec] = useState<DeviceSpec | null>(null)
+
+  const deviceKind = isDriver ? '' : facilityTypeToDeviceKind(profile.serviceType)
+  // 등록된 시설 스펙을 미리 채운다 — 서버 레지스트리에 저장된 값이 있으면 그대로 편집.
+  useEffect(() => {
+    if (!deviceKind || !profile.uid) return
+    void fetch(`/api/devices?uid=${encodeURIComponent(profile.uid)}&type=${encodeURIComponent(deviceKind)}`, { cache: 'no-store' })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => null)) as { devices?: DeviceTelemetry[] } | null
+        const spec = data?.devices?.[0]?.spec
+        if (spec) setFacilitySpec(spec)
+      })
+      .catch(() => undefined)
+  }, [deviceKind, profile.uid])
 
   const phoneOk = isValidKoreanPhone(phone)
   const canSubmit =
@@ -107,6 +123,19 @@ export default function PartnerProfileEditModal({
       if (!next) {
         setError('저장할 프로필을 찾지 못했어요. 다시 로그인한 뒤 시도해 주세요.')
         return
+      }
+      if (!isDriver && deviceKind && facilitySpec) {
+        void fetch('/api/devices/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId: plateNumber.trim() || `${deviceKind}-${profile.uid}`,
+            type: deviceKind,
+            ownerUid: profile.uid,
+            ownerName: name.trim(),
+            spec: facilitySpec,
+          }),
+        }).catch(() => undefined)
       }
       onSaved?.(next)
       setSubmitted(true)
@@ -190,6 +219,7 @@ export default function PartnerProfileEditModal({
                   <span className="text-xs font-black text-[#334155]">{facilityUnitLabel(profile.serviceType)} (선택)</span>
                   <input value={plateNumber} onChange={(event) => setPlateNumber(event.target.value)} placeholder={facilityUnitPlaceholder(profile.serviceType)} className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
                 </label>
+                <FacilitySpecForm serviceType={profile.serviceType || ''} spec={facilitySpec} onChange={setFacilitySpec} />
               </div>
             )}
             <label className="mt-3 block">

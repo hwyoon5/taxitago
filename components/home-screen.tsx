@@ -32,6 +32,8 @@ import {
   uploadInsuranceDoc,
 } from '@/lib/partner-account'
 import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-services'
+import { facilityTypeToDeviceKind, type DeviceSpec } from '@/lib/device-types'
+import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { piCompact } from '@/lib/pi-format'
 import { DEFAULT_FARE_CONFIG, fetchDepositWallet, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
@@ -6550,6 +6552,7 @@ function PartnerSignupModal({
   const [role, setRole] = useState<'기사' | '파트너'>('기사')
   const [serviceType, setServiceType] = useState<'택시' | '대리운전' | '택배'>('택시')
   const [facilityType, setFacilityType] = useState<'주차' | '자전거' | '킥보드' | 'EV 충전'>('주차')
+  const [facilitySpec, setFacilitySpec] = useState<DeviceSpec | null>(null)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [vehicleName, setVehicleName] = useState('')
@@ -6609,6 +6612,22 @@ function PartnerSignupModal({
     }
     savePartnerProfile(profile)
     void syncPartnerLink(profile)
+    if (role === '파트너' && facilitySpec) {
+      const kind = facilityTypeToDeviceKind(facilityType)
+      if (kind) {
+        void fetch('/api/devices/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId: plateNumber.trim() || `${kind}-${session.uid}`,
+            type: kind,
+            ownerUid: session.uid,
+            ownerName: name.trim(),
+            spec: facilitySpec,
+          }),
+        }).catch(() => undefined)
+      }
+    }
     if (insuranceDoc) void uploadInsuranceDoc(session.uid, insuranceDoc).catch(() => undefined)
     setSubmitted(true)
     onRegistered(role, session)
@@ -6813,6 +6832,7 @@ function PartnerSignupModal({
                   className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]"
                 />
               </label>
+              <FacilitySpecForm serviceType={facilityType} spec={facilitySpec} onChange={setFacilitySpec} />
             </div>
             )}
             <label className="mt-3 block">

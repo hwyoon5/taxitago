@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
-import { deviceTypeLabel, type DeviceTelemetry } from '@/lib/device-types'
+import { deviceTypeLabel, specSummary, type DeviceTelemetry } from '@/lib/device-types'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -39,6 +39,13 @@ export default function AdminDevices() {
   const [error, setError] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
+  const [typeFilter, setTypeFilter] = useState<'all' | string>('all')
+
+  const visible = typeFilter === 'all' ? devices : devices.filter((row) => row.type === typeFilter)
+  const typeCounts = devices.reduce<Record<string, number>>((acc, row) => {
+    acc[row.type] = (acc[row.type] || 0) + 1
+    return acc
+  }, {})
 
   const load = () => {
     void fetch('/api/admin/devices', { headers: adminHeaders(), cache: 'no-store' })
@@ -58,9 +65,9 @@ export default function AdminDevices() {
     return () => window.clearInterval(timer)
   }, [])
 
-  const totalPages = Math.max(1, Math.ceil(devices.length / pageSize))
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize))
   const safePage = Math.min(page, totalPages - 1)
-  const paged = devices.slice(safePage * pageSize, safePage * pageSize + pageSize)
+  const paged = visible.slice(safePage * pageSize, safePage * pageSize + pageSize)
   const pageButtons = (() => {
     const span = 2
     const start = Math.max(0, Math.min(safePage - span, totalPages - span * 2 - 1))
@@ -86,12 +93,31 @@ export default function AdminDevices() {
           </span>
         </div>
         <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
-          자전거·킥보드 등 기기가 /api/devices/location-update로 보낸 최신 위치 신고입니다. 15초마다 자동 갱신됩니다.
+          파트너 등록 시설과 기기의 최신 위치 신고입니다. 15초마다 자동 갱신됩니다.
         </p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => { setTypeFilter('all'); setPage(0) }}
+            className={`rounded-full px-2.5 py-1 text-[10px] font-black ${typeFilter === 'all' ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
+          >
+            전체 {devices.length}
+          </button>
+          {Object.keys(typeCounts).map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => { setTypeFilter(type); setPage(0) }}
+              className={`rounded-full px-2.5 py-1 text-[10px] font-black ${typeFilter === type ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
+            >
+              {deviceTypeLabel(type)} {typeCounts[type]}
+            </button>
+          ))}
+        </div>
         {loading ? <p className="mt-4 text-center text-xs font-bold text-[#64748B]">불러오는 중…</p> : null}
-        {!loading && !devices.length ? (
+        {!loading && !visible.length ? (
           <p className="mt-4 rounded-2xl border-2 border-dashed border-[#CBD5E1] p-5 text-center text-sm font-bold text-[#64748B]">
-            아직 신고된 기기가 없습니다. 기기 시뮬레이터나 실제 단말이 위치를 보내면 여기에 표시됩니다.
+            {devices.length ? '선택한 유형의 기기가 없습니다.' : '아직 신고된 기기가 없습니다. 파트너 등록이나 기기 시뮬레이터가 데이터를 보내면 여기에 표시됩니다.'}
           </p>
         ) : null}
         <div className="mt-3 space-y-2">
@@ -109,6 +135,10 @@ export default function AdminDevices() {
               <p className="mt-1 font-mono text-[11px] font-bold text-[#475569]">
                 {row.latitude.toFixed(6)}, {row.longitude.toFixed(6)}
               </p>
+              {row.spec ? <p className="mt-1 text-[11px] font-bold text-[#64748B]">{specSummary(row.spec)}</p> : null}
+              {row.ownerName || row.ownerUid ? (
+                <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">소유 파트너: {row.ownerName || row.ownerUid}</p>
+              ) : null}
               <p className="mt-0.5 flex items-center gap-2 text-[11px] font-bold text-[#64748B]">
                 <span className={batteryTone(row.batteryLevel)}>
                   배터리 {row.batteryLevel === null ? '—' : `${row.batteryLevel}%`}
@@ -119,11 +149,11 @@ export default function AdminDevices() {
             </div>
           ))}
         </div>
-        {devices.length > 0 ? (
+        {visible.length > 0 ? (
           <PaginationBar
-            total={devices.length}
+            total={visible.length}
             rangeStart={safePage * pageSize + 1}
-            rangeEnd={Math.min(devices.length, (safePage + 1) * pageSize)}
+            rangeEnd={Math.min(visible.length, (safePage + 1) * pageSize)}
             page={safePage + 1}
             totalPages={totalPages}
             pageButtons={pageButtons}

@@ -24,17 +24,16 @@ export function vehicleRequiredFor(serviceType?: string | null) {
   return serviceType === '택시' || serviceType === '택배'
 }
 
-/** 시설 서비스별 장비·구역 식별 번호 라벨 — 파트너 폼의 장비 번호 입력 안내. */
+/** 시설 서비스별 식별 번호 라벨 — 파트너 폼의 고유 ID 입력 안내. */
 export function facilityUnitLabel(serviceType?: string | null) {
   switch (serviceType) {
     case '주차':
-      return '주차 구역/면 번호'
+      return '주차장 관리 번호'
     case '자전거':
-      return '자전거 장비 번호'
     case '킥보드':
-      return '킥보드 장비 번호'
+      return '기기 고유 ID (Serial No.)'
     case 'EV 충전':
-      return '충전기·스테이션 번호'
+      return '충전기 ID / 관리 번호'
     default:
       return '장비·시설 번호'
   }
