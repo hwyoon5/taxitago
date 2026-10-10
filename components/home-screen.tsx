@@ -833,11 +833,11 @@ async function scanPiDeposits(
       onCredit(deposit.amount, deposit.txid, Number.isFinite(at) ? at : undefined)
     }
     // 서버 장부가 권위 — 크레딧이 실제로 기록된 이용자는 spendable로 로컬 잔액을
-    // 교정한다(새로고침 중복 차감 등으로 깨진 표시 자가치유). 서버 장부가 비어
-    // 있으면 로컬 잔액을 건드리지 않는다(KV 미설정 등 판별 불가).
+    // 교정한다(새로고침 중복 차감 등으로 깨진 표시 자가치유). 메인넷에서는 로컬
+    // 시드가 없으므로 장부가 비어 있어도(=실제 잔액 0) 항상 서버 값으로 교정한다.
     const spendable = Number(data.spendable)
     const creditsTotal = Number(data.creditsTotal?.total)
-    if (onBalance && Number.isFinite(spendable) && spendable >= 0 && creditsTotal > 0) onBalance(spendable)
+    if (onBalance && Number.isFinite(spendable) && spendable >= 0 && (creditsTotal > 0 || !PI_SANDBOX)) onBalance(spendable)
   } catch {
     undefined
   }
@@ -1051,6 +1051,16 @@ const DEFAULT_PI_TX: PiTransaction[] = [
   { label: 'Pi 충전', amount: 10, detail: '어제 12:00', place: 'Pi 월렛', at: '어제 12:00' },
 ]
 
+/**
+ * 신규 가입 지갑 시드 — 테스트넷 전용 가상 잔액.
+ * 메인넷(NEXT_PUBLIC_NETWORK_MODE=mainnet 또는 NEXT_PUBLIC_PI_SANDBOX=false)에서는
+ * 절대 지급되지 않고 0 Pi로 시작한다 — 실제 잔액은 /api/wallet/balance가
+ * 온체인(Horizon)에서 읽어온다.
+ */
+const SIGNUP_WALLET_SEED_TESTNET = 18.4
+const SIGNUP_WALLET_SEED = PI_SANDBOX ? SIGNUP_WALLET_SEED_TESTNET : 0
+const SIGNUP_WALLET_TX: PiTransaction[] = PI_SANDBOX ? DEFAULT_PI_TX : []
+
 function formatPiTime() {
   const now = new Date()
   const month = now.getMonth() + 1
@@ -1061,16 +1071,24 @@ function formatPiTime() {
 }
 
 function readPiWallet(): { balance: number; transactions: PiTransaction[] } {
+  // 테스트넷이 아니면(메인넷) 저장본이 없을 때 가상 시드를 지급하지 않는다.
   try {
     const raw = window.localStorage.getItem(WALLET_KEY)
-    if (!raw) return { balance: 18.4, transactions: DEFAULT_PI_TX }
+    if (!raw) return { balance: SIGNUP_WALLET_SEED, transactions: SIGNUP_WALLET_TX }
     const parsed = JSON.parse(raw) as { balance?: number; transactions?: PiTransaction[] }
+    if (!PI_SANDBOX && typeof parsed.balance === 'number' && parsed.balance === SIGNUP_WALLET_SEED_TESTNET) {
+      // 메인넷: 예전 테스트넷 빌드가 남긴 시드 서명(18.4 + 샘플 내역)이 그대로면
+      // 가상 잔액을 제거하고 0으로 시작한다 — 실수로 저장된 진짜 기록은 보존한다.
+      const untouchedSeed =
+        Array.isArray(parsed.transactions) && JSON.stringify(parsed.transactions) === JSON.stringify(DEFAULT_PI_TX)
+      if (untouchedSeed) return { balance: 0, transactions: [] }
+    }
     return {
-      balance: typeof parsed.balance === 'number' ? parsed.balance : 18.4,
-      transactions: Array.isArray(parsed.transactions) ? parsed.transactions : DEFAULT_PI_TX,
+      balance: typeof parsed.balance === 'number' ? parsed.balance : SIGNUP_WALLET_SEED,
+      transactions: Array.isArray(parsed.transactions) ? parsed.transactions : SIGNUP_WALLET_TX,
     }
   } catch {
-    return { balance: 18.4, transactions: DEFAULT_PI_TX }
+    return { balance: SIGNUP_WALLET_SEED, transactions: SIGNUP_WALLET_TX }
   }
 }
 
@@ -5756,6 +5774,8 @@ function WalletModal({
 }) {
   const [tab, setTab] = useState<'charge' | 'refund' | 'history'>('charge')
   const [chargeValue, setChargeValue] = useState<number | ''>(10)
+  // 메인넷: 임의 잔액 대신 Pi 공식 블록체인 API가 읽어온 실제 온체인 잔액을 표시한다.
+  const [onchainPi, setOnchainPi] = useState<number | null>(null)
   // 출금 주소 — Pi 연동 지갑으로 자동 채워지고, 이용자가 수정해 저장할 수 있다.
   const [address, setAddress] = useState('')
   const [addressDraft, setAddressDraft] = useState('')
@@ -5800,6 +5820,31 @@ function WalletModal({
     }
     void sync()
     const timer = window.setInterval(sync, 10_000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  // 메인넷: 앱이 임의로 잔액을 만들지 않으므로, 연동 지갑의 실제 온체인 잔액을
+  // /api/wallet/balance(Pi 공식 Horizon API)로 조회해 참고용으로 표시한다.
+  useEffect(() => {
+    if (PI_SANDBOX) return
+    const wallet = loadPiIdentity()?.wallet?.trim() || ''
+    if (!isPiWalletAddress(wallet)) return
+    let stopped = false
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/wallet/balance?wallet=${encodeURIComponent(wallet)}&sandbox=${PI_SANDBOX}`, { cache: 'no-store' })
+        const data = (await res.json().catch(() => null)) as { onchain?: { balancePi?: number } } | null
+        const value = data?.onchain?.balancePi
+        if (!stopped) setOnchainPi(typeof value === 'number' ? value : null)
+      } catch {
+        /* 온체인 조회 실패는 표시만 생략한다 — 잔액을 지어내지 않는다 */
+      }
+    }
+    void load()
+    const timer = window.setInterval(load, 30_000)
     return () => {
       stopped = true
       window.clearInterval(timer)
@@ -5995,6 +6040,9 @@ function WalletModal({
           <p className="mt-2 text-xs font-bold text-[#E8DCFF]">
             {PI_SANDBOX ? '샌드박스 테스트 잔액으로 충전됩니다' : 'Pi Browser에서 충전하면 공식 결제 창이 열립니다'}
           </p>
+          {!PI_SANDBOX && onchainPi !== null ? (
+            <p className="mt-1 text-[10px] font-bold text-[#E8DCFF]/80">메인넷 온체인 잔액 {onchainPi.toFixed(7)} Pi</p>
+          ) : null}
         </section>
         <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
           {tabs.map((item) => (
@@ -9024,7 +9072,7 @@ export default function HomeScreen() {
   const [destSearchTick, setDestSearchTick] = useState(0)
   const [longDistCall, setLongDistCall] = useState<{ km: number; regionExit: boolean; destRegion: string } | null>(null)
   const [notice, setNotice] = useState('')
-  const [walletBalance, setWalletBalance] = useState(18.4)
+  const [walletBalance, setWalletBalance] = useState(SIGNUP_WALLET_SEED)
   const [walletOpen, setWalletOpen] = useState(false)
   const [pickupMapOpen, setPickupMapOpen] = useState(false)
   const [pickupMapKey, setPickupMapKey] = useState(0)
@@ -9383,12 +9431,17 @@ export default function HomeScreen() {
     return { txid }
   }
   const rewardReview = (key?: string) => {
-    const amount = 0.1
-    const at = formatPiTime()
-    setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
-    setTransactions((items) => [{ label: '리뷰 적립', amount, detail: `기사 평가 · ${at}`, place: '리뷰 감사 포인트', at, ts: Date.now() }, ...items])
+    // 테스트넷 전용 임의 적립 — 메인넷에서는 잔액을 만들지 않고 기록만 남긴다.
+    if (PI_SANDBOX) {
+      const amount = 0.1
+      const at = formatPiTime()
+      setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
+      setTransactions((items) => [{ label: '리뷰 적립', amount, detail: `기사 평가 · ${at}`, place: '리뷰 감사 포인트', at, ts: Date.now() }, ...items])
+      showNotice('평가 감사합니다. 0.1 Pi가 적립되었습니다.')
+    } else {
+      showNotice('평가 감사합니다. 리뷰가 등록되었습니다.')
+    }
     void recordReviewReward(localPassengerId(), key)
-    showNotice('평가 감사합니다. 0.1 Pi가 적립되었습니다.')
   }
   // Pi App Studio "Verified" 검증 — Pi Browser에서 앱이 열리면 사용자 클릭
   // 없이 authenticate를 자동 실행하고 토큰을 App Studio 로그인으로 즉시 전달.

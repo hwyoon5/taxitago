@@ -28,14 +28,19 @@ function parseSandboxFlag(raw: string | undefined | null): boolean | null {
  * Pi 네트워크 결정 — 우선순위:
  * 1) hint: 클라이언트 SDK가 실제로 init한 sandbox 값(결제가 생성된 네트워크)
  * 2) host: 테스트넷 전용 도메인이면 env 무관 강제 testnet
- * 3) env: NEXT_PUBLIC_PI_SANDBOX → PI_SANDBOX 명시값
+ * 3) env: NEXT_PUBLIC_PI_SANDBOX → NEXT_PUBLIC_NETWORK_MODE → PI_SANDBOX → PI_NETWORK_MODE
+ *    ('testnet'/'mainnet' 문자열도 인식 — NEXT_PUBLIC_NETWORK_MODE=mainnet으로 전환 가능)
  * 4) Vercel preview/development 배포는 testnet
  * 5) 기본값 true — 이 앱은 테스트넷 기본 운영
  */
 export function resolvePiSandbox(opts?: { hint?: boolean | null; host?: string | null }): boolean {
   if (typeof opts?.hint === 'boolean') return opts.hint
   if (piHostSuggestsSandbox(opts?.host) === true) return true
-  const env = parseSandboxFlag(process.env.NEXT_PUBLIC_PI_SANDBOX) ?? parseSandboxFlag(process.env.PI_SANDBOX)
+  const env =
+    parseSandboxFlag(process.env.NEXT_PUBLIC_PI_SANDBOX) ??
+    parseSandboxFlag(process.env.NEXT_PUBLIC_NETWORK_MODE) ??
+    parseSandboxFlag(process.env.PI_SANDBOX) ??
+    parseSandboxFlag(process.env.PI_NETWORK_MODE)
   if (env !== null) return env
   const vercelEnv = (process.env.VERCEL_ENV || '').trim().toLowerCase()
   if (vercelEnv === 'preview' || vercelEnv === 'development') return true
@@ -44,6 +49,16 @@ export function resolvePiSandbox(opts?: { hint?: boolean | null; host?: string |
 
 export function isPiSandboxEnv() {
   return resolvePiSandbox()
+}
+
+export type PiNetworkMode = 'testnet' | 'mainnet'
+
+/**
+ * resolvePiSandbox의 타입화된 래퍼 — 'testnet' | 'mainnet'.
+ * host/hint 우선순위는 resolvePiSandbox와 동일하다(테스트 도메인 강제 testnet 유지).
+ */
+export function resolveNetworkMode(opts?: { hint?: boolean | null; host?: string | null }): PiNetworkMode {
+  return resolvePiSandbox(opts) ? 'testnet' : 'mainnet'
 }
 
 /** 요청 Host까지 반영한 서버측 판정 — host가 테스트 전용이면 env보다 우선한다. */
