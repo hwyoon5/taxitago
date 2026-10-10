@@ -5082,7 +5082,7 @@ function Home({
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="dest-glow mt-1 flex w-full items-stretch overflow-hidden rounded-lg bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
+            className="mt-1 flex w-full items-stretch overflow-hidden rounded-lg border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
             style={{ WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
             aria-label={destination ? `${t('home.dest')} ${destination}` : t('home.destSearch')}
           >
