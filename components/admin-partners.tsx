@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
 import { adminHeaders } from '@/lib/admin-key'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
+import { AdminDetailModal } from '@/components/admin-detail-modal'
+import { AdminExportButton } from '@/components/admin-export-button'
 import type { PartnerLinkRecord } from '@/lib/partner-ledger-server'
 import {
   ALL_PARTNER_SERVICE_TYPES,
@@ -77,6 +79,7 @@ export default function AdminPartners() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [docFile, setDocFile] = useState<{ name: string; mime: string; dataUrl: string } | null>(null)
+  const [detail, setDetail] = useState<PartnerLinkRecord | null>(null)
   const docInput = useRef<HTMLInputElement>(null)
 
   const reload = () => {
@@ -365,7 +368,32 @@ export default function AdminPartners() {
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-black">등록된 기사/파트너 ({filtered.length}명{filtered.length !== partners.length ? ` / 전체 ${partners.length}` : ''})</h2>
-          <button type="button" onClick={reload} className="text-xs font-black text-[#4C1FB8]">새로고침</button>
+          <span className="flex items-center gap-2">
+            <AdminExportButton
+              filename="taxitago-partners"
+              headers={['구분', '서비스', '이름', '전화번호', '차량/업체', '번호', '지역', 'Pi 지갑', 'UID', 'Pi 계정', '보험사', '증권번호', '보험 만료일', '보험 서류', '비고', '등록일', '수정일']}
+              rows={filtered.map((row) => [
+                row.role === '파트너' ? '파트너' : '기사',
+                row.serviceType || '택시',
+                row.name || '',
+                row.phone || '',
+                row.vehicle || '',
+                row.plate || '',
+                row.region || '',
+                row.wallet || '',
+                row.uid,
+                row.username,
+                row.insuranceCompany || '',
+                row.insurancePolicyNo || '',
+                row.insuranceExpiresAt || '',
+                row.insuranceDocName || '',
+                row.detail || '',
+                row.linkedAt,
+                row.updatedAt,
+              ])}
+            />
+            <button type="button" onClick={reload} className="text-xs font-black text-[#4C1FB8]">새로고침</button>
+          </span>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-[1fr_7rem_8rem]">
           <input
@@ -414,7 +442,7 @@ export default function AdminPartners() {
               </thead>
               <tbody>
                 {paged.map((row) => (
-                  <tr key={row.uid} className="border-b border-[#F1F5F9]">
+                  <tr key={row.uid} onClick={() => setDetail(row)} className="cursor-pointer border-b border-[#F1F5F9] transition hover:bg-[#F8FAFF]">
                     <td className="px-2 py-2.5">
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${row.role === '파트너' ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#DBEAFE] text-[#1D4ED8]'}`}>
                         {row.role === '파트너' ? `${row.serviceType || ''} 파트너` : `${row.serviceType || '택시'} 기사`}
@@ -441,6 +469,7 @@ export default function AdminPartners() {
                               href={`/api/partner/insurance-doc/?uid=${encodeURIComponent(row.uid)}`}
                               target="_blank"
                               rel="noreferrer"
+                              onClick={(event) => event.stopPropagation()}
                               className="block text-[10px] font-black text-[#4C1FB8] underline"
                             >
                               증권 보기
@@ -453,7 +482,7 @@ export default function AdminPartners() {
                     </td>
                     <td className="px-2 py-2.5 font-bold text-[#64748B]">{formatDate(row.linkedAt)}</td>
                     <td className="px-2 py-2.5">
-                      <button type="button" onClick={() => editRow(row)} className="rounded-lg border border-[#D8CCF5] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">
+                      <button type="button" onClick={(event) => { event.stopPropagation(); editRow(row) }} className="rounded-lg border border-[#D8CCF5] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">
                         수정
                       </button>
                     </td>
@@ -475,6 +504,35 @@ export default function AdminPartners() {
           />
         ) : null}
       </section>
+
+      {detail ? (
+        <AdminDetailModal
+          title={detail.role === '파트너' ? '파트너 상세 정보' : '기사 상세 정보'}
+          eyebrow="PARTNER DETAIL"
+          hero={detail.name || detail.username || detail.uid}
+          heroNote={`${detail.role === '파트너' ? '파트너' : '기사'} · ${detail.serviceType || '택시'} · 등록 ${formatDate(detail.linkedAt)}`}
+          onClose={() => setDetail(null)}
+          rows={[
+            { label: '구분', value: detail.role === '파트너' ? '파트너' : '기사' },
+            { label: '등록 서비스', value: detail.serviceType || '택시' },
+            { label: '이름', value: detail.name || '(없음)' },
+            { label: '전화번호', value: detail.phone || '(없음)', copy: Boolean(detail.phone) },
+            { label: 'Pi UID', value: detail.uid, copy: true },
+            { label: 'Pi 계정', value: detail.username || '(없음)', copy: Boolean(detail.username) },
+            { label: 'Pi 지갑 주소', value: detail.wallet || '(미연동)', copy: Boolean(detail.wallet) },
+            { label: detail.role === '파트너' ? '업체/가맹점명' : '차량명', value: detail.vehicle || '(없음)' },
+            { label: detail.role === '파트너' ? facilityUnitLabel(detail.serviceType || '주차') : '차량번호', value: detail.plate || '(없음)', copy: Boolean(detail.plate) },
+            { label: '활동 지역', value: detail.region || '(없음)' },
+            { label: '보험사', value: detail.insuranceCompany || '(미등록)' },
+            { label: '보험 증권번호', value: detail.insurancePolicyNo || '(없음)', copy: Boolean(detail.insurancePolicyNo) },
+            { label: '보험 유효기간', value: detail.insuranceExpiresAt ? `${insuranceExpired(detail.insuranceExpiresAt) ? '만료됨 · ' : ''}${formatDate(detail.insuranceExpiresAt)}` : '(없음)' },
+            { label: '보험 서류', value: detail.insuranceDocName || '(없음)' },
+            { label: '비고', value: detail.detail || '(없음)' },
+            { label: '등록일', value: new Date(detail.linkedAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+            { label: '수정일', value: new Date(detail.updatedAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+          ]}
+        />
+      ) : null}
     </div>
   )
 }

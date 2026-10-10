@@ -12,6 +12,7 @@ import type { DepositEntry } from '@/lib/deposit-store'
 import type { WalletTxEntry } from '@/lib/wallet-history'
 import { buildSettlementCsv } from '@/lib/settlement-csv'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
+import { AdminDetailModal, type AdminDetailRow } from '@/components/admin-detail-modal'
 
 type ServiceSummary = { label: string; count: number; gross: number; commission: number; net: number }
 type TxBucket = { count: number; total: number; fee?: number }
@@ -90,6 +91,8 @@ export default function AdminSettlements() {
   const [depositForm, setDepositForm] = useState({ txid: '', fromWallet: '', amount: '', memo: '' })
   const [showAudit, setShowAudit] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
+  const [detail, setDetail] = useState<SettlementEntry | null>(null)
+  const [auditDetail, setAuditDetail] = useState<AuditEntry | null>(null)
   const [draft, setDraft] = useState<{ gross: string; memo: string; driverId: string; driverName: string; status: 'pending' | 'settled'; reason: string } | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -588,6 +591,14 @@ export default function AdminSettlements() {
                   <button
                     type="button"
                     disabled={busy}
+                    onClick={() => setDetail(entry)}
+                    className="rounded-full bg-[#E8F1FA] px-2.5 py-1 text-[10px] font-black text-[#4A82B8] disabled:opacity-50"
+                  >
+                    상세
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
                     onClick={() => (editing === entry.id ? setEditing(null) : openEditor(entry))}
                     className="rounded-full bg-[#EDE9FE] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8] disabled:opacity-50"
                   >
@@ -726,7 +737,14 @@ export default function AdminSettlements() {
           return (
           <div className="mt-3 space-y-2">
             {auditPaged.map((log) => (
-              <div key={log.id} className="rounded-xl bg-[#F8FAFC] p-3">
+              <div
+                key={log.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setAuditDetail(log)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setAuditDetail(log) }}
+                className="cursor-pointer rounded-xl bg-[#F8FAFC] p-3 transition hover:bg-[#EFF6FF]"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <span className="rounded-full bg-[#EDE9FE] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{AUDIT_LABEL[log.kind] || log.kind}</span>
                   <span className="text-[10px] font-bold text-[#94A3B8]">{new Date(log.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
@@ -759,6 +777,65 @@ export default function AdminSettlements() {
       </section>
       ) : null}
       {notice ? <p className="text-center text-xs font-black text-[#047857]">{notice}</p> : null}
+
+      {detail ? (
+        <AdminDetailModal
+          title="정산 상세 내역"
+          eyebrow="SETTLEMENT DETAIL"
+          hero={`${pi(detail.net)} → 기사`}
+          heroNote={new Date(detail.settledAt ?? detail.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          badges={
+            <>
+              <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] font-black ${detail.status === 'settled' ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEF3C7] text-[#B45309]'}`}>
+                {detail.status === 'settled' ? '정산 완료' : '정산 대기'}
+              </span>
+              <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] font-black ${SERVICE_TONE[detail.service]}`}>{SERVICE_LABEL[detail.service]}</span>
+            </>
+          }
+          onClose={() => setDetail(null)}
+          rows={[
+            { label: '총 수익 (기사 매출)', value: pi(detail.gross) },
+            { label: '수수료율', value: `${(detail.rate * 100).toFixed(1)}%` },
+            { label: '플랫폼 수수료', value: pi(detail.commission) },
+            { label: '기사 정산액', value: pi(detail.net) },
+            { label: '기사', value: `${detail.driverName || '—'} (${detail.driverId})`, copy: true },
+            { label: '이용자 UID', value: detail.passengerId || '(없음)', copy: Boolean(detail.passengerId) },
+            { label: '정산 채널', value: detail.channel === 'manual' ? '수동·QR 현장 결제' : 'Pi 앱 결제' },
+            { label: '관리자 지갑', value: detail.adminWallet || '(없음)', copy: Boolean(detail.adminWallet) },
+            { label: '기사 지갑', value: detail.driverWallet || '(없음)', copy: Boolean(detail.driverWallet) },
+            { label: '정산 txid', value: detail.payoutTxid || '(없음)', copy: Boolean(detail.payoutTxid) },
+            { label: '연결 참조', value: detail.refId || '(없음)', copy: Boolean(detail.refId) },
+            { label: '메모', value: detail.memo || '(없음)' },
+            { label: '기록 ID', value: detail.id, copy: true },
+          ]}
+        />
+      ) : null}
+
+      {auditDetail ? (
+        <AdminDetailModal
+          title="조정·동기화 이력 상세"
+          eyebrow="AUDIT DETAIL"
+          hero={AUDIT_LABEL[auditDetail.kind] || auditDetail.kind}
+          heroNote={new Date(auditDetail.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          onClose={() => setAuditDetail(null)}
+          rows={auditRows(auditDetail)}
+        />
+      ) : null}
     </div>
   )
+}
+
+function auditRows(log: AuditEntry): AdminDetailRow[] {
+  const rows: AdminDetailRow[] = [
+    { label: '작업 종류', value: AUDIT_LABEL[log.kind] || log.kind },
+    { label: '처리자', value: log.actorName || log.actor || '(없음)', copy: Boolean(log.actor) },
+    { label: '대상 기록', value: log.entryId || '(없음)', copy: Boolean(log.entryId) },
+    { label: '연결 참조', value: log.refId || '(없음)', copy: Boolean(log.refId) },
+  ]
+  if (log.reason) rows.push({ label: '사유', value: log.reason })
+  if (log.detail) rows.push({ label: '내용', value: log.detail })
+  if (log.before) rows.push({ label: '변경 전', value: JSON.stringify(log.before, null, 2) })
+  if (log.after) rows.push({ label: '변경 후', value: JSON.stringify(log.after, null, 2) })
+  rows.push({ label: '기록 ID', value: log.id, copy: true })
+  return rows
 }

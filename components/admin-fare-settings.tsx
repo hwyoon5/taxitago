@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Check, Copy, X } from 'lucide-react'
 import { adminHeaders } from '@/lib/admin-key'
 import { useAdminAuth } from '@/components/admin-guard'
 import { DEFAULT_RATES, type CommissionRates, type SettlementService } from '@/lib/settlement-types'
@@ -10,30 +9,10 @@ import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib
 import { ADMIN_PRIVILEGED_POSITIONS } from '@/lib/staff-positions'
 import type { DepositEntry } from '@/lib/deposit-store'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
+import { AdminDetailModal } from '@/components/admin-detail-modal'
+import { AdminExportButton } from '@/components/admin-export-button'
 
 type DepositRow = DepositEntry & { userCredited?: boolean; servicePayment?: boolean }
-
-/** 클립보드 복사 버튼 — 복사 성공 시 잠시 체크 표시로 바뀐다. */
-function CopyButton({ value, label }: { value: string; label?: string }) {
-  const [copied, setCopied] = useState(false)
-  const copy = () => {
-    void navigator.clipboard?.writeText(value).then(() => {
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
-    })
-  }
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      aria-label={label ? `${label} 복사` : '복사'}
-      className="flex shrink-0 items-center gap-1 rounded-lg border-2 border-[#CBD5E1] bg-white px-2 py-1 text-[10px] font-black text-[#475569] hover:border-[#4A82B8] hover:text-[#4A82B8]"
-    >
-      {copied ? <Check size={11} className="text-[#15803D]" /> : <Copy size={11} />}
-      {copied ? '복사됨' : '복사'}
-    </button>
-  )
-}
 
 const SERVICES: SettlementService[] = ['taxi', 'daeri', 'delivery', 'bicycle', 'kickboard', 'ev', 'parking']
 const SERVICE_LABEL: Record<SettlementService, string> = {
@@ -238,6 +217,22 @@ export default function AdminFareSettings() {
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm font-black">플랫폼 지갑 입금 내역</p>
           <span className="flex items-center gap-2">
+            <AdminExportButton
+              filename="taxitago-platform-deposits"
+              headers={['금액(Pi)', '보낸 지갑', '받은 지갑', 'txid', '이용자 UID', '상태', '서비스 결제', '잔액 반영', '메모', '일시']}
+              rows={deposits.map((deposit) => [
+                deposit.amount.toFixed(7),
+                deposit.fromWallet,
+                deposit.toWallet,
+                deposit.txid,
+                deposit.fromUid || '',
+                deposit.status === 'confirmed' ? '확정' : '대기',
+                deposit.servicePayment ? '서비스 결제' : '',
+                deposit.userCredited === undefined ? '' : deposit.userCredited ? '반영' : '미반영',
+                deposit.memo || '',
+                deposit.createdAt,
+              ])}
+            />
             <PageSizeSelect pageSize={depPageSize} onChange={(size) => { setDepPageSize(size); setDepPage(0) }} />
             {depositTotal ? (
               <span className="rounded-full bg-[#DBEAFE] px-2.5 py-1 text-[10px] font-black text-[#1D4ED8]">
@@ -441,75 +436,33 @@ export default function AdminFareSettings() {
       {notice ? <p className="text-center text-xs font-black text-[#047857]">{notice}</p> : null}
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setSelected(null)}>
-          <section className="w-full max-w-md rounded-[24px] bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[10px] font-black text-[#4A82B8]">DEPOSIT DETAIL</p>
-                <h3 className="mt-0.5 text-lg font-black text-[#0F172A]">입금 상세 내역</h3>
-              </div>
-              <button type="button" onClick={() => setSelected(null)} aria-label="닫기" className="rounded-full bg-[#F1F5F9] p-1.5 text-[#475569]">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="mt-3 rounded-2xl bg-[#EFF6FF] px-4 py-3 text-center">
-              <p className="text-2xl font-black text-[#1D4ED8]">+{selected.amount.toFixed(7)} Pi</p>
-              <p className="mt-0.5 text-[10px] font-bold text-[#475569]">
-                {new Date(selected.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-black ${selected.status === 'confirmed' ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEF3C7] text-[#B45309]'}`}>
-                  {selected.status === 'confirmed' ? '확정' : '대기'}
+        <AdminDetailModal
+          title="입금 상세 내역"
+          eyebrow="DEPOSIT DETAIL"
+          hero={`+${selected.amount.toFixed(7)} Pi`}
+          heroNote={new Date(selected.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          badges={
+            <>
+              <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-black ${selected.status === 'confirmed' ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEF3C7] text-[#B45309]'}`}>
+                {selected.status === 'confirmed' ? '확정' : '대기'}
+              </span>
+              {selected.servicePayment ? <span className="ml-1 rounded-full bg-[#E0E7FF] px-1.5 py-0.5 text-[9px] font-black text-[#4338CA]">서비스 결제</span> : null}
+              {selected.userCredited !== undefined ? (
+                <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] font-black ${selected.userCredited ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEE2E2] text-[#B91C1C]'}`}>
+                  {selected.userCredited ? '잔액 반영' : '잔액 미반영'}
                 </span>
-                {selected.servicePayment ? <span className="ml-1 rounded-full bg-[#E0E7FF] px-1.5 py-0.5 text-[9px] font-black text-[#4338CA]">서비스 결제</span> : null}
-                {selected.userCredited !== undefined ? (
-                  <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] font-black ${selected.userCredited ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEE2E2] text-[#B91C1C]'}`}>
-                    {selected.userCredited ? '잔액 반영' : '잔액 미반영'}
-                  </span>
-                ) : null}
-              </p>
-            </div>
-            <dl className="mt-4 space-y-3">
-              <div>
-                <dt className="text-[10px] font-black text-[#94A3B8]">보낸 지갑 (사용자 테스트넷)</dt>
-                <dd className="mt-1 flex items-center gap-2">
-                  <code className="min-w-0 flex-1 break-all rounded-lg bg-[#F8FAFC] px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#334155]">{selected.fromWallet}</code>
-                  <CopyButton value={selected.fromWallet} label="보낸 지갑 주소" />
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[10px] font-black text-[#94A3B8]">받은 지갑 (플랫폼 입금 주소)</dt>
-                <dd className="mt-1 flex items-center gap-2">
-                  <code className="min-w-0 flex-1 break-all rounded-lg bg-[#F8FAFC] px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#334155]">{selected.toWallet}</code>
-                  <CopyButton value={selected.toWallet} label="플랫폼 지갑 주소" />
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[10px] font-black text-[#94A3B8]">트랜잭션 ID (txid)</dt>
-                <dd className="mt-1 flex items-center gap-2">
-                  <code className="min-w-0 flex-1 break-all rounded-lg bg-[#F8FAFC] px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#334155]">{selected.txid}</code>
-                  <CopyButton value={selected.txid} label="txid" />
-                </dd>
-              </div>
-              {selected.memo ? (
-                <div>
-                  <dt className="text-[10px] font-black text-[#94A3B8]">메모 / 연동 사유</dt>
-                  <dd className="mt-1 rounded-lg bg-[#F8FAFC] px-2.5 py-1.5 text-[11px] font-bold text-[#334155]">{selected.memo}</dd>
-                </div>
               ) : null}
-              {selected.fromUid ? (
-                <div>
-                  <dt className="text-[10px] font-black text-[#94A3B8]">이용자 UID</dt>
-                  <dd className="mt-1 flex items-center gap-2">
-                    <code className="min-w-0 flex-1 break-all rounded-lg bg-[#F8FAFC] px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#334155]">{selected.fromUid}</code>
-                    <CopyButton value={selected.fromUid} label="이용자 UID" />
-                  </dd>
-                </div>
-              ) : null}
-            </dl>
-            <button type="button" onClick={() => setSelected(null)} className="mt-4 w-full rounded-xl bg-[#0F172A] py-2.5 text-xs font-black text-white">
-              닫기
-            </button>
-          </section>
-        </div>
+            </>
+          }
+          onClose={() => setSelected(null)}
+          rows={[
+            { label: '보낸 지갑 (사용자 테스트넷)', value: selected.fromWallet, copy: true },
+            { label: '받은 지갑 (플랫폼 입금 주소)', value: selected.toWallet, copy: true },
+            { label: '트랜잭션 ID (txid)', value: selected.txid, copy: true },
+            ...(selected.memo ? [{ label: '메모 / 연동 사유', value: selected.memo }] : []),
+            ...(selected.fromUid ? [{ label: '이용자 UID', value: selected.fromUid, copy: true }] : []),
+          ]}
+        />
       ) : null}
     </div>
   )

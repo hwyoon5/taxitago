@@ -7,6 +7,8 @@ import { useAdminAuth } from '@/components/admin-guard'
 import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import type { WithdrawalRequest } from '@/lib/withdrawal-queue'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
+import { AdminDetailModal } from '@/components/admin-detail-modal'
+import { AdminExportButton } from '@/components/admin-export-button'
 
 type Props = {
   /** Currently configured platform wallet — shown for context only. */
@@ -47,6 +49,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
   const [requests, setRequests] = useState<WithdrawalRequest[]>([])
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
+  const [detail, setDetail] = useState<WithdrawalRequest | null>(null)
   const [threshold, setThreshold] = useState(10)
   const [available, setAvailable] = useState<number | null>(null)
 
@@ -278,6 +281,24 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
           <div className="flex items-center justify-between gap-2 text-xs font-black text-[#B45309]">
             <span>출금 승인·집행 내역{pendingCount ? ` · 대기 ${pendingCount}건` : ''}</span>
             <span className="flex items-center gap-2">
+              <AdminExportButton
+                filename="taxitago-withdrawals"
+                headers={['상태', '금액(Pi)', '수신 지갑', 'txid', '요청자', '처리자', '온체인 메모', '사유', '플래그', '오류', '요청 일시', 'ID']}
+                rows={requests.map((row) => [
+                  STATUS_LABEL[row.status],
+                  row.amount.toFixed(7),
+                  row.recipient,
+                  row.txid || '',
+                  row.requestedByName || row.requestedBy,
+                  row.decidedByName || row.decidedBy || '',
+                  row.memo || '',
+                  row.reason || '',
+                  row.flag || '',
+                  row.error || '',
+                  row.createdAt,
+                  row.id,
+                ])}
+              />
               <PageSizeSelect pageSize={pageSize} onChange={(size) => { setPageSize(size); setPage(0) }} />
               <button
                 type="button"
@@ -290,7 +311,14 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
           </div>
           <div className="mt-2 space-y-2">
             {paged.map((row) => (
-              <div key={row.id} className="rounded-xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-2.5">
+              <div
+                key={row.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setDetail(row)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setDetail(row) }}
+                className="cursor-pointer rounded-xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-2.5 transition hover:border-[#4A82B8]"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-black text-[#0F172A]">
                     {row.amount.toFixed(7)} Pi
@@ -317,7 +345,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => setConfirmTarget({ kind: 'approve', request: row })}
+                      onClick={(event) => { event.stopPropagation(); setConfirmTarget({ kind: 'approve', request: row }) }}
                       className="flex-1 rounded-lg bg-[#15803D] py-1.5 text-[10px] font-black text-white disabled:opacity-50"
                     >
                       승인 후 전송
@@ -325,7 +353,7 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => rejectRequest(row)}
+                      onClick={(event) => { event.stopPropagation(); rejectRequest(row) }}
                       className="flex-1 rounded-lg border-2 border-[#FCA5A5] bg-white py-1.5 text-[10px] font-black text-[#DC2626] disabled:opacity-50"
                     >
                       거절
@@ -347,6 +375,30 @@ export default function AdminWithdraw({ adminWallet = '', onChanged }: Props) {
             />
           ) : null}
         </div>
+      ) : null}
+
+      {detail ? (
+        <AdminDetailModal
+          title="출금 상세 내역"
+          eyebrow="WITHDRAWAL DETAIL"
+          hero={`-${detail.amount.toFixed(7)} Pi`}
+          heroNote={new Date(detail.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          badges={
+            <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] font-black ${STATUS_TONE[detail.status]}`}>{STATUS_LABEL[detail.status]}</span>
+          }
+          onClose={() => setDetail(null)}
+          rows={[
+            { label: '수신 지갑', value: detail.recipient, copy: true },
+            { label: '트랜잭션 ID (txid)', value: detail.txid || '(없음)', copy: Boolean(detail.txid) },
+            { label: '요청자', value: `${detail.requestedByName || detail.requestedBy} (${detail.requestedBy})`, copy: true },
+            { label: '처리자', value: detail.decidedBy ? `${detail.decidedByName || detail.decidedBy} (${detail.decidedBy})` : '(없음)', copy: Boolean(detail.decidedBy) },
+            { label: '온체인 메모', value: detail.memo || '(없음)' },
+            { label: '처리 사유', value: detail.reason || '(없음)' },
+            ...(detail.flag ? [{ label: '승인 보류 사유', value: detail.flag }] : []),
+            ...(detail.error ? [{ label: '전송 오류', value: detail.error }] : []),
+            { label: '요청 ID', value: detail.id, copy: true },
+          ]}
+        />
       ) : null}
 
       {confirmTarget ? (

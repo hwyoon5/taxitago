@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import { deviceTypeLabel, specSummary, type DeviceTelemetry } from '@/lib/device-types'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
+import { AdminDetailModal } from '@/components/admin-detail-modal'
+import { AdminExportButton } from '@/components/admin-export-button'
 
 const STATUS_LABEL: Record<string, string> = {
   active: '운행 중',
@@ -40,6 +42,7 @@ export default function AdminDevices() {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
   const [typeFilter, setTypeFilter] = useState<'all' | string>('all')
+  const [detail, setDetail] = useState<DeviceTelemetry | null>(null)
 
   const visible = typeFilter === 'all' ? devices : devices.filter((row) => row.type === typeFilter)
   const typeCounts = devices.reduce<Record<string, number>>((acc, row) => {
@@ -82,6 +85,24 @@ export default function AdminDevices() {
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-black text-[#4C1FB8]">등록 기기 · {devices.length}대</p>
           <span className="flex items-center gap-2">
+            <AdminExportButton
+              filename="taxitago-devices"
+              headers={['기기 ID', '유형', '위도', '경도', '배터리(%)', '상태', '소유 파트너', '소유자 UID', '스펙 요약', '누적 신고', '최초 신고', '마지막 신고']}
+              rows={visible.map((row) => [
+                row.deviceId,
+                deviceTypeLabel(row.type),
+                String(row.latitude),
+                String(row.longitude),
+                row.batteryLevel === null ? '' : String(row.batteryLevel),
+                STATUS_LABEL[row.status] || row.status,
+                row.ownerName || '',
+                row.ownerUid || '',
+                row.spec ? specSummary(row.spec) : '',
+                String(row.updateCount),
+                row.firstSeen,
+                row.lastSeen,
+              ])}
+            />
             <PageSizeSelect pageSize={pageSize} onChange={(size) => { setPageSize(size); setPage(0) }} />
             <button
               type="button"
@@ -122,7 +143,14 @@ export default function AdminDevices() {
         ) : null}
         <div className="mt-3 space-y-2">
           {paged.map((row) => (
-            <div key={row.deviceId} className="rounded-xl border-2 border-[#E2E8F0] bg-[#F8FAFC] p-3">
+            <div
+              key={row.deviceId}
+              role="button"
+              tabIndex={0}
+              onClick={() => setDetail(row)}
+              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setDetail(row) }}
+              className="cursor-pointer rounded-xl border-2 border-[#E2E8F0] bg-[#F8FAFC] p-3 transition hover:border-[#4A82B8] hover:bg-[#F8FAFF]"
+            >
               <div className="flex items-center justify-between gap-2">
                 <p className="flex items-center gap-1.5 text-sm font-black">
                   {row.deviceId}
@@ -161,6 +189,37 @@ export default function AdminDevices() {
           />
         ) : null}
       </section>
+
+      {detail ? (
+        <AdminDetailModal
+          title="기기 상세 정보"
+          eyebrow="DEVICE DETAIL"
+          hero={detail.deviceId}
+          heroNote={`${deviceTypeLabel(detail.type)} · 마지막 신고 ${ageLabel(detail.lastSeen)}`}
+          badges={
+            <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] font-black ${typeTone(detail.type)}`}>
+              {STATUS_LABEL[detail.status] || detail.status}
+            </span>
+          }
+          onClose={() => setDetail(null)}
+          rows={[
+            { label: '기기 ID', value: detail.deviceId, copy: true },
+            { label: '유형', value: deviceTypeLabel(detail.type) },
+            { label: '현재 위치', value: `${detail.latitude.toFixed(6)}, ${detail.longitude.toFixed(6)}`, copy: true },
+            { label: '배터리', value: detail.batteryLevel === null ? '(없음)' : `${detail.batteryLevel}%` },
+            { label: '상태', value: STATUS_LABEL[detail.status] || detail.status },
+            { label: '소유 파트너', value: detail.ownerName || detail.ownerUid || '(없음)' },
+            { label: '소유자 UID', value: detail.ownerUid || '(없음)', copy: Boolean(detail.ownerUid) },
+            ...(detail.spec ? [
+              { label: '스펙 요약', value: specSummary(detail.spec) },
+              { label: '스펙 전체', value: JSON.stringify(detail.spec, null, 2) },
+            ] : []),
+            { label: '누적 신고', value: `${detail.updateCount}회` },
+            { label: '최초 신고', value: new Date(detail.firstSeen).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+            { label: '마지막 신고', value: new Date(detail.lastSeen).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
+          ]}
+        />
+      ) : null}
     </div>
   )
 }

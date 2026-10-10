@@ -6,6 +6,8 @@ import { adminHeaders } from '@/lib/admin-key'
 import type { PublicStaff } from '@/lib/staff-store'
 import { positionDisplayLabel, STAFF_POSITIONS } from '@/lib/staff-positions'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
+import { AdminDetailModal } from '@/components/admin-detail-modal'
+import { AdminExportButton } from '@/components/admin-export-button'
 
 const CUSTOM_POSITION = '__custom__'
 
@@ -39,6 +41,7 @@ export default function AdminStaff() {
   const [tempPw, setTempPw] = useState<{ loginId: string; name: string; password: string } | null>(null)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
+  const [detail, setDetail] = useState<PublicStaff | null>(null)
 
   const tell = (message: string) => {
     setNotice(message)
@@ -255,7 +258,22 @@ export default function AdminStaff() {
       <div className="rounded-[24px] border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-black text-[#4C1FB8]">등록된 직원 · {staff.length}명</p>
-          <PageSizeSelect pageSize={pageSize} onChange={(size) => { setPageSize(size); setPage(0) }} />
+          <span className="flex items-center gap-2">
+            <AdminExportButton
+              filename="taxitago-staff"
+              headers={['이름', '직원 ID', '직급', '권한', '등록일', '수정일', 'ID']}
+              rows={staff.map((row) => [
+                row.name,
+                row.loginId,
+                positionLabel(row),
+                row.role === 'manager' ? '매니저' : '직원',
+                row.createdAt,
+                row.updatedAt,
+                row.id,
+              ])}
+            />
+            <PageSizeSelect pageSize={pageSize} onChange={(size) => { setPageSize(size); setPage(0) }} />
+          </span>
         </div>
         {loading ? <p className="mt-3 text-sm font-bold text-[#64748B]">불러오는 중…</p> : null}
         {!loading && !staff.length ? (
@@ -330,7 +348,14 @@ export default function AdminStaff() {
                 </div>
               </div>
             ) : (
-              <div key={row.id} className="flex items-center justify-between gap-2 rounded-2xl border-2 border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2.5">
+              <div
+                key={row.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setDetail(row)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setDetail(row) }}
+                className="flex cursor-pointer items-center justify-between gap-2 rounded-2xl border-2 border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2.5 transition hover:border-[#4A82B8]"
+              >
                 <div className="min-w-0">
                   <p className="flex items-center gap-1.5 text-sm font-black">
                     {row.name}
@@ -345,7 +370,8 @@ export default function AdminStaff() {
                 <div className="flex shrink-0 gap-1.5">
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation()
                       const known = row.position && (STAFF_POSITIONS as readonly string[]).includes(row.position)
                       setEditing({
                         id: row.id,
@@ -362,14 +388,14 @@ export default function AdminStaff() {
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => resetPassword(row)}
+                    onClick={(event) => { event.stopPropagation(); resetPassword(row) }}
                     className="flex items-center gap-1 rounded-full border-2 border-[#FDE68A] bg-white px-2.5 py-1.5 text-[10px] font-black text-[#B45309] disabled:opacity-50"
                   >
                     <KeyRound size={11} /> 초기화
                   </button>
                   <button
                     type="button"
-                    onClick={() => remove(row)}
+                    onClick={(event) => { event.stopPropagation(); remove(row) }}
                     className="flex items-center gap-1 rounded-full border-2 border-[#FCA5A5] bg-white px-2.5 py-1.5 text-[10px] font-black text-[#DC2626]"
                   >
                     <Trash2 size={11} /> 삭제
@@ -391,6 +417,25 @@ export default function AdminStaff() {
           ) : null}
         </div>
       </div>
+
+      {detail ? (
+        <AdminDetailModal
+          title="직원 계정 상세"
+          eyebrow="STAFF DETAIL"
+          hero={detail.name}
+          heroNote={`${positionLabel(detail)} · ${detail.role === 'manager' ? '매니저' : '직원'}`}
+          onClose={() => setDetail(null)}
+          rows={[
+            { label: '이름', value: detail.name },
+            { label: '직원 ID (로그인용)', value: detail.loginId, copy: true },
+            { label: '직급', value: positionLabel(detail) },
+            { label: '권한', value: detail.role === 'manager' ? '매니저' : '직원' },
+            { label: '등록일', value: new Date(detail.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+            { label: '수정일', value: new Date(detail.updatedAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+            { label: '계정 ID', value: detail.id, copy: true },
+          ]}
+        />
+      ) : null}
 
       {tempPw ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">

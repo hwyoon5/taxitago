@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { WalletTxEntry, WalletTxKind } from '@/lib/wallet-history'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
+import { AdminDetailModal } from '@/components/admin-detail-modal'
+import { AdminExportButton } from '@/components/admin-export-button'
 
 type Props = {
   entries: WalletTxEntry[]
@@ -40,6 +42,7 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
   const [query, setQuery] = useState('')
   const [pageSize, setPageSize] = useState(10)
   const [page, setPage] = useState(1)
+  const [detail, setDetail] = useState<WalletTxEntry | null>(null)
 
   // 필터·정렬·페이지 크기가 바뀌면 첫 페이지로 되돌린다.
   useEffect(() => {
@@ -114,10 +117,29 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
             </button>
           ))}
         </div>
+        <AdminExportButton
+          filename="taxitago-wallet-history"
+          className="ml-auto"
+          headers={['구분', '상태', '금액(Pi)', '수수료(Pi)', '보낸 지갑', '받은 지갑', 'txid', '네트워크', '메모', '오류', '일시', 'ID']}
+          rows={visible.map((entry) => [
+            KIND_LABEL[entry.kind],
+            STATUS_LABEL[entry.status],
+            entry.amount.toFixed(7),
+            entry.fee > 0 ? entry.fee.toFixed(7) : '',
+            entry.fromWallet,
+            entry.toWallet,
+            entry.txid,
+            entry.network === 'mainnet' ? '메인넷' : '테스트넷',
+            entry.memo,
+            entry.error,
+            entry.createdAt,
+            entry.id,
+          ])}
+        />
         <PageSizeSelect
           pageSize={pageSize}
           onChange={setPageSize}
-          className="ml-auto rounded-lg border border-[#CBD5E1] bg-white px-2 py-1 text-[11px] font-black text-[#334155] outline-none"
+          className="rounded-lg border border-[#CBD5E1] bg-white px-2 py-1 text-[11px] font-black text-[#334155] outline-none"
         />
         <select
           value={sort}
@@ -145,7 +167,14 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
           paged.map((entry) => {
             const url = explorerTxUrl(entry)
             return (
-              <div key={entry.id} className="rounded-xl border-2 border-[#E2E8F0] p-3">
+              <div
+                key={entry.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setDetail(entry)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setDetail(entry) }}
+                className="cursor-pointer rounded-xl border-2 border-[#E2E8F0] p-3 transition hover:border-[#4A82B8] hover:bg-[#F8FAFF]"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${KIND_TONE[entry.kind]}`}>{KIND_LABEL[entry.kind]}</span>
@@ -172,6 +201,7 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
                     href={url}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={(event) => event.stopPropagation()}
                     className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-black text-[#4C1FB8] underline underline-offset-2"
                   >
                     txid {short(entry.txid)} · 블록 탐색기에서 보기
@@ -179,6 +209,7 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
                 ) : (
                   <p className="mt-1.5 text-[10px] font-bold text-[#94A3B8]">전송 전 실패 — txid 없음</p>
                 )}
+                <p className="mt-1 text-right text-[10px] font-black text-[#4A82B8]">상세 보기 ›</p>
               </div>
             )
           })
@@ -194,6 +225,29 @@ export default function AdminWalletHistory({ entries, totals }: Props) {
           totalPages={totalPages}
           pageButtons={pageButtons}
           onPage={setPage}
+        />
+      ) : null}
+
+      {detail ? (
+        <AdminDetailModal
+          title={`${KIND_LABEL[detail.kind]} 상세 내역`}
+          eyebrow="WALLET TX DETAIL"
+          hero={`${detail.kind === 'deposit' ? '+' : '-'}${pi(detail.amount)}`}
+          heroNote={new Date(detail.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          badges={
+            <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-black ${STATUS_TONE[detail.status]}`}>{STATUS_LABEL[detail.status]}</span>
+          }
+          onClose={() => setDetail(null)}
+          rows={[
+            { label: '보낸 지갑', value: detail.fromWallet, copy: true },
+            { label: '받은 지갑', value: detail.toWallet, copy: true },
+            { label: '트랜잭션 ID (txid)', value: detail.txid || '(없음)', copy: Boolean(detail.txid) },
+            { label: '수수료', value: detail.fee > 0 ? pi(detail.fee) : '(없음)' },
+            { label: '네트워크', value: detail.network === 'mainnet' ? '메인넷' : '테스트넷' },
+            { label: '메모', value: detail.memo || '(없음)' },
+            { label: '기록 ID', value: detail.id, copy: true },
+            ...(detail.error ? [{ label: '실패 사유', value: detail.error }] : []),
+          ]}
         />
       ) : null}
     </section>

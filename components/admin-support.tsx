@@ -31,6 +31,7 @@ import {
   type TicketStatus,
 } from '@/lib/support-types'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
+import { AdminExportButton } from '@/components/admin-export-button'
 
 const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'in_progress', 'waiting', 'resolved', 'closed']
@@ -430,6 +431,42 @@ export default function AdminSupportDesk() {
             <span>접수 목록 · {tickets.length + lost.length}건</span>
             <span className="flex items-center gap-2">
               {lastSync ? <span className="font-bold text-[#94A3B8]">마지막 새로고침 {lastSync}</span> : null}
+              <AdminExportButton
+                filename="taxitago-support-inbox"
+                headers={['구분', '상태', '카테고리/물품', '제목·내용', '신고자', '이용자 ID', '운행 ID', '기사', '차량번호', '메시지 수', '접수일', '수정일', 'ID']}
+                rows={[
+                  ...tickets.map((row) => [
+                    '1:1 문의',
+                    TICKET_STATUS_LABEL[row.status],
+                    TICKET_CATEGORY_LABEL[row.category],
+                    `${row.subject} — ${row.body}`,
+                    row.reporter ? `${row.reporter.label} · ${row.reporter.name} · ${row.reporter.phone}` : '',
+                    row.userId,
+                    row.rideId || '',
+                    '',
+                    '',
+                    String(row.messages.length),
+                    row.createdAt,
+                    row.updatedAt,
+                    row.id,
+                  ]),
+                  ...lost.map((row) => [
+                    `분실물(${row.kind === 'lost' ? '분실' : '습득'})`,
+                    LOST_STATUS_LABEL[row.status],
+                    row.itemType,
+                    row.description,
+                    row.reporter ? `${row.reporter.label} · ${row.reporter.name} · ${row.reporter.phone}` : '',
+                    row.reporterId,
+                    row.rideId || '',
+                    row.driverName || '',
+                    row.plate || '',
+                    String(row.messages.length),
+                    row.createdAt,
+                    row.updatedAt,
+                    row.id,
+                  ]),
+                ]}
+              />
               <PageSizeSelect pageSize={pageSize} onChange={setPageSize} />
             </span>
           </div>

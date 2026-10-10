@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PaginationBar, PageSizeSelect, usePagination } from '@/components/admin-pagination'
+import { AdminExportButton } from '@/components/admin-export-button'
+import { CopyButton } from '@/components/admin-detail-modal'
 import { adminHeaders } from '@/lib/admin-key'
 
 export type AdminUserRow = {
@@ -183,6 +185,29 @@ export default function AdminUsers() {
           placeholder="이름 · 전화번호 · 지갑 주소 · UID 검색"
           className="min-w-0 flex-1 rounded-xl border-2 border-[#CBD5E1] bg-white px-4 py-2.5 text-sm font-bold outline-none focus:border-[#4C1FB8]"
         />
+        <AdminExportButton
+          filename="taxitago-users"
+          className="shrink-0"
+          headers={['UID', '아이디', '이름', '구분', '서비스', '전화번호', '지역', 'Pi 지갑', '사용 가능(Pi)', '누적 입금(Pi)', '누적 지출(Pi)', '상태', '정지 사유', '탈퇴일', '가입일', '수정일']}
+          rows={users.map((user) => [
+            user.uid,
+            user.username,
+            user.name || '',
+            ROLE_LABEL[user.role || ''] || user.role || '승객',
+            user.serviceType || '',
+            user.phone || '',
+            user.region || '',
+            user.wallet || '',
+            (user.spendable ?? 0).toFixed(7),
+            (user.creditTotal ?? 0).toFixed(7),
+            (user.spendTotal ?? 0).toFixed(7),
+            user.locked ? '정지됨' : user.withdrawnAt ? '탈퇴' : '정상',
+            user.lockReason || '',
+            user.withdrawnAt || '',
+            user.linkedAt,
+            user.updatedAt,
+          ])}
+        />
         <PageSizeSelect
           pageSize={pg.pageSize}
           onChange={pg.setPageSize}
@@ -233,8 +258,14 @@ export default function AdminUsers() {
               {open ? (
                 <div className="mt-3 space-y-2.5 border-t border-[#E2E8F0] pt-3">
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] font-bold text-[#475569]">
-                    <div><dt className="text-[9px] font-black text-[#94A3B8]">UID</dt><dd className="truncate font-mono">{user.uid}</dd></div>
-                    <div><dt className="text-[9px] font-black text-[#94A3B8]">지갑 주소</dt><dd className="truncate font-mono">{user.wallet || '—'}</dd></div>
+                    <div>
+                      <dt className="text-[9px] font-black text-[#94A3B8]">UID</dt>
+                      <dd className="flex items-center gap-1.5"><span className="truncate font-mono">{user.uid}</span><CopyButton value={user.uid} label="UID" /></dd>
+                    </div>
+                    <div>
+                      <dt className="text-[9px] font-black text-[#94A3B8]">지갑 주소</dt>
+                      <dd className="flex items-center gap-1.5"><span className="truncate font-mono">{user.wallet || '—'}</span>{user.wallet ? <CopyButton value={user.wallet} label="지갑 주소" /> : null}</dd>
+                    </div>
                     <div><dt className="text-[9px] font-black text-[#94A3B8]">아이디</dt><dd>{user.username}</dd></div>
                     <div><dt className="text-[9px] font-black text-[#94A3B8]">지역/업종</dt><dd>{[user.region, user.serviceType].filter(Boolean).join(' · ') || '—'}</dd></div>
                     <div><dt className="text-[9px] font-black text-[#94A3B8]">누적 입금</dt><dd>{user.creditTotal ?? 0} Pi</dd></div>

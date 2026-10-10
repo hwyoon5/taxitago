@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import type { AuditEntry } from '@/lib/audit-store'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
+import { AdminDetailModal, type AdminDetailRow } from '@/components/admin-detail-modal'
+import { AdminExportButton } from '@/components/admin-export-button'
 
 const AUDIT_LABEL: Record<string, string> = {
   rates: '수수료율 변경',
@@ -50,6 +52,7 @@ export default function AdminAuditLog() {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(15)
+  const [detail, setDetail] = useState<AuditEntry | null>(null)
 
   const load = (silent = false) => {
     if (!silent) setLoading(true)
@@ -113,6 +116,24 @@ export default function AdminAuditLog() {
       <div className="rounded-[24px] border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between">
           <p className="text-xs font-black text-[#4C1FB8]">필터 · {filtered.length}건</p>
+          <span className="flex items-center gap-2">
+            <AdminExportButton
+              filename="taxitago-audit-log"
+              headers={['작업', '처리자 ID', '처리자명', '대상 기록', '참조', '사유', '내용', '변경 전', '변경 후', '일시', 'ID']}
+              rows={filtered.map((entry) => [
+                AUDIT_LABEL[entry.kind] || entry.kind,
+                entry.actor,
+                entry.actorName || '',
+                entry.entryId || '',
+                entry.refId || '',
+                entry.reason || '',
+                entry.detail || '',
+                entry.before ? JSON.stringify(entry.before) : '',
+                entry.after ? JSON.stringify(entry.after) : '',
+                entry.createdAt,
+                entry.id,
+              ])}
+            />
           <button
             type="button"
             onClick={() => load()}
@@ -121,6 +142,7 @@ export default function AdminAuditLog() {
           >
             {loading ? '불러오는 중…' : '새로고침'}
           </button>
+          </span>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <select
@@ -192,7 +214,14 @@ export default function AdminAuditLog() {
           </p>
         ) : null}
         {paged.map((entry) => (
-          <article key={entry.id} className="rounded-2xl border-2 border-[#E2E8F0] bg-white p-3">
+          <article
+            key={entry.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => setDetail(entry)}
+            onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setDetail(entry) }}
+            className="cursor-pointer rounded-2xl border-2 border-[#E2E8F0] bg-white p-3 transition hover:border-[#4A82B8] hover:bg-[#F8FAFF]"
+          >
             <div className="flex items-center justify-between gap-2">
               <p className="flex min-w-0 items-center gap-1.5">
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${KIND_TONE[entry.kind] || 'bg-[#EDE9FE] text-[#4C1FB8]'}`}>
@@ -227,6 +256,32 @@ export default function AdminAuditLog() {
           />
         </div>
       ) : null}
+
+      {detail ? (
+        <AdminDetailModal
+          title="업무 기록 상세"
+          eyebrow="AUDIT DETAIL"
+          hero={AUDIT_LABEL[detail.kind] || detail.kind}
+          heroNote={new Date(detail.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          onClose={() => setDetail(null)}
+          rows={auditRows(detail)}
+        />
+      ) : null}
     </section>
   )
+}
+
+function auditRows(entry: AuditEntry): AdminDetailRow[] {
+  const rows: AdminDetailRow[] = [
+    { label: '작업 종류', value: AUDIT_LABEL[entry.kind] || entry.kind },
+    { label: '처리자', value: `${entry.actorName || (entry.actor === 'master' ? '최고 관리자' : '')} (${entry.actor})`.trim(), copy: true },
+    { label: '대상 기록 ID', value: entry.entryId || '(없음)', copy: Boolean(entry.entryId) },
+    { label: '연결 참조', value: entry.refId || '(없음)', copy: Boolean(entry.refId) },
+  ]
+  if (entry.reason) rows.push({ label: '사유', value: entry.reason })
+  if (entry.detail) rows.push({ label: '내용', value: entry.detail })
+  if (entry.before) rows.push({ label: '변경 전', value: JSON.stringify(entry.before, null, 2) })
+  if (entry.after) rows.push({ label: '변경 후', value: JSON.stringify(entry.after, null, 2) })
+  rows.push({ label: '기록 ID', value: entry.id, copy: true })
+  return rows
 }
