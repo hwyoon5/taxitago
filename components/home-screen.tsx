@@ -5757,9 +5757,12 @@ function WalletModal({
   const [address, setAddress] = useState('')
   const [addressDraft, setAddressDraft] = useState('')
   const [editingAddress, setEditingAddress] = useState(false)
+  // 출금 대상 주소 — 기본은 '내 출금 주소'이지만 타 계정 송금·현장 QR 결제 등으로
+  // 다른 목적지를 직접 입력해 보낼 수 있다. 신청 시점 값이 process.dest에 고정된다.
+  const [destInput, setDestInput] = useState('')
   const [amount, setAmount] = useState('')
   const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
-  const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number; txid?: string } | null>(null)
+  const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number; txid?: string; dest?: string } | null>(null)
   const [historyRange, setHistoryRange] = useState<'all' | 'week' | 'month' | 'year'>('all')
   const chargeUnits = [5, 10, 25, 50]
   // 최근 24시간 충전 누적 — 한도는 최대 50 Pi로 고정(지갑 내역은 localStorage에 보존됨).
@@ -5818,6 +5821,7 @@ function WalletModal({
     }
     setAddress(saved || linked)
     setAddressDraft(saved || linked)
+    setDestInput(saved || linked)
   }, [])
 
   const saveWithdrawAddress = () => {
@@ -5832,6 +5836,7 @@ function WalletModal({
       /* storage may be unavailable */
     }
     setAddress(next)
+    setDestInput(next)
     setEditingAddress(false)
     onNotice('출금 주소를 저장했습니다.')
   }
@@ -5874,7 +5879,7 @@ function WalletModal({
   useEffect(() => {
     if (process?.phase !== 'pending' || process.kind !== 'withdraw') return
     const value = process.amount
-    const dest = address.trim()
+    const dest = (process.dest || address).trim()
     let cancelled = false
     // 서버 A2U 송금이 실제로 성공해야만 완료 처리 — 실패 시 차감 없이 에러 안내.
     void Promise.resolve(onWithdraw(value, dest))
@@ -5909,16 +5914,16 @@ function WalletModal({
 
   const requestWithdraw = () => {
     if (process) return
-    const dest = address.trim()
+    const dest = destInput.trim()
     if (dest && !isPiWalletAddress(dest)) {
-      onNotice('저장된 출금 주소 형식이 올바르지 않습니다. 주소를 다시 확인해 주세요.')
+      onNotice('출금할 지갑 주소 형식이 올바르지 않습니다. 주소를 다시 확인해 주세요.')
       return
     }
     if (!(dest || loadPiIdentity()?.uid) || !withdrawValue || withdrawValue <= 0 || withdrawValue > balance) {
       onNotice('Pi 계정 연동과 출금 가능 금액을 확인해 주세요.')
       return
     }
-    setProcess({ kind: 'withdraw', phase: 'pending', amount: withdrawValue })
+    setProcess({ kind: 'withdraw', phase: 'pending', amount: withdrawValue, dest })
   }
 
   const tabs = [
@@ -6135,7 +6140,7 @@ function WalletModal({
         {tab === 'refund' && (
           <section className="mt-4 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
             <p className="font-black">출금ㆍ환불</p>
-            <p className="mt-1 text-xs font-bold text-[#8b8495]">보유 Pi를 저장된 출금 주소로 보내거나, 결제 금액을 환불받을 때 사용합니다. 실제 블록체인 전송 후 txid가 기록에 남습니다.</p>
+            <p className="mt-1 text-xs font-bold text-[#8b8495]">보유 Pi를 원하는 지갑 주소로 보내거나, 결제 금액을 환불받을 때 사용합니다. 실제 블록체인 전송 후 txid가 기록에 남습니다.</p>
             <div className="mt-4 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] p-3.5">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-black text-[#334155]">내 출금 주소</p>
@@ -6191,9 +6196,43 @@ function WalletModal({
               )}
               <p className="mt-1.5 text-[10px] font-bold text-[#8b8495]">
                 {isPiWalletAddress(address)
-                  ? '이 주소로 출금됩니다. 주소를 다시 한 번 확인해 주세요.'
+                  ? '출금 신청 시 이 주소가 기본으로 입력됩니다.'
                   : '주소가 없으면 연동된 Pi 계정 지갑으로 출금됩니다.'}
               </p>
+            </div>
+            <div className="mt-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-black text-[#334155]">출금할 지갑 주소</p>
+                <button
+                  type="button"
+                  onClick={() => setDestInput(address)}
+                  disabled={!isPiWalletAddress(address)}
+                  className="rounded-full bg-[#EDE5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8] disabled:opacity-50"
+                >
+                  내 주소
+                </button>
+              </div>
+              <input
+                value={destInput}
+                onChange={(event) => setDestInput(event.target.value)}
+                placeholder="G로 시작하는 56자리 Pi 지갑 주소"
+                spellCheck={false}
+                autoComplete="off"
+                className="mt-2 w-full rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-4 py-3 font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
+              />
+              {destInput.trim() && !isPiWalletAddress(destInput) ? (
+                <p className="mt-1 text-[10px] font-black text-[#DC2626]">
+                  ⚠ {piWalletError(destInput) ?? 'Pi 지갑 주소 형식이 올바르지 않습니다.'}
+                </p>
+              ) : destInput.trim() && isPiWalletAddress(destInput) && destInput.trim() !== address ? (
+                <p className="mt-1 text-[10px] font-black text-[#B45309]">
+                  ⚠ 내 출금 주소와 다른 주소입니다. 타 계정 송금·현장 결제 등 목적지를 다시 한 번 확인해 주세요.
+                </p>
+              ) : (
+                <p className="mt-1 text-[10px] font-bold text-[#8b8495]">
+                  타 계정 송금·현장 QR 결제 등 필요하면 다른 주소를 직접 입력할 수 있습니다.
+                </p>
+              )}
             </div>
             <div className="mt-3">
               <div className="flex items-center justify-between">
