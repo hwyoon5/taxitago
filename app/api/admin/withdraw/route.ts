@@ -30,7 +30,8 @@ const MAX_WITHDRAW_PI = 10_000
 async function availableFeeBalance(): Promise<number> {
   const [entries, totals] = await Promise.all([listSettlements(), walletTxTotals()])
   const commission = entries.reduce((sum, entry) => sum + entry.commission, 0)
-  const available = commission - totals.withdraw.total - totals.withdraw.fee - (totals.reward?.total ?? 0)
+  // 이용자 잔액 반환(feeWithdraw 제외분)은 수익 인출이 아니므로 수수료 가용액에서 빼지 않는다.
+  const available = commission - (totals.feeWithdraw?.total ?? totals.withdraw.total) - (totals.feeWithdraw?.fee ?? totals.withdraw.fee) - (totals.reward?.total ?? 0)
   return Math.max(0, piRound(available))
 }
 
@@ -44,7 +45,7 @@ async function executeWithdrawal(input: {
   sandbox: boolean
 }): Promise<{ ok: true; txid: string; ledger: number | bigint; network: string } | { ok: false; status: number; error: string }> {
   const { recipient, amount, memoText, reason, actor, sandbox } = input
-  const sent = await sendPiToAddress({ recipient, amount, memoText, reason, sandbox })
+  const sent = await sendPiToAddress({ recipient, amount, memoText, reason, purpose: 'fee', sandbox })
   if (!sent.ok) return sent
   await recordAudit({
     kind: 'withdraw',

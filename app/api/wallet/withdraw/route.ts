@@ -126,6 +126,7 @@ export async function POST(request: Request) {
       amount,
       memoText: 'TaxiTago withdraw',
       reason: '사용자 잔액 출금',
+      purpose: 'user',
       sandbox,
     })
     if (!sent.ok) {

@@ -56,9 +56,11 @@ export async function sendPiToAddress(input: {
   memoText: string
   /** 지갑 내역·감사 로그에 남는 사유 */
   reason?: string
+  /** 'fee' = 수수료 수익 인출(순수익 차감), 'user' = 이용자 잔액 반환(수익 무관). 기본 'fee'. */
+  purpose?: 'fee' | 'user'
   sandbox: boolean
 }): Promise<PiDirectSendResult> {
-  const { recipient, amount, memoText, reason = '', sandbox } = input
+  const { recipient, amount, memoText, reason = '', purpose = 'fee', sandbox } = input
   const secret = adminWalletSecret()
   if (!secret) {
     return { ok: false, status: 500, error: `${ADMIN_WALLET_SECRET_ENV} 환경 변수가 설정되지 않았습니다.` }
@@ -92,6 +94,7 @@ export async function sendPiToAddress(input: {
       memo: reason || memoText,
       status: 'failed',
       error: message,
+      purpose,
       network: sandbox ? 'testnet' : 'mainnet',
     }).catch(() => undefined)
 
@@ -127,6 +130,7 @@ export async function sendPiToAddress(input: {
       memo: reason || memoText,
       status: 'confirmed',
       fee: feePi,
+      purpose,
       network: sandbox ? 'testnet' : 'mainnet',
     }).catch(() => undefined)
     return {

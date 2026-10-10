@@ -13,6 +13,19 @@ import type { WalletTxEntry } from '@/lib/wallet-history'
 import { buildSettlementCsv } from '@/lib/settlement-csv'
 
 type ServiceSummary = { label: string; count: number; gross: number; commission: number; net: number }
+type TxBucket = { count: number; total: number; fee?: number }
+type TxTotals = {
+  deposit: { count: number; total: number }
+  /** 전체 출금(수수료 인출 + 이용자 잔액 반환). */
+  withdraw: TxBucket
+  /** 수수료 수익의 실제 인출 — 순수익 계산에는 이것만 차감한다. */
+  feeWithdraw?: TxBucket
+  /** 이용자 잔액 반환 — 플랫폼 수익 지출이 아니므로 통계에서 제외. */
+  userWithdraw?: TxBucket
+  reward?: { count: number; total: number }
+}
+/** 수익 인출분 — feeWithdraw가 없는 구형 응답은 전체 출금을 보수적으로 사용한다. */
+const feeOut = (totals: TxTotals | null): TxBucket => totals?.feeWithdraw ?? totals?.withdraw ?? { count: 0, total: 0, fee: 0 }
 type Summary = {
   count: number
   gross: number
@@ -71,7 +84,7 @@ export default function AdminSettlements() {
   const [deposits, setDeposits] = useState<(DepositEntry & { userCredited?: boolean; servicePayment?: boolean })[]>([])
   const [depositTotal, setDepositTotal] = useState<{ count: number; total: number } | null>(null)
   const [history, setHistory] = useState<WalletTxEntry[]>([])
-  const [historyTotals, setHistoryTotals] = useState<{ deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number }; reward?: { count: number; total: number } } | null>(null)
+  const [historyTotals, setHistoryTotals] = useState<TxTotals | null>(null)
   const [adminWallet, setAdminWallet] = useState('')
   const [depositBusy, setDepositBusy] = useState(false)
   const [depositForm, setDepositForm] = useState({ txid: '', fromWallet: '', amount: '', memo: '' })
@@ -94,7 +107,7 @@ export default function AdminSettlements() {
       .then(async (res) => {
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'load_failed')
-        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number }; history?: WalletTxEntry[]; historyTotals?: { deposit: { count: number; total: number }; withdraw: { count: number; total: number; fee: number }; reward?: { count: number; total: number } }; adminWallet?: string }
+        return data as { entries: SettlementEntry[]; summary: Summary; audit?: AuditEntry[]; deposits?: DepositEntry[]; depositTotal?: { count: number; total: number }; history?: WalletTxEntry[]; historyTotals?: TxTotals; adminWallet?: string }
       })
       .then((data) => {
         setEntries(data.entries)
@@ -285,11 +298,11 @@ export default function AdminSettlements() {
           <div className="rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] p-3">
             <p className="text-[11px] font-black text-[#4C1FB8]">총 수수료 수익 (출금 후 잔액)</p>
             <p className="mt-1 text-lg font-black text-[#4C1FB8]">
-              {pi(Math.max(0, summary.commission - (historyTotals?.withdraw.total ?? 0) - (historyTotals?.withdraw.fee ?? 0)))}
+              {pi(Math.max(0, summary.commission - feeOut(historyTotals).total - (feeOut(historyTotals).fee ?? 0)))}
             </p>
             <p className="text-[10px] font-bold text-[#94A3B8]">
               누적 {pi(summary.commission)}
-              {historyTotals?.withdraw.count ? ` · 출금 ${pi(historyTotals.withdraw.total + historyTotals.withdraw.fee)}` : ''}
+              {feeOut(historyTotals).count ? ` · 수수료 인출 ${pi(feeOut(historyTotals).total + (feeOut(historyTotals).fee ?? 0))}` : ''}
             </p>
           </div>
           <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3">
@@ -309,10 +322,10 @@ export default function AdminSettlements() {
           <div className="rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] p-3">
             <p className="text-[11px] font-black text-[#047857]">최종 순수익 (Net Revenue)</p>
             <p className="mt-1 text-lg font-black text-[#047857]">
-              {pi(Math.max(0, summary.commission - (historyTotals?.withdraw.total ?? 0) - (historyTotals?.withdraw.fee ?? 0) - (historyTotals?.reward?.total ?? 0)))}
+              {pi(Math.max(0, summary.commission - feeOut(historyTotals).total - (feeOut(historyTotals).fee ?? 0) - (historyTotals?.reward?.total ?? 0)))}
             </p>
             <p className="text-[10px] font-bold text-[#94A3B8]">
-              수수료 {pi(summary.commission)} − 출금 {pi((historyTotals?.withdraw.total ?? 0) + (historyTotals?.withdraw.fee ?? 0))} − 리뷰 보상 {pi(historyTotals?.reward?.total ?? 0)}
+              수수료 {pi(summary.commission)} − 수수료 인출 {pi(feeOut(historyTotals).total + (feeOut(historyTotals).fee ?? 0))} − 리뷰 보상 {pi(historyTotals?.reward?.total ?? 0)}
             </p>
           </div>
         </section>
@@ -427,7 +440,10 @@ export default function AdminSettlements() {
       {view === 'wallet' ? (
         <>
           <AdminWithdraw adminWallet={adminWallet} onChanged={reload} />
-          <AdminWalletHistory entries={history} totals={historyTotals} />
+          <AdminWalletHistory
+            entries={history}
+            totals={historyTotals ? { ...historyTotals, withdraw: { count: historyTotals.withdraw.count, total: historyTotals.withdraw.total, fee: historyTotals.withdraw.fee ?? 0 } } : null}
+          />
         </>
       ) : null}
 

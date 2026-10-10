@@ -4,6 +4,12 @@ import { piRound } from '@/lib/pi-format'
 
 export type WalletTxKind = 'deposit' | 'withdraw' | 'reward'
 
+/**
+ * 출금 목적 구분 — 'fee'는 플랫폼 수수료 수익의 실제 인출(수익에서 차감),
+ * 'user'는 이용자 잔액 반환(수익과 무관). purpose가 없는 옛 기록은 메모로 추정한다.
+ */
+export type WalletTxPurpose = 'fee' | 'user'
+
 /** 리뷰 감사 포인트 1회 지급액 — 서버 라우트들이 공유한다. */
 export const REVIEW_REWARD_PI = 0.1
 export type WalletTxStatus = 'confirmed' | 'pending' | 'failed'
@@ -22,6 +28,8 @@ export type WalletTxEntry = {
   error: string
   /** 네트워크 수수료(Pi) — 확정된 출금 건에만 부과된다. */
   fee: number
+  /** 출금 건의 목적 — 없으면 옛 기록(메모로 추정). */
+  purpose?: WalletTxPurpose
   network: 'testnet' | 'mainnet'
   createdAt: string
 }
@@ -107,6 +115,7 @@ export async function recordWalletTx(input: {
   status?: WalletTxStatus
   error?: string
   fee?: number
+  purpose?: WalletTxPurpose
   network?: 'testnet' | 'mainnet'
 }): Promise<WalletTxEntry | null> {
   const amount = piRound(Number(input.amount))
@@ -134,6 +143,7 @@ export async function recordWalletTx(input: {
     status: input.status ?? 'confirmed',
     error: (input.error ?? '').trim(),
     fee: input.status === 'confirmed' || input.status === undefined ? piRound(Number(input.fee ?? 0) || 0) : 0,
+    purpose: input.purpose,
     network: input.network ?? 'testnet',
     createdAt: new Date().toISOString(),
   }
@@ -147,16 +157,42 @@ export async function listWalletTxs(limit = 500): Promise<WalletTxEntry[]> {
   return [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit)
 }
 
+/**
+ * 이용자 잔액 반환 출금인지 판별 — purpose 필드가 없는 옛 기록은
+ * 이용자 출금 경로가 쓰는 메모('사용자 잔액 출금'/'TaxiTago withdraw')로 추정한다.
+ * 이용자 출금은 플랫폼 수익의 인출이 아니라 고객 돈의 반환이라 순수익 계산에서 빼야 한다.
+ */
+export function isUserWithdrawTx(entry: Pick<WalletTxEntry, 'purpose' | 'memo'>) {
+  if (entry.purpose) return entry.purpose === 'user'
+  const memo = entry.memo || ''
+  return memo.includes('사용자 잔액') || memo.includes('user-withdraw') || memo === 'TaxiTago withdraw'
+}
+
 export async function walletTxTotals() {
   const entries = await readEntries()
   const confirmed = entries.filter((entry) => entry.status === 'confirmed')
   const sum = (kind: WalletTxKind) => piRound(confirmed.filter((entry) => entry.kind === kind).reduce((total, entry) => total + entry.amount, 0))
+  const withdraws = confirmed.filter((entry) => entry.kind === 'withdraw')
+  const feeWithdraws = withdraws.filter((entry) => !isUserWithdrawTx(entry))
+  const userWithdraws = withdraws.filter(isUserWithdrawTx)
   return {
     deposit: { count: confirmed.filter((entry) => entry.kind === 'deposit').length, total: sum('deposit') },
     withdraw: {
-      count: confirmed.filter((entry) => entry.kind === 'withdraw').length,
+      count: withdraws.length,
       total: sum('withdraw'),
-      fee: piRound(confirmed.filter((entry) => entry.kind === 'withdraw').reduce((total, entry) => total + (entry.fee || 0), 0)),
+      fee: piRound(withdraws.reduce((total, entry) => total + (entry.fee || 0), 0)),
+    },
+    /** 플랫폼 수수료 수익에서 실제로 인출된 금액 — 순수익 계산에는 이것만 뺀다. */
+    feeWithdraw: {
+      count: feeWithdraws.length,
+      total: piRound(feeWithdraws.reduce((total, entry) => total + entry.amount, 0)),
+      fee: piRound(feeWithdraws.reduce((total, entry) => total + (entry.fee || 0), 0)),
+    },
+    /** 이용자 잔액 반환 — 플랫폼 지출이 아니므로 수익 통계에서 제외한다. */
+    userWithdraw: {
+      count: userWithdraws.length,
+      total: piRound(userWithdraws.reduce((total, entry) => total + entry.amount, 0)),
+      fee: piRound(userWithdraws.reduce((total, entry) => total + (entry.fee || 0), 0)),
     },
     reward: { count: confirmed.filter((entry) => entry.kind === 'reward').length, total: sum('reward') },
   }
