@@ -10,8 +10,20 @@ import type { DeviceTelemetry } from '@/lib/device-types'
 
 export const MOBILITY_DEVICES_EVENT = 'taxitago-mobility-devices'
 
-export type MobilityDeviceKind = '자전거' | '퀵보드'
+export type MobilityDeviceKind = '자전거' | '킥보드'
 export type MobilityDeviceStatus = 'available' | 'maintenance' | 'low_battery' | 'rented'
+
+/**
+ * 서버·외부 데이터의 기기 종류 표기를 표준값으로 정규화한다.
+ * 과거 데이터·외부 피드가 '퀵보드', 'kickboard', 'scooter' 등으로 들어와도
+ * 폼 선택값이 어긋나지 않게 '자전거' | '킥보드'로 맞춘다.
+ */
+export function normalizeMobilityKind(raw: unknown, fallback: MobilityDeviceKind = '자전거'): MobilityDeviceKind {
+  const text = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  if (text === '자전거' || text === 'bicycle' || text === 'bike') return '자전거'
+  if (text === '킥보드' || text === '퀵보드' || text === 'kickboard' || text === 'scooter' || text === 'e-scooter') return '킥보드'
+  return fallback
+}
 
 export type MobilityDevice = {
   /** 서버 deviceId — 등록·대여·정산의 기본 식별자 */
@@ -55,7 +67,7 @@ export function parseCoordInput(value: string): { lat: number; lng: number } | n
   return null
 }
 
-export function deviceMatchesService(kind: MobilityDeviceKind, service: string) {
+export function deviceMatchesService(kind: MobilityDeviceKind | string, service: string) {
   if (kind === '자전거') return service === '자전거'
   return service === '킥보드' || service === '퀵보드'
 }
@@ -83,36 +95,47 @@ export function deviceQrMatchesSerial(raw: string, serial: string): boolean {
 
 function statusOf(row: DeviceTelemetry): MobilityDeviceStatus {
   const mobility = row.spec?.kind === 'mobility' ? row.spec : null
-  const battery = mobility?.batteryLevel ?? row.batteryLevel
+  const battery = Number(mobility?.batteryLevel ?? row.batteryLevel)
   if (row.status === 'rented') return 'rented'
   if (mobility && mobility.rentable !== true) return 'maintenance'
-  if (typeof battery === 'number' && battery < LOW_BATTERY) return 'low_battery'
+  if (Number.isFinite(battery) && battery < LOW_BATTERY) return 'low_battery'
   return 'available'
 }
 
+/**
+ * 서버 레코드 → 화면 모델 변환 — 모든 표시 필드를 이 경계에서 정규화한다.
+ * 비정규 데이터(문자열 좌표, null 모델, 비문자열 필드)가 렌더 단계까지
+ * 도달해 크래시하는 것을 막는다.
+ */
 export function deviceFromTelemetry(row: DeviceTelemetry): MobilityDevice | null {
   const kind: MobilityDeviceKind | null =
-    row.type === 'bicycle' ? '자전거' : row.type === 'kickboard' ? '퀵보드' : null
+    row.type === 'bicycle' ? '자전거' : row.type === 'kickboard' ? '킥보드' : null
   const mobility = row.spec?.kind === 'mobility' ? row.spec : null
   if (!kind || !mobility || !row.registered) return null
-  const lat = mobility.latitude ?? row.latitude
-  const lng = mobility.longitude ?? row.longitude
+  const serial = typeof row.deviceId === 'string' ? row.deviceId.trim() : ''
+  if (!serial) return null
+  const lat = Number(mobility.latitude ?? row.latitude)
+  const lng = Number(mobility.longitude ?? row.longitude)
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-  const battery = mobility.batteryLevel ?? row.batteryLevel ?? 100
+  const rawBattery = Number(mobility.batteryLevel ?? row.batteryLevel ?? 100)
+  const battery = Number.isFinite(rawBattery) ? Math.max(0, Math.min(100, Math.round(rawBattery))) : 100
+  const model = typeof mobility.model === 'string' ? mobility.model : ''
+  const address = typeof mobility.address === 'string' && mobility.address ? mobility.address : `${lat}, ${lng}`
+  const text = (value: unknown) => (typeof value === 'string' ? value : '')
   return {
-    serial: row.deviceId,
+    serial,
     kind,
-    model: mobility.model,
-    address: mobility.address || `${lat}, ${lng}`,
+    model,
+    address,
     lat,
     lng,
-    battery: Math.max(0, Math.min(100, Math.round(battery))),
+    battery,
     status: statusOf(row),
     rentable: mobility.rentable === true,
-    ownerUid: row.ownerUid || '',
-    ownerName: row.ownerName || '',
-    registeredAt: row.firstSeen || row.lastSeen,
-    lastSeen: row.lastSeen,
+    ownerUid: text(row.ownerUid),
+    ownerName: text(row.ownerName),
+    registeredAt: text(row.firstSeen) || text(row.lastSeen),
+    lastSeen: text(row.lastSeen),
   }
 }
 
@@ -181,7 +204,7 @@ export async function registerMobilityDevice(input: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         deviceId: input.serial.trim(),
-        type: input.kind === '자전거' ? 'bicycle' : 'kickboard',
+        type: normalizeMobilityKind(input.kind) === '자전거' ? 'bicycle' : 'kickboard',
         ownerUid: input.ownerUid || undefined,
         ownerName: input.ownerName || undefined,
         spec: {

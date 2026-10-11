@@ -118,7 +118,8 @@ function checkoutLabel(metadata?: Record<string, unknown>) {
 }
 
 function isMobilityReturnLabel(label: string) {
-  return label === '자전거 이용' || label === '퀵보드 이용'
+  // '퀵보드 이용'은 과거 메타데이터 표기 — '킥보드 이용'과 함께 인식한다.
+  return label === '자전거 이용' || label === '킥보드 이용' || label === '퀵보드 이용'
 }
 
 async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<void> {

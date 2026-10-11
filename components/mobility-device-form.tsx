@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Component, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Check, Link2, RefreshCw, Trash2, X } from 'lucide-react'
 import { searchPlacesFromApi } from '@/lib/geocode-client'
 import { PartnerFeedsPanel } from '@/components/partner-feeds-panel'
@@ -8,6 +8,7 @@ import {
   deleteMobilityDevice,
   fetchMyMobilityDevices,
   MOBILITY_STATUS_LABEL,
+  normalizeMobilityKind,
   parseCoordInput,
   registerMobilityDevice,
   updateMyMobilityDevice,
@@ -23,6 +24,34 @@ function statusClass(status: MobilityDevice['status']) {
 }
 
 /**
+ * 폼 내부 렌더 예외를 페이지 크래시(app/error.tsx)로 번지지 않게 막는 바운더리 —
+ * 비정상 기기 데이터가 있어도 폼이 깔끔한 오류 패널로 대체된다.
+ */
+class DeviceFormErrorBoundary extends Component<{ onClose: () => void; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    if (!this.state.failed) return this.props.children
+    return (
+      <section className="mx-auto w-full max-w-md rounded-t-[32px] bg-white p-6 text-center shadow-2xl sm:rounded-[32px]" onClick={(e) => e.stopPropagation()}>
+        <p className="text-sm font-black text-[#0F172A]">기기 정보를 불러오는 중 문제가 발생했어요.</p>
+        <p className="mt-1 text-xs font-bold leading-5 text-[#64748B]">일시적인 오류일 수 있습니다. 다시 시도하거나 창을 닫아 주세요.</p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" onClick={this.props.onClose} className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]">
+            닫기
+          </button>
+          <button type="button" onClick={() => this.setState({ failed: false })} className="rounded-2xl bg-[#4A82B8] py-2.5 text-xs font-black text-white">
+            다시 시도
+          </button>
+        </div>
+      </section>
+    )
+  }
+}
+
+/**
  * 파트너 기기 등록·관리 모달 — 서버 기기 스토어(/api/devices)에 저장되어
  * 등록 즉시 모든 이용자의 지도에 노출된다. ownerUid가 있어야 수정·삭제가
  * 허용된다(소유자 검증은 서버가 한다).
@@ -34,15 +63,16 @@ export function MobilityDeviceFormModal({
   onClose,
   onRegistered,
 }: {
-  initialKind?: MobilityDeviceKind
+  initialKind?: MobilityDeviceKind | string
   ownerUid?: string
   ownerName?: string
   onClose: () => void
   onRegistered?: (device: MobilityDevice) => void
 }) {
   const uid = ownerUid.trim()
+  const defaultKind = normalizeMobilityKind(initialKind)
   const [serial, setSerial] = useState('')
-  const [kind, setKind] = useState<MobilityDeviceKind>(initialKind)
+  const [kind, setKind] = useState<MobilityDeviceKind>(defaultKind)
   const [model, setModel] = useState('')
   const [location, setLocation] = useState('')
   const [battery, setBattery] = useState(80)
@@ -54,25 +84,38 @@ export function MobilityDeviceFormModal({
   const [devices, setDevices] = useState<MobilityDevice[]>([])
   const [loadingList, setLoadingList] = useState(false)
 
-  const reload = () => {
+  const reload = useCallback(() => {
     if (!uid) return
     setLoadingList(true)
     void fetchMyMobilityDevices(uid)
       .then(setDevices)
       .finally(() => setLoadingList(false))
-  }
-  useEffect(reload, [uid])
+  }, [uid])
+  useEffect(() => {
+    reload()
+  }, [reload])
 
+  // 수정 모드 진입 — 기기 데이터가 비정상이어도 예외 없이 안전하게 바인딩한다.
   const beginEdit = (device: MobilityDevice) => {
-    setEditingSerial(device.serial)
-    setSerial(device.serial)
-    setKind(device.kind)
-    setModel(device.model)
-    setLocation(device.address)
-    setBattery(device.battery)
-    setRentable(device.rentable)
-    setSaved(null)
-    setError('')
+    try {
+      const serialNo = typeof device?.serial === 'string' ? device.serial : ''
+      if (!serialNo) {
+        setError('기기 정보가 올바르지 않아 수정할 수 없어요. 목록을 새로고침해 주세요.')
+        return
+      }
+      const level = Number(device.battery)
+      setEditingSerial(serialNo)
+      setSerial(serialNo)
+      setKind(normalizeMobilityKind(device.kind))
+      setModel(typeof device.model === 'string' ? device.model : '')
+      setLocation(typeof device.address === 'string' ? device.address : '')
+      setBattery(Number.isFinite(level) ? Math.max(0, Math.min(100, Math.round(level))) : 80)
+      setRentable(device.rentable === true)
+      setSaved(null)
+      setError('')
+    } catch {
+      setError('기기 정보를 불러오지 못했어요. 목록을 새로고침한 뒤 다시 시도해 주세요.')
+    }
   }
 
   const resetForm = () => {
@@ -82,7 +125,7 @@ export function MobilityDeviceFormModal({
     setLocation('')
     setBattery(80)
     setRentable(true)
-    setKind(initialKind)
+    setKind(defaultKind)
   }
 
   const submit = async () => {
@@ -159,6 +202,7 @@ export function MobilityDeviceFormModal({
 
   return (
     <div className="fixed inset-0 z-[120] flex items-end bg-[#1e1033]/50 sm:items-center sm:p-4" onClick={onClose}>
+      <DeviceFormErrorBoundary onClose={onClose}>
       <section
         role="dialog"
         aria-modal="true"
@@ -188,13 +232,20 @@ export function MobilityDeviceFormModal({
             value={serial}
             onChange={(event) => setSerial(event.target.value)}
             placeholder="예: BK-2048"
-            className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]"
+            disabled={Boolean(editingSerial)}
+            className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8] disabled:cursor-not-allowed disabled:opacity-60"
           />
+          {editingSerial ? (
+            <span className="mt-1 block text-[10px] font-bold text-[#94A3B8]">
+              수정 중에는 기기 ID를 바꿀 수 없습니다.
+              {editingSerial.startsWith('ext:') ? ' 외부 연동 기기는 다음 자동 동기화에 피드 값이 다시 적용될 수 있어요.' : ''}
+            </span>
+          ) : null}
         </label>
         <div className="mt-4">
           <p className="text-xs font-black text-[#334155]">기기 종류</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            {(['자전거', '퀵보드'] as const).map((item) => (
+            {(['자전거', '킥보드'] as const).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -339,6 +390,7 @@ export function MobilityDeviceFormModal({
           </div>
         ) : null}
       </section>
+      </DeviceFormErrorBoundary>
     </div>
   )
 }

@@ -4361,7 +4361,7 @@ function ServiceSheet({
       />
       {deviceFormOpen && vehicle ? (
         <MobilityDeviceFormModal
-          initialKind={service === '킥보드' ? '퀵보드' : '자전거'}
+          initialKind={service === '킥보드' ? '킥보드' : '자전거'}
           ownerUid={loadPartnerProfile()?.uid || loadPiIdentity()?.uid || ''}
           ownerName={loadPartnerProfile()?.name || loadPiIdentity()?.username || ''}
           onClose={() => setDeviceFormOpen(false)}
@@ -7229,7 +7229,7 @@ function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartT
       </section>
       <section className="mt-4 rounded-[26px] border-2 border-[#BBF7D0] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
         <p className="text-xs font-black text-[#047857]">시뮬레이션 1단계</p>
-        <h3 className="mt-1 text-lg font-black text-[#0F172A]">자전거 · 퀵보드 기기 등록</h3>
+        <h3 className="mt-1 text-lg font-black text-[#0F172A]">자전거 · 킥보드 기기 등록</h3>
         <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">시리얼, 종류, 위치, 배터리와 상태를 등록하고, 목록에서 수정·삭제·상태 변경을 할 수 있습니다. 이용 가능한 기기만 대여되고, 이용 완료 시 Pi 결제 후 반납됩니다.</p>
         <button
           type="button"
