@@ -81,6 +81,7 @@ import MyPage from '@/components/my-page'
 import ManualPayModal from '@/components/manual-pay-modal'
 import QrPayScanModal from '@/components/qr-pay-scan'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
+import { PartnerTabScreen } from '@/components/partner-dashboard'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
 import RideChat from '@/components/ride-chat'
@@ -9149,6 +9150,8 @@ export default function HomeScreen() {
   const [driverGateOpen, setDriverGateOpen] = useState(false)
   const [isDriverRegistered, setIsDriverRegistered] = useState(false)
   const [isPartnerRegistered, setIsPartnerRegistered] = useState(false)
+  // '기사/파트너' 탭의 뷰 선택 — 파트너 권한이 있으면 대시보드가 기본값이다.
+  const [partnerTabRole, setPartnerTabRole] = useState<'driver' | 'partner'>('partner')
   const [isPiLinked, setIsPiLinked] = useState(false)
   const [receiptRide, setReceiptRide] = useState<RideReceipt | null>(null)
   const [inboxItem, setInboxItem] = useState<Notice | null>(null)
@@ -9256,7 +9259,10 @@ export default function HomeScreen() {
     setTransactions(stored.transactions)
     setReadNoticeIds(loadReadNoticeIds())
     setIsDriverRegistered(loadIsDriverRegistered())
-    setIsPartnerRegistered(loadIsPartnerRegistered())
+    // 플래그가 빠진 상태로 저장된 파트너 프로필도 파트너로 인정한다 —
+    // role === '파트너'인 프로필이 있으면 파트너 권한으로 간주한다.
+    const storedProfile = loadPartnerProfile()
+    setIsPartnerRegistered(loadIsPartnerRegistered() || storedProfile?.role === '파트너')
     setIsPiLinked(loadIsPiLinked())
     setWalletReady(true)
     setActivities(loadActivities())
@@ -9725,6 +9731,8 @@ export default function HomeScreen() {
   }
   const enterDriverMode = () => {
     setDriverMode(true)
+    // 명시적인 '기사 모드 전환' 액션은 복합 권한 유저에게 기사 뷰를 연다.
+    setPartnerTabRole('driver')
     setTab('기사/파트너')
     showNotice('기사 모드로 전환했어요.')
   }
@@ -9856,8 +9864,22 @@ export default function HomeScreen() {
           />
         ) : null}
         {tab === '기사/파트너' ? (
-          isDriverRegistered || isPartnerRegistered ? (
-            <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} openLostId={driverLostOpen} onLostOpened={() => setDriverLostOpen(null)} />
+          (isPartnerRegistered || loadPartnerProfile()?.role === '파트너') && (!isDriverRegistered || partnerTabRole === 'partner') ? (
+            <PartnerTabScreen dualRole={isDriverRegistered} onSwitchToDriver={() => setPartnerTabRole('driver')} onNotice={showNotice} />
+          ) : isDriverRegistered || isPartnerRegistered ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              {isDriverRegistered && isPartnerRegistered ? (
+                <div className="shrink-0 px-4 pt-2">
+                  <div className="grid grid-cols-2 gap-1 rounded-[18px] bg-[#F1F5F9] p-1 ring-1 ring-[#E2E8F0]">
+                    <span className="rounded-[14px] bg-[#4A82B8] py-2.5 text-center text-xs font-black text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]">기사 모드</span>
+                    <button type="button" onClick={() => setPartnerTabRole('partner')} className="rounded-[14px] py-2.5 text-xs font-black text-[#64748B]">
+                      파트너 모드
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} openLostId={driverLostOpen} onLostOpened={() => setDriverLostOpen(null)} />
+            </div>
           ) : (
             <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
           )

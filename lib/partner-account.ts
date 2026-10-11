@@ -40,17 +40,19 @@ export type PartnerProfile = PiIdentity & {
 }
 
 export function splitVehicleDetail(detail: string) {
-  const text = detail.trim()
+  // 손상된 프로필(localStorage JSON 변형 등)로 detail이 문자열이 아니어도
+  // .trim() TypeError 없이 빈 값으로 수렴한다.
+  const text = (typeof detail === 'string' ? detail : '').trim()
   const parts = text.split(/\s*[·|/]\s*/).map((part) => part.trim()).filter(Boolean)
   if (parts.length >= 2) return { vehicle: parts[0], plate: parts.slice(1).join(' ') }
   return { vehicle: text, plate: '' }
 }
 
 export function partnerVehicle(profile: Pick<PartnerProfile, 'detail' | 'vehicle' | 'plate'> | null | undefined) {
-  const vehicle = profile?.vehicle?.trim() || ''
-  const plate = profile?.plate?.trim() || ''
+  const vehicle = typeof profile?.vehicle === 'string' ? profile.vehicle.trim() : ''
+  const plate = typeof profile?.plate === 'string' ? profile.plate.trim() : ''
   if (vehicle || plate) return { vehicle, plate }
-  return splitVehicleDetail(profile?.detail || '')
+  return splitVehicleDetail(typeof profile?.detail === 'string' ? profile.detail : '')
 }
 
 export type SettlementEntry = {

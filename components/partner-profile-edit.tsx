@@ -11,11 +11,14 @@ import { SafeBoundary } from '@/components/safe-boundary'
 
 const DOC_MAX_BYTES = 2.5 * 1024 * 1024
 
+/** 손상된 프로필 값도 폼을 깨뜨리지 않게 문자열로 강제한다. */
+const str = (value: unknown) => (typeof value === 'string' ? value : '')
+
 /**
  * 최초 기사/파트너 등록 후 프로필·차량 정보를 수정하는 바텀시트.
  * 저장 시 로컬 프로필 → 파트너 연동 DB → 배차용 기사 레코드 순으로 반영된다.
  */
-export default function PartnerProfileEditModal({
+function PartnerProfileEditForm({
   profile,
   onClose,
   onSaved,
@@ -29,11 +32,11 @@ export default function PartnerProfileEditModal({
   const isDriver = profile.role === '기사'
   const needsVehicle = isDriver && profile.serviceType !== '대리운전'
   const initialFleet = partnerVehicle(profile)
-  const [name, setName] = useState(profile.name)
-  const [phone, setPhone] = useState(profile.phone)
+  const [name, setName] = useState(str(profile.name))
+  const [phone, setPhone] = useState(str(profile.phone))
   const [vehicleName, setVehicleName] = useState(initialFleet.vehicle)
   const [plateNumber, setPlateNumber] = useState(initialFleet.plate)
-  const [region, setRegion] = useState(profile.region)
+  const [region, setRegion] = useState(str(profile.region))
   const [insuranceCompany, setInsuranceCompany] = useState(profile.insuranceCompany ?? '')
   const [insurancePolicyNo, setInsurancePolicyNo] = useState(profile.insurancePolicyNo ?? '')
   const [insuranceExpiresAt, setInsuranceExpiresAt] = useState(profile.insuranceExpiresAt ?? '')
@@ -177,9 +180,9 @@ export default function PartnerProfileEditModal({
               </button>
             </div>
             <div className="mt-4 rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] p-4">
-              <p className="text-[11px] font-black text-[#4A82B8]">{profile.role}{profile.serviceType ? ` · ${profile.serviceType}` : ''} 계정</p>
-              <p className="mt-1 text-sm font-black text-[#0F172A]">@{profile.username}</p>
-              <p className="mt-1 break-all text-[11px] font-bold leading-5 text-[#334155]">UID {profile.uid}</p>
+              <p className="text-[11px] font-black text-[#4A82B8]">{str(profile.role) || '파트너'}{str(profile.serviceType) ? ` · ${str(profile.serviceType)}` : ''} 계정</p>
+              <p className="mt-1 text-sm font-black text-[#0F172A]">@{str(profile.username)}</p>
+              <p className="mt-1 break-all text-[11px] font-bold leading-5 text-[#334155]">UID {str(profile.uid)}</p>
             </div>
             <label className="mt-4 block">
               <span className="text-xs font-black text-[#334155]">{isDriver ? '기사 성함' : '대표자 성함'}</span>
@@ -218,11 +221,11 @@ export default function PartnerProfileEditModal({
                   <input value={vehicleName} onChange={(event) => setVehicleName(event.target.value)} placeholder="파이 모빌리티 강남점" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
                 </label>
                 <label className="block">
-                  <span className="text-xs font-black text-[#334155]">{facilityUnitLabel(profile.serviceType)} (선택)</span>
-                  <input value={plateNumber} onChange={(event) => setPlateNumber(event.target.value)} placeholder={facilityUnitPlaceholder(profile.serviceType)} className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
+                  <span className="text-xs font-black text-[#334155]">{facilityUnitLabel(str(profile.serviceType))} (선택)</span>
+                  <input value={plateNumber} onChange={(event) => setPlateNumber(event.target.value)} placeholder={facilityUnitPlaceholder(str(profile.serviceType))} className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
                 </label>
                 <SafeBoundary label="기기 상세 정보를 불러오지 못했어요. 저장은 계속 진행할 수 있습니다.">
-                  <FacilitySpecForm serviceType={profile.serviceType || ''} spec={facilitySpec} onChange={setFacilitySpec} />
+                  <FacilitySpecForm serviceType={str(profile.serviceType)} spec={facilitySpec} onChange={setFacilitySpec} />
                 </SafeBoundary>
               </div>
             )}
@@ -276,5 +279,29 @@ export default function PartnerProfileEditModal({
         )}
       </section>
     </div>
+  )
+}
+
+/**
+ * 외부 진입점 — 컴포넌트 본문(프로필 정규화·초기화)에서의 예외까지 잡아
+ * 모달이 깨져도 '일시적인 오류' 페이지 크래시로 번지지 않게 한다.
+ */
+export default function PartnerProfileEditModal(props: Parameters<typeof PartnerProfileEditForm>[0]) {
+  return (
+    <SafeBoundary
+      fallback={
+        <div className="fixed inset-0 z-[94] flex items-end justify-center bg-[#1e1033]/50 sm:items-center sm:p-4" onClick={props.onClose}>
+          <div className="mx-auto w-full max-w-md rounded-t-[28px] bg-white p-6 text-center shadow-2xl sm:rounded-[28px]" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-black text-[#0F172A]">프로필 정보를 불러오는 중 문제가 발생했어요.</p>
+            <p className="mt-1 text-xs font-bold leading-5 text-[#64748B]">일시적인 오류일 수 있습니다. 창을 닫고 다시 시도해 주세요.</p>
+            <button type="button" onClick={props.onClose} className="mt-4 w-full rounded-2xl bg-[#4A82B8] py-3 text-sm font-black text-white">
+              닫기
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <PartnerProfileEditForm {...props} />
+    </SafeBoundary>
   )
 }

@@ -354,7 +354,7 @@ export function MobilityDeviceFormModal({
                       <div>
                         <p className="text-sm font-black text-[#0F172A]">
                           {device.serial}
-                          <span className={`font-black ${statusClass(device.status)}`}> ({MOBILITY_STATUS_LABEL[device.status]})</span>
+                          <span className={`font-black ${statusClass(device.status)}`}> ({MOBILITY_STATUS_LABEL[device.status] ?? '확인 중'})</span>
                         </p>
                         <p className="mt-1 text-xs font-bold text-[#475569]">
                           {device.kind}{device.model ? ` · ${device.model}` : ''} · 배터리 {device.battery}% · {device.address}

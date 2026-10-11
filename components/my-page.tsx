@@ -171,8 +171,9 @@ export default function MyPage({
     window.setTimeout(() => setToast(''), 2200)
   }
 
-  const driverOk = isDriverRegistered ?? localDriver
-  const partnerOk = isPartnerRegistered ?? localPartner
+  // 등록 플래그가 빠져 있어도 저장된 프로필의 role을 권한으로 인정한다.
+  const driverOk = (isDriverRegistered ?? localDriver) || partnerProfile?.role === '기사'
+  const partnerOk = (isPartnerRegistered ?? localPartner) || partnerProfile?.role === '파트너'
   const modeOn = driverMode ?? localMode
   const linked = piLinked ?? localPi
   const piBalance = balance ?? localBalance

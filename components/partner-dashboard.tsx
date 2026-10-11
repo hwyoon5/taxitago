@@ -16,7 +16,8 @@ import {
   type MobilityDeviceStatus,
   type PartnerFeedInfo,
 } from '@/lib/mobility-devices'
-import type { PartnerProfile } from '@/lib/partner-account'
+import PartnerProfileEditModal from '@/components/partner-profile-edit'
+import { loadPartnerProfile, loadPiIdentity, type PartnerProfile, type PiIdentity } from '@/lib/partner-account'
 
 const statusTone = (status: MobilityDeviceStatus) =>
   status === 'available' ? 'bg-[#ECFDF5] text-[#047857]'
@@ -327,5 +328,66 @@ export function PartnerDashboardSafe(props: Parameters<typeof PartnerDashboard>[
     <SafeBoundary label="파트너 대시보드를 불러오는 중 문제가 발생했어요.">
       <PartnerDashboard {...props} />
     </SafeBoundary>
+  )
+}
+
+/**
+ * 하단 '기사/파트너' 탭의 파트너 뷰 — 프로필·Pi 세션을 스스로 읽고,
+ * 기사 겸업 유저에게는 기사 모드로 돌아가는 토글을 제공한다.
+ */
+export function PartnerTabScreen({
+  dualRole = false,
+  onSwitchToDriver,
+  onNotice,
+}: {
+  /** 기사 권한도 보유한 복합 유저면 모드 전환 토글을 보인다. */
+  dualRole?: boolean
+  onSwitchToDriver?: () => void
+  onNotice?: (message: string) => void
+}) {
+  const [profile, setProfile] = useState<PartnerProfile | null>(null)
+  const [identity, setIdentity] = useState<PiIdentity | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+
+  useEffect(() => {
+    try {
+      setProfile(loadPartnerProfile())
+      setIdentity(loadPiIdentity())
+    } catch {
+      /* 손상된 로컬 데이터 — 빈 상태로 진행 */
+    }
+  }, [])
+
+  const uid = profile?.uid || identity?.uid || ''
+  const ownerName = profile?.name || identity?.username || ''
+
+  return (
+    <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-4" aria-label="파트너 대시보드">
+      {dualRole && onSwitchToDriver ? (
+        <div className="mb-3 grid grid-cols-2 gap-1 rounded-[18px] bg-[#F1F5F9] p-1 ring-1 ring-[#E2E8F0]">
+          <button type="button" onClick={onSwitchToDriver} className="rounded-[14px] py-2.5 text-xs font-black text-[#64748B]">
+            기사 모드
+          </button>
+          <span className="rounded-[14px] bg-[#4A82B8] py-2.5 text-center text-xs font-black text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]">
+            파트너 모드
+          </span>
+        </div>
+      ) : null}
+      <PartnerDashboardSafe
+        ownerUid={uid}
+        ownerName={ownerName}
+        profile={profile}
+        onEditProfile={profile ? () => setEditOpen(true) : undefined}
+        onNotice={onNotice}
+      />
+      {editOpen && profile ? (
+        <PartnerProfileEditModal
+          profile={profile}
+          onClose={() => setEditOpen(false)}
+          onSaved={(next) => setProfile(next)}
+          onDone={(message) => onNotice?.(message)}
+        />
+      ) : null}
+    </main>
   )
 }
