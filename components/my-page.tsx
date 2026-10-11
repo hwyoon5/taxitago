@@ -87,11 +87,28 @@ function storedTransactions(): TxRow[] {
 }
 
 function mergedHistory(activities: ActivityRow[], transactions: TxRow[]): HistoryEntry[] {
+  // 로컬 저장본의 비정규 행(객체·숫자 필드)도 JSX 렌더에서 안전하도록 문자열로 수렴한다.
+  const text = (value: unknown) => (typeof value === 'string' ? value : '')
   return [
-    ...transactions.map((tx, index) => ({ id: `tx-${index}`, label: tx.label, detail: tx.detail || tx.place, at: tx.at, amount: tx.amount })),
+    ...transactions.map((tx, index) => {
+      const amount = Number(tx?.amount)
+      return {
+        id: `tx-${index}`,
+        label: text(tx?.label),
+        detail: text(tx?.detail) || text(tx?.place),
+        at: text(tx?.at),
+        amount: Number.isFinite(amount) ? amount : null,
+      }
+    }),
     ...activities
-      .filter((entry) => !PAYMENT_DUP_LABELS.has(entry.label))
-      .map((entry) => ({ id: entry.id, label: entry.label, detail: entry.detail, at: entry.at, amount: null })),
+      .filter((entry) => entry && typeof entry === 'object' && !PAYMENT_DUP_LABELS.has(text(entry.label)))
+      .map((entry, index) => ({
+        id: text(entry.id) || `act-${index}`,
+        label: text(entry.label),
+        detail: text(entry.detail),
+        at: text(entry.at),
+        amount: null,
+      })),
   ]
 }
 

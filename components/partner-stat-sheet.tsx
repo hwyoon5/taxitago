@@ -49,11 +49,28 @@ export default function PartnerStatSheet({
     : ([{ id: 'daily', label: '일별 운행' }, { id: 'monthly', label: '월별 운행' }, { id: 'yearly', label: '년도별 운행' }] as const)
   const [tab, setTab] = useState<(typeof tabs)[number]['id']>('daily')
   const [opened, setOpened] = useState<{ period: string; amount?: number } | null>(null)
+  // 비정규 정산 행(비숫자 금액·비문자열 기간)이 .toFixed/.toLocaleString에서
+  // 깨지지 않도록 렌더 전에 전부 강제 변환한다.
+  const num = (value: unknown) => (Number.isFinite(Number(value)) ? Number(value) : 0)
+  const text = (value: unknown) => (typeof value === 'string' ? value : '')
+  const rowsOf = (list: EarningsPeriodRow[] | undefined): EarningsPeriodRow[] =>
+    Array.isArray(list)
+      ? list.map((row) => ({
+          period: text(row?.period),
+          count: num(row?.count),
+          amount: num(row?.amount),
+          trips: num(row?.trips),
+          done: num(row?.done),
+          cancel: num(row?.cancel),
+          note: text(row?.note),
+        }))
+      : []
   const rows: EarningsPeriodRow[] =
-    tab === 'total' ? live.total : tab === 'monthly' ? live.monthly : tab === 'yearly' ? live.yearly : live.daily
-  const details: DriverEarning[] = opened
-    ? live.recent.filter((item) => matchesEarningPeriod(item.at, opened.period, tab))
-    : []
+    tab === 'total' ? rowsOf(live.total) : tab === 'monthly' ? rowsOf(live.monthly) : tab === 'yearly' ? rowsOf(live.yearly) : rowsOf(live.daily)
+  const details: DriverEarning[] =
+    opened && Array.isArray(live.recent)
+      ? live.recent.filter((item) => item && typeof item === 'object' && matchesEarningPeriod(text(item.at), opened.period, tab))
+      : []
   const accent = isRevenue
     ? { ink: 'text-teal-700', on: 'bg-teal-700 text-white', off: 'bg-teal-50 text-teal-700', head: 'bg-teal-700', border: 'border-teal-200', zebra: 'bg-teal-50', hover: 'hover:bg-teal-100 active:bg-teal-200', total: 'bg-teal-100 text-teal-900', amount: 'text-teal-700' }
     : { ink: 'text-sky-700', on: 'bg-sky-700 text-white', off: 'bg-sky-50 text-sky-700', head: 'bg-cyan-800', border: 'border-sky-200', zebra: 'bg-sky-50', hover: 'hover:bg-sky-100 active:bg-sky-200', total: 'bg-sky-100 text-sky-900', amount: 'text-sky-700' }
@@ -166,16 +183,22 @@ export default function PartnerStatSheet({
             <ul className="mt-4 space-y-2">
               {details.length === 0 ? (
                 <li className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-500">해당 기간 내역이 없습니다</li>
-              ) : details.map((item) => (
-                <li key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+              ) : details.map((item, index) => {
+                const amount = Number(item?.amount)
+                const safeAmount = Number.isFinite(amount) ? amount : 0
+                const at = text(item?.at)
+                const time = at ? new Date(at) : null
+                return (
+                <li key={text(item?.id) || `row-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-800">{new Date(item.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</p>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>{item.status === 'completed' ? '정산됨' : '취소'}</span>
+                    <p className="text-sm font-semibold text-slate-800">{time && !Number.isNaN(time.getTime()) ? time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</p>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item?.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>{item?.status === 'completed' ? '정산됨' : '취소'}</span>
                   </div>
-                  <p className="mt-1.5 text-base font-normal leading-snug text-slate-900">{item.route}</p>
-                  <p className={`mt-1 text-base font-semibold ${accent.amount}`}>{item.status === 'completed' || item.amount > 0 ? `+${item.amount.toFixed(7)} Pi` : '정산 없음'}</p>
+                  <p className="mt-1.5 text-base font-normal leading-snug text-slate-900">{text(item?.route)}</p>
+                  <p className={`mt-1 text-base font-semibold ${accent.amount}`}>{item?.status === 'completed' || safeAmount > 0 ? `+${safeAmount.toFixed(7)} Pi` : '정산 없음'}</p>
                 </li>
-              ))}
+                )
+              })}
             </ul>
           </section>
         </div>

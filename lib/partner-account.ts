@@ -82,9 +82,17 @@ function readJson<T>(key: string): T | null {
   }
 }
 
+/** 저장소(JSON) 경계의 필드 정규화 — 비문자열 값이 .trim() 등 호출부를 깨뜨리지 않게 한다. */
+const textOf = (value: unknown) => (typeof value === 'string' ? value : '')
+
 export function loadPiIdentity(): PiIdentity | null {
   const session = readJson<PiIdentity>(SESSION_KEY)
-  if (session?.uid && session.wallet) return session
+  const uid = textOf(session?.uid).trim()
+  const wallet = textOf(session?.wallet).trim()
+  if (uid && wallet) {
+    const accessToken = textOf(session?.accessToken)
+    return { uid, username: textOf(session?.username), wallet, ...(accessToken ? { accessToken } : {}) }
+  }
   const profile = loadPartnerProfile()
   if (profile?.uid && profile.wallet) {
     return { uid: profile.uid, username: profile.username, wallet: profile.wallet }
@@ -97,8 +105,35 @@ export function savePiIdentity(identity: PiIdentity) {
 }
 
 export function loadPartnerProfile(): PartnerProfile | null {
-  const profile = readJson<PartnerProfile>(PROFILE_KEY)
-  return profile?.uid ? profile : null
+  const raw = readJson<PartnerProfile>(PROFILE_KEY)
+  if (!raw || typeof raw !== 'object') return null
+  const uid = textOf(raw.uid).trim()
+  if (!uid) return null
+  const accessToken = textOf(raw.accessToken)
+  // 모든 표시·식별 필드를 문자열로 수렴 — 손상된 저장본이 하위 렌더/핸들러에서
+  // TypeError를 일으켜 페이지 크래시로 번지는 것을 막는다.
+  return {
+    ...raw,
+    uid,
+    username: textOf(raw.username),
+    wallet: textOf(raw.wallet),
+    ...(accessToken ? { accessToken } : {}),
+    // 비정상 값은 원문 유지 — 어느 권한 검사에도 매칭되지 않아 무권한으로 수렴한다.
+    role: (raw.role === '파트너' || raw.role === '기사' ? raw.role : textOf(raw.role)) as PartnerProfile['role'],
+    name: textOf(raw.name),
+    phone: textOf(raw.phone),
+    detail: textOf(raw.detail),
+    region: textOf(raw.region),
+    serviceType: textOf(raw.serviceType),
+    vehicle: textOf(raw.vehicle),
+    plate: textOf(raw.plate),
+    insuranceCompany: textOf(raw.insuranceCompany),
+    insurancePolicyNo: textOf(raw.insurancePolicyNo),
+    insuranceExpiresAt: textOf(raw.insuranceExpiresAt),
+    insuranceDocName: textOf(raw.insuranceDocName),
+    insuranceDocAt: textOf(raw.insuranceDocAt),
+    linkedAt: textOf(raw.linkedAt),
+  }
 }
 
 export function savePartnerProfile(profile: PartnerProfile) {
@@ -108,8 +143,19 @@ export function savePartnerProfile(profile: PartnerProfile) {
 }
 
 export function loadSettlementLedger(): SettlementLedger | null {
-  const ledger = readJson<SettlementLedger>(LEDGER_KEY)
-  return ledger?.uid ? ledger : null
+  const raw = readJson<SettlementLedger>(LEDGER_KEY)
+  const uid = textOf(raw?.uid).trim()
+  if (!uid) return null
+  const entries = Array.isArray(raw?.entries)
+    ? raw.entries
+        .filter((entry) => entry && typeof entry === 'object')
+        .map((entry) => ({
+          at: textOf(entry.at),
+          amount: Number.isFinite(Number(entry.amount)) ? Number(entry.amount) : 0,
+          memo: textOf(entry.memo),
+        }))
+    : []
+  return { uid, wallet: textOf(raw?.wallet), updatedAt: textOf(raw?.updatedAt), entries }
 }
 
 export function upsertSettlementLedger(uid: string, wallet: string) {

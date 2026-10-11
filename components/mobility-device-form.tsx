@@ -162,7 +162,7 @@ function MobilityDeviceFormInner({
         lng = previous.lng
         address = previous.address
       } else if (lat == null || lng == null) {
-        const found = await searchPlacesFromApi(place)
+        const found = await searchPlacesFromApi(place).catch(() => [])
         const hit = found[0]
         if (!hit) {
           setError('주소를 찾지 못했어요. 위도, 경도 형식으로 다시 입력해 주세요.')

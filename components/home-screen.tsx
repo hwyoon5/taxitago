@@ -10,6 +10,7 @@ import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView 
 import { TermsDetailView, TermsListView } from '@/components/more/terms-pages'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
 import { RentalConsentModal } from '@/components/rental-consent-modal'
+import { SafeBoundary } from '@/components/safe-boundary'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { NearbyServiceMap } from '@/components/nearby-service-map'
@@ -9865,7 +9866,9 @@ export default function HomeScreen() {
         ) : null}
         {tab === '기사/파트너' ? (
           (isPartnerRegistered || loadPartnerProfile()?.role === '파트너') && (!isDriverRegistered || partnerTabRole === 'partner') ? (
-            <PartnerTabScreen dualRole={isDriverRegistered} onSwitchToDriver={() => setPartnerTabRole('driver')} onNotice={showNotice} />
+            <SafeBoundary label="파트너 화면을 불러오는 중 문제가 발생했어요.">
+              <PartnerTabScreen dualRole={isDriverRegistered} onSwitchToDriver={() => setPartnerTabRole('driver')} onNotice={showNotice} />
+            </SafeBoundary>
           ) : isDriverRegistered || isPartnerRegistered ? (
             <div className="flex min-h-0 flex-1 flex-col">
               {isDriverRegistered && isPartnerRegistered ? (
@@ -9878,7 +9881,9 @@ export default function HomeScreen() {
                   </div>
                 </div>
               ) : null}
-              <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} openLostId={driverLostOpen} onLostOpened={() => setDriverLostOpen(null)} />
+              <SafeBoundary label="기사 화면을 불러오는 중 문제가 발생했어요.">
+                <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} openLostId={driverLostOpen} onLostOpened={() => setDriverLostOpen(null)} />
+              </SafeBoundary>
             </div>
           ) : (
             <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
@@ -9910,7 +9915,9 @@ export default function HomeScreen() {
             <div className="mx-auto flex h-[min(92dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[30px] bg-[#f7f7fb] pt-3" onClick={(event) => event.stopPropagation()}>
               <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <SafeBoundary label="화면을 불러오는 중 문제가 발생했어요.">
                 <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} transactions={transactions} />
+                </SafeBoundary>
               </div>
             </div>
           </div>
