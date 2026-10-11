@@ -7,6 +7,7 @@ import { deviceTypeLabel, specSummary, type DeviceTelemetry } from '@/lib/device
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 import { AdminDetailModal } from '@/components/admin-detail-modal'
 import { AdminExportButton } from '@/components/admin-export-button'
+import { SafeBoundary } from '@/components/safe-boundary'
 
 const STATUS_LABEL: Record<string, string> = {
   active: '운행 중',
@@ -14,7 +15,12 @@ const STATUS_LABEL: Record<string, string> = {
   charging: '충전 중',
   maintenance: '정비',
   offline: '오프라인',
+  rented: '대여 중',
 }
+
+/** 서버 원시 행의 type을 소문자로 정규화 — 'Kickboard' 같은 변형도 한 종류로 묶는다. */
+const rowType = (row: DeviceTelemetry) => (typeof row.type === 'string' ? row.type : '').trim().toLowerCase()
+const statusLabel = (row: DeviceTelemetry) => STATUS_LABEL[row.status] || row.status || '—'
 
 const typeTone = (type: string) =>
   type === 'bicycle' ? 'bg-[#DCFCE7] text-[#15803D]'
@@ -22,14 +28,28 @@ const typeTone = (type: string) =>
     : type === 'ev' ? 'bg-[#FEF3C7] text-[#B45309]'
     : 'bg-[#F1F5F9] text-[#475569]'
 
-const batteryTone = (level: number | null) =>
-  level === null ? 'text-[#94A3B8]'
-    : level <= 20 ? 'text-[#DC2626]'
-    : level <= 50 ? 'text-[#B45309]'
+const batteryTone = (level: number | null | undefined) =>
+  !Number.isFinite(level) ? 'text-[#94A3B8]'
+    : (level as number) <= 20 ? 'text-[#DC2626]'
+    : (level as number) <= 50 ? 'text-[#B45309]'
     : 'text-[#15803D]'
+
+const batteryText = (level: number | null | undefined) =>
+  Number.isFinite(level) ? `${level}%` : '—'
+
+/** 좌표 표시 — 숫자가 아닌 값(문자열·누락)에서 .toFixed 예외가 나지 않게 한다. */
+const fmtCoord = (value: unknown) => {
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toFixed(6) : '—'
+}
+const fmtDate = (iso: unknown, opts?: Intl.DateTimeFormatOptions) => {
+  const t = new Date(typeof iso === 'string' ? iso : '')
+  return Number.isFinite(t.getTime()) ? t.toLocaleString('ko-KR', opts) : '—'
+}
 
 const ageLabel = (iso: string) => {
   const diff = Date.now() - new Date(iso).getTime()
+  if (!Number.isFinite(diff) || diff < 0) return '—'
   if (diff < 60_000) return '방금 전'
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}분 전`
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}시간 전`
@@ -48,9 +68,10 @@ export default function AdminDevices() {
 
   useEffect(() => setAdminKey(getAdminKey()), [])
 
-  const visible = typeFilter === 'all' ? devices : devices.filter((row) => row.type === typeFilter)
+  const visible = typeFilter === 'all' ? devices : devices.filter((row) => rowType(row) === typeFilter)
   const typeCounts = devices.reduce<Record<string, number>>((acc, row) => {
-    acc[row.type] = (acc[row.type] || 0) + 1
+    const type = rowType(row)
+    acc[type] = (acc[type] || 0) + 1
     return acc
   }, {})
 
@@ -106,17 +127,17 @@ export default function AdminDevices() {
               headers={['기기 ID', '유형', '위도', '경도', '배터리(%)', '상태', '소유 파트너', '소유자 UID', '스펙 요약', '누적 신고', '최초 신고', '마지막 신고']}
               rows={visible.map((row) => [
                 row.deviceId,
-                deviceTypeLabel(row.type),
-                String(row.latitude),
-                String(row.longitude),
-                row.batteryLevel === null ? '' : String(row.batteryLevel),
-                STATUS_LABEL[row.status] || row.status,
+                deviceTypeLabel(rowType(row)),
+                fmtCoord(row.latitude),
+                fmtCoord(row.longitude),
+                batteryText(row.batteryLevel),
+                statusLabel(row),
                 row.ownerName || '',
                 row.ownerUid || '',
                 row.spec ? specSummary(row.spec) : '',
-                String(row.updateCount),
-                row.firstSeen,
-                row.lastSeen,
+                String(row.updateCount ?? 0),
+                row.firstSeen || '',
+                row.lastSeen || '',
               ])}
             />
             <PageSizeSelect pageSize={pageSize} onChange={(size) => { setPageSize(size); setPage(0) }} />
@@ -170,14 +191,14 @@ export default function AdminDevices() {
               <div className="flex items-center justify-between gap-2">
                 <p className="flex items-center gap-1.5 text-sm font-black">
                   {row.deviceId}
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${typeTone(row.type)}`}>
-                    {deviceTypeLabel(row.type)}
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${typeTone(rowType(row))}`}>
+                    {deviceTypeLabel(rowType(row))}
                   </span>
                 </p>
                 <span className="text-[10px] font-bold text-[#94A3B8]">{ageLabel(row.lastSeen)}</span>
               </div>
               <p className="mt-1 font-mono text-[11px] font-bold text-[#475569]">
-                {row.latitude.toFixed(6)}, {row.longitude.toFixed(6)}
+                {fmtCoord(row.latitude)}, {fmtCoord(row.longitude)}
               </p>
               {row.spec ? <p className="mt-1 text-[11px] font-bold text-[#64748B]">{specSummary(row.spec)}</p> : null}
               {row.ownerName || row.ownerUid ? (
@@ -185,10 +206,10 @@ export default function AdminDevices() {
               ) : null}
               <p className="mt-0.5 flex items-center gap-2 text-[11px] font-bold text-[#64748B]">
                 <span className={batteryTone(row.batteryLevel)}>
-                  배터리 {row.batteryLevel === null ? '—' : `${row.batteryLevel}%`}
+                  배터리 {batteryText(row.batteryLevel)}
                 </span>
-                <span>· {STATUS_LABEL[row.status] || row.status}</span>
-                <span className="text-[#94A3B8]">· 신고 {row.updateCount}회 · 최초 {new Date(row.firstSeen).toLocaleDateString('ko-KR')}</span>
+                <span>· {statusLabel(row)}</span>
+                <span className="text-[#94A3B8]">· 신고 {row.updateCount ?? 0}회 · 최초 {fmtDate(row.firstSeen)}</span>
               </p>
             </div>
           ))}
@@ -207,34 +228,49 @@ export default function AdminDevices() {
       </section>
 
       {detail ? (
-        <AdminDetailModal
-          title="기기 상세 정보"
-          eyebrow="DEVICE DETAIL"
-          hero={detail.deviceId}
-          heroNote={`${deviceTypeLabel(detail.type)} · 마지막 신고 ${ageLabel(detail.lastSeen)}`}
-          badges={
-            <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] font-black ${typeTone(detail.type)}`}>
-              {STATUS_LABEL[detail.status] || detail.status}
-            </span>
+        <SafeBoundary
+          label="기기 상세 정보를 표시하지 못했어요."
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setDetail(null)}>
+              <section className="w-full max-w-md rounded-[24px] bg-white p-5 text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <p className="text-sm font-black text-[#0F172A]">기기 상세 정보를 표시하지 못했어요.</p>
+                <p className="mt-1 text-xs font-bold text-[#64748B]">기기 데이터 형식이 올바르지 않습니다. 목록에서 다시 확인해 주세요.</p>
+                <button type="button" onClick={() => setDetail(null)} className="mt-4 w-full rounded-xl bg-[#0F172A] py-2.5 text-xs font-black text-white">
+                  닫기
+                </button>
+              </section>
+            </div>
           }
-          onClose={() => setDetail(null)}
-          rows={[
-            { label: '기기 ID', value: detail.deviceId, copy: true },
-            { label: '유형', value: deviceTypeLabel(detail.type) },
-            { label: '현재 위치', value: `${detail.latitude.toFixed(6)}, ${detail.longitude.toFixed(6)}`, copy: true },
-            { label: '배터리', value: detail.batteryLevel === null ? '(없음)' : `${detail.batteryLevel}%` },
-            { label: '상태', value: STATUS_LABEL[detail.status] || detail.status },
-            { label: '소유 파트너', value: detail.ownerName || detail.ownerUid || '(없음)' },
-            { label: '소유자 UID', value: detail.ownerUid || '(없음)', copy: Boolean(detail.ownerUid) },
-            ...(detail.spec ? [
-              { label: '스펙 요약', value: specSummary(detail.spec) },
-              { label: '스펙 전체', value: JSON.stringify(detail.spec, null, 2) },
-            ] : []),
-            { label: '누적 신고', value: `${detail.updateCount}회` },
-            { label: '최초 신고', value: new Date(detail.firstSeen).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
-            { label: '마지막 신고', value: new Date(detail.lastSeen).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
-          ]}
-        />
+        >
+          <AdminDetailModal
+            title="기기 상세 정보"
+            eyebrow="DEVICE DETAIL"
+            hero={detail.deviceId}
+            heroNote={`${deviceTypeLabel(rowType(detail))} · 마지막 신고 ${ageLabel(detail.lastSeen)}`}
+            badges={
+              <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] font-black ${typeTone(rowType(detail))}`}>
+                {statusLabel(detail)}
+              </span>
+            }
+            onClose={() => setDetail(null)}
+            rows={[
+              { label: '기기 ID', value: detail.deviceId, copy: true },
+              { label: '유형', value: deviceTypeLabel(rowType(detail)) },
+              { label: '현재 위치', value: `${fmtCoord(detail.latitude)}, ${fmtCoord(detail.longitude)}`, copy: true },
+              { label: '배터리', value: batteryText(detail.batteryLevel) },
+              { label: '상태', value: statusLabel(detail) },
+              { label: '소유 파트너', value: detail.ownerName || detail.ownerUid || '(없음)' },
+              { label: '소유자 UID', value: detail.ownerUid || '(없음)', copy: Boolean(detail.ownerUid) },
+              ...(detail.spec ? [
+                { label: '스펙 요약', value: specSummary(detail.spec) },
+                { label: '스펙 전체', value: JSON.stringify(detail.spec, null, 2) },
+              ] : []),
+              { label: '누적 신고', value: `${detail.updateCount ?? 0}회` },
+              { label: '최초 신고', value: fmtDate(detail.firstSeen, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+              { label: '마지막 신고', value: fmtDate(detail.lastSeen, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
+            ]}
+          />
+        </SafeBoundary>
       ) : null}
     </div>
   )

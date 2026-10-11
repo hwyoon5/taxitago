@@ -7,6 +7,7 @@ import { partnerVehicle, updatePartnerProfile, uploadInsuranceDoc, type PartnerP
 import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-services'
 import { facilityTypeToDeviceKind, type DeviceSpec, type DeviceTelemetry } from '@/lib/device-types'
 import FacilitySpecForm from '@/components/facility-spec-form'
+import { SafeBoundary } from '@/components/safe-boundary'
 
 const DOC_MAX_BYTES = 2.5 * 1024 * 1024
 
@@ -51,7 +52,8 @@ export default function PartnerProfileEditModal({
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { devices?: DeviceTelemetry[] } | null
         const spec = data?.devices?.[0]?.spec
-        if (spec) setFacilitySpec(spec)
+        // 비정규 응답(문자열·null·kind 없는 객체)은 폼을 깨뜨릴 수 있어 kind 필드를 확인한다.
+        if (spec && typeof spec === 'object' && typeof spec.kind === 'string') setFacilitySpec(spec)
       })
       .catch(() => undefined)
   }, [deviceKind, profile.uid])
@@ -219,7 +221,9 @@ export default function PartnerProfileEditModal({
                   <span className="text-xs font-black text-[#334155]">{facilityUnitLabel(profile.serviceType)} (선택)</span>
                   <input value={plateNumber} onChange={(event) => setPlateNumber(event.target.value)} placeholder={facilityUnitPlaceholder(profile.serviceType)} className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
                 </label>
-                <FacilitySpecForm serviceType={profile.serviceType || ''} spec={facilitySpec} onChange={setFacilitySpec} />
+                <SafeBoundary label="기기 상세 정보를 불러오지 못했어요. 저장은 계속 진행할 수 있습니다.">
+                  <FacilitySpecForm serviceType={profile.serviceType || ''} spec={facilitySpec} onChange={setFacilitySpec} />
+                </SafeBoundary>
               </div>
             )}
             <label className="mt-3 block">

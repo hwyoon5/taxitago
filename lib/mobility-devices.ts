@@ -108,8 +108,9 @@ function statusOf(row: DeviceTelemetry): MobilityDeviceStatus {
  * 도달해 크래시하는 것을 막는다.
  */
 export function deviceFromTelemetry(row: DeviceTelemetry): MobilityDevice | null {
+  const type = (typeof row.type === 'string' ? row.type : '').trim().toLowerCase()
   const kind: MobilityDeviceKind | null =
-    row.type === 'bicycle' ? '자전거' : row.type === 'kickboard' ? '킥보드' : null
+    type === 'bicycle' ? '자전거' : type === 'kickboard' ? '킥보드' : null
   const mobility = row.spec?.kind === 'mobility' ? row.spec : null
   if (!kind || !mobility || !row.registered) return null
   const serial = typeof row.deviceId === 'string' ? row.deviceId.trim() : ''

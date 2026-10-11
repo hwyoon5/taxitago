@@ -97,7 +97,10 @@ export const DEVICE_TYPE_LABEL: Record<string, string> = {
   ev: 'EV충전',
   parking: '주차',
 }
-export const deviceTypeLabel = (type: string) => DEVICE_TYPE_LABEL[type] || type || '기타'
+export const deviceTypeLabel = (type: string) => {
+  const key = (typeof type === 'string' ? type : '').trim().toLowerCase()
+  return DEVICE_TYPE_LABEL[key] || key || '기타'
+}
 
 /** 가입 폼의 한국어 시설 서비스명 → 기기 유형 */
 export function facilityTypeToDeviceKind(facilityType?: string | null): DeviceKind | '' {
@@ -132,9 +135,9 @@ export function emptySpec(kind: SpecKind): DeviceSpec {
   return { kind, spaces: null, lotType: '노외', baseFee: null, extraFee: null, feeUnitMinutes: null, address: '', latitude: null, longitude: null, entranceNote: '' }
 }
 
-/** 관리자 목록에 보일 spec 요약 문장 */
+/** 관리자 목록에 보일 spec 요약 문장 — 비정규 spec이 와도 예외 없이 빈 문자열을 반환한다. */
 export function specSummary(spec: DeviceSpec | undefined): string {
-  if (!spec) return ''
+  if (!spec || typeof spec !== 'object') return ''
   if (spec.kind === 'mobility') {
     return [
       spec.model,

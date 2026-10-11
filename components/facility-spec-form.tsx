@@ -41,6 +41,13 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   )
 }
 
+/** 저장된 spec이 비정규 값(문자열 좌표·null 필드)이어도 폼이 깨지지 않게 하는 강제 변환. */
+const numOrNull = (v: unknown): number | null => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v))
+
 /** 주소 검색 → 첫 결과의 주소·좌표를 spec에 반영한다. */
 function AddressField({
   value,
@@ -53,9 +60,11 @@ function AddressField({
   longitude: number | null
   onResolved: (address: string, lat: number, lng: number) => void
 }) {
-  const [draft, setDraft] = useState(value)
+  const [draft, setDraft] = useState(str(value))
   const [searching, setSearching] = useState(false)
   const [resolvedNote, setResolvedNote] = useState('')
+  const lat = numOrNull(latitude)
+  const lng = numOrNull(longitude)
   const search = async () => {
     const q = draft.trim()
     if (!q || searching) return
@@ -98,8 +107,8 @@ function AddressField({
         </button>
       </div>
       {resolvedNote ? <p className="mt-1 text-[10px] font-bold text-[#4A82B8]">{resolvedNote}</p> : null}
-      {latitude !== null && longitude !== null ? (
-        <p className="mt-1 text-[10px] font-bold text-[#64748B]">위도 {latitude.toFixed(6)} · 경도 {longitude.toFixed(6)}</p>
+      {lat !== null && lng !== null ? (
+        <p className="mt-1 text-[10px] font-bold text-[#64748B]">위도 {lat.toFixed(6)} · 경도 {lng.toFixed(6)}</p>
       ) : null}
     </div>
   )
@@ -119,7 +128,7 @@ export default function FacilitySpecForm({ serviceType, spec, onChange }: Props)
         <p className="text-xs font-black text-[#334155]">{serviceType} 기기 상세 정보</p>
         <label className="block">
           <span className={labelCls}>모델명</span>
-          <input value={s.model} onChange={(e) => patch({ model: e.target.value })} placeholder={serviceType === '킥보드' ? '예: 전동 킥보드 모델 A' : '예: 전기 자전거 모델 B'} className={inputCls} />
+          <input value={str(s.model)} onChange={(e) => patch({ model: e.target.value })} placeholder={serviceType === '킥보드' ? '예: 전동 킥보드 모델 A' : '예: 전기 자전거 모델 B'} className={inputCls} />
         </label>
         <div>
           <span className={labelCls}>최대 속도 제한</span>
@@ -138,7 +147,7 @@ export default function FacilitySpecForm({ serviceType, spec, onChange }: Props)
               type="number"
               min={0}
               max={60}
-              value={s.speedLimitKmh ?? ''}
+              value={numOrNull(s.speedLimitKmh) ?? ''}
               onChange={(e) => patch({ speedLimitKmh: e.target.value === '' ? null : Number(e.target.value) })}
               placeholder="직접 입력"
               className="w-24 rounded-xl border-2 border-[#BFDBFE] bg-white px-2.5 py-2 text-[11px] font-bold outline-none focus:border-[#4A82B8]"
@@ -147,35 +156,35 @@ export default function FacilitySpecForm({ serviceType, spec, onChange }: Props)
         </div>
         <label className="block">
           <span className={labelCls}>기기 스펙 메모 (선택)</span>
-          <input value={s.specNote} onChange={(e) => patch({ specNote: e.target.value })} placeholder="예: 배터리 500Wh · 교체형" className={inputCls} />
+          <input value={str(s.specNote)} onChange={(e) => patch({ specNote: e.target.value })} placeholder="예: 배터리 500Wh · 교체형" className={inputCls} />
         </label>
         <div>
           <span className={labelCls}>초기 배치 위치</span>
           <div className="mt-1.5">
             <AddressField
-              value={s.address}
-              latitude={s.latitude}
-              longitude={s.longitude}
+              value={str(s.address)}
+              latitude={numOrNull(s.latitude)}
+              longitude={numOrNull(s.longitude)}
               onResolved={(address, lat, lng) => patch({ address, latitude: lat, longitude: lng })}
             />
           </div>
         </div>
         <div>
-          <span className={labelCls}>초기 배터리 잔량 · {s.batteryLevel ?? 100}%</span>
+          <span className={labelCls}>초기 배터리 잔량 · {numOrNull(s.batteryLevel) ?? 100}%</span>
           <input
             type="range"
             min={0}
             max={100}
             step={5}
-            value={s.batteryLevel ?? 100}
+            value={numOrNull(s.batteryLevel) ?? 100}
             onChange={(e) => patch({ batteryLevel: Number(e.target.value) })}
             className="mt-1.5 w-full accent-[#4A82B8]"
             aria-label="초기 배터리 잔량"
           />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <Toggle label="잠금 상태" checked={s.locked} onChange={(v) => patch({ locked: v })} />
-          <Toggle label="대여 가능" checked={s.rentable} onChange={(v) => patch({ rentable: v })} />
+          <Toggle label="잠금 상태" checked={s.locked === true} onChange={(v) => patch({ locked: v })} />
+          <Toggle label="대여 가능" checked={s.rentable === true} onChange={(v) => patch({ rentable: v })} />
         </div>
       </div>
     )
@@ -189,30 +198,30 @@ export default function FacilitySpecForm({ serviceType, spec, onChange }: Props)
         <div className="grid grid-cols-2 gap-2">
           <label className="block">
             <span className={labelCls}>충전 방식</span>
-            <select value={s.chargeType} onChange={(e) => patch({ chargeType: e.target.value })} className={inputCls}>
+            <select value={str(s.chargeType)} onChange={(e) => patch({ chargeType: e.target.value })} className={inputCls}>
               {EV_CHARGE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
           <label className="block">
             <span className={labelCls}>출력 용량 (kW)</span>
-            <input type="number" min={0} step={0.1} value={s.powerKw ?? ''} onChange={(e) => patch({ powerKw: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 50" className={inputCls} />
+            <input type="number" min={0} step={0.1} value={numOrNull(s.powerKw) ?? ''} onChange={(e) => patch({ powerKw: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 50" className={inputCls} />
           </label>
         </div>
         <label className="block">
           <span className={labelCls}>설치 장소명</span>
-          <input value={s.placeName} onChange={(e) => patch({ placeName: e.target.value })} placeholder="예: 부산역 환승센터" className={inputCls} />
+          <input value={str(s.placeName)} onChange={(e) => patch({ placeName: e.target.value })} placeholder="예: 부산역 환승센터" className={inputCls} />
         </label>
         <label className="block">
           <span className={labelCls}>상세 위치</span>
-          <input value={s.locationDetail} onChange={(e) => patch({ locationDetail: e.target.value })} placeholder="예: 지하 2층 주차장 C구역" className={inputCls} />
+          <input value={str(s.locationDetail)} onChange={(e) => patch({ locationDetail: e.target.value })} placeholder="예: 지하 2층 주차장 C구역" className={inputCls} />
         </label>
         <div>
           <span className={labelCls}>주소 (지도 표시용)</span>
           <div className="mt-1.5">
             <AddressField
-              value={s.address}
-              latitude={s.latitude}
-              longitude={s.longitude}
+              value={str(s.address)}
+              latitude={numOrNull(s.latitude)}
+              longitude={numOrNull(s.longitude)}
               onResolved={(address, lat, lng) => patch({ address, latitude: lat, longitude: lng })}
             />
           </div>
@@ -220,11 +229,11 @@ export default function FacilitySpecForm({ serviceType, spec, onChange }: Props)
         <div className="grid grid-cols-2 gap-2">
           <label className="block">
             <span className={labelCls}>이용 요금 (원/kWh)</span>
-            <input type="number" min={0} value={s.pricePerKwh ?? ''} onChange={(e) => patch({ pricePerKwh: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 350" className={inputCls} />
+            <input type="number" min={0} value={numOrNull(s.pricePerKwh) ?? ''} onChange={(e) => patch({ pricePerKwh: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 350" className={inputCls} />
           </label>
           <label className="block">
             <span className={labelCls}>운영 시간</span>
-            <input value={s.operatingHours} onChange={(e) => patch({ operatingHours: e.target.value })} placeholder="예: 24시간 / 06:00-23:00" className={inputCls} />
+            <input value={str(s.operatingHours)} onChange={(e) => patch({ operatingHours: e.target.value })} placeholder="예: 24시간 / 06:00-23:00" className={inputCls} />
           </label>
         </div>
       </div>
@@ -238,11 +247,11 @@ export default function FacilitySpecForm({ serviceType, spec, onChange }: Props)
       <div className="grid grid-cols-2 gap-2">
         <label className="block">
           <span className={labelCls}>주차 면수 (대)</span>
-          <input type="number" min={0} value={s.spaces ?? ''} onChange={(e) => patch({ spaces: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 120" className={inputCls} />
+          <input type="number" min={0} value={numOrNull(s.spaces) ?? ''} onChange={(e) => patch({ spaces: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 120" className={inputCls} />
         </label>
         <label className="block">
           <span className={labelCls}>주차장 유형</span>
-          <select value={s.lotType} onChange={(e) => patch({ lotType: e.target.value })} className={inputCls}>
+          <select value={str(s.lotType)} onChange={(e) => patch({ lotType: e.target.value })} className={inputCls}>
             {PARKING_LOT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </label>
@@ -250,31 +259,31 @@ export default function FacilitySpecForm({ serviceType, spec, onChange }: Props)
       <div className="grid grid-cols-3 gap-2">
         <label className="block">
           <span className={labelCls}>기본 요금 (원)</span>
-          <input type="number" min={0} value={s.baseFee ?? ''} onChange={(e) => patch({ baseFee: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 2000" className={inputCls} />
+          <input type="number" min={0} value={numOrNull(s.baseFee) ?? ''} onChange={(e) => patch({ baseFee: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 2000" className={inputCls} />
         </label>
         <label className="block">
           <span className={labelCls}>추가 요금 (원)</span>
-          <input type="number" min={0} value={s.extraFee ?? ''} onChange={(e) => patch({ extraFee: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 500" className={inputCls} />
+          <input type="number" min={0} value={numOrNull(s.extraFee) ?? ''} onChange={(e) => patch({ extraFee: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 500" className={inputCls} />
         </label>
         <label className="block">
           <span className={labelCls}>단위 시간 (분)</span>
-          <input type="number" min={0} value={s.feeUnitMinutes ?? ''} onChange={(e) => patch({ feeUnitMinutes: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 10" className={inputCls} />
+          <input type="number" min={0} value={numOrNull(s.feeUnitMinutes) ?? ''} onChange={(e) => patch({ feeUnitMinutes: e.target.value === '' ? null : Number(e.target.value) })} placeholder="예: 10" className={inputCls} />
         </label>
       </div>
       <div>
         <span className={labelCls}>상세 위치 (주소 검색)</span>
         <div className="mt-1.5">
           <AddressField
-            value={s.address}
-            latitude={s.latitude}
-            longitude={s.longitude}
+            value={str(s.address)}
+            latitude={numOrNull(s.latitude)}
+            longitude={numOrNull(s.longitude)}
             onResolved={(address, lat, lng) => patch({ address, latitude: lat, longitude: lng })}
           />
         </div>
       </div>
       <label className="block">
         <span className={labelCls}>진입 안내</span>
-        <input value={s.entranceNote} onChange={(e) => patch({ entranceNote: e.target.value })} placeholder="예: 서측 게이트 진입 후 B1으로 하강" className={inputCls} />
+        <input value={str(s.entranceNote)} onChange={(e) => patch({ entranceNote: e.target.value })} placeholder="예: 서측 게이트 진입 후 B1으로 하강" className={inputCls} />
       </label>
     </div>
   )
