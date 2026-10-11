@@ -67,22 +67,37 @@ export function PartnerDashboard({
   const [devices, setDevices] = useState<MobilityDevice[]>([])
   const [feeds, setFeeds] = useState<PartnerFeedInfo[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [dataVersion, setDataVersion] = useState(0)
   const [formOpen, setFormOpen] = useState(false)
   const [editDevice, setEditDevice] = useState<MobilityDevice | null>(null)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
+
+  const fetchData = useCallback(async () => {
+    const [d, f] = await Promise.allSettled([fetchMyMobilityDevices(uid), fetchMyPartnerFeeds(uid)])
+    if (d.status === 'fulfilled') setDevices(d.value)
+    if (f.status === 'fulfilled') setFeeds(f.value)
+  }, [uid])
 
   const reload = useCallback(() => {
     if (!uid) {
       setLoading(false)
       return
     }
-    void Promise.allSettled([fetchMyMobilityDevices(uid), fetchMyPartnerFeeds(uid)])
-      .then(([d, f]) => {
-        if (d.status === 'fulfilled') setDevices(d.value)
-        if (f.status === 'fulfilled') setFeeds(f.value)
+    void fetchData().finally(() => setLoading(false))
+  }, [uid, fetchData])
+
+  /** 수동 새로고침 — 스피너·안내 피드백을 주고, 열려 있는 정산 시트도 재조회한다. */
+  const refresh = useCallback(() => {
+    if (!uid || refreshing) return
+    setRefreshing(true)
+    void fetchData()
+      .then(() => {
+        setDataVersion((v) => v + 1)
+        onNotice?.('기기 상태와 외부 연동을 새로 불러왔어요.')
       })
-      .finally(() => setLoading(false))
-  }, [uid])
+      .finally(() => setRefreshing(false))
+  }, [uid, refreshing, fetchData, onNotice])
 
   useEffect(() => {
     reload()
@@ -145,12 +160,14 @@ export function PartnerDashboard({
           </div>
           <button
             type="button"
-            onClick={reload}
-            className="flex shrink-0 items-center gap-1 rounded-full bg-white px-3 py-1.5 text-[11px] font-black text-[#4A82B8] shadow-sm"
+            onClick={refresh}
+            disabled={refreshing}
+            aria-busy={refreshing}
+            className="flex shrink-0 items-center gap-1 rounded-full bg-white px-3 py-1.5 text-[11px] font-black text-[#4A82B8] shadow-sm transition disabled:opacity-70"
             aria-label="대시보드 새로고침"
           >
-            <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-            새로고침
+            <RefreshCw className={`h-3 w-3 ${loading || refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? '새로고침 중…' : '새로고침'}
           </button>
         </div>
         {onEditProfile ? (
@@ -336,7 +353,7 @@ export function PartnerDashboard({
           }}
         />
       ) : null}
-      {statSheet ? <PartnerStatSheet kind={statSheet} onClose={() => setStatSheet(null)} /> : null}
+      {statSheet ? <PartnerStatSheet key={`${statSheet}-${dataVersion}`} kind={statSheet} onClose={() => setStatSheet(null)} /> : null}
     </div>
   )
 }
