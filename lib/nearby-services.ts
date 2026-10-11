@@ -17,6 +17,8 @@ export type NearbyServiceSpot = {
   distanceLabel: string
   /** 실등록 파트너는 데모 목록보다 위에 둔다. */
   listing: NearbyListing
+  /** 파트너 상호·브랜드명 — 기기 소유주를 이용자에게 명시한다. */
+  brand?: string
   rentable?: boolean
   statusLabel?: string
   battery?: number
@@ -29,6 +31,7 @@ export type RegisteredNearbyPartner = {
   lng: number
   extra?: string
   rate?: string
+  brand?: string
   rentable?: boolean
   statusLabel?: string
   battery?: number
@@ -100,7 +103,7 @@ function byDistance(a: NearbyServiceSpot, b: NearbyServiceSpot) {
 
 function toSpot(
   origin: { lat: number; lng: number },
-  spot: { id: string; name: string; extra: string; rate: string; lat: number; lng: number; rentable?: boolean; statusLabel?: string; battery?: number },
+  spot: { id: string; name: string; extra: string; rate: string; lat: number; lng: number; brand?: string; rentable?: boolean; statusLabel?: string; battery?: number },
   listing: NearbyListing,
 ): NearbyServiceSpot {
   const distanceKm = haversineKm(origin, spot)
@@ -126,6 +129,7 @@ export function partnerListingFromProfile(
   return {
     id: `partner-${profile.uid}`,
     name,
+    brand: profile.name.trim() || undefined,
     extra: profile.region?.trim() ? `${profile.region.trim()} · 등록 파트너` : '등록 파트너',
     lat,
     lng,
@@ -154,6 +158,7 @@ export function listNearbyServiceSpots(
           rate: partner.rate?.trim() || fallback.rate,
           lat: partner.lat,
           lng: partner.lng,
+          brand: partner.brand?.trim() || undefined,
           rentable: partner.rentable,
           statusLabel: partner.statusLabel,
           battery: partner.battery,
@@ -161,7 +166,7 @@ export function listNearbyServiceSpots(
         'partner',
       ),
     )
-    .sort((a, b) => Number(a.rentable === false) - Number(b.rentable === false) || byDistance(a, b))
+    .sort(byDistance)
   const demos = SEEDS[kind]
     .map((seed) => {
       const point = offsetFromMeters(origin, seed.eastM, seed.northM)

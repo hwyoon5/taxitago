@@ -3320,6 +3320,8 @@ function ServiceSheet({
       distance: item.distanceLabel,
       extra: item.extra,
       rate: item.rate,
+      brand: item.brand,
+      battery: item.battery,
       available: item.listing === 'partner' && rentable && (!item.statusLabel || item.statusLabel === '이용 가능'),
       statusLabel: registered ? item.statusLabel : undefined,
       rentable,
@@ -4082,6 +4084,17 @@ function ServiceSheet({
                 }}
                 className="h-full w-full"
               />
+              {selectedUsage ? (
+                <div className="pointer-events-none absolute left-2.5 top-2.5 z-10 max-w-[78%] rounded-2xl bg-white/95 px-3 py-2 shadow-md backdrop-blur">
+                  {selectedUsage.brand ? <p className="text-[10px] font-black uppercase tracking-wide text-[#4A82B8]">{selectedUsage.brand}</p> : null}
+                  <p className="truncate text-xs font-black text-[#0F172A]">{selectedUsage.name}</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-[#64748B]">
+                    {selectedUsage.distance}
+                    {selectedUsage.battery != null ? ` · 배터리 ${selectedUsage.battery}%` : ''}
+                    {selectedUsage.statusLabel ? ` · ${selectedUsage.statusLabel}` : ''}
+                  </p>
+                </div>
+              ) : null}
             </div>
             {vehicle && !catalog.length ? (
               <div className="rounded-2xl border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-4 py-6 text-center">
@@ -4092,6 +4105,13 @@ function ServiceSheet({
             <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
               {catalog.map((item, index) => {
                 const active = selectedItem === item.id
+                const batteryTone =
+                  item.battery == null ? '' : item.battery >= 60 ? 'bg-[#ECFDF5] text-[#047857]' : item.battery >= 20 ? 'bg-[#FFFBEB] text-[#B45309]' : 'bg-[#FEF2F2] text-[#B91C1C]'
+                const statusTone =
+                  item.statusLabel === '이용 가능' ? 'bg-[#ECFDF5] text-[#047857]'
+                    : item.statusLabel === '대여 중' ? 'bg-[#EFF6FF] text-[#1D4ED8]'
+                    : item.statusLabel === '배터리 부족' ? 'bg-[#FFFBEB] text-[#B45309]'
+                    : 'bg-[#FEF2F2] text-[#9F1239]'
                 return (
                   <button
                     key={item.id}
@@ -4100,24 +4120,31 @@ function ServiceSheet({
                       setSelectedItem(item.id)
                       setMapFocusId(item.id)
                     }}
-                    className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${active ? 'border-[#7046dc] bg-[#f1ebff] ring-2 ring-[#7046dc]/15' : 'border-[#ece8f4] bg-white'}`}
+                    className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${active ? 'border-[#4A82B8] bg-[#E8F1FA] ring-2 ring-[#4A82B8]/15' : 'border-[#ece8f4] bg-white'}`}
                   >
-                    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${active ? 'bg-[#4C1FB8] text-white' : vehicle ? 'bg-[#edf8f0] text-[#36a76b]' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
+                    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${active ? 'bg-[#4A82B8] text-white' : vehicle ? 'bg-[#edf8f0] text-[#36a76b]' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
                       {index + 1}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <strong className="block break-words text-sm font-black">
-                        {item.name}
-                        {item.available ? <span className="font-black text-[#0F766E]"> (이용가능)</span> : null}
-                        {item.statusLabel && item.statusLabel !== '이용 가능' ? (
-                          <span className={`font-black ${item.statusLabel === '배터리 부족' ? 'text-[#B45309]' : item.statusLabel === '대여 중' ? 'text-[#1D4ED8]' : 'text-[#9F1239]'}`}> ({item.statusLabel})</span>
-                        ) : null}
-                      </strong>
-                      <span className="mt-1 block text-xs font-bold text-[#8b8495]">
+                      {item.brand ? (
+                        <span className="mb-0.5 block truncate text-[10px] font-black uppercase tracking-wide text-[#4A82B8]">{item.brand}</span>
+                      ) : null}
+                      <strong className="block break-words text-sm font-black">{item.name}</strong>
+                      <span className="mt-1 block truncate text-xs font-bold text-[#8b8495]">
                         {item.distance} · <b className="text-[#36a76b]">{item.extra}</b>
                       </span>
+                      <span className="mt-1.5 flex flex-wrap gap-1.5">
+                        {item.statusLabel ? (
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${statusTone}`}>{item.statusLabel}</span>
+                        ) : item.available ? (
+                          <span className="rounded-full bg-[#ECFDF5] px-2 py-0.5 text-[10px] font-black text-[#047857]">이용 가능</span>
+                        ) : null}
+                        {item.battery != null ? (
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${batteryTone}`}>배터리 {item.battery}%</span>
+                        ) : null}
+                      </span>
                     </span>
-                    <span className="text-xs font-black text-[#7046dc]">{item.rate}</span>
+                    <span className="shrink-0 text-xs font-black text-[#7046dc]">{item.rate}</span>
                   </button>
                 )
               })}
