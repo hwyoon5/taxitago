@@ -3,7 +3,7 @@
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
-import { translateService } from '@/lib/i18n'
+import { translateService, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
@@ -5532,6 +5532,22 @@ function InboxDetailModal({ item, onClose }: { item: Notice; onClose: () => void
   )
 }
 
+type InboxTimeFilter = 'all' | 'today' | 'week' | 'month'
+type InboxTypeFilter = 'all' | 'ride' | 'payment' | 'activity'
+
+const INBOX_TIME_FILTERS: { id: InboxTimeFilter; labelKey: MessageKey }[] = [
+  { id: 'all', labelKey: 'inbox.filterAll' },
+  { id: 'today', labelKey: 'inbox.today' },
+  { id: 'week', labelKey: 'inbox.week' },
+  { id: 'month', labelKey: 'inbox.month' },
+]
+const INBOX_TYPE_FILTERS: { id: InboxTypeFilter; labelKey: MessageKey }[] = [
+  { id: 'all', labelKey: 'inbox.filterAll' },
+  { id: 'ride', labelKey: 'inbox.typeRide' },
+  { id: 'payment', labelKey: 'inbox.typePay' },
+  { id: 'activity', labelKey: 'inbox.typeActivity' },
+]
+
 const INBOX_RIDE_STATUS: Record<string, string> = {
   searching: '호출 중',
   offered: '배차 제안',
@@ -5585,7 +5601,10 @@ function ActivityInbox({
   activities: ActivityEntry[]
   transactions: PiTransaction[]
 }) {
+  const { t } = useLocale()
   const [view, setView] = useState<'rides' | 'inbox'>('rides')
+  const [timeFilter, setTimeFilter] = useState<InboxTimeFilter>('all')
+  const [typeFilter, setTypeFilter] = useState<InboxTypeFilter>('all')
   const [history, setHistory] = useState<PublicRide[]>([])
   const [historyReady, setHistoryReady] = useState(false)
   const unreadCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
@@ -5634,11 +5653,33 @@ function ActivityInbox({
   const kindClass = (kind: Notice['kind']) =>
     kind === '이벤트' ? 'bg-[#FEF3C7] text-[#B45309]' : kind === '업데이트' ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-[#EDE5FF] text-[#4C1FB8]'
   const localEntries = [
-    ...transactions.map((tx, index) => ({ id: `tx-${index}`, label: tx.label, detail: tx.detail || tx.place, amount: tx.amount, at: tx.at, ts: tx.ts ?? 0 })),
+    ...transactions.map((tx, index) => ({ id: `tx-${index}`, label: tx.label, detail: tx.detail || tx.place, amount: tx.amount, at: tx.at, ts: tx.ts ?? 0, kind: 'payment' as const })),
     ...activities
       .filter((entry) => !PAYMENT_ACTIVITY_LABELS.has(entry.label))
-      .map((entry) => ({ id: entry.id, label: entry.label, detail: entry.detail, amount: null as number | null, at: entry.at, ts: entry.ts ?? 0 })),
+      .map((entry) => ({ id: entry.id, label: entry.label, detail: entry.detail, amount: null as number | null, at: entry.at, ts: entry.ts ?? 0, kind: 'activity' as const })),
   ].sort((a, b) => b.ts - a.ts)
+
+  // 시간 필터 — 오늘(로컬 날짜)/7일/30일. 타임스탬프가 없는 항목은 '전체'에서만 보인다.
+  const withinTime = (ts: number) => {
+    if (timeFilter === 'all') return true
+    if (!Number.isFinite(ts) || ts <= 0) return false
+    if (timeFilter === 'today') {
+      const d = new Date(ts)
+      const n = new Date()
+      return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()
+    }
+    return Date.now() - ts <= (timeFilter === 'week' ? 7 : 30) * 86_400_000
+  }
+  const filteredHistory = history.filter(
+    (ride) => withinTime(Date.parse(ride.updatedAt)) && (typeFilter === 'all' || typeFilter === 'ride'),
+  )
+  const filteredEntries = localEntries.filter(
+    (entry) => withinTime(entry.ts) && (typeFilter === 'all' || typeFilter === entry.kind),
+  )
+  const filterChip = (active: boolean) =>
+    `shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black transition active:scale-95 ${
+      active ? 'bg-[#4A82B8] text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]' : 'bg-[#F1F5F9] text-[#64748B]'
+    }`
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 pb-8 [-webkit-overflow-scrolling:touch]">
@@ -5662,7 +5703,21 @@ function ActivityInbox({
       </div>
       {view === 'rides' ? (
         <>
-          {history.map((ride) => {
+          <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {INBOX_TIME_FILTERS.map((filter) => (
+              <button key={filter.id} type="button" onClick={() => setTimeFilter(filter.id)} aria-pressed={timeFilter === filter.id} className={filterChip(timeFilter === filter.id)}>
+                {t(filter.labelKey)}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {INBOX_TYPE_FILTERS.map((filter) => (
+              <button key={filter.id} type="button" onClick={() => setTypeFilter(filter.id)} aria-pressed={typeFilter === filter.id} className={filterChip(typeFilter === filter.id)}>
+                {t(filter.labelKey)}
+              </button>
+            ))}
+          </div>
+          {filteredHistory.map((ride) => {
             const receipt = receiptFromRideHistory(ride)
             const statusLabel = INBOX_RIDE_STATUS[ride.status] ?? ride.status
             return (
@@ -5686,9 +5741,9 @@ function ActivityInbox({
               </button>
             )
           })}
-          {localEntries.length ? (
+          {filteredEntries.length ? (
             <div className="mt-3 space-y-2">
-              {localEntries.slice(0, 30).map((entry) => (
+              {filteredEntries.slice(0, 30).map((entry) => (
                 <div key={entry.id} className="rounded-2xl border-2 border-[#E2E8F0] bg-white px-4 py-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-black text-[#0F172A]">{entry.label}</p>
@@ -5704,8 +5759,10 @@ function ActivityInbox({
               ))}
             </div>
           ) : null}
-          {historyReady && !history.length && !localEntries.length ? (
-            <p className="mt-3 rounded-3xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">아직 이용 내역이 없습니다.</p>
+          {historyReady && !filteredHistory.length && !filteredEntries.length ? (
+            <p className="mt-3 rounded-3xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
+              {!history.length && !localEntries.length ? '아직 이용 내역이 없습니다.' : t('inbox.emptyFiltered')}
+            </p>
           ) : null}
         </>
       ) : (
