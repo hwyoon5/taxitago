@@ -172,6 +172,8 @@ export function MobilityDeviceFormModal({
         lng = hit.lng
         address = hit.address || hit.name || place
       }
+      // 수정 모드에서 ID가 바뀐 경우 — 신규 ID로 먼저 upsert한 뒤 구 레코드를 정리한다.
+      const renamedFrom = editingSerial && editingSerial !== serialNo ? editingSerial : ''
       const result = await registerMobilityDevice({
         serial: serialNo,
         kind,
@@ -187,6 +189,14 @@ export function MobilityDeviceFormModal({
       if (!result.ok) {
         setError(result.error)
         return
+      }
+      if (renamedFrom) {
+        // 신규 등록이 성공한 뒤에만 구 ID를 삭제한다 — 실패하면 두 레코드가
+        // 공존하므로 수동 정리 안내를 띄우지만 신규 등록은 유지한다.
+        const removed = await deleteMobilityDevice(renamedFrom, uid)
+        if (!removed) {
+          setError(`${serialNo}로 등록됐지만 이전 ID(${renamedFrom}) 정리에 실패했어요. 목록에서 직접 삭제해 주세요.`)
+        }
       }
       setSaved(result.device)
       resetForm()
@@ -241,13 +251,12 @@ export function MobilityDeviceFormModal({
             value={serial}
             onChange={(event) => setSerial(event.target.value)}
             placeholder="예: BK-2048"
-            disabled={Boolean(editingSerial)}
-            className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8] disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]"
           />
           {editingSerial ? (
             <span className="mt-1 block text-[10px] font-bold text-[#94A3B8]">
-              수정 중에는 기기 ID를 바꿀 수 없습니다.
-              {editingSerial.startsWith('ext:') ? ' 외부 연동 기기는 다음 자동 동기화에 피드 값이 다시 적용될 수 있어요.' : ''}
+              기기 ID를 바꾸면 새 ID로 등록되고 기존 ID({editingSerial})는 삭제됩니다.
+              {editingSerial.startsWith('ext:') ? ' 외부 연동 기기는 다음 자동 동기화에 피드 값으로 다시 나타날 수 있어요.' : ''}
             </span>
           ) : null}
         </label>
