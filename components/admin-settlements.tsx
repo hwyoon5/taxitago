@@ -97,6 +97,7 @@ export default function AdminSettlements() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [view, setView] = useState<'summary' | 'detail' | 'wallet'>('summary')
+  const [loaded, setLoaded] = useState(false)
   const [queryDate, setQueryDate] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -125,8 +126,12 @@ export default function AdminSettlements() {
         setHistoryTotals(data.historyTotals ?? null)
         setAdminWallet(typeof data.adminWallet === 'string' ? data.adminWallet : '')
         setError('')
+        setLoaded(true)
       })
-      .catch(() => setError('정산 내역을 불러오지 못했습니다.'))
+      .catch(() => {
+        setError('정산 내역을 불러오지 못했습니다.')
+        setLoaded(true)
+      })
   }, [])
 
   useEffect(() => {
@@ -300,6 +305,18 @@ export default function AdminSettlements() {
           </button>
         ))}
       </div>
+      {view === 'summary' && !loaded ? (
+        <section className="rounded-2xl border-2 border-[#E2E8F0] bg-white p-6 text-center">
+          <p className="text-sm font-black text-[#64748B]">정산 내역을 불러오는 중…</p>
+        </section>
+      ) : null}
+
+      {view === 'summary' && loaded && !summary ? (
+        <section className="rounded-2xl border-2 border-[#FCA5A5] bg-[#FEF2F2] p-4 text-center">
+          <p className="text-xs font-black text-[#B91C1C]">{error || '정산 내역을 불러오지 못했습니다.'}</p>
+        </section>
+      ) : null}
+
       {view === 'summary' && summary ? (
         <section className="grid grid-cols-2 gap-2">
           <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-3">
@@ -367,7 +384,7 @@ export default function AdminSettlements() {
         </section>
       ) : null}
 
-      {view === 'summary' ? <AdminWithdrawMonitor /> : null}
+      {view === 'summary' && loaded ? <AdminWithdrawMonitor /> : null}
 
       {view === 'wallet' ? (
       <section className="rounded-2xl border-2 border-[#A7F3D0] bg-[#F0FDF9] p-4">

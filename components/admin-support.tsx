@@ -36,6 +36,23 @@ import { AdminExportButton } from '@/components/admin-export-button'
 const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'in_progress', 'waiting', 'resolved', 'closed']
 
+const ADMIN_VIEWS = ['inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'staff', 'audit', 'memo'] as const
+type AdminView = (typeof ADMIN_VIEWS)[number]
+
+/** URL 해시(#ledger) 또는 ?view= 쿼리에서 탭을 복원 — 리마운트·새로고침 시에도 마지막 메뉴를 유지한다. */
+function viewFromLocation(): AdminView {
+  if (typeof window === 'undefined') return 'inbox'
+  const hash = window.location.hash.replace(/^#/, '').split(/[?&]/)[0]
+  if ((ADMIN_VIEWS as readonly string[]).includes(hash)) return hash as AdminView
+  try {
+    const param = new URLSearchParams(window.location.search).get('view')
+    if (param && (ADMIN_VIEWS as readonly string[]).includes(param)) return param as AdminView
+  } catch {
+    undefined
+  }
+  return 'inbox'
+}
+
 const SELECTION_KEY = 'taxitago.admin.selection'
 const DRAFT_PREFIX = 'taxitago.admin.draft.'
 
@@ -102,7 +119,7 @@ export default function AdminSupportDesk() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState('')
   const [storage, setStorage] = useState<'kv' | 'file' | null>(null)
-  const [view, setView] = useState<'inbox' | 'users' | 'partners' | 'devices' | 'fare' | 'ledger' | 'staff' | 'audit' | 'memo'>('inbox')
+  const [view, setView] = useState<AdminView>(viewFromLocation)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
   const seenRef = useRef<Set<string> | null>(null)
@@ -156,6 +173,24 @@ export default function AdminSupportDesk() {
       },
     )
   }
+
+  const selectView = (next: AdminView) => {
+    setView(next)
+    if (typeof window !== 'undefined' && window.location.hash !== `#${next}`) {
+      window.location.hash = next
+    }
+  }
+
+  useEffect(() => {
+    const onHash = () => setView(viewFromLocation())
+    window.addEventListener('hashchange', onHash)
+    // ?view= 로 진입했거나 해시가 없으면 현재 탭을 주소에 반영해 새로고침·재진입 시 복원되게 한다.
+    if (window.location.hash.replace(/^#/, '') !== view) {
+      window.history.replaceState(null, '', `#${view}`)
+    }
+    return () => window.removeEventListener('hashchange', onHash)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     reload()
@@ -353,11 +388,11 @@ export default function AdminSupportDesk() {
         </div>
       </div>
       <div className="mt-4 grid grid-cols-4 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
-        {(['inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'staff', 'audit', 'memo'] as const).map((tab) => (
+        {ADMIN_VIEWS.map((tab) => (
           <button
             key={tab}
             type="button"
-            onClick={() => setView(tab)}
+            onClick={() => selectView(tab)}
             className={`rounded-xl py-2 text-xs font-black ${view === tab ? 'bg-white text-[#4C1FB8] shadow-sm' : 'text-[#64748B]'}`}
           >
             {tab === 'inbox'
