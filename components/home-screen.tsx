@@ -3250,6 +3250,8 @@ function ServiceSheet({
   const [mapFocusId, setMapFocusId] = useState('')
   const [qrOpen, setQrOpen] = useState(false)
   const [qrScanned, setQrScanned] = useState(false)
+  /** QR이 인증된 스팟 — 스캔 후 다른 기기를 고르면 다시 스캔해야 한다. */
+  const [qrScannedItem, setQrScannedItem] = useState('')
   const [parkingOption, setParkingOption] = useState<'prepaid' | 'postpaid'>('prepaid')
   const [prepaidSettled, setPrepaidSettled] = useState(false)
   // Derived from the server ride record — the single source of truth for progress.
@@ -3368,6 +3370,8 @@ function ServiceSheet({
   const canStart = more || ride || service === '택배' || Boolean(selectedItem)
   const selectedDevice = vehicle && selectedItem.startsWith('device-') ? findDeviceBySpotId(selectedItem) : null
   const selectedRentable = !selectedDevice || isDeviceRentable(selectedDevice)
+  // QR 인증은 스캔 시점에 선택된 기기에 묶인다 — 선택이 바뀌면 스캔이 무효가 된다.
+  const qrScannedBound = qrScanned && (!vehicle || !selectedItem.startsWith('device-') || qrScannedItem === selectedItem)
   useEffect(() => {
     if (!selfServe || !nearbySpots.length) return
     if (nearbySpots.some((item) => item.id === selectedItem)) return
@@ -3420,7 +3424,7 @@ function ServiceSheet({
       }).catch(() => undefined)
       setPhoneError('')
     }
-    const didScan = scanned ?? qrScanned
+    const didScan = scanned ?? qrScannedBound
     if (!canStart) return
     if (paymentPolicy?.requiresQr && !didScan) {
       setQrOpen(true)
@@ -3790,7 +3794,7 @@ function ServiceSheet({
               amount={fare}
               balance={balance}
               place={place}
-              qrScanned={qrScanned}
+              qrScanned={qrScannedBound}
               parkingOption={parkingOption}
               prepaidSettled={prepaidSettled}
               mode="notice"
@@ -4157,7 +4161,7 @@ function ServiceSheet({
               amount={fare}
               balance={balance}
               place={place}
-              qrScanned={qrScanned}
+              qrScanned={qrScannedBound}
               parkingOption={parkingOption}
               prepaidSettled={prepaidSettled}
               continueLabel={!selectedItem ? (vehicle ? '차량을 선택해 주세요' : '장소를 선택해 주세요') : selectedRentable ? '이용 시작' : '대여할 수 없는 기기'}
@@ -4297,9 +4301,11 @@ function ServiceSheet({
       {qrOpen ? (
         <QrScanModal
           service={service}
+          expectedDevice={selectedDevice ? { serial: selectedDevice.serial, name: selectedDevice.model } : undefined}
           onClose={() => setQrOpen(false)}
           onScanned={() => {
             setQrScanned(true)
+            setQrScannedItem(selectedItem)
             setQrOpen(false)
             onNotice(`${service} QR 스캔이 완료되었어요.`)
             if (paymentPolicy?.timing === 'qr_auto') startService(true)

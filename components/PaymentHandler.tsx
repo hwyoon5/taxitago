@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, QrCode, WalletCards, X, Zap } from 'lucide-react'
 import { getPaymentPolicy, timingLabel, type ParkingPaymentOption, type PaymentTiming } from '@/lib/payment-policy'
+import { deviceQrMatchesSerial } from '@/lib/mobility-devices'
 
 function activeTiming(service: string, parkingOption: ParkingPaymentOption): PaymentTiming {
   const policy = getPaymentPolicy(service)
@@ -29,21 +30,27 @@ function getBarcodeDetector(): BarcodeDetectorLike | null {
 
 export function QrScanModal({
   service,
+  expectedDevice,
   onClose,
   onScanned,
 }: {
   service: string
+  /** 지도·목록에서 선택된 대여 기기 — 지정되면 스캔한 QR이 이 시리얼과 일치해야 진행된다. */
+  expectedDevice?: { serial: string; name?: string }
   onClose: () => void
   onScanned: (code: string) => void
 }) {
   const policy = getPaymentPolicy(service)
   const target = policy?.qrTarget === 'charger' ? '충전기' : service
+  const expectedSerial = expectedDevice?.serial.trim() || ''
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const doneRef = useRef(false)
   const [status, setStatus] = useState<CameraStatus>('requesting')
   const [hint, setHint] = useState('카메라 권한을 확인하고 있어요.')
   const [finishing, setFinishing] = useState(false)
+  const [mismatch, setMismatch] = useState('')
+  const [manualCode, setManualCode] = useState('')
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -58,6 +65,16 @@ export function QrScanModal({
     setFinishing(true)
     stopCamera()
     window.setTimeout(() => onScanned(code), 240)
+  }
+
+  // 선택 기기가 지정된 경우 스캔/입력된 코드가 해당 시리얼과 일치해야 한다 —
+  // 다른 기기의 QR이면 대여 시작으로 넘기지 않고 오류만 표시하고 계속 스캔한다.
+  const tryCode = (raw: string) => {
+    if (expectedSerial && !deviceQrMatchesSerial(raw, expectedSerial)) {
+      setMismatch(raw.trim().slice(0, 40))
+      return
+    }
+    completeScan(raw)
   }
 
   const startCamera = async () => {
@@ -117,7 +134,7 @@ export function QrScanModal({
       try {
         const codes = await detector.detect(canvas)
         const value = codes.find((item) => item.rawValue)?.rawValue
-        if (value) completeScan(value)
+        if (value) tryCode(value)
       } catch {
         /* keep scanning */
       }
@@ -132,8 +149,14 @@ export function QrScanModal({
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-bold text-[#4A82B8]">QR SCAN</p>
-            <h2 className="mt-1 text-xl font-bold text-[#0F172A]">{target} QR을 스캔해 주세요</h2>
-            <p className="mt-2 text-sm font-medium leading-6 text-[#475569]">{policy?.startHint ?? '카메라로 QR 코드를 맞춰 주세요.'}</p>
+            <h2 className="mt-1 text-xl font-bold text-[#0F172A]">
+              {expectedSerial ? `${expectedSerial} 기기의 QR을 스캔해 주세요` : `${target} QR을 스캔해 주세요`}
+            </h2>
+            <p className="mt-2 text-sm font-medium leading-6 text-[#475569]">
+              {expectedSerial
+                ? `선택한 기기${expectedDevice?.name ? `(${expectedDevice.name})` : ''}에 부착된 QR이어야 대여가 시작됩니다. 다른 기기의 QR은 이용할 수 없어요.`
+                : policy?.startHint ?? '카메라로 QR 코드를 맞춰 주세요.'}
+            </p>
           </div>
           <button
             type="button"
@@ -179,15 +202,50 @@ export function QrScanModal({
           )}
         </button>
         <p className="mt-4 text-center text-xs font-medium leading-5 text-[#64748B]">{hint}</p>
-        <button
-          type="button"
-          disabled={finishing}
-          onClick={() => completeScan(`${policy?.service ?? service}-${Date.now().toString().slice(-6)}`)}
-          className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] disabled:opacity-70"
-        >
-          <QrCode className="h-5 w-5" />
-          {finishing ? '인식 완료…' : 'QR 스캔 완료'}
-        </button>
+        {mismatch ? (
+          <div className="mt-3 rounded-2xl border-2 border-[#FDA4AF] bg-[#FFF1F2] px-4 py-3">
+            <p className="text-sm font-black text-[#BE123C]">선택한 기기({expectedSerial})의 QR이 아니에요</p>
+            <p className="mt-1 text-xs font-bold leading-5 text-[#9F1239]">
+              {mismatch ? `스캔된 코드: ${mismatch} · ` : ''}해당 기기에 부착된 QR을 다시 스캔하거나, 목록에서 이 기기를 선택해 주세요.
+            </p>
+          </div>
+        ) : null}
+        {expectedSerial ? (
+          <div className="mt-4 flex items-center gap-2 rounded-2xl border-2 border-[#CBD5E1] bg-[#F8FAFC] px-3 py-2">
+            <input
+              value={manualCode}
+              onChange={(event) => setManualCode(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && manualCode.trim()) tryCode(manualCode)
+              }}
+              placeholder={`기기 번호 입력 (예: ${expectedSerial})`}
+              className="w-full bg-transparent text-xs font-bold text-[#0F172A] outline-none placeholder:text-[#94A3B8]"
+            />
+            <button
+              type="button"
+              disabled={finishing || !manualCode.trim()}
+              onClick={() => tryCode(manualCode)}
+              className="shrink-0 rounded-xl bg-[#4A82B8] px-3 py-1.5 text-[11px] font-black text-white disabled:opacity-40"
+            >
+              확인
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={finishing}
+            onClick={() => completeScan(`${policy?.service ?? service}-${Date.now().toString().slice(-6)}`)}
+            className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] disabled:opacity-70"
+          >
+            <QrCode className="h-5 w-5" />
+            {finishing ? '인식 완료…' : 'QR 스캔 완료'}
+          </button>
+        )}
+        {expectedSerial ? (
+          <p className="mt-2 text-center text-[11px] font-bold leading-5 text-[#94A3B8]">
+            카메라로 인식이 안 되면 기기에 표시된 번호를 직접 입력해 주세요.
+          </p>
+        ) : null}
       </section>
     </div>
   )

@@ -62,6 +62,21 @@ export function deviceSpotId(device: Pick<MobilityDevice, 'serial'>) {
   return `device-${device.serial.trim()}`
 }
 
+/**
+ * 스캔된 QR 문자열이 특정 기기 시리얼에 대응하는지 — 날것 시리얼,
+ * `taxitago://device/{serial}`, `/device/{serial}` 같은 URL/스킴 경로,
+ * 또는 시리얼을 토큰으로 포함한 임의 문자열을 모두 허용한다.
+ * 시리얼 앞뒤가 영숫자로 붙어 있으면 다른 기기 접두·접미 매칭으로 보고 거절한다.
+ */
+export function deviceQrMatchesSerial(raw: string, serial: string): boolean {
+  const want = serial.trim()
+  const text = raw.trim()
+  if (!want || !text) return false
+  if (text.toLowerCase() === want.toLowerCase()) return true
+  const escaped = want.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|[^A-Za-z0-9])${escaped}([^A-Za-z0-9]|$)`, 'i').test(text)
+}
+
 // ── 서버 레코드 → 화면 모델 ──────────────────────────────────────────────────
 
 function statusOf(row: DeviceTelemetry): MobilityDeviceStatus {
