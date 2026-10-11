@@ -5952,6 +5952,7 @@ function WalletModal({
   const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
   const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number; txid?: string; dest?: string } | null>(null)
   const [historyRange, setHistoryRange] = useState<'all' | 'week' | 'month' | 'year'>('all')
+  const [historyType, setHistoryType] = useState<'all' | 'charge' | 'refund' | 'ride' | 'etc'>('all')
   const chargeUnits = [5, 10, 25, 50]
   // 최근 24시간 충전 누적 — 한도는 최대 50 Pi로 고정(지갑 내역은 localStorage에 보존됨).
   const chargeNow = Date.now()
@@ -6160,7 +6161,14 @@ function WalletModal({
         : historyRange === 'year'
           ? new Date(historyNow.getFullYear(), 0, 1).getTime()
           : 0
+  const historyTypeOf = (tx: (typeof transactions)[number]): Exclude<typeof historyType, 'all'> => {
+    if (tx.label === 'Pi 충전' && tx.amount > 0) return 'charge'
+    if ((tx.label === 'Pi 환불' || tx.label === 'Pi 출금') && tx.amount < 0) return 'refund'
+    if (tx.amount < 0 && /택시|대리/.test(tx.label)) return 'ride'
+    return 'etc'
+  }
   const historyTransactions = transactions.filter((tx) => {
+    if (historyType !== 'all' && historyTypeOf(tx) !== historyType) return false
     if (historyRange === 'all') return true
     const ts = typeof tx.ts === 'number' ? tx.ts : 0
     return ts >= historyStart
@@ -6489,6 +6497,25 @@ function WalletModal({
                 </button>
               ))}
             </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {([
+                { id: 'all' as const, label: '전체' },
+                { id: 'charge' as const, label: '충전' },
+                { id: 'refund' as const, label: '출금·환불' },
+                { id: 'ride' as const, label: '택시·대리' },
+                { id: 'etc' as const, label: '기타' },
+              ]).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setHistoryType(item.id)}
+                  aria-pressed={historyType === item.id}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black transition active:scale-95 ${historyType === item.id ? 'bg-[#4C1FB8] text-white shadow-[0_4px_10px_rgba(76,31,184,0.28)]' : 'bg-white text-[#64748B] ring-1 ring-[#E2E8F0]'}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
             <section className="rounded-2xl border border-[#E2E8F0] bg-white p-3.5 shadow-[0_8px_18px_rgba(15,23,42,0.06)]">
               <p className="text-[11px] font-black text-[#64748B]">기간 요약</p>
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -6517,7 +6544,7 @@ function WalletModal({
             </section>
             {historyTransactions.length === 0 && (
               <p className="rounded-2xl border-2 border-dashed border-[#D8CCF5] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
-                해당 기간에 이용 내역이 없습니다.
+                해당 조건의 이용 내역이 없습니다.
               </p>
             )}
             {historyTransactions.map((transaction, index) => (
