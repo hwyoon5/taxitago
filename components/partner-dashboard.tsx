@@ -259,7 +259,26 @@ export function PartnerDashboard({
         ) : null}
         <ul className="mt-3 space-y-2">
           {devices.map((device) => (
-            <li key={device.serial} className="rounded-2xl border border-[#E2E8F0] bg-white px-3 py-3">
+            <li
+              key={device.serial}
+              onClick={() => {
+                try {
+                  setEditDevice(device)
+                  setFormOpen(true)
+                } catch {
+                  onNotice?.('기기 정보를 열지 못했어요. 목록을 새로고침한 뒤 다시 시도해 주세요.')
+                }
+              }}
+              className="cursor-pointer rounded-2xl border border-[#E2E8F0] bg-white px-3 py-3 transition hover:border-[#BFDBFE] hover:bg-[#F8FAFC]"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  setEditDevice(device)
+                  setFormOpen(true)
+                }
+              }}
+            >
               <div className="flex items-center justify-between gap-2">
                 <p className="min-w-0 truncate text-sm font-black text-[#0F172A]">
                   {device.serial}
@@ -273,7 +292,7 @@ export function PartnerDashboard({
                 {device.kind} · <span className={batteryTone(device.battery)}>배터리 {device.battery}%</span> · {device.address || '위치 미등록'}
               </p>
               <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">마지막 업데이트 {agoLabel(device.lastSeen)}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
                 <button
                   type="button"
                   onClick={() => {

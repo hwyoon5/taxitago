@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link2, MonitorSmartphone, RefreshCw } from 'lucide-react'
 import { MobilityDeviceFormModal } from '@/components/mobility-device-form'
 import { PartnerFeedsPanel } from '@/components/partner-feeds-panel'
+import { SafeBoundary } from '@/components/safe-boundary'
 import {
   fetchMyMobilityDevices,
   MOBILITY_STATUS_LABEL,
@@ -33,7 +34,7 @@ const agoLabel = (iso: string) => {
  * 파트너 내 기기·외부 연동 모니터링 패널 — 본인 소유 기기(폼 등록 + 외부 피드
  * 동기화분)의 위치·배터리·대여 상태와 연동 소스 상태를 20초 간격으로 갱신한다.
  */
-export function PartnerDevicePanel({
+function PartnerDevicePanelInner({
   ownerUid,
   ownerName = '',
   onNotice,
@@ -144,5 +145,14 @@ export function PartnerDevicePanel({
         />
       ) : null}
     </div>
+  )
+}
+
+/** 패널 전체를 감싸 렌더 예외가 페이지 크래시로 번지지 않게 한다. */
+export function PartnerDevicePanel(props: Parameters<typeof PartnerDevicePanelInner>[0]) {
+  return (
+    <SafeBoundary label="기기 목록을 불러오는 중 문제가 발생했어요.">
+      <PartnerDevicePanelInner {...props} />
+    </SafeBoundary>
   )
 }

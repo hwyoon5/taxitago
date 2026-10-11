@@ -304,6 +304,30 @@ export type PartnerFeedInfo = {
   deviceCount: number
 }
 
+/** 비정규 피드 레코드도 렌더 단계에서 안전하도록 표시 필드를 전부 강제 변환한다. */
+function feedFromApi(raw: unknown): PartnerFeedInfo | null {
+  if (!raw || typeof raw !== 'object') return null
+  const row = raw as Record<string, unknown>
+  const text = (value: unknown) => (typeof value === 'string' ? value : '')
+  const id = text(row.id).trim()
+  if (!id) return null
+  const count = Number(row.deviceCount)
+  const syncStatus = row.lastSyncStatus
+  return {
+    id,
+    name: text(row.name),
+    endpointUrl: text(row.endpointUrl),
+    enabled: row.enabled === true,
+    hasApiKey: row.hasApiKey === true,
+    ownerUid: text(row.ownerUid),
+    createdAt: text(row.createdAt),
+    lastSyncAt: text(row.lastSyncAt),
+    lastSyncStatus: syncStatus === 'ok' || syncStatus === 'error' ? syncStatus : '',
+    lastError: text(row.lastError),
+    deviceCount: Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0,
+  }
+}
+
 export async function fetchMyPartnerFeeds(ownerUid: string, adminKey?: string): Promise<PartnerFeedInfo[]> {
   try {
     // 관리자 키가 있으면 전체 소스, 없으면 소유자 기준 목록을 조회한다.
@@ -311,8 +335,9 @@ export async function fetchMyPartnerFeeds(ownerUid: string, adminKey?: string): 
       cache: 'no-store',
       headers: adminKey ? { 'x-admin-key': adminKey } : undefined,
     })
-    const data = (await res.json().catch(() => null)) as { feeds?: PartnerFeedInfo[] } | null
-    return res.ok && Array.isArray(data?.feeds) ? data.feeds : []
+    const data = (await res.json().catch(() => null)) as { feeds?: unknown[] } | null
+    if (!res.ok || !Array.isArray(data?.feeds)) return []
+    return data.feeds.map(feedFromApi).filter((item): item is PartnerFeedInfo => Boolean(item))
   } catch {
     return []
   }

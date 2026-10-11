@@ -56,7 +56,7 @@ class DeviceFormErrorBoundary extends Component<{ onClose: () => void; children:
  * 등록 즉시 모든 이용자의 지도에 노출된다. ownerUid가 있어야 수정·삭제가
  * 허용된다(소유자 검증은 서버가 한다).
  */
-export function MobilityDeviceFormModal({
+function MobilityDeviceFormInner({
   initialKind = '자전거',
   ownerUid = '',
   ownerName = '',
@@ -220,8 +220,6 @@ export function MobilityDeviceFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-end bg-[#1e1033]/50 sm:items-center sm:p-4" onClick={onClose}>
-      <DeviceFormErrorBoundary onClose={onClose}>
       <section
         role="dialog"
         aria-modal="true"
@@ -408,6 +406,18 @@ export function MobilityDeviceFormModal({
           </div>
         ) : null}
       </section>
+  )
+}
+
+/**
+ * 파트너 기기 등록·수정 모달 — 오버레이와 에러 바운더리가 본문 컴포넌트
+ * 바깥에 있어 초기화·이벤트 단계의 예외도 페이지 크래시로 번지지 않는다.
+ */
+export function MobilityDeviceFormModal(props: Parameters<typeof MobilityDeviceFormInner>[0]) {
+  return (
+    <div className="fixed inset-0 z-[120] flex items-end bg-[#1e1033]/50 sm:items-center sm:p-4" onClick={props.onClose}>
+      <DeviceFormErrorBoundary onClose={props.onClose}>
+        <MobilityDeviceFormInner {...props} />
       </DeviceFormErrorBoundary>
     </div>
   )
