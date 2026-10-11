@@ -22,6 +22,8 @@ export async function payFromBalance(input: {
   service?: string
   partnerId?: string
   partnerName?: string
+  /** 기기 대여 결제면 해당 deviceId — 정산 장부 메모에 남긴다. */
+  deviceId?: string
   /** 클라이언트 멱등키 — 생략 시 생성. 같은 결제의 재시도는 같은 키를 써야 한다. */
   requestId?: string
 }): Promise<BalancePayResult> {
@@ -48,6 +50,7 @@ export async function payFromBalance(input: {
       service: input.service,
       partnerId: input.partnerId,
       partnerName: input.partnerName,
+      deviceId: input.deviceId,
       accessToken: identity?.accessToken || undefined,
       sandbox: PI_SANDBOX,
     }),

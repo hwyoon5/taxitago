@@ -45,7 +45,7 @@ import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-co
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
-import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, setMobilityDeviceStatus } from '@/lib/mobility-devices'
+import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, refreshMobilityDevices, rentMobilityDevice, returnMobilityDevice } from '@/lib/mobility-devices'
 import {
   abandonDriverRide,
   cancelRideRequest,
@@ -3283,6 +3283,10 @@ function ServiceSheet({
   const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
   const vehicle = service === '자전거' || service === '킥보드'
+  // 서비스명 → 정산 수수료 서비스 키 (lib/service-settlement 의 SERVICE_KEYS)
+  const settleServiceKey =
+    service === '자전거' ? 'bicycle' : service === '킥보드' ? 'kickboard' : service === 'EV 충전' ? 'ev' : service === '주차' ? 'parking'
+      : service === '대리운전' ? 'daeri' : service === '택배' ? 'delivery' : 'taxi'
   const more = service === '더보기'
   const selfServe = service === '주차' || service === '자전거' || service === '킥보드' || service === 'EV 충전'
   const nearbyKind = nearbyKindFromService(service)
@@ -3294,8 +3298,15 @@ function ServiceSheet({
       setLivePartners([...(spot ? [spot] : []), ...devices])
     }
     load()
+    if (!vehicle) return
+    // 파트너 등록 기기는 서버가 원천 — 열린 동안 주기적으로 새로고침한다.
+    void refreshMobilityDevices()
+    const timer = window.setInterval(() => void refreshMobilityDevices(), 20_000)
     window.addEventListener(MOBILITY_DEVICES_EVENT, load)
-    return () => window.removeEventListener(MOBILITY_DEVICES_EVENT, load)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener(MOBILITY_DEVICES_EVENT, load)
+    }
   }, [service, pickupLat, pickupLng, vehicle])
   const nearbySpots = nearbyKind
     ? listNearbyServiceSpots(nearbyKind, pickupLat, pickupLng, nearbyKind === 'bike' || nearbyKind === 'scooter' ? 7 : 6, livePartners)
@@ -3372,9 +3383,9 @@ function ServiceSheet({
     const serial = rentalSerialRef.current || (selected?.status === 'rented' ? selected.serial : '')
     if (!serial) return
     rentalSerialRef.current = ''
-    setMobilityDeviceStatus(serial, 'available')
+    void returnMobilityDevice(serial).catch(() => null)
   }
-  const startService = (scanned?: boolean) => {
+  const startService = async (scanned?: boolean) => {
     if (service === '택배' || ride) {
       const gap = routeGap(daeriTrip?.pickup || pickupAddress, daeriTrip?.dest || destAddress)
       if (gap) {
@@ -3419,7 +3430,13 @@ function ServiceSheet({
         onNotice(device ? `${device.serial}은(는) ${MOBILITY_STATUS_LABEL[device.status]} 상태라 대여할 수 없어요.` : '이 기기는 지금 대여할 수 없어요.')
         return
       }
-      setMobilityDeviceStatus(device.serial, 'rented')
+      // 서버가 대여 전이를 검증한다 — 다른 이용자가 먼저 대여했으면 실패한다.
+      const rented = await rentMobilityDevice(device.serial).catch(() => null)
+      if (!rented) {
+        void refreshMobilityDevices()
+        onNotice('방금 다른 이용자가 대여했거나 대여가 막힌 기기예요. 목록을 새로고침합니다.')
+        return
+      }
       rentalSerialRef.current = device.serial
     }
     setPhase('matching')
@@ -3785,7 +3802,15 @@ function ServiceSheet({
             <BalanceCheckoutButton
               amount={chargeAmount}
               memo={`${service} ${chargeAmount} Pi`}
-              metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
+              metadata={{
+                kind: 'service-pay',
+                place,
+                label: `${service} 이용`,
+                service: settleServiceKey,
+                partnerId: selectedDevice?.ownerUid || undefined,
+                partnerName: selectedDevice?.ownerName || undefined,
+                deviceId: selectedDevice?.serial || undefined,
+              }}
               className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
               onPaid={(result) => {
                 if (!result.paymentId || !result.txid) return
@@ -4058,6 +4083,12 @@ function ServiceSheet({
                 className="h-full w-full"
               />
             </div>
+            {vehicle && !catalog.length ? (
+              <div className="rounded-2xl border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-4 py-6 text-center">
+                <p className="text-sm font-black text-[#0F172A]">주변에 등록된 대여 기기가 없어요</p>
+                <p className="mt-1 text-xs font-bold leading-5 text-[#64748B]">파트너가 자전거·킥보드를 등록하면 위치와 대여 가능 상태가 이 지도에 바로 표시됩니다.</p>
+              </div>
+            ) : null}
             <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
               {catalog.map((item, index) => {
                 const active = selectedItem === item.id
@@ -4298,6 +4329,8 @@ function ServiceSheet({
       {deviceFormOpen && vehicle ? (
         <MobilityDeviceFormModal
           initialKind={service === '킥보드' ? '퀵보드' : '자전거'}
+          ownerUid={loadPartnerProfile()?.uid || loadPiIdentity()?.uid || ''}
+          ownerName={loadPartnerProfile()?.name || loadPiIdentity()?.username || ''}
           onClose={() => setDeviceFormOpen(false)}
         />
       ) : null}
@@ -7189,7 +7222,13 @@ function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartT
         </button>
       </section>
     </main>
-    {deviceFormOpen ? <MobilityDeviceFormModal onClose={() => setDeviceFormOpen(false)} /> : null}
+    {deviceFormOpen ? (
+      <MobilityDeviceFormModal
+        ownerUid={loadPartnerProfile()?.uid || loadPiIdentity()?.uid || ''}
+        ownerName={loadPartnerProfile()?.name || loadPiIdentity()?.username || ''}
+        onClose={() => setDeviceFormOpen(false)}
+      />
+    ) : null}
     </>
   )
 }

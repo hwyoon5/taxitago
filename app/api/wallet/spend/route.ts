@@ -67,6 +67,7 @@ export async function POST(request: Request) {
     service?: unknown
     partnerId?: unknown
     partnerName?: unknown
+    deviceId?: unknown
     accessToken?: unknown
     sandbox?: unknown
   } | null
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
   const service = typeof body?.service === 'string' ? body.service.trim() : ''
   const partnerId = typeof body?.partnerId === 'string' ? body.partnerId.trim() : ''
   const partnerName = typeof body?.partnerName === 'string' ? body.partnerName.trim() : ''
+  const deviceId = typeof body?.deviceId === 'string' ? body.deviceId.trim().slice(0, 64) : ''
   const requestId = typeof body?.requestId === 'string' && body.requestId.trim() ? body.requestId.trim() : crypto.randomUUID()
   if (!uid) return NextResponse.json({ ok: false, error: 'Pi 계정 연동 후 결제할 수 있습니다.' }, { status: 400 })
   if (purpose !== 'ride' && purpose !== 'manual' && purpose !== 'service') {
@@ -204,6 +206,7 @@ export async function POST(request: Request) {
           place,
           partnerId: partnerId || undefined,
           partnerName: partnerName || undefined,
+          deviceId: deviceId || undefined,
         },
       })
     }

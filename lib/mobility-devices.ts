@@ -1,23 +1,34 @@
 import type { RegisteredNearbyPartner } from '@/lib/nearby-services'
+import type { DeviceTelemetry } from '@/lib/device-types'
 
-const STORAGE_KEY = 'taxitago-mobility-devices'
+/**
+ * 파트너 기기 위치 공유 모델 — 서버 스토어(taxitago:devices, /api/devices)가
+ * 유일한 원천이다. 등록된 기기는 모든 이용자의 지도에 실시간 노출되고,
+ * 대여·반납 전이도 서버가 검증한다.
+ * 로컬에는 조회 결과 캐시만 둬서 지도 렌더가 동기로 읽을 수 있게 한다.
+ */
+
 export const MOBILITY_DEVICES_EVENT = 'taxitago-mobility-devices'
 
 export type MobilityDeviceKind = '자전거' | '퀵보드'
 export type MobilityDeviceStatus = 'available' | 'maintenance' | 'low_battery' | 'rented'
 
 export type MobilityDevice = {
+  /** 서버 deviceId — 등록·대여·정산의 기본 식별자 */
   serial: string
   kind: MobilityDeviceKind
+  model: string
   address: string
   lat: number
   lng: number
   battery: number
   status: MobilityDeviceStatus
+  /** 파트너가 대여 허용으로 둔 기기인지 — status와 별개의 소유자 스위치 */
+  rentable: boolean
+  ownerUid: string
+  ownerName: string
   registeredAt: string
 }
-
-const STATUSES: MobilityDeviceStatus[] = ['available', 'maintenance', 'low_battery', 'rented']
 
 export const MOBILITY_STATUS_LABEL: Record<MobilityDeviceStatus, string> = {
   available: '이용 가능',
@@ -26,8 +37,10 @@ export const MOBILITY_STATUS_LABEL: Record<MobilityDeviceStatus, string> = {
   rented: '대여 중',
 }
 
-export function isDeviceRentable(device: Pick<MobilityDevice, 'status'>) {
-  return device.status === 'available'
+const LOW_BATTERY = 20
+
+export function isDeviceRentable(device: Pick<MobilityDevice, 'status' | 'rentable'>) {
+  return device.rentable && device.status === 'available'
 }
 
 export function parseCoordInput(value: string): { lat: number; lng: number } | null {
@@ -45,91 +58,205 @@ export function deviceMatchesService(kind: MobilityDeviceKind, service: string) 
   return service === '킥보드' || service === '퀵보드'
 }
 
-export function deviceSpotId(device: Pick<MobilityDevice, 'kind' | 'serial'>) {
-  return `device-${device.kind}-${device.serial.trim()}`
+export function deviceSpotId(device: Pick<MobilityDevice, 'serial'>) {
+  return `device-${device.serial.trim()}`
 }
 
-function clampBattery(value: unknown) {
-  const battery = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(battery)) return 100
-  return Math.max(0, Math.min(100, Math.round(battery)))
+// ── 서버 레코드 → 화면 모델 ──────────────────────────────────────────────────
+
+function statusOf(row: DeviceTelemetry): MobilityDeviceStatus {
+  const mobility = row.spec?.kind === 'mobility' ? row.spec : null
+  const battery = mobility?.batteryLevel ?? row.batteryLevel
+  if (row.status === 'rented') return 'rented'
+  if (mobility && mobility.rentable !== true) return 'maintenance'
+  if (typeof battery === 'number' && battery < LOW_BATTERY) return 'low_battery'
+  return 'available'
 }
 
-function normalizeDevice(item: Partial<MobilityDevice> | null): MobilityDevice | null {
-  if (!item || typeof item.serial !== 'string' || !item.serial.trim()) return null
-  if (item.kind !== '자전거' && item.kind !== '퀵보드') return null
-  if (!Number.isFinite(item.lat) || !Number.isFinite(item.lng)) return null
-  const status = STATUSES.includes(item.status as MobilityDeviceStatus) ? (item.status as MobilityDeviceStatus) : 'available'
+export function deviceFromTelemetry(row: DeviceTelemetry): MobilityDevice | null {
+  const kind: MobilityDeviceKind | null =
+    row.type === 'bicycle' ? '자전거' : row.type === 'kickboard' ? '퀵보드' : null
+  const mobility = row.spec?.kind === 'mobility' ? row.spec : null
+  if (!kind || !mobility || !row.registered) return null
+  const lat = mobility.latitude ?? row.latitude
+  const lng = mobility.longitude ?? row.longitude
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  const battery = mobility.batteryLevel ?? row.batteryLevel ?? 100
   return {
-    serial: item.serial.trim(),
-    kind: item.kind,
-    address: typeof item.address === 'string' && item.address.trim() ? item.address.trim() : `${item.lat}, ${item.lng}`,
-    lat: item.lat as number,
-    lng: item.lng as number,
-    battery: clampBattery(item.battery),
-    status,
-    registeredAt: typeof item.registeredAt === 'string' ? item.registeredAt : new Date().toISOString(),
+    serial: row.deviceId,
+    kind,
+    model: mobility.model,
+    address: mobility.address || `${lat}, ${lng}`,
+    lat,
+    lng,
+    battery: Math.max(0, Math.min(100, Math.round(battery))),
+    status: statusOf(row),
+    rentable: mobility.rentable === true,
+    ownerUid: row.ownerUid || '',
+    ownerName: row.ownerName || '',
+    registeredAt: row.firstSeen || row.lastSeen,
   }
 }
 
-function writeDevices(devices: MobilityDevice[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(devices))
-  window.dispatchEvent(new Event(MOBILITY_DEVICES_EVENT))
+// ── 캐시 + fetch ────────────────────────────────────────────────────────────
+
+let cache: MobilityDevice[] = []
+
+function writeCache(devices: MobilityDevice[]) {
+  cache = devices
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(MOBILITY_DEVICES_EVENT))
   return devices
 }
 
-export function loadMobilityDevices(): MobilityDevice[] {
-  if (typeof window === 'undefined') return []
+async function fetchDevices(query: string): Promise<MobilityDevice[]> {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as Partial<MobilityDevice>[]
-    if (!Array.isArray(parsed)) return []
-    return parsed.map((item) => normalizeDevice(item)).filter((item): item is MobilityDevice => Boolean(item))
+    const res = await fetch(`/api/devices?${query}`, { cache: 'no-store' })
+    const data = (await res.json().catch(() => null)) as { devices?: DeviceTelemetry[] } | null
+    if (!res.ok || !Array.isArray(data?.devices)) return []
+    return data.devices.map(deviceFromTelemetry).filter((item): item is MobilityDevice => Boolean(item))
   } catch {
     return []
   }
 }
 
+/** 공개 지도용 — 등록된 자전거·킥보드 전체를 서버에서 새로 읽어 캐시를 갱신한다. */
+export async function refreshMobilityDevices(): Promise<MobilityDevice[]> {
+  const [bicycles, kickboards] = await Promise.all([fetchDevices('type=bicycle'), fetchDevices('type=kickboard')])
+  return writeCache([...bicycles, ...kickboards])
+}
+
+/** 소유 파트너 본인 기기 — 관리 목록용(캐시에는 넣지 않는다). */
+export async function fetchMyMobilityDevices(ownerUid: string): Promise<MobilityDevice[]> {
+  const uid = ownerUid.trim()
+  if (!uid) return []
+  return fetchDevices(`uid=${encodeURIComponent(uid)}`)
+}
+
+export function loadMobilityDevices(): MobilityDevice[] {
+  return cache
+}
+
 export function findDeviceBySpotId(id: string) {
-  return loadMobilityDevices().find((device) => deviceSpotId(device) === id) ?? null
+  const serial = id.startsWith('device-') ? id.slice('device-'.length) : ''
+  return cache.find((device) => device.serial === serial) ?? null
 }
 
-export function saveMobilityDevice(device: MobilityDevice, previousSerial?: string) {
-  const nextDevice = normalizeDevice(device)
-  if (!nextDevice) return loadMobilityDevices()
-  const drop = new Set([nextDevice.serial.toLowerCase(), previousSerial?.trim().toLowerCase()].filter((item): item is string => Boolean(item)))
-  const next = [nextDevice, ...loadMobilityDevices().filter((item) => !drop.has(item.serial.toLowerCase()))]
-  return writeDevices(next)
+// ── 파트너 등록·관리 (ownerUid 필수) ─────────────────────────────────────────
+
+export async function registerMobilityDevice(input: {
+  serial: string
+  kind: MobilityDeviceKind
+  model?: string
+  speedLimitKmh?: number | null
+  specNote?: string
+  address: string
+  lat: number
+  lng: number
+  battery: number
+  rentable: boolean
+  ownerUid?: string
+  ownerName?: string
+}): Promise<{ ok: true; device: MobilityDevice } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/devices/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: input.serial.trim(),
+        type: input.kind === '자전거' ? 'bicycle' : 'kickboard',
+        ownerUid: input.ownerUid || undefined,
+        ownerName: input.ownerName || undefined,
+        spec: {
+          kind: 'mobility',
+          model: input.model || '',
+          speedLimitKmh: input.speedLimitKmh ?? null,
+          specNote: input.specNote || '',
+          address: input.address,
+          latitude: input.lat,
+          longitude: input.lng,
+          batteryLevel: Math.max(0, Math.min(100, Math.round(input.battery))),
+          locked: true,
+          rentable: input.rentable,
+        },
+      }),
+    })
+    const data = (await res.json().catch(() => null)) as { device?: DeviceTelemetry; error?: string } | null
+    const device = data?.device ? deviceFromTelemetry(data.device) : null
+    if (!res.ok || !device) {
+      return { ok: false, error: data?.error === 'device_owned' ? '다른 파트너가 사용 중인 기기 ID입니다.' : '기기를 등록하지 못했습니다.' }
+    }
+    return { ok: true, device }
+  } catch {
+    return { ok: false, error: '네트워크 오류로 기기를 등록하지 못했습니다.' }
+  }
 }
 
-export function updateMobilityDevice(serial: string, patch: Partial<Pick<MobilityDevice, 'kind' | 'address' | 'lat' | 'lng' | 'battery' | 'status'>>) {
-  const current = loadMobilityDevices()
-  const found = current.find((item) => item.serial.toLowerCase() === serial.trim().toLowerCase())
-  if (!found) return current
-  const nextDevice = normalizeDevice({ ...found, ...patch, serial: found.serial })
-  if (!nextDevice) return current
-  return writeDevices(current.map((item) => (item.serial.toLowerCase() === found.serial.toLowerCase() ? nextDevice : item)))
+/** 소유 파트너의 spec 부분 수정 — rentable·배터리·위치 등. */
+export async function updateMyMobilityDevice(
+  serial: string,
+  ownerUid: string,
+  specPatch: Record<string, unknown>,
+): Promise<MobilityDevice | null> {
+  try {
+    const res = await fetch('/api/devices/register', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: serial.trim(), ownerUid, spec: specPatch }),
+    })
+    const data = (await res.json().catch(() => null)) as { device?: DeviceTelemetry } | null
+    return data?.device ? deviceFromTelemetry(data.device) : null
+  } catch {
+    return null
+  }
 }
 
-export function deleteMobilityDevice(serial: string) {
-  const key = serial.trim().toLowerCase()
-  return writeDevices(loadMobilityDevices().filter((item) => item.serial.toLowerCase() !== key))
+export async function deleteMobilityDevice(serial: string, ownerUid: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/devices/register', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: serial.trim(), ownerUid }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
-export function setMobilityDeviceStatus(serial: string, status: MobilityDeviceStatus) {
-  return updateMobilityDevice(serial, { status })
+// ── 이용자 대여·반납 전이 ───────────────────────────────────────────────────
+
+async function transitionRental(serial: string, rent: boolean): Promise<MobilityDevice | null> {
+  try {
+    const res = await fetch('/api/devices', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: serial.trim(), rent }),
+    })
+    const data = (await res.json().catch(() => null)) as { device?: DeviceTelemetry } | null
+    const device = data?.device ? deviceFromTelemetry(data.device) : null
+    if (!res.ok || !device) return null
+    // 캐시에도 즉시 반영해 지도·목록이 같은 상태를 본다.
+    writeCache(cache.map((item) => (item.serial === device.serial ? device : item)))
+    return device
+  } catch {
+    return null
+  }
 }
+
+export const rentMobilityDevice = (serial: string) => transitionRental(serial, true)
+export const returnMobilityDevice = (serial: string) => transitionRental(serial, false)
+
+// ── 이용자 지도/목록용 파트너 변환 ──────────────────────────────────────────
 
 export function mobilityPartnersForService(service: string): RegisteredNearbyPartner[] {
-  return loadMobilityDevices()
+  return cache
     .filter((device) => deviceMatchesService(device.kind, service))
     .map((device) => ({
       id: deviceSpotId(device),
-      name: device.serial,
+      name: device.model ? `${device.serial} · ${device.model}` : device.serial,
       lat: device.lat,
       lng: device.lng,
-      extra: `배터리 ${device.battery}%`,
+      extra: [device.address, `배터리 ${device.battery}%`, device.ownerName ? `파트너 ${device.ownerName}` : ''].filter(Boolean).join(' · '),
       rate: device.kind === '자전거' ? '0.2 Pi' : '0.3 Pi',
       rentable: isDeviceRentable(device),
       statusLabel: MOBILITY_STATUS_LABEL[device.status],

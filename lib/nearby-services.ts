@@ -61,25 +61,10 @@ const EV_SEEDS: SpotSeed[] = [
   { id: 'ev-6', name: '초급속 충전소', extra: '잔여 전력 57%', rate: '0.48 Pi / kWh', eastM: 140, northM: 160 },
 ]
 
-const BIKE_SEEDS: SpotSeed[] = [
-  { id: 'bike-1', name: 'BIKE-2048', extra: '배터리 85%', rate: '0.2 Pi', eastM: 40, northM: 65 },
-  { id: 'bike-2', name: 'BIKE-1176', extra: '배터리 72%', rate: '0.2 Pi', eastM: -85, northM: 30 },
-  { id: 'bike-3', name: 'BIKE-3901', extra: '배터리 94%', rate: '0.2 Pi', eastM: 120, northM: -50 },
-  { id: 'bike-4', name: 'BIKE-5520', extra: '배터리 61%', rate: '0.2 Pi', eastM: -30, northM: 170 },
-  { id: 'bike-5', name: 'BIKE-8831', extra: '배터리 88%', rate: '0.2 Pi', eastM: 200, northM: 95 },
-  { id: 'bike-6', name: 'BIKE-4410', extra: '배터리 77%', rate: '0.2 Pi', eastM: -160, northM: -80 },
-  { id: 'bike-7', name: 'BIKE-6722', extra: '배터리 90%', rate: '0.2 Pi', eastM: 75, northM: -190 },
-]
-
-const SCOOTER_SEEDS: SpotSeed[] = [
-  { id: 'scoot-1', name: 'SCOOT-7312', extra: '배터리 85%', rate: '0.3 Pi', eastM: 35, northM: 50 },
-  { id: 'scoot-2', name: 'SCOOT-2104', extra: '배터리 68%', rate: '0.3 Pi', eastM: -70, northM: 95 },
-  { id: 'scoot-3', name: 'SCOOT-8870', extra: '배터리 91%', rate: '0.3 Pi', eastM: 150, northM: -40 },
-  { id: 'scoot-4', name: 'SCOOT-6402', extra: '배터리 77%', rate: '0.3 Pi', eastM: -110, northM: 160 },
-  { id: 'scoot-5', name: 'SCOOT-1198', extra: '배터리 64%', rate: '0.3 Pi', eastM: 210, northM: 70 },
-  { id: 'scoot-6', name: 'SCOOT-3055', extra: '배터리 82%', rate: '0.3 Pi', eastM: -175, northM: -100 },
-  { id: 'scoot-7', name: 'SCOOT-9240', extra: '배터리 73%', rate: '0.3 Pi', eastM: 90, northM: -210 },
-]
+// 자전거·킥보드는 파트너 기기 등록·위치 공유 모델로 전환 — 데모 목록을 두지 않고
+// 서버(/api/devices)에 실등록된 파트너 기기만 지도에 노출한다.
+const BIKE_SEEDS: SpotSeed[] = []
+const SCOOTER_SEEDS: SpotSeed[] = []
 
 const SEEDS: Record<NearbyServiceKind, SpotSeed[]> = {
   parking: PARKING_SEEDS,

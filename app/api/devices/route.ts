@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { listDevices } from '@/lib/device-store'
+import { listDevices, setDeviceRentalState } from '@/lib/device-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,4 +35,32 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, devices: filtered, count: filtered.length })
   }
   return NextResponse.json({ ok: true, devices, count: devices.length })
+}
+
+const RENTAL_ERRORS: Record<string, string> = {
+  not_found: '등록된 기기를 찾을 수 없습니다.',
+  not_rentable: '파트너가 대여를 허용하지 않은 기기입니다.',
+  already_rented: '다른 이용자가 이미 대여한 기기입니다.',
+  not_rented: '대여 중이 아닌 기기입니다.',
+}
+
+/**
+ * 이용자 대여·반납 전이 — { deviceId, rent: true|false }.
+ * 서버가 상태 전이를 검증해 동일 기기의 중복 대여를 막는다.
+ */
+export async function PATCH(request: Request) {
+  const body = (await request.json().catch(() => null)) as {
+    deviceId?: unknown
+    rent?: unknown
+  } | null
+  const deviceId = typeof body?.deviceId === 'string' ? body.deviceId.trim() : ''
+  const rent = body?.rent === true ? true : body?.rent === false ? false : null
+  if (!deviceId || rent === null) {
+    return NextResponse.json({ error: 'invalid_fields' }, { status: 400 })
+  }
+  const result = await setDeviceRentalState(deviceId, rent)
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error, message: RENTAL_ERRORS[result.error] }, { status: 409 })
+  }
+  return NextResponse.json({ ok: true, device: result.device })
 }

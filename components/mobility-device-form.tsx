@@ -1,65 +1,75 @@
 'use client'
 
-import { useState } from 'react'
-import { Check, Trash2, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Check, RefreshCw, Trash2, X } from 'lucide-react'
 import { searchPlacesFromApi } from '@/lib/geocode-client'
 import {
   deleteMobilityDevice,
-  loadMobilityDevices,
+  fetchMyMobilityDevices,
   MOBILITY_STATUS_LABEL,
   parseCoordInput,
-  saveMobilityDevice,
-  updateMobilityDevice,
+  registerMobilityDevice,
+  updateMyMobilityDevice,
   type MobilityDevice,
   type MobilityDeviceKind,
-  type MobilityDeviceStatus,
 } from '@/lib/mobility-devices'
 
-const PARTNER_STATUSES: MobilityDeviceStatus[] = ['available', 'maintenance', 'low_battery']
-
-function statusClass(status: MobilityDeviceStatus) {
+function statusClass(status: MobilityDevice['status']) {
   if (status === 'available') return 'text-[#0F766E]'
   if (status === 'low_battery') return 'text-[#B45309]'
   if (status === 'rented') return 'text-[#1D4ED8]'
   return 'text-[#9F1239]'
 }
 
+/**
+ * 파트너 기기 등록·관리 모달 — 서버 기기 스토어(/api/devices)에 저장되어
+ * 등록 즉시 모든 이용자의 지도에 노출된다. ownerUid가 있어야 수정·삭제가
+ * 허용된다(소유자 검증은 서버가 한다).
+ */
 export function MobilityDeviceFormModal({
   initialKind = '자전거',
+  ownerUid = '',
+  ownerName = '',
   onClose,
   onRegistered,
 }: {
   initialKind?: MobilityDeviceKind
+  ownerUid?: string
+  ownerName?: string
   onClose: () => void
   onRegistered?: (device: MobilityDevice) => void
 }) {
+  const uid = ownerUid.trim()
   const [serial, setSerial] = useState('')
   const [kind, setKind] = useState<MobilityDeviceKind>(initialKind)
+  const [model, setModel] = useState('')
   const [location, setLocation] = useState('')
   const [battery, setBattery] = useState(80)
-  const [status, setStatus] = useState<MobilityDeviceStatus>('available')
+  const [rentable, setRentable] = useState(true)
   const [editingSerial, setEditingSerial] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<MobilityDevice | null>(null)
-  const [devices, setDevices] = useState<MobilityDevice[]>(() => loadMobilityDevices())
+  const [devices, setDevices] = useState<MobilityDevice[]>([])
+  const [loadingList, setLoadingList] = useState(false)
 
-  const rentable = status === 'available'
-
-  const applyBattery = (value: number) => {
-    const next = Math.max(0, Math.min(100, Math.round(value)))
-    setBattery(next)
-    if (next < 20 && status === 'available') setStatus('low_battery')
-    if (next >= 20 && status === 'low_battery') setStatus('available')
+  const reload = () => {
+    if (!uid) return
+    setLoadingList(true)
+    void fetchMyMobilityDevices(uid)
+      .then(setDevices)
+      .finally(() => setLoadingList(false))
   }
+  useEffect(reload, [uid])
 
   const beginEdit = (device: MobilityDevice) => {
     setEditingSerial(device.serial)
     setSerial(device.serial)
     setKind(device.kind)
+    setModel(device.model)
     setLocation(device.address)
     setBattery(device.battery)
-    setStatus(device.status === 'rented' ? 'available' : device.status)
+    setRentable(device.rentable)
     setSaved(null)
     setError('')
   }
@@ -67,9 +77,10 @@ export function MobilityDeviceFormModal({
   const resetForm = () => {
     setEditingSerial('')
     setSerial('')
+    setModel('')
     setLocation('')
     setBattery(80)
-    setStatus('available')
+    setRentable(true)
     setKind(initialKind)
   }
 
@@ -91,7 +102,7 @@ export function MobilityDeviceFormModal({
       let lat = coords?.lat
       let lng = coords?.lng
       let address = place
-      const previous = editingSerial ? loadMobilityDevices().find((item) => item.serial === editingSerial) : undefined
+      const previous = editingSerial ? devices.find((item) => item.serial === editingSerial) : undefined
       const samePlace = previous && previous.address === place
       if (samePlace) {
         lat = previous.lat
@@ -108,34 +119,41 @@ export function MobilityDeviceFormModal({
         lng = hit.lng
         address = hit.address || hit.name || place
       }
-      const device: MobilityDevice = {
+      const result = await registerMobilityDevice({
         serial: serialNo,
         kind,
+        model,
         address,
         lat,
         lng,
         battery,
-        status,
-        registeredAt: previous?.registeredAt || new Date().toISOString(),
+        rentable,
+        ownerUid: uid || undefined,
+        ownerName: ownerName || undefined,
+      })
+      if (!result.ok) {
+        setError(result.error)
+        return
       }
-      setDevices(saveMobilityDevice(device, editingSerial || undefined))
-      setSaved(device)
+      setSaved(result.device)
       resetForm()
-      onRegistered?.(device)
-    } catch {
-      setError('등록 중 위치를 확인하지 못했어요. 다시 시도해 주세요.')
+      reload()
+      onRegistered?.(result.device)
     } finally {
       setSaving(false)
     }
   }
 
-  const changeStatus = (device: MobilityDevice, next: MobilityDeviceStatus) => {
-    setDevices(updateMobilityDevice(device.serial, { status: next }))
+  const toggleRentable = async (device: MobilityDevice, next: boolean) => {
+    const updated = await updateMyMobilityDevice(device.serial, uid, { rentable: next })
+    if (updated) setDevices((list) => list.map((item) => (item.serial === device.serial ? updated : item)))
   }
 
-  const remove = (device: MobilityDevice) => {
-    setDevices(deleteMobilityDevice(device.serial))
-    if (editingSerial === device.serial) resetForm()
+  const remove = async (device: MobilityDevice) => {
+    if (await deleteMobilityDevice(device.serial, uid)) {
+      setDevices((list) => list.filter((item) => item.serial !== device.serial))
+      if (editingSerial === device.serial) resetForm()
+    }
   }
 
   return (
@@ -151,13 +169,18 @@ export function MobilityDeviceFormModal({
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-black text-[#4A82B8]">PARTNER DEVICE</p>
-            <h2 id="mobility-device-title" className="mt-1 text-2xl font-black text-[#0F172A]">{editingSerial ? '기기 정보 수정' : '자전거 · 퀵보드 기기 등록'}</h2>
-            <p className="mt-1 text-sm font-bold leading-6 text-[#64748B]">배터리와 상태를 저장하면 대여 가능 여부가 목록에 바로 반영됩니다.</p>
+            <h2 id="mobility-device-title" className="mt-1 text-2xl font-black text-[#0F172A]">{editingSerial ? '기기 정보 수정' : '자전거 · 킥보드 기기 등록'}</h2>
+            <p className="mt-1 text-sm font-bold leading-6 text-[#64748B]">등록 즉시 이용자 지도에 위치가 공유됩니다. 대여 가능으로 둔 기기만 대여됩니다.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="닫기">
             <X className="h-5 w-5" />
           </button>
         </div>
+        {!uid ? (
+          <p className="mt-3 rounded-2xl bg-[#FEF3C7] px-3 py-2.5 text-xs font-bold leading-5 text-[#92400E]">
+            Pi 로그인 없이 등록하면 기기 관리(수정·삭제·대여 허용 변경)를 할 수 없습니다. 로그인 후 등록을 권장합니다.
+          </p>
+        ) : null}
         <label className="mt-4 block">
           <span className="text-xs font-black text-[#334155]">기기 고유 ID (Serial No.)</span>
           <input
@@ -183,7 +206,16 @@ export function MobilityDeviceFormModal({
           </div>
         </div>
         <label className="mt-4 block">
-          <span className="text-xs font-black text-[#334155]">위치 (주소 또는 위도, 경도)</span>
+          <span className="text-xs font-black text-[#334155]">모델명 (선택)</span>
+          <input
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            placeholder="예: 전동 킥보드 모델 A"
+            className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]"
+          />
+        </label>
+        <label className="mt-4 block">
+          <span className="text-xs font-black text-[#334155]">대여 위치 (주소 또는 위도, 경도)</span>
           <input
             value={location}
             onChange={(event) => setLocation(event.target.value)}
@@ -201,46 +233,32 @@ export function MobilityDeviceFormModal({
             min={0}
             max={100}
             value={battery}
-            onChange={(event) => applyBattery(Number(event.target.value))}
+            onChange={(event) => setBattery(Math.max(0, Math.min(100, Math.round(Number(event.target.value)))))}
             className="mt-2 w-full accent-[#4A82B8]"
           />
         </label>
         <div className="mt-4 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-black text-[#334155]">이용 가능</p>
-              <p className="mt-1 text-[11px] font-bold text-[#64748B]">끄면 점검 중 또는 배터리 부족으로 대여가 막힙니다.</p>
+              <p className="text-xs font-black text-[#334155]">대여 허용</p>
+              <p className="mt-1 text-[11px] font-bold text-[#64748B]">끄면 이용자 지도에 '점검 중'으로 표시되고 대여가 막힙니다.</p>
             </div>
             <button
               type="button"
               role="switch"
               aria-checked={rentable}
-              onClick={() => setStatus(rentable ? (battery < 20 ? 'low_battery' : 'maintenance') : 'available')}
+              onClick={() => setRentable(!rentable)}
               className={`relative h-8 w-14 shrink-0 rounded-full transition ${rentable ? 'bg-[#047857]' : 'bg-[#CBD5E1]'}`}
             >
               <span className={`absolute top-1 h-6 w-6 rounded-full bg-white transition ${rentable ? 'left-7' : 'left-1'}`} />
             </button>
           </div>
-          {rentable ? null : (
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {PARTNER_STATUSES.filter((item) => item !== 'available').map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setStatus(item)}
-                  className={`rounded-xl border-2 py-2.5 text-xs font-black ${status === item ? 'border-[#9F1239] bg-[#9F1239] text-white' : 'border-[#FECACA] bg-white text-[#9F1239]'}`}
-                >
-                  {MOBILITY_STATUS_LABEL[item]}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
         {error ? <p className="mt-3 text-sm font-bold text-[#B91C1C]">{error}</p> : null}
         {saved ? (
           <p className="mt-3 flex items-center gap-2 rounded-2xl bg-[#ECFDF5] px-3 py-3 text-sm font-black text-[#047857]">
             <Check className="h-4 w-4" />
-            {saved.serial} 저장 · ({MOBILITY_STATUS_LABEL[saved.status]})
+            {saved.serial} 등록 완료 · 이용자 지도에 공유됩니다
           </p>
         ) : null}
         <div className={`mt-5 grid gap-2 ${editingSerial ? 'grid-cols-2' : 'grid-cols-1'}`}>
@@ -258,41 +276,52 @@ export function MobilityDeviceFormModal({
             {saving ? '위치 확인 중…' : editingSerial ? '수정 저장' : '기기 등록'}
           </button>
         </div>
-        {devices.length ? (
-          <ul className="mt-5 space-y-2">
-            <li className="text-xs font-black text-[#64748B]">등록 기기 {devices.length}대 · 이용 가능 기기가 가까운 순으로 목록 상단에 표시됩니다</li>
-            {devices.map((device) => (
-              <li key={`${device.kind}-${device.serial}`} className="rounded-2xl border border-[#E2E8F0] bg-white px-3 py-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-black text-[#0F172A]">
-                      {device.serial}
-                      <span className={`font-black ${statusClass(device.status)}`}> ({MOBILITY_STATUS_LABEL[device.status]})</span>
-                    </p>
-                    <p className="mt-1 text-xs font-bold text-[#475569]">{device.kind} · 배터리 {device.battery}% · {device.address}</p>
-                  </div>
-                  <button type="button" onClick={() => remove(device)} className="rounded-full bg-[#FEF2F2] p-2 text-[#BE123C]" aria-label={`${device.serial} 삭제`}>
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => beginEdit(device)} className="rounded-full border border-[#BFDBFE] px-3 py-1.5 text-[11px] font-black text-[#4A82B8]">
-                    정보 수정
-                  </button>
-                  {PARTNER_STATUSES.map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => changeStatus(device, item)}
-                      className={`rounded-full px-3 py-1.5 text-[11px] font-black ${device.status === item ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
-                    >
-                      {MOBILITY_STATUS_LABEL[item]}
-                    </button>
-                  ))}
-                </div>
-              </li>
-            ))}
-          </ul>
+        {uid ? (
+          <div className="mt-5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-black text-[#64748B]">내 등록 기기 {devices.length}대</p>
+              <button type="button" onClick={reload} className="flex items-center gap-1 text-[11px] font-black text-[#4A82B8]" aria-label="목록 새로고침">
+                <RefreshCw className={`h-3 w-3 ${loadingList ? 'animate-spin' : ''}`} />
+                새로고침
+              </button>
+            </div>
+            {devices.length ? (
+              <ul className="mt-2 space-y-2">
+                {devices.map((device) => (
+                  <li key={device.serial} className="rounded-2xl border border-[#E2E8F0] bg-white px-3 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-black text-[#0F172A]">
+                          {device.serial}
+                          <span className={`font-black ${statusClass(device.status)}`}> ({MOBILITY_STATUS_LABEL[device.status]})</span>
+                        </p>
+                        <p className="mt-1 text-xs font-bold text-[#475569]">
+                          {device.kind}{device.model ? ` · ${device.model}` : ''} · 배터리 {device.battery}% · {device.address}
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => void remove(device)} className="rounded-full bg-[#FEF2F2] p-2 text-[#BE123C]" aria-label={`${device.serial} 삭제`}>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" onClick={() => beginEdit(device)} className="rounded-full border border-[#BFDBFE] px-3 py-1.5 text-[11px] font-black text-[#4A82B8]">
+                        정보 수정
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void toggleRentable(device, !device.rentable)}
+                        className={`rounded-full px-3 py-1.5 text-[11px] font-black ${device.rentable ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
+                      >
+                        {device.rentable ? '대여 허용 중' : '대여 중지'}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs font-bold text-[#94A3B8]">{loadingList ? '불러오는 중…' : '아직 등록한 기기가 없습니다.'}</p>
+            )}
+          </div>
         ) : null}
       </section>
     </div>

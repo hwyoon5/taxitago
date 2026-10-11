@@ -50,6 +50,7 @@ export async function handleServicePaymentComplete(input: {
   const label = typeof metadata.label === 'string' ? metadata.label.trim() : ''
   const partnerId = typeof metadata.partnerId === 'string' ? metadata.partnerId.trim() : ''
   const partnerName = typeof metadata.partnerName === 'string' ? metadata.partnerName.trim() : ''
+  const deviceId = typeof metadata.deviceId === 'string' ? metadata.deviceId.trim() : ''
   if (partnerId) await hydrateDispatchFromKv().catch(() => undefined)
   // No linked partner → deterministic platform wallet so the 90/10 split is
   // still recorded instead of leaving the driver leg blank.
@@ -59,7 +60,7 @@ export async function handleServicePaymentComplete(input: {
     service,
     driverId: partnerId || 'platform',
     driverName: partnerName || place || '서비스 파트너',
-    memo: [label || '서비스 결제', place, input.txid ? `txid ${input.txid.slice(0, 10)}` : ''].filter(Boolean).join(' · '),
+    memo: [label || '서비스 결제', deviceId ? `기기 ${deviceId}` : '', place, input.txid ? `txid ${input.txid.slice(0, 10)}` : ''].filter(Boolean).join(' · '),
     gross,
     driverWallet,
     channel: 'inapp',

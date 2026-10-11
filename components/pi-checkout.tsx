@@ -1187,6 +1187,7 @@ export function BalanceCheckoutButton({
       service: typeof meta.service === 'string' ? meta.service : undefined,
       partnerId: typeof meta.partnerId === 'string' ? meta.partnerId : undefined,
       partnerName: typeof meta.partnerName === 'string' ? meta.partnerName : undefined,
+      deviceId: typeof meta.deviceId === 'string' ? meta.deviceId : undefined,
     })
       .then((result) => {
         setPaid(true)

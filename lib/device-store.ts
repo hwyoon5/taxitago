@@ -123,6 +123,13 @@ export async function listDevices(filter?: { type?: string; ownerUid?: string })
     .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
 }
 
+export async function getDevice(deviceId: string): Promise<DeviceTelemetry | null> {
+  const id = (deviceId || '').trim()
+  if (!id) return null
+  const entries = await readEntries()
+  return entries.find((row) => row.deviceId === id) ?? null
+}
+
 const sanitize = (value: unknown, max = 128) => (typeof value === 'string' ? value.trim().slice(0, max) : '')
 const numOrNull = (value: unknown, min = -1e9, max = 1e9) => {
   const n = Number(value)
@@ -200,6 +207,10 @@ export async function registerDevice(input: {
 
   const entries = await readEntries()
   const existing = entries.find((row) => row.deviceId === deviceId)
+  // 소유자가 있는 등록 기기를 다른 계정이 덮어쓰는 것을 막는다 —
+  // 소유자 없는 텔레메트리 전용 기기는 첫 등록자가 소유권을 가져간다.
+  const ownerUid = sanitize(input.ownerUid, 64)
+  if (existing?.ownerUid && existing.ownerUid !== ownerUid) return null
   const lat = spec.latitude
   const lng = spec.longitude
   const battery = spec.kind === 'mobility' ? spec.batteryLevel : null
@@ -239,4 +250,79 @@ export async function registerDevice(input: {
   entries.push(entry)
   await writeEntries(entries)
   return entry
+}
+
+function isOwned(row: DeviceTelemetry, ownerUid: string) {
+  return Boolean(ownerUid) && row.ownerUid === ownerUid
+}
+
+/**
+ * 소유 파트너의 등록 정보 수정 — spec을 부분 병합한다.
+ * 좌표·배터리·상태도 spec 파생값으로 맞춘다. ownerUid 불일치면 null.
+ */
+export async function updatePartnerDevice(input: {
+  deviceId: string
+  ownerUid: string
+  spec?: Record<string, unknown>
+}): Promise<DeviceTelemetry | null> {
+  const deviceId = (input.deviceId || '').trim()
+  const ownerUid = sanitize(input.ownerUid, 64)
+  if (!DEVICE_ID_RE.test(deviceId) || !ownerUid) return null
+  const entries = await readEntries()
+  const row = entries.find((item) => item.deviceId === deviceId)
+  if (!row?.registered || !row.spec || !isOwned(row, ownerUid)) return null
+  const specKind = specKindForDeviceKind(row.type)
+  if (!specKind) return null
+  const spec = sanitizeSpec(specKind, { ...(row.spec as Record<string, unknown>), ...(input.spec ?? {}) })
+  if (!spec) return null
+  row.spec = spec
+  if (spec.latitude !== null && spec.longitude !== null) {
+    row.latitude = spec.latitude
+    row.longitude = spec.longitude
+  }
+  if (spec.kind === 'mobility' && spec.batteryLevel !== null) row.batteryLevel = spec.batteryLevel
+  if (spec.kind === 'mobility' && row.status !== 'rented') row.status = spec.rentable ? 'active' : 'idle'
+  row.lastSeen = new Date().toISOString()
+  await writeEntries(entries)
+  return row
+}
+
+/** 소유 파트너의 등록 기기 삭제 — ownerUid가 일치해야 한다. */
+export async function removePartnerDevice(deviceId: string, ownerUid: string): Promise<boolean> {
+  const id = (deviceId || '').trim()
+  const owner = sanitize(ownerUid, 64)
+  if (!id || !owner) return false
+  const entries = await readEntries()
+  const row = entries.find((item) => item.deviceId === id)
+  if (!row?.registered || !isOwned(row, owner)) return false
+  await writeEntries(entries.filter((item) => item.deviceId !== id))
+  return true
+}
+
+/**
+ * 이용자 대여·반납 전이 — 파트너가 대여 허용(rentable)한 모빌리티 기기만
+ * 대여할 수 있다. 상태만 바꾸고 spec은 손대지 않는다.
+ */
+export async function setDeviceRentalState(
+  deviceId: string,
+  rented: boolean,
+): Promise<{ ok: true; device: DeviceTelemetry } | { ok: false; error: 'not_found' | 'not_rentable' | 'already_rented' | 'not_rented' }> {
+  const id = (deviceId || '').trim()
+  if (!id) return { ok: false, error: 'not_found' }
+  const entries = await readEntries()
+  const row = entries.find((item) => item.deviceId === id)
+  const mobility = row?.spec?.kind === 'mobility'
+  if (!row?.registered || !mobility) return { ok: false, error: 'not_found' }
+  const spec = row.spec as { rentable?: boolean }
+  if (rented) {
+    if (row.status === 'rented') return { ok: false, error: 'already_rented' }
+    if (spec.rentable !== true) return { ok: false, error: 'not_rentable' }
+    row.status = 'rented'
+  } else {
+    if (row.status !== 'rented') return { ok: false, error: 'not_rented' }
+    row.status = spec.rentable === true ? 'active' : 'idle'
+  }
+  row.lastSeen = new Date().toISOString()
+  await writeEntries(entries)
+  return { ok: true, device: row }
 }
