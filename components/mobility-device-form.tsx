@@ -60,12 +60,15 @@ export function MobilityDeviceFormModal({
   initialKind = '자전거',
   ownerUid = '',
   ownerName = '',
+  editDevice,
   onClose,
   onRegistered,
 }: {
   initialKind?: MobilityDeviceKind | string
   ownerUid?: string
   ownerName?: string
+  /** 지정되면 열리자마자 해당 기기의 수정 모드로 진입한다. */
+  editDevice?: MobilityDevice | null
   onClose: () => void
   onRegistered?: (device: MobilityDevice) => void
 }) {
@@ -94,6 +97,12 @@ export function MobilityDeviceFormModal({
   useEffect(() => {
     reload()
   }, [reload])
+
+  // 목록의 '정보 수정'으로 바로 열린 경우 — 지정 기기를 수정 모드로 바인딩한다.
+  useEffect(() => {
+    if (editDevice) beginEdit(editDevice)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editDevice])
 
   // 수정 모드 진입 — 기기 데이터가 비정상이어도 예외 없이 안전하게 바인딩한다.
   const beginEdit = (device: MobilityDevice) => {

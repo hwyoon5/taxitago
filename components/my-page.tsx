@@ -8,6 +8,7 @@ import PartnerStatSheet from '@/components/partner-stat-sheet'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { PartnerDevicePanel } from '@/components/partner-device-panel'
+import { PartnerDashboardSafe } from '@/components/partner-dashboard'
 import { copyInviteCode, getOrCreateInviteCode, inviteShareLink } from '@/lib/invite-code'
 import { loadPartnerProfile, loadPiIdentity, type PartnerProfile } from '@/lib/partner-account'
 
@@ -127,6 +128,7 @@ export default function MyPage({
   const [inviteLaunchOpen, setInviteLaunchOpen] = useState(false)
   const [partnerProfile, setPartnerProfile] = useState<PartnerProfile | null>(null)
   const [piUid, setPiUid] = useState('')
+  const [centerRole, setCenterRole] = useState<'driver' | 'partner'>('partner')
   const [devicePanelOpen, setDevicePanelOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [historyRows, setHistoryRows] = useState<HistoryEntry[]>([])
@@ -174,6 +176,11 @@ export default function MyPage({
   const modeOn = driverMode ?? localMode
   const linked = piLinked ?? localPi
   const piBalance = balance ?? localBalance
+  // 권한 플래그는 마운트 후 localStorage에서 읽히므로, prop이 없으면 마운트
+  // 전까지 '비파트너'로 잘못 렌더되는 플래시를 막는다.
+  const rolesReady = mounted || isDriverRegistered !== undefined || isPartnerRegistered !== undefined
+  const dualRole = driverOk && partnerOk
+  const partnerView = partnerOk && (!driverOk || centerRole === 'partner')
 
   const registerDriver = () => {
     if (onOpenDriverSignup) {
@@ -398,6 +405,36 @@ export default function MyPage({
 
           {innerTab === 'center' ? (
             <div className="space-y-3 pb-4">
+              {!rolesReady ? (
+                <p className="rounded-[24px] border-2 border-[#E2E8F0] bg-white p-5 text-center text-xs font-bold text-[#64748B]">
+                  권한을 확인하는 중…
+                </p>
+              ) : null}
+              {rolesReady && dualRole ? (
+                <div className="grid grid-cols-2 gap-1 rounded-[18px] bg-[#F1F5F9] p-1 ring-1 ring-[#E2E8F0]">
+                  {([{ id: 'driver', label: '기사 모드' }, { id: 'partner', label: '파트너 모드' }] as const).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setCenterRole(item.id)}
+                      className={`rounded-[14px] py-2.5 text-xs font-black ${centerRole === item.id ? 'bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]' : 'text-[#64748B]'}`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {rolesReady && partnerView ? (
+                <PartnerDashboardSafe
+                  ownerUid={piUid}
+                  ownerName={username}
+                  profile={partnerProfile}
+                  onEditProfile={partnerProfile ? () => setEditOpen(true) : undefined}
+                  onNotice={notify}
+                />
+              ) : null}
+              {rolesReady && !partnerView ? (
+              <>
               <article className="rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4">
                 <div className="flex items-center gap-2">
                   <Car className="h-5 w-5 text-[#4C1FB8]" />
@@ -489,6 +526,8 @@ export default function MyPage({
                   </div>
                 ) : null}
               </article>
+              </>
+              ) : null}
             </div>
           ) : null}
         </div>
