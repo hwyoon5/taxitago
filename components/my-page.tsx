@@ -11,6 +11,8 @@ import { PartnerDevicePanel } from '@/components/partner-device-panel'
 import { PartnerDashboardSafe } from '@/components/partner-dashboard'
 import { copyInviteCode, getOrCreateInviteCode, inviteShareLink } from '@/lib/invite-code'
 import { loadPartnerProfile, loadPiIdentity, type PartnerProfile } from '@/lib/partner-account'
+import { useLocale } from '@/components/locale-provider'
+import type { MessageKey } from '@/lib/i18n'
 
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
@@ -64,9 +66,24 @@ const ACTIVITY_LOG_KEY = 'taxitago-activity-log'
 const WALLET_STORE_KEY = 'taxitago-pi-wallet'
 const PAYMENT_DUP_LABELS = new Set(['결제 완료', '취소 수수료 결제', 'Pi 충전 완료', 'Pi 환불'])
 
-type HistoryEntry = { id: string; label: string; detail: string; at: string; amount: number | null }
-type ActivityRow = { id: string; at: string; label: string; detail: string }
-type TxRow = { label: string; amount: number; detail: string; place: string; at: string }
+type HistoryEntry = { id: string; label: string; detail: string; at: string; amount: number | null; ts: number; kind: 'payment' | 'activity' }
+type ActivityRow = { id: string; at: string; label: string; detail: string; ts?: number }
+type TxRow = { label: string; amount: number; detail: string; place: string; at: string; ts?: number }
+
+type HistoryTimeFilter = 'all' | 'today' | 'week' | 'month'
+type HistoryTypeFilter = 'all' | 'payment' | 'activity'
+
+const HISTORY_TIME_FILTERS: { id: HistoryTimeFilter; labelKey: MessageKey }[] = [
+  { id: 'all', labelKey: 'inbox.filterAll' },
+  { id: 'today', labelKey: 'inbox.today' },
+  { id: 'week', labelKey: 'inbox.week' },
+  { id: 'month', labelKey: 'inbox.month' },
+]
+const HISTORY_TYPE_FILTERS: { id: HistoryTypeFilter; labelKey: MessageKey }[] = [
+  { id: 'all', labelKey: 'inbox.filterAll' },
+  { id: 'payment', labelKey: 'inbox.typePay' },
+  { id: 'activity', labelKey: 'inbox.typeActivity' },
+]
 
 function storedActivities(): ActivityRow[] {
   try {
@@ -89,6 +106,12 @@ function storedTransactions(): TxRow[] {
 function mergedHistory(activities: ActivityRow[], transactions: TxRow[]): HistoryEntry[] {
   // 로컬 저장본의 비정규 행(객체·숫자 필드)도 JSX 렌더에서 안전하도록 문자열로 수렴한다.
   const text = (value: unknown) => (typeof value === 'string' ? value : '')
+  const tsOf = (row: { ts?: unknown; at?: unknown }) => {
+    const n = Number(row?.ts)
+    if (Number.isFinite(n) && n > 0) return n
+    const parsed = Date.parse(text(row?.at))
+    return Number.isFinite(parsed) ? parsed : 0
+  }
   return [
     ...transactions.map((tx, index) => {
       const amount = Number(tx?.amount)
@@ -98,6 +121,8 @@ function mergedHistory(activities: ActivityRow[], transactions: TxRow[]): Histor
         detail: text(tx?.detail) || text(tx?.place),
         at: text(tx?.at),
         amount: Number.isFinite(amount) ? amount : null,
+        ts: tsOf(tx),
+        kind: 'payment' as const,
       }
     }),
     ...activities
@@ -108,6 +133,8 @@ function mergedHistory(activities: ActivityRow[], transactions: TxRow[]): Histor
         detail: text(entry.detail),
         at: text(entry.at),
         amount: null,
+        ts: tsOf(entry),
+        kind: 'activity' as const,
       })),
   ]
 }
@@ -128,6 +155,7 @@ export default function MyPage({
   activities,
   transactions,
 }: MyPageProps) {
+  const { t } = useLocale()
   const [innerTab, setInnerTab] = useState<InnerTab>('profile')
   const [localDriver, setLocalDriver] = useState(false)
   const [localPartner, setLocalPartner] = useState(false)
@@ -149,6 +177,8 @@ export default function MyPage({
   const [devicePanelOpen, setDevicePanelOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [historyRows, setHistoryRows] = useState<HistoryEntry[]>([])
+  const [histTime, setHistTime] = useState<HistoryTimeFilter>('all')
+  const [histType, setHistType] = useState<HistoryTypeFilter>('all')
 
   useEffect(() => {
     setMounted(true)
@@ -201,6 +231,19 @@ export default function MyPage({
   const partnerView = partnerOk && (!driverOk || centerRole === 'partner')
   // 현재 역할 — 파트너 권한이 활성화된 유저는 승객/기사보다 파트너 모드를 우선 표시한다.
   const roleLabel = !rolesReady ? '확인 중…' : partnerView ? '파트너 모드' : modeOn ? '기사 모드' : '승객 모드'
+
+  // 시간 필터 — 오늘(로컬 날짜)/7일/30일. 타임스탬프가 없는 항목은 '전체'에서만 보인다.
+  const withinHistTime = (ts: number) => {
+    if (histTime === 'all') return true
+    if (!Number.isFinite(ts) || ts <= 0) return false
+    if (histTime === 'today') {
+      const d = new Date(ts)
+      const n = new Date()
+      return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()
+    }
+    return Date.now() - ts <= (histTime === 'week' ? 7 : 30) * 86_400_000
+  }
+  const visibleHistory = historyRows.filter((row) => withinHistTime(row.ts) && (histType === 'all' || row.kind === histType))
 
   /** 역할 표시 클릭 — 파트너는 파트너 대시보드로, 기사는 모드 전환, 무권한은 센터 탭으로 이동한다. */
   const openRoleMode = () => {
@@ -426,7 +469,33 @@ export default function MyPage({
 
           {innerTab === 'history' ? (
             <div className="space-y-2">
-              {historyRows.map((row) => (
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {HISTORY_TIME_FILTERS.map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setHistTime(filter.id)}
+                    aria-pressed={histTime === filter.id}
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black transition active:scale-95 ${histTime === filter.id ? 'bg-[#4A82B8] text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]' : 'bg-[#F1F5F9] text-[#64748B]'}`}
+                  >
+                    {t(filter.labelKey)}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {HISTORY_TYPE_FILTERS.map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setHistType(filter.id)}
+                    aria-pressed={histType === filter.id}
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black transition active:scale-95 ${histType === filter.id ? 'bg-[#4A82B8] text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]' : 'bg-[#F1F5F9] text-[#64748B]'}`}
+                  >
+                    {t(filter.labelKey)}
+                  </button>
+                ))}
+              </div>
+              {visibleHistory.map((row) => (
                 <article key={row.id} className="rounded-[22px] border-2 border-[#E2E8F0] bg-white p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -442,8 +511,10 @@ export default function MyPage({
                   <p className="mt-3 text-[11px] font-bold text-[#94A3B8]">{row.at}</p>
                 </article>
               ))}
-              {!historyRows.length ? (
-                <p className="rounded-[22px] border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">아직 이용 내역이 없습니다.</p>
+              {!visibleHistory.length ? (
+                <p className="rounded-[22px] border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
+                  {!historyRows.length ? '아직 이용 내역이 없습니다.' : t('inbox.emptyFiltered')}
+                </p>
               ) : null}
             </div>
           ) : null}
