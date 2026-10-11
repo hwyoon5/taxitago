@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { translateService } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -90,6 +90,8 @@ import RideCommsAlerts from '@/components/ride-comms-alerts'
 import RideReviewModal, { type RideReviewTarget } from '@/components/ride-review'
 import RideSosButton from '@/components/ride-sos'
 import SupportCenter, { type LostPrefill } from '@/components/support-center'
+import LanguageQuickSwitcher from '@/components/language-quick-switcher'
+import VoiceInputModal from '@/components/voice-input-modal'
 import { fetchUserRating, recordReviewReward } from '@/lib/review-client'
 import { fetchLostInbox, fetchSosInbox } from '@/lib/support-client'
 import type { LostItem, SosAlert } from '@/lib/support-types'
@@ -1236,6 +1238,7 @@ function DestinationSearchModal({
   originLng,
   originAddress,
   searchPlaceholder,
+  initialQuery = '',
   onClose,
   onSelect,
   onAddFavorite,
@@ -1250,6 +1253,8 @@ function DestinationSearchModal({
   originLng?: number
   originAddress?: string
   searchPlaceholder?: string
+  /** 음성 입력 등 외부에서 미리 채워 넣는 검색어. */
+  initialQuery?: string
   onClose: () => void
   onSelect: (name: string, address?: string, coords?: RideCoords) => void
   onAddFavorite: () => void
@@ -1257,7 +1262,9 @@ function DestinationSearchModal({
   onRemoveRecent: (id: string) => void
   onOpenMap?: () => void
 }) {
-  const [query, setQuery] = useState('')
+  const { t } = useLocale()
+  const [query, setQuery] = useState(initialQuery)
+  const [voiceOpen, setVoiceOpen] = useState(false)
   const [destMapOpen, setDestMapOpen] = useState(false)
   const [destMapSession, setDestMapSession] = useState(0)
   const [remotePlaces, setRemotePlaces] = useState<PlaceItem[]>([])
@@ -1346,6 +1353,14 @@ function DestinationSearchModal({
                     지우기
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() => setVoiceOpen(true)}
+                  aria-label={t('home.voiceDest')}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#E8F1FA] text-[#4A82B8] transition hover:bg-[#DCEBF7] active:scale-95"
+                >
+                  <Mic className="h-4 w-4" />
+                </button>
               </div>
               <button
                 type="button"
@@ -1488,6 +1503,12 @@ function DestinationSearchModal({
             pick(place.address, place.address, { lat: place.lat, lng: place.lng, address: place.address })
             setDestMapOpen(false)
           }}
+        />
+      ) : null}
+      {voiceOpen ? (
+        <VoiceInputModal
+          onResult={(text) => setQuery(text)}
+          onClose={() => setVoiceOpen(false)}
         />
       ) : null}
     </div>
@@ -5020,6 +5041,8 @@ function Home({
 }) {
   const { t } = useLocale()
   const [searchOpen, setSearchOpen] = useState(false)
+  const [searchSeed, setSearchSeed] = useState('')
+  const [voiceDestOpen, setVoiceDestOpen] = useState(false)
   const [waypointSearchIndex, setWaypointSearchIndex] = useState<number | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [qrPayOpen, setQrPayOpen] = useState(false)
@@ -5144,26 +5167,36 @@ function Home({
               경유지 추가
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            className="mt-1 flex w-full items-stretch overflow-hidden rounded-lg border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
-            style={{ WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
-            aria-label={destination ? `${t('home.dest')} ${destination}` : t('home.destSearch')}
-          >
-            <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-2.5 py-1.5">
-              <span className="block shrink-0 text-[11px] font-bold leading-4 text-[#7C3AED]">{t('home.dest')}</span>
-              <span className="flex items-center gap-2">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
-                  <Search className="h-3.5 w-3.5" />
-                </span>
-                <span className={`min-w-0 flex-1 truncate text-sm font-black leading-4 ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
-                  {destination || t('home.destPlaceholder')}
+          <div className="mt-1 flex items-stretch gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-lg border-2 border-[#7C3AED] bg-white text-left shadow-[0_6px_12px_rgba(124,58,237,0.1)]"
+              style={{ WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
+              aria-label={destination ? `${t('home.dest')} ${destination}` : t('home.destSearch')}
+            >
+              <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-2.5 py-1.5">
+                <span className="block shrink-0 text-[11px] font-bold leading-4 text-[#7C3AED]">{t('home.dest')}</span>
+                <span className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9]">
+                    <Search className="h-3.5 w-3.5" />
+                  </span>
+                  <span className={`min-w-0 flex-1 truncate text-sm font-black leading-4 ${destination ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
+                    {destination || t('home.destPlaceholder')}
+                  </span>
                 </span>
               </span>
-            </span>
-            <DestinationTaxiLoop className="w-[6.75rem] shrink-0 self-stretch overflow-hidden" />
-          </button>
+              <DestinationTaxiLoop className="w-[6.75rem] shrink-0 self-stretch overflow-hidden" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setVoiceDestOpen(true)}
+              aria-label={t('home.voiceDest')}
+              className="flex w-12 shrink-0 items-center justify-center rounded-lg bg-[#4A82B8] text-white shadow-[0_6px_12px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] active:scale-95"
+            >
+              <Mic className="h-5 w-5" />
+            </button>
+          </div>
         </div>
         <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {suggestedDestinations.map((place) => {
@@ -5243,12 +5276,25 @@ function Home({
           originLat={pickupLat}
           originLng={pickupLng}
           originAddress={pickup}
-          onClose={() => setSearchOpen(false)}
+          initialQuery={searchSeed}
+          onClose={() => {
+            setSearchOpen(false)
+            setSearchSeed('')
+          }}
           onSelect={select}
           onAddFavorite={() => setFormOpen(true)}
           onRemoveFavorite={removeFavorite}
           onRemoveRecent={removeRecent}
           onOpenMap={onOpenMap}
+        />
+      ) : null}
+      {voiceDestOpen ? (
+        <VoiceInputModal
+          onResult={(text) => {
+            setSearchSeed(text)
+            setSearchOpen(true)
+          }}
+          onClose={() => setVoiceDestOpen(false)}
         />
       ) : null}
       {qrPayOpen ? <QrPayScanModal onClose={() => setQrPayOpen(false)} onPaid={onQrPaid} /> : null}
@@ -9830,6 +9876,7 @@ export default function HomeScreen() {
               <h1 className="truncate text-[22px] font-black leading-tight text-[#0F172A]">{tab === '기사/파트너' ? t('brand.partner') : t('brand.name')}</h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              <LanguageQuickSwitcher />
               <button onClick={openWallet} className="rounded-full bg-[#E8F1FA] px-2.5 py-1.5 text-[11px] font-black text-[#4A82B8]">
                 {piCompact(walletBalance)} Pi
               </button>
