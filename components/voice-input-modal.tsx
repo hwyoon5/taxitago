@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Mic, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
-import { createSpeechRecognizer, isSpeechRecognitionSupported, type SpeechRecognizer } from '@/lib/speech'
+import { createSpeechRecognizer, isSpeechRecognitionSupported, speakText, stopSpeaking, type SpeechRecognizer } from '@/lib/speech'
 
 type VoicePhase = 'idle' | 'listening' | 'done' | 'error' | 'unsupported'
 
@@ -22,6 +22,8 @@ export default function VoiceInputModal({ onResult, onClose }: { onResult: (text
   const start = () => {
     if (!isSpeechRecognitionSupported()) {
       setPhase('unsupported')
+      // STT를 쓸 수 없을 때도 TTS 안내는 제공해 음성 지원 경험을 유지한다.
+      speakText(t('voice.unsupported'), locale)
       return
     }
     recognizerRef.current?.abort()
@@ -31,7 +33,11 @@ export default function VoiceInputModal({ onResult, onClose }: { onResult: (text
       locale,
       onResult: (text, isFinal) => {
         setTranscript(text)
-        if (isFinal) setPhase('done')
+        if (isFinal) {
+          setPhase('done')
+          // 인식이 끝난 뒤 결과를 음성으로 읽어 준다(청각 확인·음성 안내).
+          speakText(text, locale)
+        }
       },
       onError: (code) => setPhase(code === 'not-allowed' || code === 'service-not-allowed' ? 'unsupported' : 'error'),
       onEnd: () => {
@@ -56,6 +62,7 @@ export default function VoiceInputModal({ onResult, onClose }: { onResult: (text
     return () => {
       recognizerRef.current?.abort()
       recognizerRef.current = null
+      stopSpeaking()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -63,6 +70,7 @@ export default function VoiceInputModal({ onResult, onClose }: { onResult: (text
   const close = () => {
     recognizerRef.current?.abort()
     recognizerRef.current = null
+    stopSpeaking()
     onClose()
   }
   const confirm = () => {

@@ -10,12 +10,13 @@ import {
   deleteMobilityDevice,
   fetchMyMobilityDevices,
   fetchMyPartnerFeeds,
-  MOBILITY_STATUS_LABEL,
   updateMyMobilityDevice,
   type MobilityDevice,
   type MobilityDeviceStatus,
   type PartnerFeedInfo,
 } from '@/lib/mobility-devices'
+import { useLocale } from '@/components/locale-provider'
+import { localizeDynamic, translateDeviceKind, translateDeviceStatus } from '@/lib/i18n'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import { loadPartnerProfile, loadPiIdentity, type PartnerProfile, type PiIdentity } from '@/lib/partner-account'
 
@@ -64,6 +65,7 @@ export function PartnerDashboard({
   onNotice?: (message: string) => void
 }) {
   const uid = ownerUid.trim()
+  const { t, locale } = useLocale()
   const [devices, setDevices] = useState<MobilityDevice[]>([])
   const [feeds, setFeeds] = useState<PartnerFeedInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -140,7 +142,8 @@ export function PartnerDashboard({
     )
   }
 
-  const company = profile?.name?.trim() || ownerName || '내 파트너'
+  // 상호명은 파트너 입력 동적 데이터 — LocalizedText 확장 구조를 거쳐 표시한다.
+  const company = localizeDynamic(profile?.name, locale) || ownerName || '내 파트너'
 
   return (
     <div className="space-y-3">
@@ -167,7 +170,7 @@ export function PartnerDashboard({
             aria-label="대시보드 새로고침"
           >
             <RefreshCw className={`h-3 w-3 ${loading || refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? '새로고침 중…' : '새로고침'}
+            {refreshing ? t('common.loading') : t('common.refresh')}
           </button>
         </div>
         {onEditProfile ? (
@@ -186,7 +189,7 @@ export function PartnerDashboard({
         <div className="flex items-center justify-between">
           <p className="flex items-center gap-1.5 text-xs font-black text-[#334155]">
             <MonitorSmartphone className="h-4 w-4 text-[#4A82B8]" />
-            등록 기기 현황
+            {t('device.manage')}
           </p>
           <span className="text-lg font-black tabular-nums text-[#0F172A]">{devices.length}대</span>
         </div>
@@ -194,7 +197,7 @@ export function PartnerDashboard({
           {STATUS_ORDER.map((status) => (
             <div key={status} className={`rounded-2xl px-1.5 py-2 text-center ${statusTone(status)}`}>
               <p className="text-base font-black tabular-nums">{counts[status]}</p>
-              <p className="mt-0.5 text-[10px] font-black">{MOBILITY_STATUS_LABEL[status]}</p>
+              <p className="mt-0.5 text-[10px] font-black">{translateDeviceStatus(locale, status)}</p>
             </div>
           ))}
         </div>
@@ -239,14 +242,14 @@ export function PartnerDashboard({
             onClick={() => setStatSheet('revenue')}
             className="rounded-2xl bg-[#4A82B8] py-3 text-xs font-black text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]"
           >
-            수익 관리
+            {t('partner.revenue')}
           </button>
           <button
             type="button"
             onClick={() => setStatSheet('trips')}
             className="rounded-2xl bg-[#E8F1FA] py-3 text-xs font-black text-[#4A82B8]"
           >
-            운행 관리
+            {t('partner.operations')}
           </button>
         </div>
       </article>
@@ -256,7 +259,7 @@ export function PartnerDashboard({
         <div className="flex items-center justify-between">
           <p className="flex items-center gap-1.5 text-xs font-black text-[#334155]">
             <Briefcase className="h-4 w-4 text-[#4A82B8]" />
-            내 기기 목록
+            {t('device.list')}
           </p>
           <button
             type="button"
@@ -266,7 +269,7 @@ export function PartnerDashboard({
             }}
             className="rounded-full bg-[#4A82B8] px-3 py-1.5 text-[11px] font-black text-white"
           >
-            기기 추가
+            {t('device.add')}
           </button>
         </div>
         {!loading && !devices.length ? (
@@ -302,11 +305,11 @@ export function PartnerDashboard({
                   {device.model ? <span className="font-bold text-[#64748B]"> · {device.model}</span> : null}
                 </p>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${statusTone(device.status)}`}>
-                  {MOBILITY_STATUS_LABEL[device.status] ?? device.status}
+                  {translateDeviceStatus(locale, device.status)}
                 </span>
               </div>
               <p className="mt-1 text-[11px] font-bold text-[#64748B]">
-                {device.kind} · <span className={batteryTone(device.battery)}>배터리 {device.battery}%</span> · {device.address || '위치 미등록'}
+                {translateDeviceKind(locale, device.kind)} · <span className={batteryTone(device.battery)}>{t('device.battery')} {device.battery}%</span> · {device.address || '위치 미등록'}
               </p>
               <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">마지막 업데이트 {agoLabel(device.lastSeen)}</p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
@@ -318,14 +321,14 @@ export function PartnerDashboard({
                   }}
                   className="rounded-full border border-[#BFDBFE] px-3 py-1.5 text-[11px] font-black text-[#4A82B8]"
                 >
-                  정보 수정
+                  {t('partner.editInfo')}
                 </button>
                 <button
                   type="button"
                   onClick={() => void toggleRentable(device)}
                   className={`rounded-full px-3 py-1.5 text-[11px] font-black ${device.rentable ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
                 >
-                  {device.rentable ? '대여 허용 중' : '대여 중지'}
+                  {device.rentable ? `${t('device.rentable')} ON` : t('device.rentable')}
                 </button>
                 <button
                   type="button"

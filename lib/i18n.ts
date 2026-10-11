@@ -1,3 +1,8 @@
+import koMessages from '@/messages/ko.json'
+import enMessages from '@/messages/en.json'
+import jaMessages from '@/messages/ja.json'
+import zhMessages from '@/messages/zh.json'
+
 export const APP_LOCALES = [
   { id: 'ko', flag: '🇰🇷', nativeName: '한국어', englishName: 'Korean', short: 'KR' },
   { id: 'en', flag: '🇺🇸', nativeName: 'English', englishName: 'English', short: 'EN' },
@@ -380,7 +385,18 @@ const MESSAGE_TABLE = {
   },
 } as const
 
-export type MessageKey = keyof typeof MESSAGE_TABLE.ko
+/**
+ * messages/*.json — 기기 등록·대여·지갑 같은 공용 UI 문구를 언어별 파일로 관리한다.
+ * ko.json의 키가 기준이며 다른 언어 파일은 같은 키를 따라야 한다.
+ */
+const JSON_MESSAGE_TABLE: Record<AppLocale, Record<string, string>> = {
+  ko: koMessages,
+  en: enMessages,
+  ja: jaMessages,
+  zh: zhMessages,
+}
+
+export type MessageKey = keyof typeof MESSAGE_TABLE.ko | keyof typeof koMessages
 
 function isAppLocale(value: string | null | undefined): value is AppLocale {
   return APP_LOCALES.some((item) => item.id === value)
@@ -411,8 +427,14 @@ export function localeMeta(locale: AppLocale) {
 }
 
 export function translate(locale: AppLocale, key: MessageKey, vars?: Record<string, string>) {
-  const table = MESSAGE_TABLE[locale] ?? MESSAGE_TABLE.ko
-  let text: string = table[key] || MESSAGE_TABLE.ko[key] || key
+  const typedTable = MESSAGE_TABLE[locale] ?? MESSAGE_TABLE.ko
+  const jsonTable = JSON_MESSAGE_TABLE[locale] ?? JSON_MESSAGE_TABLE.ko
+  let text: string =
+    (typedTable as Record<string, string>)[key] ||
+    jsonTable[key] ||
+    (MESSAGE_TABLE.ko as Record<string, string>)[key] ||
+    JSON_MESSAGE_TABLE.ko[key] ||
+    key
   if (vars) {
     for (const [name, value] of Object.entries(vars)) {
       text = text.replaceAll(`{${name}}`, value)
@@ -440,4 +462,55 @@ const SERVICE_MESSAGE_KEYS: Record<string, MessageKey> = {
 export function translateService(locale: AppLocale, label: string) {
   const key = SERVICE_MESSAGE_KEYS[label]
   return key ? translate(locale, key) : label
+}
+
+const MOBILITY_STATUS_KEYS: Record<string, MessageKey> = {
+  available: 'device.status.available',
+  maintenance: 'device.status.maintenance',
+  low_battery: 'device.status.low_battery',
+  rented: 'device.status.rented',
+}
+
+export function translateDeviceStatus(locale: AppLocale, status: string) {
+  const key = MOBILITY_STATUS_KEYS[status]
+  return key ? translate(locale, key) : status
+}
+
+const MOBILITY_KIND_KEYS: Record<string, MessageKey> = {
+  자전거: 'device.kind.bicycle',
+  bicycle: 'device.kind.bicycle',
+  킥보드: 'device.kind.kickboard',
+  kickboard: 'device.kind.kickboard',
+}
+
+export function translateDeviceKind(locale: AppLocale, kind: string) {
+  const key = MOBILITY_KIND_KEYS[kind]
+  return key ? translate(locale, key) : kind
+}
+
+/**
+ * 파트너·기사가 직접 입력한 상호명/주소처럼 DB에 저장되는 자유 텍스트.
+ * locale별 필드를 가진 객체면 현재 언어 → ko → 첫 값 순으로 풀고,
+ * 평문(기존 데이터)이면 그대로 돌려 하위 호환을 유지한다.
+ * 향후 기계번역을 붙일 때도 이 함수만 확장하면 된다.
+ */
+export type LocalizedText = string | Partial<Record<AppLocale, string>>
+
+export function localizedText(value: LocalizedText | null | undefined, locale: AppLocale): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  const direct = value[locale]?.trim()
+  if (direct) return direct
+  const ko = value.ko?.trim()
+  if (ko) return ko
+  for (const item of APP_LOCALES) {
+    const text = value[item.id]?.trim()
+    if (text) return text
+  }
+  return ''
+}
+
+/** 저장된 자유 텍스트를 현재 locale로 해석한다 — 빈 값이면 fallback을 돌린다. */
+export function localizeDynamic(value: LocalizedText | null | undefined, locale: AppLocale, fallback = '') {
+  return localizedText(value, locale) || fallback
 }
