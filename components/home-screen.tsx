@@ -9880,9 +9880,6 @@ export default function HomeScreen() {
               <button onClick={openWallet} className="rounded-full bg-[#E8F1FA] px-2.5 py-1.5 text-[11px] font-black text-[#4A82B8]">
                 {piCompact(walletBalance)} Pi
               </button>
-              <button onClick={() => setHeaderModal('activity')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label={t('home.activity')}>
-                <Bell className="h-4 w-4" />
-              </button>
               <button onClick={() => setHeaderModal('account')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label={t('home.piAccount')}>
                 <UserRound className="h-4 w-4" />
               </button>
