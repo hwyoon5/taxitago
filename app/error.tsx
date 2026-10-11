@@ -18,6 +18,12 @@ export default function Error({
     <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-6 text-center">
       <p className="text-base font-semibold text-[#0f172a]">일시적인 오류가 발생했습니다</p>
       <p className="text-sm text-slate-500">문제가 자동으로 기록되었습니다. 잠시 후 다시 시도해 주세요.</p>
+      {error?.message ? (
+        <p className="max-w-md break-all rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500">
+          {error.message}
+          {error.digest ? ` · ${error.digest}` : ''}
+        </p>
+      ) : null}
       <button
         type="button"
         onClick={() => reset()}

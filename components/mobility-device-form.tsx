@@ -16,6 +16,36 @@ import {
   type MobilityDeviceKind,
 } from '@/lib/mobility-devices'
 
+/**
+ * 외부에서 전달된 기기 객체도 폼 바인딩 전에 표시 필드를 전부 정규화한다.
+ * 비정규 데이터(비문자열 필드·누락 속성)가 들어와도 폼이 깨지지 않게 한다.
+ */
+function safeEditDevice(device: MobilityDevice | null | undefined): MobilityDevice | null {
+  if (!device || typeof device !== 'object') return null
+  const serial = typeof device.serial === 'string' ? device.serial.trim() : ''
+  if (!serial) return null
+  const level = Number(device.battery)
+  const lat = Number(device.lat)
+  const lng = Number(device.lng)
+  const status = device.status
+  const text = (value: unknown) => (typeof value === 'string' ? value : '')
+  return {
+    serial,
+    kind: normalizeMobilityKind(device.kind),
+    model: text(device.model),
+    address: text(device.address),
+    lat: Number.isFinite(lat) ? lat : 0,
+    lng: Number.isFinite(lng) ? lng : 0,
+    battery: Number.isFinite(level) ? Math.max(0, Math.min(100, Math.round(level))) : 80,
+    status: status === 'rented' || status === 'maintenance' || status === 'low_battery' ? status : 'available',
+    rentable: device.rentable === true,
+    ownerUid: text(device.ownerUid),
+    ownerName: text(device.ownerName),
+    registeredAt: text(device.registeredAt),
+    lastSeen: text(device.lastSeen),
+  }
+}
+
 function statusClass(status: MobilityDevice['status']) {
   if (status === 'available') return 'text-[#0F766E]'
   if (status === 'low_battery') return 'text-[#B45309]'
@@ -99,8 +129,15 @@ function MobilityDeviceFormInner({
   }, [reload])
 
   // 목록의 '정보 수정'으로 바로 열린 경우 — 지정 기기를 수정 모드로 바인딩한다.
+  // 전달 객체는 재정규화해 비정규 데이터가 폼 상태 오염·크래시로 이어지지 않게 한다.
   useEffect(() => {
-    if (editDevice) beginEdit(editDevice)
+    if (!editDevice) return
+    const safe = safeEditDevice(editDevice)
+    if (!safe) {
+      setError('기기 정보가 올바르지 않아 수정 화면을 열 수 없어요. 목록을 새로고침해 주세요.')
+      return
+    }
+    beginEdit(safe)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editDevice])
 
