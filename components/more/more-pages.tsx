@@ -7,7 +7,7 @@ import SupportCenter from '@/components/support-center'
 import { useLocale } from '@/components/locale-provider'
 import type { AppLocale, MessageKey } from '@/lib/i18n'
 import { applyThemeMode, loadThemeMode, saveThemeMode, type ThemeMode } from '@/lib/theme'
-import { translateService } from '@/lib/i18n'
+import { localizedText, translateService } from '@/lib/i18n'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 
 const THEME_LABEL: Record<ThemeMode, MessageKey> = {
@@ -48,16 +48,22 @@ function PageFrame({ title, caption, onBack, children }: { title: string; captio
   )
 }
 
+const NOTICE_KIND_KEY: Record<string, MessageKey> = {
+  공지: 'notice.kind.notice',
+  이벤트: 'notice.kind.event',
+  업데이트: 'notice.kind.update',
+}
+
 export function NoticeListView({ onBack, onOpen }: { onBack: () => void; onOpen: (id: string) => void }) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   return (
     <PageFrame title={t('more.notice')} caption={t('more.noticeCaption')} onBack={onBack}>
       <div className="space-y-2">
         {notices.map((item) => (
           <button key={item.id} type="button" onClick={() => onOpen(item.id)} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-            <p className="text-[11px] font-black text-[#4C1FB8]">{item.kind} · {item.date}</p>
-            <strong className="mt-1 block text-sm font-black text-[#0F172A]">{item.title}</strong>
-            <span className="mt-1 block text-xs font-bold text-[#64748B]">{item.summary}</span>
+            <p className="text-[11px] font-black text-[#4C1FB8]">{t(NOTICE_KIND_KEY[item.kind] ?? 'notice.kind.notice')} · {item.date}</p>
+            <strong className="mt-1 block text-sm font-black text-[#0F172A]">{localizedText(item.title, locale)}</strong>
+            <span className="mt-1 block text-xs font-bold text-[#64748B]">{localizedText(item.summary, locale)}</span>
           </button>
         ))}
       </div>
@@ -66,12 +72,16 @@ export function NoticeListView({ onBack, onOpen }: { onBack: () => void; onOpen:
 }
 
 export function NoticeDetailView({ id, onBack }: { id: string; onBack: () => void }) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const item = getNotice(id)
   return (
-    <PageFrame title={item?.title || t('more.notice')} caption={item ? `${item.kind} · ${item.date}` : t('notice.missing')} onBack={onBack}>
+    <PageFrame
+      title={item ? localizedText(item.title, locale) || t('more.notice') : t('more.notice')}
+      caption={item ? `${t(NOTICE_KIND_KEY[item.kind] ?? 'notice.kind.notice')} · ${item.date}` : t('notice.missing')}
+      onBack={onBack}
+    >
       <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 text-sm font-medium leading-6 text-[#334155] shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-        {item?.body || t('notice.loadFailed')}
+        {item ? localizedText(item.body, locale) || t('notice.loadFailed') : t('notice.loadFailed')}
       </div>
     </PageFrame>
   )

@@ -56,10 +56,10 @@ export type MyPageProps = {
   transactions?: TxRow[]
 }
 
-const tabs: { id: InnerTab; label: string }[] = [
-  { id: 'profile', label: '내 프로필·역할' },
-  { id: 'history', label: '이용 내역' },
-  { id: 'center', label: '기사·파트너 센터' },
+const tabs: { id: InnerTab; labelKey: MessageKey }[] = [
+  { id: 'profile', labelKey: 'mypage.tabProfile' },
+  { id: 'history', labelKey: 'mypage.tabHistory' },
+  { id: 'center', labelKey: 'mypage.tabCenter' },
 ]
 
 const ACTIVITY_LOG_KEY = 'taxitago-activity-log'
@@ -230,7 +230,13 @@ export default function MyPage({
   const dualRole = driverOk && partnerOk
   const partnerView = partnerOk && (!driverOk || centerRole === 'partner')
   // 현재 역할 — 파트너 권한이 활성화된 유저는 승객/기사보다 파트너 모드를 우선 표시한다.
-  const roleLabel = !rolesReady ? '확인 중…' : partnerView ? '파트너 모드' : modeOn ? '기사 모드' : '승객 모드'
+  const roleLabel = !rolesReady
+    ? t('mypage.roleChecking')
+    : partnerView
+      ? t('mypage.modePartner')
+      : modeOn
+        ? t('mypage.modeDriver')
+        : t('mypage.modePassenger')
 
   // 시간 필터 — 오늘(로컬 날짜)/7일/30일. 타임스탬프가 없는 항목은 '전체'에서만 보인다.
   const withinHistTime = (ts: number) => {
@@ -267,7 +273,7 @@ export default function MyPage({
     writeFlag(DRIVER_REG_KEY, true)
     setLocalDriver(true)
     setLocalMode(true)
-    notify('인증기사로 등록되었고 기사 모드로 전환했어요.')
+    notify(t('mypage.toastDriverReg'))
   }
 
   const toggleMode = () => {
@@ -276,20 +282,20 @@ export default function MyPage({
       return
     }
     if (!driverOk) {
-      notify('먼저 기사 등록을 완료해 주세요.')
+      notify(t('mypage.toastNeedDriver'))
       setInnerTab('center')
       return
     }
     setLocalMode((value) => {
       const next = !value
-      notify(next ? '기사 모드로 전환했어요.' : '승객 모드로 전환했어요.')
+      notify(t(next ? 'mypage.toastDriverOn' : 'mypage.toastPassengerOn'))
       return next
     })
   }
 
   const applyPartner = () => {
     if (partnerOk) {
-      notify('이미 파트너로 등록되어 있어요.')
+      notify(t('mypage.toastPartnerDup'))
       return
     }
     if (onOpenPartnerSignup) {
@@ -301,7 +307,7 @@ export default function MyPage({
       writeFlag(PARTNER_REG_KEY, true)
       setLocalPartner(true)
       setPartnerPending(false)
-      notify('파트너 신청이 승인되었어요.')
+      notify(t('mypage.toastPartnerOk'))
     }, 1200)
   }
 
@@ -321,10 +327,10 @@ export default function MyPage({
     try {
       await copyInviteCode(inviteCode)
       setCopied(true)
-      notify('초대 코드가 복사되었어요.')
+      notify(t('mypage.toastCopied'))
       window.setTimeout(() => setCopied(false), 2000)
     } catch {
-      notify('코드를 복사하지 못했어요. 다시 시도해 주세요.')
+      notify(t('mypage.toastCopyFail'))
     }
   }
 
@@ -334,13 +340,13 @@ export default function MyPage({
       {!embedded ? (
         <header className="mx-auto flex w-full max-w-md items-center justify-between px-4 pb-2 pt-5">
           <Link href="/" className="rounded-full bg-white px-3 py-1.5 text-xs font-black text-[#4C1FB8] shadow-sm">
-            홈
+            {t('mypage.home')}
           </Link>
-          <h1 className="text-lg font-black text-[#0F172A]">내 정보</h1>
+          <h1 className="text-lg font-black text-[#0F172A]">{t('mypage.title')}</h1>
           <span className="w-10" />
         </header>
       ) : (
-        <h2 className="px-5 pt-1 text-2xl font-black text-[#0F172A]">내 정보</h2>
+        <h2 className="px-5 pt-1 text-2xl font-black text-[#0F172A]">{t('mypage.title')}</h2>
       )}
 
       <div className="mx-auto w-full max-w-md px-4">
@@ -351,7 +357,7 @@ export default function MyPage({
                 <BadgeCheck className="h-3.5 w-3.5" />
                 Pi Network Pioneer
               </span>
-              <p className="mt-3 text-xs font-bold text-white/70">연동된 Pi 지갑</p>
+              <p className="mt-3 text-xs font-bold text-white/70">{t('mypage.linkedWallet')}</p>
               <p className="mt-0.5 text-sm font-black">@{username}</p>
             </div>
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15">
@@ -359,7 +365,7 @@ export default function MyPage({
             </span>
           </button>
           <div className="mt-5 rounded-2xl bg-white/10 p-4 ring-1 ring-white/15">
-            <p className="text-[11px] font-bold text-white/70">{linked ? '사용 가능 잔액' : 'Pi 계정 연동 필요'}</p>
+            <p className="text-[11px] font-bold text-white/70">{linked ? t('mypage.balance') : t('mypage.needLink')}</p>
             <p className="mt-1 text-3xl font-black tracking-tight">{piBalance.toFixed(7)} <span className="text-lg font-black text-[#FDE68A]">Pi</span></p>
             <button
               type="button"
@@ -369,25 +375,25 @@ export default function MyPage({
               }}
               className="mt-4 w-full rounded-2xl bg-white py-3 text-sm font-black text-[#4C1FB8] shadow-[0_8px_16px_rgba(15,23,42,0.18)]"
             >
-              지갑 관리
+              {t('wallet.manage')}
             </button>
           </div>
         </section>
 
         <section className="mt-3 rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
-          <p className="text-[11px] font-black tracking-wide text-[#64748B]">보유 권한</p>
+          <p className="text-[11px] font-black tracking-wide text-[#64748B]">{t('mypage.perms')}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EEF2FF] px-3 py-1.5 text-xs font-black text-[#3730A3]">
               <UserRound className="h-3.5 w-3.5" />
-              승객
+              {t('mypage.passenger')}
             </span>
             <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black ${driverOk ? 'bg-[#ECFDF5] text-[#047857]' : 'bg-[#F1F5F9] text-[#94A3B8]'}`}>
               <ShieldCheck className="h-3.5 w-3.5" />
-              인증기사{driverOk ? '' : ' · 미등록'}
+              {t('mypage.driver')}{driverOk ? '' : ` · ${t('mypage.notReg')}`}
             </span>
             <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black ${partnerOk ? 'bg-[#FFF7ED] text-[#C2410C]' : 'bg-[#F1F5F9] text-[#94A3B8]'}`}>
               <Store className="h-3.5 w-3.5" />
-              파트너{partnerOk ? '' : ' · 미신청'}
+              {t('mypage.partner')}{partnerOk ? '' : ` · ${t('mypage.notApplied')}`}
             </span>
           </div>
         </section>
@@ -396,7 +402,7 @@ export default function MyPage({
           <button type="button" onClick={() => setInviteLaunchOpen(true)} className="flex w-full items-start justify-between gap-3 text-left">
             <div>
               <p className="text-[11px] font-black tracking-wide text-[#4C1FB8]">INVITE & SHARE</p>
-              <h3 className="mt-1 text-base font-black text-[#0F172A]">친구 초대 및 코드 공유</h3>
+              <h3 className="mt-1 text-base font-black text-[#0F172A]">{t('mypage.inviteTitle')}</h3>
             </div>
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F3E8FF] text-[#4C1FB8]">
               <Gift className="h-5 w-5" />
@@ -407,12 +413,12 @@ export default function MyPage({
             onClick={() => setInviteLaunchOpen(true)}
             className="mt-3 w-full rounded-2xl border border-[#FCD34D] bg-[#FFFBEB] px-3.5 py-3 text-left"
           >
-            <p className="text-sm font-black leading-6 text-[#92400E]">친구 초대 시 각각 0.5 Pi가 지급됩니다</p>
-            <p className="mt-0.5 text-[11px] font-bold leading-5 text-[#B45309]">초대한 친구와 회원님 모두 0.5 Pi를 받아요.</p>
+            <p className="text-sm font-black leading-6 text-[#92400E]">{t('mypage.inviteHead')}</p>
+            <p className="mt-0.5 text-[11px] font-bold leading-5 text-[#B45309]">{t('mypage.inviteSub')}</p>
           </button>
           <div className="mt-3 rounded-2xl bg-[#F8F5FF] px-4 py-3">
-            <p className="text-[10px] font-black tracking-wide text-[#64748B]">내 초대 코드</p>
-            <p className="mt-1 break-all font-mono text-lg font-black tracking-[0.18em] text-[#4C1FB8]">{inviteCode || '생성 중…'}</p>
+            <p className="text-[10px] font-black tracking-wide text-[#64748B]">{t('mypage.myCode')}</p>
+            <p className="mt-1 break-all font-mono text-lg font-black tracking-[0.18em] text-[#4C1FB8]">{inviteCode || t('mypage.generating')}</p>
             {shareLink ? <p className="mt-1 break-all text-[11px] font-bold leading-5 text-[#64748B]">{shareLink}</p> : null}
           </div>
           <button
@@ -422,7 +428,7 @@ export default function MyPage({
             className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)] disabled:opacity-50"
           >
             <Copy className="h-4 w-4" />
-            {copied ? '복사됨' : '코드 복사하기'}
+            {copied ? t('mypage.copied') : t('mypage.copy')}
           </button>
         </section>
 
@@ -436,7 +442,7 @@ export default function MyPage({
                   </span>
                   <span className="min-w-0">
                     <span className="block text-base font-black text-[#0F172A]">{username}</span>
-                    <span className="mt-0.5 block text-xs font-bold leading-5 text-[#64748B]">파이 모빌리티 · Pioneer 회원 · 탭하여 설정</span>
+                    <span className="mt-0.5 block text-xs font-bold leading-5 text-[#64748B]">{t('mypage.member')}</span>
                   </span>
                 </button>
                 <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
@@ -447,7 +453,7 @@ export default function MyPage({
                       onClick={openRoleMode}
                       className="w-full rounded-2xl bg-[#F8FAFC] p-3 text-left transition hover:bg-[#E8F1FA]"
                     >
-                      <span className="block text-[10px] font-black text-[#94A3B8]">현재 역할</span>
+                      <span className="block text-[10px] font-black text-[#94A3B8]">{t('mypage.curRole')}</span>
                       <span className="mt-1 flex items-center justify-between font-black text-[#0F172A]">
                         {roleLabel}
                         {partnerOk ? <ChevronRight className="h-3.5 w-3.5 text-[#4A82B8]" /> : null}
@@ -456,13 +462,13 @@ export default function MyPage({
                   </dd>
                   <dt className="sr-only">Pi 연동</dt>
                   <dd className="m-0 rounded-2xl bg-[#F8FAFC] p-3">
-                    <span className="block text-[10px] font-black text-[#94A3B8]">Pi 연동</span>
-                    <span className="mt-1 block font-black text-[#0F172A]">{linked ? '연동됨' : '미연동'}</span>
+                    <span className="block text-[10px] font-black text-[#94A3B8]">{t('mypage.piLink')}</span>
+                    <span className="mt-1 block font-black text-[#0F172A]">{linked ? t('mypage.linked') : t('mypage.unlinked')}</span>
                   </dd>
                 </dl>
               </article>
               <p className="whitespace-normal break-keep px-1 text-xs font-bold leading-6 text-[#64748B]">
-                승객은 기본 권한입니다. 기사·파트너 권한은 하단 [기사·파트너 센터] 탭에서 등록하면 배지에 바로 반영됩니다.
+                {t('mypage.permsNote')}
               </p>
             </div>
           ) : null}
@@ -513,7 +519,7 @@ export default function MyPage({
               ))}
               {!visibleHistory.length ? (
                 <p className="rounded-[22px] border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
-                  {!historyRows.length ? '아직 이용 내역이 없습니다.' : t('inbox.emptyFiltered')}
+                  {!historyRows.length ? t('mypage.empty') : t('inbox.emptyFiltered')}
                 </p>
               ) : null}
             </div>
@@ -523,19 +529,19 @@ export default function MyPage({
             <div className="space-y-3 pb-4">
               {!rolesReady ? (
                 <p className="rounded-[24px] border-2 border-[#E2E8F0] bg-white p-5 text-center text-xs font-bold text-[#64748B]">
-                  권한을 확인하는 중…
+                  {t('mypage.checking')}
                 </p>
               ) : null}
               {rolesReady && dualRole ? (
                 <div className="grid grid-cols-2 gap-1 rounded-[18px] bg-[#F1F5F9] p-1 ring-1 ring-[#E2E8F0]">
-                  {([{ id: 'driver', label: '기사 모드' }, { id: 'partner', label: '파트너 모드' }] as const).map((item) => (
+                  {([{ id: 'driver', labelKey: 'mypage.modeDriver' }, { id: 'partner', labelKey: 'mypage.modePartner' }] as const).map((item) => (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => setCenterRole(item.id)}
                       className={`rounded-[14px] py-2.5 text-xs font-black ${centerRole === item.id ? 'bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]' : 'text-[#64748B]'}`}
                     >
-                      {item.label}
+                      {t(item.labelKey)}
                     </button>
                   ))}
                 </div>
@@ -554,9 +560,9 @@ export default function MyPage({
               <article className="rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4">
                 <div className="flex items-center gap-2">
                   <Car className="h-5 w-5 text-[#4C1FB8]" />
-                  <h3 className="font-black text-[#0F172A]">기사</h3>
+                  <h3 className="font-black text-[#0F172A]">{t('mypage.driverCard')}</h3>
                 </div>
-                <p className="mt-2 text-xs font-bold leading-6 text-[#64748B]">등록하면 인증기사 배지가 켜지고, 승객/기사 모드를 전환할 수 있어요.</p>
+                <p className="mt-2 text-xs font-bold leading-6 text-[#64748B]">{t('mypage.driverDesc')}</p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -564,7 +570,7 @@ export default function MyPage({
                     disabled={driverOk}
                     className="rounded-2xl bg-[#4C1FB8] py-3 text-xs font-black text-white disabled:bg-[#CBD5E1] disabled:text-[#64748B]"
                   >
-                    {driverOk ? '기사 등록 완료' : '기사 등록'}
+                    {driverOk ? t('mypage.driverDone') : t('mypage.driverReg')}
                   </button>
                   <button
                     type="button"
@@ -572,7 +578,7 @@ export default function MyPage({
                     className="inline-flex items-center justify-center gap-1 rounded-2xl border-2 border-[#4C1FB8] py-3 text-xs font-black text-[#4C1FB8]"
                   >
                     <ToggleRight className="h-4 w-4" />
-                    {modeOn ? '승객 모드' : '기사 모드'}
+                    {modeOn ? t('mypage.modePassenger') : t('mypage.modeDriver')}
                   </button>
                 </div>
                 {driverOk && partnerProfile ? (
@@ -581,7 +587,7 @@ export default function MyPage({
                     onClick={() => setEditOpen(true)}
                     className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] py-3 text-xs font-black text-[#4A82B8]"
                   >
-                    차량 정보 수정
+                    {t('mypage.carEdit')}
                   </button>
                 ) : null}
               </article>
@@ -589,24 +595,24 @@ export default function MyPage({
               <article className="rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4">
                 <div className="flex items-center gap-2">
                   <Briefcase className="h-5 w-5 text-[#C2410C]" />
-                  <h3 className="font-black text-[#0F172A]">파트너</h3>
+                  <h3 className="font-black text-[#0F172A]">{t('mypage.partnerCard')}</h3>
                 </div>
-                <p className="mt-2 text-xs font-bold leading-6 text-[#64748B]">가맹점·업체로 신청하면 파트너 배지가 활성화되고 수익·운행을 관리할 수 있어요.</p>
+                <p className="mt-2 text-xs font-bold leading-6 text-[#64748B]">{t('mypage.partnerDesc')}</p>
                 <button
                   type="button"
                   onClick={applyPartner}
                   disabled={partnerPending}
                   className="mt-3 w-full rounded-2xl bg-[#EA580C] py-3 text-xs font-black text-white disabled:opacity-60"
                 >
-                  {partnerPending ? '심사 중…' : partnerOk ? '추가 파트너 신청' : '파트너 신청'}
+                  {partnerPending ? t('mypage.reviewing') : partnerOk ? t('mypage.partnerMore') : t('mypage.partnerApply')}
                 </button>
                 {partnerOk ? (
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-2xl bg-[#FFF7ED] py-3 text-xs font-black text-[#C2410C]">
-                      수익 관리
+                      {t('mypage.revenue')}
                     </button>
                     <button type="button" onClick={() => setStatSheet('trips')} className="rounded-2xl bg-[#FFF7ED] py-3 text-xs font-black text-[#C2410C]">
-                      운행 관리
+                      {t('mypage.ops')}
                     </button>
                   </div>
                 ) : null}
@@ -616,7 +622,7 @@ export default function MyPage({
                     onClick={() => setEditOpen(true)}
                     className="mt-2 w-full rounded-2xl border-2 border-[#FED7AA] bg-[#FFF7ED] py-3 text-xs font-black text-[#C2410C]"
                   >
-                    파트너 정보 수정
+                    {t('mypage.partnerEdit')}
                   </button>
                 ) : null}
               </article>
@@ -629,12 +635,12 @@ export default function MyPage({
                 >
                   <span className="flex items-center gap-2">
                     <MonitorSmartphone className="h-5 w-5 text-[#4A82B8]" />
-                    <h3 className="font-black text-[#0F172A]">기기·외부 연동 관리</h3>
+                    <h3 className="font-black text-[#0F172A]">{t('mypage.devices')}</h3>
                   </span>
-                  <span className="text-[11px] font-black text-[#4A82B8]">{devicePanelOpen ? '접기' : '열기'}</span>
+                  <span className="text-[11px] font-black text-[#4A82B8]">{devicePanelOpen ? t('mypage.fold') : t('mypage.open')}</span>
                 </button>
                 <p className="mt-2 text-xs font-bold leading-6 text-[#64748B]">
-                  등록한 자전거·킥보드 기기와 외부 업체 API 연동의 동기화 상태·배터리·대여 현황을 모니터링합니다.
+                  {t('mypage.devicesDesc')}
                 </p>
                 {devicePanelOpen ? (
                   <div className="mt-3">
@@ -661,7 +667,7 @@ export default function MyPage({
                 onClick={() => setInnerTab(item.id)}
                 className={`rounded-[18px] px-1.5 py-2.5 text-[11px] font-black leading-4 ${active ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
               >
-                {item.label}
+                {t(item.labelKey)}
               </button>
             )
           })}
@@ -686,12 +692,12 @@ export default function MyPage({
             <div className="fixed inset-0 z-[120] flex items-end justify-center bg-[#1e1033]/45 p-0 sm:items-center sm:p-4" onClick={() => setWalletSheet(false)}>
               <section className="w-full max-w-md rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
                 <p className="text-xs font-black text-[#4C1FB8]">PI WALLET</p>
-                <h3 className="mt-1 text-xl font-black text-[#0F172A]">Pi 월렛 관리</h3>
+                <h3 className="mt-1 text-xl font-black text-[#0F172A]">{t('mypage.walletTitle')}</h3>
                 <p className="mt-3 text-sm font-bold leading-6 text-[#64748B]">
-                  {linked ? `@${username} 지갑이 연동되어 있습니다. 충전·출금은 이 화면에서 확인할 수 있어요.` : 'Pi 계정을 연동하면 잔액 충전과 출금을 사용할 수 있어요.'}
+                  {linked ? t('mypage.walletLinkedDesc', { username }) : t('mypage.walletUnlinkedDesc')}
                 </p>
                 <div className="mt-4 rounded-2xl bg-[#F8F5FF] p-4">
-                  <p className="text-[11px] font-black text-[#64748B]">사용 가능 잔액</p>
+                  <p className="text-[11px] font-black text-[#64748B]">{t('mypage.balance')}</p>
                   <p className="mt-1 text-2xl font-black text-[#4C1FB8]">{piBalance.toFixed(7)} Pi</p>
                 </div>
                 <button
@@ -699,15 +705,15 @@ export default function MyPage({
                   onClick={() => {
                     writeFlag(PI_ACCOUNT_KEY, true)
                     setLocalPi(true)
-                    notify(linked ? 'Pi 월렛 상세를 열었어요.' : 'Pi 계정 연동이 완료되었습니다.')
+                    notify(t(linked ? 'mypage.toastWalletOpen' : 'mypage.toastPiLinked'))
                     setWalletSheet(false)
                   }}
                   className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white"
                 >
-                  {linked ? '확인' : 'Pi 계정 연동하기'}
+                  {linked ? t('common.ok') : t('mypage.linkPi')}
                 </button>
                 <button type="button" onClick={() => setWalletSheet(false)} className="mt-2 w-full py-2 text-sm font-black text-[#64748B]">
-                  닫기
+                  {t('common.close')}
                 </button>
               </section>
             </div>,
@@ -719,14 +725,14 @@ export default function MyPage({
             <div className="fixed inset-0 z-[120] flex items-end justify-center bg-[#1e1033]/45 p-0 sm:items-center sm:p-4" onClick={() => setProfileSheet(false)}>
               <section className="w-full max-w-md rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
                 <p className="text-xs font-black text-[#4C1FB8]">PROFILE</p>
-                <h3 className="mt-1 text-xl font-black text-[#0F172A]">프로필 · 계정 설정</h3>
+                <h3 className="mt-1 text-xl font-black text-[#0F172A]">{t('mypage.profileTitle')}</h3>
                 <div className="mt-4 flex items-center gap-3 rounded-2xl bg-[#F8FAFC] p-4">
                   <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F3E8FF] text-[#4C1FB8]">
                     <CircleUserRound className="h-7 w-7" />
                   </span>
                   <div>
                     <p className="font-black text-[#0F172A]">{username}</p>
-                    <p className="text-xs font-bold text-[#64748B]">{linked ? 'Pi Pioneer · 연동됨' : 'Pi Pioneer · 미연동'}</p>
+                    <p className="text-xs font-bold text-[#64748B]">{linked ? t('mypage.pioneerLinked') : t('mypage.pioneerUnlinked')}</p>
                   </div>
                 </div>
                 <button
@@ -737,7 +743,7 @@ export default function MyPage({
                   }}
                   className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white"
                 >
-                  지갑 관리 열기
+                  {t('mypage.openWallet')}
                 </button>
                 {partnerProfile ? (
                   <button
@@ -748,11 +754,11 @@ export default function MyPage({
                     }}
                     className="mt-2 w-full rounded-2xl border-2 border-[#4C1FB8] py-3.5 text-sm font-black text-[#4C1FB8]"
                   >
-                    파트너 정보 수정
+                    {t('mypage.partnerEdit')}
                   </button>
                 ) : null}
                 <button type="button" onClick={() => setProfileSheet(false)} className="mt-2 w-full py-2 text-sm font-black text-[#64748B]">
-                  닫기
+                  {t('common.close')}
                 </button>
               </section>
             </div>,

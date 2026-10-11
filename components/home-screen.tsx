@@ -3,7 +3,7 @@
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
-import { translateService, type MessageKey } from '@/lib/i18n'
+import { localizedText, translateService, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
@@ -3252,7 +3252,7 @@ function ServiceSheet({
   onActivity?: (label: string, detail: string) => void
   onRideSettled?: (rideId: string, receipt: SettlementReceipt) => void
 }) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const IS_TEST_MODE = true
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
   const [courier, setCourier] = useState<{ name: string; vehicle: string; plate: string } | null>(null)
@@ -3311,6 +3311,7 @@ function ServiceSheet({
   )
   const paymentPolicy = getPaymentPolicy(service)
   const ride = service === '대리운전'
+  const serviceLabel = translateService(locale, service)
   const vehicle = service === '자전거' || service === '킥보드'
   // 서비스명 → 정산 수수료 서비스 키 (lib/service-settlement 의 SERVICE_KEYS)
   const settleServiceKey =
@@ -3690,13 +3691,13 @@ function ServiceSheet({
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-black text-[#4C1FB8]">
-              {phase === 'matching' ? (selfServe ? 'READY' : 'CALLING') : phase === 'assigned' ? (ride ? (rideStage === 'moving' ? '운행 중' : '배차 완료') : selfServe ? '이용 중' : '배정 완료') : 'TAXITAGO SERVICE'}
+              {phase === 'matching' ? (selfServe ? 'READY' : 'CALLING') : phase === 'assigned' ? (ride ? (rideStage === 'moving' ? t('sheet.phase.trip') : t('sheet.phase.matched')) : selfServe ? t('sheet.phase.using') : t('sheet.phase.assigned')) : 'TAXITAGO SERVICE'}
             </p>
             <h2 className="mt-1 text-2xl font-black">
-              {ride && phase === 'assigned' ? (rideStage === 'moving' ? '목적지 이동 중' : '기사 이동 중') : `${service} ${phase === 'matching' ? (selfServe ? '준비 중' : '호출 중') : phase === 'assigned' ? '이용 중' : '이용하기'}`}
+              {ride && phase === 'assigned' ? (rideStage === 'moving' ? t('sheet.phase.movingDest') : t('sheet.phase.movingDriver')) : `${serviceLabel} ${phase === 'matching' ? (selfServe ? t('sheet.phase.ready') : t('sheet.phase.calling')) : phase === 'assigned' ? t('sheet.phase.using') : t('sheet.phase.use')}`}
             </h2>
           </div>
-          <button onClick={() => { releaseRental(); onClose() }} className="rounded-full bg-[#f4f1f8] p-2 text-[#5f566d]" aria-label="닫기">
+          <button onClick={() => { releaseRental(); onClose() }} className="rounded-full bg-[#f4f1f8] p-2 text-[#5f566d]" aria-label={t('sheet.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -3708,9 +3709,9 @@ function ServiceSheet({
                 {selfServe ? <MapPin className="h-7 w-7" /> : <Car className="h-7 w-7" />}
               </span>
             </div>
-            <h3 className="mt-5 text-xl font-black">{selfServe ? '이용을 준비하고 있어요' : '기사님 매칭 대기 중'}</h3>
+            <h3 className="mt-5 text-xl font-black">{selfServe ? t('sheet.preparing') : t('sheet.matching')}</h3>
             <p className="mt-2 text-sm font-bold text-[#8b8495]">
-              {ride ? place : selfServe ? `${service} 정보를 확인하고 있습니다.` : `${service} 담당자를 찾고 있어요.`}
+              {ride ? place : selfServe ? t('sheet.checking', { service: serviceLabel }) : t('sheet.finding', { service: serviceLabel })}
             </p>
             {ride ? (
               <TaxiLiveMap
@@ -3729,7 +3730,7 @@ function ServiceSheet({
               />
             ) : null}
             {ride && dispatchRide?.pendingOffer ? (
-              <p className="mt-3 text-sm font-bold text-[#4C1FB8]">{dispatchRide.pendingOffer.driverName} 기사님에게 콜을 요청했어요.</p>
+              <p className="mt-3 text-sm font-bold text-[#4C1FB8]">{t('sheet.offerSent', { name: dispatchRide.pendingOffer.driverName })}</p>
             ) : null}
             {daeriMatchError ? <p className="mt-2 text-xs font-bold text-[#B91C1C]">{daeriMatchError}</p> : null}
             <div className="relative z-30 mt-3 space-y-3 pointer-events-auto">
@@ -3762,7 +3763,7 @@ function ServiceSheet({
                 }}
                 className="w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
               >
-                {ride ? (daeriAccepting ? '수락 중…' : '이 기기에서 기사 콜 수락') : selfServe ? '이용 시작' : '배정 확인'}
+                {ride ? (daeriAccepting ? t('sheet.accepting') : t('sheet.acceptHere')) : selfServe ? t('sheet.start') : t('sheet.confirm')}
               </button>
             ) : null}
             {ride && daeriMatchError ? (
@@ -3794,7 +3795,7 @@ function ServiceSheet({
               }}
               className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]"
             >
-              {selfServe ? '이용 취소' : '호출 취소'}
+              {selfServe ? t('sheet.cancelUse') : t('sheet.cancelCall')}
             </button>
             </div>
           </div>
@@ -3802,24 +3803,24 @@ function ServiceSheet({
         {!more && phase === 'assigned' && selfServe && (
           <div className="mt-5 space-y-3">
             <div className="rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
-              <p className="text-xs font-black text-[#4C1FB8]">{service} 이용 정보</p>
+              <p className="text-xs font-black text-[#4C1FB8]">{t('sheet.usageInfo', { service: serviceLabel })}</p>
               <p className="mt-2 text-lg font-black text-[#0F172A]">{selectedUsage?.name}</p>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">{service === '주차' || service === 'EV 충전' ? '위치' : '거리'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{service === '주차' || service === 'EV 충전' ? t('sheet.loc') : t('sheet.dist')}</p>
                   <p className="mt-1 text-sm font-black text-[#0F172A]">{selectedUsage?.distance}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">{service === '주차' ? '잔여 자리' : service === 'EV 충전' ? '잔여 전력' : '대여 상태'}</p>
-                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{service === '자전거' || service === '킥보드' ? '대여 중' : selectedUsage?.extra}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{service === '주차' ? t('sheet.spots') : service === 'EV 충전' ? t('sheet.power') : t('sheet.rentStatus')}</p>
+                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{service === '자전거' || service === '킥보드' ? t('sheet.renting') : selectedUsage?.extra}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">{service === 'EV 충전' ? '충전 요금' : '이용 요금'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{service === 'EV 충전' ? t('sheet.chargeFee') : t('sheet.useFee')}</p>
                   <p className="mt-1 text-sm font-black text-[#0F172A]">{selectedUsage?.rate}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">{service === '자전거' || service === '킥보드' ? '배터리' : '진행 상태'}</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{service === '자전거' || service === '킥보드' ? selectedUsage?.extra : service === 'EV 충전' ? '충전 중' : '주차 이용 중'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{service === '자전거' || service === '킥보드' ? t('device.battery') : t('sheet.progress')}</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{service === '자전거' || service === '킥보드' ? selectedUsage?.extra : service === 'EV 충전' ? t('sheet.charging') : t('sheet.parking')}</p>
                 </div>
               </div>
             </div>
@@ -5329,11 +5330,12 @@ function Home({
 }
 
 function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideReceipt; onClose: () => void; onNotice: (message: string) => void; onLostItem?: (prefill: LostPrefill) => void }) {
+  const { t } = useLocale()
   const shareReceipt = async () => {
-    const title = '택시타고 영수증'
-    const text = `택시타고 영수증 ${ride.transactionId}\n${[ride.origin, ...(ride.waypoints ?? []), ride.dest].join(' → ')}\n결제 ${ride.fare} · ${ride.method}\n${ride.driver} 기사님 · ${ride.car} ${ride.plate}\n${ride.date}`
+    const title = t('receipt.shareTitle')
+    const text = `${t('receipt.shareTitle')} ${ride.transactionId}\n${[ride.origin, ...(ride.waypoints ?? []), ride.dest].join(' → ')}\n${t('receipt.paidLabel')} ${ride.fare} · ${ride.method}\n${t('receipt.driverName', { name: ride.driver })} · ${ride.car} ${ride.plate}\n${ride.date}`
     const url = typeof window !== 'undefined' ? window.location.href : ''
-    const copiedMessage = '링크가 클립보드에 복사되었습니다'
+    const copiedMessage = t('receipt.copied')
 
     const isAbort = (error: unknown) =>
       (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError'
@@ -5394,26 +5396,26 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-black text-[#4C1FB8]">이용 기록 · 상세 영수증</p>
-            <h2 className="mt-1 text-2xl font-black text-[#0F172A]">결제 영수증</h2>
+            <p className="text-xs font-black text-[#4C1FB8]">{t('receipt.caption')}</p>
+            <h2 className="mt-1 text-2xl font-black text-[#0F172A]">{t('receipt.title')}</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="내역 닫기">
+          <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label={t('receipt.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
         <div className="mt-4 rounded-[26px] bg-[#4C1FB8] p-5 text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)]">
-          <p className="text-xs font-bold text-white/75">실제 이용 요금</p>
+          <p className="text-xs font-bold text-white/75">{t('receipt.actualFare')}</p>
           <p className="mt-1 text-3xl font-black">{ride.fare}</p>
           {ride.estimatedFare && ride.estimatedFare !== ride.fare ? (
-            <p className="mt-2 text-xs font-bold leading-5 text-white/85">실시간 주행 거리/시간에 따라 최종 요금이 산정되었습니다 · 예상 {ride.estimatedFare}</p>
+            <p className="mt-2 text-xs font-bold leading-5 text-white/85">{t('receipt.fareNote', { fare: ride.estimatedFare })}</p>
           ) : null}
           {ride.trafficSurcharge ? (
-            <p className="mt-1 text-[11px] font-bold text-[#FDE68A]">정체 지연 추가 요금 {ride.trafficSurcharge}</p>
+            <p className="mt-1 text-[11px] font-bold text-[#FDE68A]">{t('receipt.surcharge', { amount: ride.trafficSurcharge })}</p>
           ) : null}
-          <p className="mt-2 text-xs font-black text-[#E8DCFF]">결제 수단 · {ride.method}</p>
+          <p className="mt-2 text-xs font-black text-[#E8DCFF]">{t('receipt.method', { method: ride.method === 'Pi 월렛' ? t('receipt.methodPi') : ride.method })}</p>
         </div>
         <div className="mt-4 min-w-0 overflow-hidden rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
-          <p className="text-xs font-black text-[#4C1FB8]">이동 경로</p>
+          <p className="text-xs font-black text-[#4C1FB8]">{t('receipt.route')}</p>
           <div className="mt-3 flex min-w-0 items-start gap-3">
             <div className="flex shrink-0 flex-col items-center pt-1">
               <span className="h-2.5 w-2.5 rounded-full bg-[#4C1FB8]" />
@@ -5427,21 +5429,21 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
               <span className="h-2.5 w-2.5 rounded-full bg-[#0F172A]" />
             </div>
             <div className="min-w-0 flex-1 overflow-hidden">
-              <p className="text-[11px] font-bold text-[#8b8495]">출발지</p>
+              <p className="text-[11px] font-bold text-[#8b8495]">{t('receipt.origin')}</p>
               <p className="mt-0.5 break-all font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere] line-clamp-3" title={ride.origin}>
                 {ride.origin}
               </p>
               {(ride.waypoints ?? []).map((waypoint, index) => (
                 <Fragment key={index}>
                   <p className="mt-3 text-[11px] font-bold text-[#8b8495]">
-                    {(ride.waypoints?.length ?? 0) > 1 ? `경유지 ${index + 1}` : '경유지'}
+                    {(ride.waypoints?.length ?? 0) > 1 ? t('receipt.waypointN', { n: String(index + 1) }) : t('receipt.waypoint')}
                   </p>
                   <p className="mt-0.5 break-all font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere] line-clamp-3" title={waypoint}>
                     {waypoint}
                   </p>
                 </Fragment>
               ))}
-              <p className="mt-3 text-[11px] font-bold text-[#8b8495]">도착지</p>
+              <p className="mt-3 text-[11px] font-bold text-[#8b8495]">{t('receipt.dest')}</p>
               <p className="mt-0.5 break-all font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere] line-clamp-3" title={ride.dest}>
                 {ride.dest}
               </p>
@@ -5450,40 +5452,40 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <div className="rounded-2xl border border-[#E0D4FF] bg-white px-4 py-3">
-            <p className="text-[10px] font-bold text-[#8b8495]">이동 거리</p>
+            <p className="text-[10px] font-bold text-[#8b8495]">{t('receipt.distance')}</p>
             <p className="mt-1 text-sm font-black text-[#0F172A]">{ride.distance}</p>
           </div>
           <div className="rounded-2xl border border-[#E0D4FF] bg-white px-4 py-3">
-            <p className="text-[10px] font-bold text-[#8b8495]">소요 시간</p>
+            <p className="text-[10px] font-bold text-[#8b8495]">{t('receipt.duration')}</p>
             <p className="mt-1 text-sm font-black text-[#0F172A]">{ride.duration}</p>
           </div>
         </div>
         <div className="mt-3 flex items-center gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] font-black text-white">{ride.driver.slice(0, 1)}</div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold text-[#8b8495]">담당 기사님</p>
-            <p className="font-black text-[#0F172A]">{ride.driver === '-' ? '해당 없음' : `${ride.driver} 기사님`}</p>
+            <p className="text-[10px] font-bold text-[#8b8495]">{t('receipt.driver')}</p>
+            <p className="font-black text-[#0F172A]">{ride.driver === '-' ? t('receipt.none') : t('receipt.driverName', { name: ride.driver })}</p>
             <p className="mt-1 text-xs font-bold text-[#475569]">{ride.vehicle} · {ride.car} · {ride.plate}</p>
           </div>
         </div>
         <dl className="mt-3 divide-y divide-[#EDE5FF] rounded-[22px] border border-[#E0D4FF] bg-white px-4">
           <div className="flex justify-between gap-3 py-3 text-sm">
-            <dt className="shrink-0 font-bold text-[#64748B]">영수증 번호</dt>
+            <dt className="shrink-0 font-bold text-[#64748B]">{t('receipt.txid')}</dt>
             <dd className="min-w-0 break-all text-right font-mono text-xs font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere]">{ride.transactionId}</dd>
           </div>
           <div className="flex justify-between gap-3 py-3 text-sm">
-            <dt className="font-bold text-[#64748B]">발행 일시</dt>
+            <dt className="font-bold text-[#64748B]">{t('receipt.issued')}</dt>
             <dd className="font-black text-[#0F172A]">{ride.date}</dd>
           </div>
           <div className="flex justify-between gap-3 py-3 text-sm">
-            <dt className="font-bold text-[#64748B]">결제 상태</dt>
-            <dd className="font-black text-[#2d9a5e]">정상 결제 완료</dd>
+            <dt className="font-bold text-[#64748B]">{t('receipt.payStatus')}</dt>
+            <dd className="font-black text-[#2d9a5e]">{t('receipt.paid')}</dd>
           </div>
         </dl>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button type="button" onClick={shareReceipt} className="inline-flex items-center justify-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-white py-3.5 text-sm font-black text-[#4C1FB8]">
             <Share2 className="h-4 w-4" />
-            공유하기
+            {t('receipt.share')}
           </button>
           <button
             type="button"
@@ -5499,33 +5501,40 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
             }}
             className="rounded-2xl border-2 border-[#4C1FB8] bg-white py-3.5 text-sm font-black text-[#4C1FB8]"
           >
-            분실물 접수
+            {t('receipt.lost')}
           </button>
         </div>
         <button type="button" onClick={onClose} className="mt-2 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)]">
-          내역 닫기
+          {t('receipt.close')}
         </button>
       </section>
     </div>
   )
 }
 
+const NOTICE_KIND_KEYS: Record<Notice['kind'], MessageKey> = {
+  공지: 'notice.kind.notice',
+  이벤트: 'notice.kind.event',
+  업데이트: 'notice.kind.update',
+}
+
 function InboxDetailModal({ item, onClose }: { item: Notice; onClose: () => void }) {
+  const { t, locale } = useLocale()
   return (
     <div className="fixed inset-0 z-[92] flex items-end bg-[#1e293b]/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <section className="mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs font-black text-[#4C1FB8]">{item.kind} · {item.date}</p>
-            <h2 className="mt-2 text-xl font-black text-[#0F172A]">{item.title}</h2>
+            <p className="text-xs font-black text-[#4C1FB8]">{t(NOTICE_KIND_KEYS[item.kind] ?? 'notice.kind.notice')} · {item.date}</p>
+            <h2 className="mt-2 text-xl font-black text-[#0F172A]">{localizedText(item.title, locale)}</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="닫기">
+          <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
-        <p className="mt-4 text-sm font-bold leading-6 text-[#475569]">{item.body}</p>
+        <p className="mt-4 text-sm font-bold leading-6 text-[#475569]">{localizedText(item.body, locale)}</p>
         <button type="button" onClick={onClose} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
-          확인
+          {t('common.ok')}
         </button>
       </section>
     </div>
@@ -5548,13 +5557,13 @@ const INBOX_TYPE_FILTERS: { id: InboxTypeFilter; labelKey: MessageKey }[] = [
   { id: 'activity', labelKey: 'inbox.typeActivity' },
 ]
 
-const INBOX_RIDE_STATUS: Record<string, string> = {
-  searching: '호출 중',
-  offered: '배차 제안',
-  assigned: '운행 중',
-  unmatched: '배차 실패',
-  cancelled: '취소됨',
-  completed: '이용 완료',
+const INBOX_RIDE_STATUS: Record<string, MessageKey> = {
+  searching: 'inbox.status.searching',
+  offered: 'inbox.status.offered',
+  assigned: 'inbox.status.assigned',
+  unmatched: 'inbox.status.unmatched',
+  cancelled: 'inbox.status.cancelled',
+  completed: 'inbox.status.completed',
 }
 
 function receiptFromRideHistory(ride: PublicRide): RideReceipt {
@@ -5601,7 +5610,7 @@ function ActivityInbox({
   activities: ActivityEntry[]
   transactions: PiTransaction[]
 }) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const [view, setView] = useState<'rides' | 'inbox'>('rides')
   const [timeFilter, setTimeFilter] = useState<InboxTimeFilter>('all')
   const [typeFilter, setTypeFilter] = useState<InboxTypeFilter>('all')
@@ -5683,22 +5692,22 @@ function ActivityInbox({
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 pb-8 [-webkit-overflow-scrolling:touch]">
-      <h2 className="pt-3 text-2xl font-black">이용/알림</h2>
-      <p className="mt-1 text-sm font-bold text-[#64748B]">이용 내역과 공지사항을 전환해 확인하세요.</p>
+      <h2 className="pt-3 text-2xl font-black">{t('inbox.title')}</h2>
+      <p className="mt-1 text-sm font-bold text-[#64748B]">{t('inbox.subtitle')}</p>
       <div className="mt-4 grid grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
         <button
           type="button"
           onClick={() => setView('rides')}
           className={`rounded-xl py-2.5 text-xs font-black ${view === 'rides' ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
         >
-          이용 내역
+          {t('inbox.tabHistory')}
         </button>
         <button
           type="button"
           onClick={() => setView('inbox')}
           className={`rounded-xl py-2.5 text-xs font-black ${view === 'inbox' ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
         >
-          알림/공지{unreadCount > 0 ? ` ${unreadCount}` : ''}
+          {t('inbox.tabNotice')}{unreadCount > 0 ? ` ${unreadCount}` : ''}
         </button>
       </div>
       {view === 'rides' ? (
@@ -5719,14 +5728,16 @@ function ActivityInbox({
           </div>
           {filteredHistory.map((ride) => {
             const receipt = receiptFromRideHistory(ride)
-            const statusLabel = INBOX_RIDE_STATUS[ride.status] ?? ride.status
+            const statusLabel = INBOX_RIDE_STATUS[ride.status] ? t(INBOX_RIDE_STATUS[ride.status]) : ride.status
+            const vehicleLabel = receipt.vehicle === '대리' ? t('service.daeriShort') : receipt.vehicle === '택시' ? t('service.taxi') : receipt.vehicle
+            const driverLabel = receipt.driver === '기사 배정 전' ? t('inbox.driverPending') : t('inbox.driverSuffix', { name: receipt.driver })
             return (
               <button key={ride.id} type="button" onClick={() => tabRides(receipt)} className="mt-3 w-full rounded-3xl border-2 border-[#CBD5E1] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.1)] transition hover:border-[#4C1FB8] active:scale-[0.99]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1 overflow-hidden pr-1">
                     <p className="break-all font-black leading-5 text-[#1E293B] [overflow-wrap:anywhere] line-clamp-2">{receipt.route}</p>
                     <p className="mt-2 truncate text-xs font-bold text-[#64748B]">
-                      {receipt.vehicle} · {receipt.date}
+                      {vehicleLabel} · {receipt.date}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
@@ -5735,8 +5746,8 @@ function ActivityInbox({
                   </div>
                 </div>
                 <div className="mt-3 flex items-center justify-between border-t border-[#E2E8F0] pt-3 text-xs font-bold text-[#8b8495]">
-                  <span>{receipt.driver !== '기사 배정 전' ? `${receipt.driver} 기사` : receipt.driver}</span>
-                  <span className="text-[#7046dc]">영수증 보기 ›</span>
+                  <span>{driverLabel}</span>
+                  <span className="text-[#7046dc]">{t('inbox.viewReceipt')}</span>
                 </div>
               </button>
             )
@@ -5761,7 +5772,7 @@ function ActivityInbox({
           ) : null}
           {historyReady && !filteredHistory.length && !filteredEntries.length ? (
             <p className="mt-3 rounded-3xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
-              {!history.length && !localEntries.length ? '아직 이용 내역이 없습니다.' : t('inbox.emptyFiltered')}
+              {!history.length && !localEntries.length ? t('inbox.empty') : t('inbox.emptyFiltered')}
             </p>
           ) : null}
         </>
@@ -5776,7 +5787,7 @@ function ActivityInbox({
               <p className="mt-2 text-xs font-bold leading-5 text-[#64748B]">{entry.detail}</p>
             </div>
           ))}
-          {activities.length ? <p className="pt-1 text-xs font-black text-[#4C1FB8]">공지</p> : null}
+          {activities.length ? <p className="pt-1 text-xs font-black text-[#4C1FB8]">{t('inbox.noticeSection')}</p> : null}
           {notices.map((item) => {
             const unread = !readNoticeIds.includes(item.id)
             return (
@@ -5787,15 +5798,15 @@ function ActivityInbox({
                 className={`w-full rounded-[24px] border-2 p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.08)] transition active:scale-[0.99] ${unread ? 'border-[#4C1FB8] bg-[#F8F5FF]' : 'border-[#CBD5E1] bg-white'}`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-black ${kindClass(item.kind)}`}>{item.kind}</span>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-black ${kindClass(item.kind)}`}>{t(NOTICE_KIND_KEYS[item.kind] ?? 'notice.kind.notice')}</span>
                   <span className="text-[11px] font-bold text-[#8b8495]">{item.date}</span>
                 </div>
                 <div className="mt-2 flex items-start justify-between gap-2">
-                  <h3 className="text-sm font-black text-[#0F172A]">{item.title}</h3>
+                  <h3 className="text-sm font-black text-[#0F172A]">{localizedText(item.title, locale)}</h3>
                   {unread ? <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#4C1FB8]" /> : null}
                 </div>
-                <p className="mt-2 text-xs font-bold leading-5 text-[#64748B]">{item.summary}</p>
-                <p className="mt-3 text-xs font-black text-[#4C1FB8]">자세히 보기 ›</p>
+                <p className="mt-2 text-xs font-bold leading-5 text-[#64748B]">{localizedText(item.summary, locale)}</p>
+                <p className="mt-3 text-xs font-black text-[#4C1FB8]">{t('inbox.viewDetail')}</p>
               </button>
             )
           })}
