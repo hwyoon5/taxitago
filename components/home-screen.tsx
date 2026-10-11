@@ -5544,17 +5544,12 @@ function InboxDetailModal({ item, onClose }: { item: Notice; onClose: () => void
 type InboxTimeFilter = 'all' | 'today' | 'week' | 'month'
 type InboxTypeFilter = 'all' | 'ride' | 'payment' | 'activity'
 
-const INBOX_TIME_FILTERS: { id: InboxTimeFilter; labelKey: MessageKey }[] = [
-  { id: 'all', labelKey: 'inbox.filterAll' },
-  { id: 'today', labelKey: 'inbox.today' },
-  { id: 'week', labelKey: 'inbox.week' },
-  { id: 'month', labelKey: 'inbox.month' },
-]
-const INBOX_TYPE_FILTERS: { id: InboxTypeFilter; labelKey: MessageKey }[] = [
-  { id: 'all', labelKey: 'inbox.filterAll' },
-  { id: 'ride', labelKey: 'inbox.typeRide' },
-  { id: 'payment', labelKey: 'inbox.typePay' },
-  { id: 'activity', labelKey: 'inbox.typeActivity' },
+const INBOX_QUICK_FILTERS: { id: string; labelKey: MessageKey; time: InboxTimeFilter; type: InboxTypeFilter }[] = [
+  { id: 'all', labelKey: 'inbox.filterAll', time: 'all', type: 'all' },
+  { id: 'today', labelKey: 'inbox.today', time: 'today', type: 'all' },
+  { id: 'week', labelKey: 'inbox.week', time: 'week', type: 'all' },
+  { id: 'taxi', labelKey: 'service.taxi', time: 'all', type: 'ride' },
+  { id: 'charge', labelKey: 'wallet.charge', time: 'all', type: 'payment' },
 ]
 
 const INBOX_RIDE_STATUS: Record<string, MessageKey> = {
@@ -5713,18 +5708,23 @@ function ActivityInbox({
       {view === 'rides' ? (
         <>
           <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {INBOX_TIME_FILTERS.map((filter) => (
-              <button key={filter.id} type="button" onClick={() => setTimeFilter(filter.id)} aria-pressed={timeFilter === filter.id} className={filterChip(timeFilter === filter.id)}>
-                {t(filter.labelKey)}
-              </button>
-            ))}
-          </div>
-          <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {INBOX_TYPE_FILTERS.map((filter) => (
-              <button key={filter.id} type="button" onClick={() => setTypeFilter(filter.id)} aria-pressed={typeFilter === filter.id} className={filterChip(typeFilter === filter.id)}>
-                {t(filter.labelKey)}
-              </button>
-            ))}
+            {INBOX_QUICK_FILTERS.map((filter) => {
+              const active = timeFilter === filter.time && typeFilter === filter.type
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  onClick={() => {
+                    setTimeFilter(filter.time)
+                    setTypeFilter(filter.type)
+                  }}
+                  aria-pressed={active}
+                  className={filterChip(active)}
+                >
+                  {t(filter.labelKey)}
+                </button>
+              )
+            })}
           </div>
           {filteredHistory.map((ride) => {
             const receipt = receiptFromRideHistory(ride)
