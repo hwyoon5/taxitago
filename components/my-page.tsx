@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { BadgeCheck, Briefcase, Car, CircleUserRound, Copy, Gift, MonitorSmartphone, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
+import { BadgeCheck, Briefcase, Car, ChevronRight, CircleUserRound, Copy, Gift, MonitorSmartphone, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
 import PartnerStatSheet from '@/components/partner-stat-sheet'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
@@ -182,6 +182,22 @@ export default function MyPage({
   const rolesReady = mounted || isDriverRegistered !== undefined || isPartnerRegistered !== undefined
   const dualRole = driverOk && partnerOk
   const partnerView = partnerOk && (!driverOk || centerRole === 'partner')
+  // 현재 역할 — 파트너 권한이 활성화된 유저는 승객/기사보다 파트너 모드를 우선 표시한다.
+  const roleLabel = !rolesReady ? '확인 중…' : partnerView ? '파트너 모드' : modeOn ? '기사 모드' : '승객 모드'
+
+  /** 역할 표시 클릭 — 파트너는 파트너 대시보드로, 기사는 모드 전환, 무권한은 센터 탭으로 이동한다. */
+  const openRoleMode = () => {
+    if (partnerOk) {
+      setCenterRole('partner')
+      setInnerTab('center')
+      return
+    }
+    if (driverOk) {
+      toggleMode()
+      return
+    }
+    setInnerTab('center')
+  }
 
   const registerDriver = () => {
     if (onOpenDriverSignup) {
@@ -353,27 +369,38 @@ export default function MyPage({
         <div className="mt-4">
           {innerTab === 'profile' ? (
             <div className="space-y-3">
-              <button type="button" onClick={openProfile} className="w-full rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4 text-left">
-                <div className="flex items-center gap-3">
+              <article className="w-full rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4 text-left">
+                <button type="button" onClick={openProfile} className="flex w-full items-center gap-3 text-left">
                   <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F3E8FF] text-[#4C1FB8]">
                     <CircleUserRound className="h-7 w-7" />
                   </span>
-                  <div className="min-w-0">
-                    <p className="text-base font-black text-[#0F172A]">{username}</p>
-                    <p className="mt-0.5 text-xs font-bold leading-5 text-[#64748B]">파이 모빌리티 · Pioneer 회원 · 탭하여 설정</p>
-                  </div>
-                </div>
+                  <span className="min-w-0">
+                    <span className="block text-base font-black text-[#0F172A]">{username}</span>
+                    <span className="mt-0.5 block text-xs font-bold leading-5 text-[#64748B]">파이 모빌리티 · Pioneer 회원 · 탭하여 설정</span>
+                  </span>
+                </button>
                 <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-2xl bg-[#F8FAFC] p-3">
-                    <dt className="text-[10px] font-black text-[#94A3B8]">현재 역할</dt>
-                    <dd className="mt-1 font-black text-[#0F172A]">{modeOn ? '기사 모드' : '승객 모드'}</dd>
-                  </div>
-                  <div className="rounded-2xl bg-[#F8FAFC] p-3">
-                    <dt className="text-[10px] font-black text-[#94A3B8]">Pi 연동</dt>
-                    <dd className="mt-1 font-black text-[#0F172A]">{linked ? '연동됨' : '미연동'}</dd>
-                  </div>
+                  <dt className="sr-only">현재 역할</dt>
+                  <dd className="m-0">
+                    <button
+                      type="button"
+                      onClick={openRoleMode}
+                      className="w-full rounded-2xl bg-[#F8FAFC] p-3 text-left transition hover:bg-[#E8F1FA]"
+                    >
+                      <span className="block text-[10px] font-black text-[#94A3B8]">현재 역할</span>
+                      <span className="mt-1 flex items-center justify-between font-black text-[#0F172A]">
+                        {roleLabel}
+                        {partnerOk ? <ChevronRight className="h-3.5 w-3.5 text-[#4A82B8]" /> : null}
+                      </span>
+                    </button>
+                  </dd>
+                  <dt className="sr-only">Pi 연동</dt>
+                  <dd className="m-0 rounded-2xl bg-[#F8FAFC] p-3">
+                    <span className="block text-[10px] font-black text-[#94A3B8]">Pi 연동</span>
+                    <span className="mt-1 block font-black text-[#0F172A]">{linked ? '연동됨' : '미연동'}</span>
+                  </dd>
                 </dl>
-              </button>
+              </article>
               <p className="whitespace-normal break-keep px-1 text-xs font-bold leading-6 text-[#64748B]">
                 승객은 기본 권한입니다. 기사·파트너 권한은 하단 [기사·파트너 센터] 탭에서 등록하면 배지에 바로 반영됩니다.
               </p>
