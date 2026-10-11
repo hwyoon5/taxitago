@@ -3,12 +3,13 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { BadgeCheck, Briefcase, Car, CircleUserRound, Copy, Gift, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
+import { BadgeCheck, Briefcase, Car, CircleUserRound, Copy, Gift, MonitorSmartphone, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
 import PartnerStatSheet from '@/components/partner-stat-sheet'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
+import { PartnerDevicePanel } from '@/components/partner-device-panel'
 import { copyInviteCode, getOrCreateInviteCode, inviteShareLink } from '@/lib/invite-code'
-import { loadPartnerProfile, type PartnerProfile } from '@/lib/partner-account'
+import { loadPartnerProfile, loadPiIdentity, type PartnerProfile } from '@/lib/partner-account'
 
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
@@ -125,6 +126,8 @@ export default function MyPage({
   const [copied, setCopied] = useState(false)
   const [inviteLaunchOpen, setInviteLaunchOpen] = useState(false)
   const [partnerProfile, setPartnerProfile] = useState<PartnerProfile | null>(null)
+  const [piUid, setPiUid] = useState('')
+  const [devicePanelOpen, setDevicePanelOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [historyRows, setHistoryRows] = useState<HistoryEntry[]>([])
 
@@ -157,6 +160,7 @@ export default function MyPage({
     setLocalBalance(DEFAULT_BALANCE)
     setInviteCode(getOrCreateInviteCode(username))
     setPartnerProfile(loadPartnerProfile())
+    setPiUid(loadPiIdentity()?.uid?.trim() || '')
   }, [username])
 
   const notify = (message: string) => {
@@ -461,6 +465,28 @@ export default function MyPage({
                   >
                     파트너 정보 수정
                   </button>
+                ) : null}
+              </article>
+
+              <article className="rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4">
+                <button
+                  type="button"
+                  onClick={() => setDevicePanelOpen(!devicePanelOpen)}
+                  className="flex w-full items-center justify-between gap-2 text-left"
+                >
+                  <span className="flex items-center gap-2">
+                    <MonitorSmartphone className="h-5 w-5 text-[#4A82B8]" />
+                    <h3 className="font-black text-[#0F172A]">기기·외부 연동 관리</h3>
+                  </span>
+                  <span className="text-[11px] font-black text-[#4A82B8]">{devicePanelOpen ? '접기' : '열기'}</span>
+                </button>
+                <p className="mt-2 text-xs font-bold leading-6 text-[#64748B]">
+                  등록한 자전거·킥보드 기기와 외부 업체 API 연동의 동기화 상태·배터리·대여 현황을 모니터링합니다.
+                </p>
+                {devicePanelOpen ? (
+                  <div className="mt-3">
+                    <PartnerDevicePanel ownerUid={piUid} ownerName={username} onNotice={notify} />
+                  </div>
                 ) : null}
               </article>
             </div>

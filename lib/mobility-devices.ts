@@ -28,6 +28,8 @@ export type MobilityDevice = {
   ownerUid: string
   ownerName: string
   registeredAt: string
+  /** 서버가 마지막으로 상태를 갱신한 시각 — 파트너 모니터링용 */
+  lastSeen: string
 }
 
 export const MOBILITY_STATUS_LABEL: Record<MobilityDeviceStatus, string> = {
@@ -110,6 +112,7 @@ export function deviceFromTelemetry(row: DeviceTelemetry): MobilityDevice | null
     ownerUid: row.ownerUid || '',
     ownerName: row.ownerName || '',
     registeredAt: row.firstSeen || row.lastSeen,
+    lastSeen: row.lastSeen,
   }
 }
 
@@ -269,17 +272,21 @@ export type PartnerFeedInfo = {
   endpointUrl: string
   enabled: boolean
   hasApiKey: boolean
+  ownerUid: string
+  createdAt: string
   lastSyncAt: string
   lastSyncStatus: '' | 'ok' | 'error'
   lastError: string
   deviceCount: number
 }
 
-export async function fetchMyPartnerFeeds(ownerUid: string): Promise<PartnerFeedInfo[]> {
-  const uid = ownerUid.trim()
-  if (!uid) return []
+export async function fetchMyPartnerFeeds(ownerUid: string, adminKey?: string): Promise<PartnerFeedInfo[]> {
   try {
-    const res = await fetch(`/api/devices/feeds?uid=${encodeURIComponent(uid)}`, { cache: 'no-store' })
+    // 관리자 키가 있으면 전체 소스, 없으면 소유자 기준 목록을 조회한다.
+    const res = await fetch(adminKey ? '/api/devices/feeds' : `/api/devices/feeds?uid=${encodeURIComponent(ownerUid.trim())}`, {
+      cache: 'no-store',
+      headers: adminKey ? { 'x-admin-key': adminKey } : undefined,
+    })
     const data = (await res.json().catch(() => null)) as { feeds?: PartnerFeedInfo[] } | null
     return res.ok && Array.isArray(data?.feeds) ? data.feeds : []
   } catch {
@@ -307,12 +314,46 @@ export async function registerPartnerFeed(input: {
   }
 }
 
-export async function deletePartnerFeed(id: string, ownerUid: string): Promise<boolean> {
+export async function updatePartnerFeed(
+  id: string,
+  ownerUid: string,
+  patch: { name?: string; endpointUrl?: string; apiKey?: string; enabled?: boolean },
+  adminKey?: string,
+): Promise<{ ok: boolean; feed?: PartnerFeedInfo; error?: string }> {
+  try {
+    const res = await fetch('/api/devices/feeds', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...(adminKey ? { 'x-admin-key': adminKey } : {}) },
+      body: JSON.stringify({ id, ownerUid, ...patch }),
+    })
+    const data = (await res.json().catch(() => null)) as { feed?: PartnerFeedInfo; error?: string } | null
+    if (!res.ok || !data?.feed) return { ok: false, error: data?.error || '수정에 실패했습니다.' }
+    return { ok: true, feed: data.feed }
+  } catch {
+    return { ok: false, error: '네트워크 오류로 수정에 실패했습니다.' }
+  }
+}
+
+export async function deletePartnerFeed(id: string, ownerUid: string, adminKey?: string): Promise<boolean> {
   try {
     const res = await fetch('/api/devices/feeds', {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(adminKey ? { 'x-admin-key': adminKey } : {}) },
       body: JSON.stringify({ id, ownerUid }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** 파트너 본인 또는 관리자의 수동 동기화 트리거 — feedId 생략 시 전체(관리자만). */
+export async function syncPartnerFeed(feedId: string, ownerUid: string, adminKey?: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/devices/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(adminKey ? { 'x-admin-key': adminKey } : {}) },
+      body: JSON.stringify({ feedId: feedId || undefined, ownerUid: ownerUid || undefined }),
     })
     return res.ok
   } catch {

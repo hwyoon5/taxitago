@@ -3,19 +3,16 @@
 import { useEffect, useState } from 'react'
 import { Check, Link2, RefreshCw, Trash2, X } from 'lucide-react'
 import { searchPlacesFromApi } from '@/lib/geocode-client'
+import { PartnerFeedsPanel } from '@/components/partner-feeds-panel'
 import {
   deleteMobilityDevice,
-  deletePartnerFeed,
   fetchMyMobilityDevices,
-  fetchMyPartnerFeeds,
   MOBILITY_STATUS_LABEL,
   parseCoordInput,
   registerMobilityDevice,
-  registerPartnerFeed,
   updateMyMobilityDevice,
   type MobilityDevice,
   type MobilityDeviceKind,
-  type PartnerFeedInfo,
 } from '@/lib/mobility-devices'
 
 function statusClass(status: MobilityDevice['status']) {
@@ -56,13 +53,6 @@ export function MobilityDeviceFormModal({
   const [saved, setSaved] = useState<MobilityDevice | null>(null)
   const [devices, setDevices] = useState<MobilityDevice[]>([])
   const [loadingList, setLoadingList] = useState(false)
-  const [feeds, setFeeds] = useState<PartnerFeedInfo[]>([])
-  const [feedsOpen, setFeedsOpen] = useState(false)
-  const [feedName, setFeedName] = useState('')
-  const [feedUrl, setFeedUrl] = useState('')
-  const [feedKey, setFeedKey] = useState('')
-  const [feedSaving, setFeedSaving] = useState(false)
-  const [feedError, setFeedError] = useState('')
 
   const reload = () => {
     if (!uid) return
@@ -71,44 +61,7 @@ export function MobilityDeviceFormModal({
       .then(setDevices)
       .finally(() => setLoadingList(false))
   }
-  const reloadFeeds = () => {
-    if (uid) void fetchMyPartnerFeeds(uid).then(setFeeds)
-  }
-  useEffect(() => {
-    reload()
-    reloadFeeds()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uid])
-
-  const submitFeed = async () => {
-    if (!feedName.trim() || !feedUrl.trim()) {
-      setFeedError('업체 상호명과 API 엔드포인트 URL을 입력해 주세요.')
-      return
-    }
-    setFeedSaving(true)
-    setFeedError('')
-    const result = await registerPartnerFeed({
-      name: feedName,
-      endpointUrl: feedUrl,
-      apiKey: feedKey,
-      ownerUid: uid,
-    })
-    setFeedSaving(false)
-    if (!result.ok) {
-      setFeedError(result.error || '연동 등록에 실패했습니다.')
-      return
-    }
-    setFeedName('')
-    setFeedUrl('')
-    setFeedKey('')
-    reloadFeeds()
-  }
-
-  const removeFeed = async (feed: PartnerFeedInfo) => {
-    if (await deletePartnerFeed(feed.id, uid)) {
-      setFeeds((list) => list.filter((item) => item.id !== feed.id))
-    }
-  }
+  useEffect(reload, [uid])
 
   const beginEdit = (device: MobilityDevice) => {
     setEditingSerial(device.serial)
@@ -373,73 +326,16 @@ export function MobilityDeviceFormModal({
         ) : null}
         {uid ? (
           <div className="mt-5 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
-            <button
-              type="button"
-              onClick={() => setFeedsOpen(!feedsOpen)}
-              className="flex w-full items-center justify-between text-left"
-            >
-              <span className="flex items-center gap-2 text-xs font-black text-[#334155]">
-                <Link2 className="h-4 w-4 text-[#4A82B8]" />
-                외부 서버 연동 (실시간 기기 피드) {feeds.length ? `· ${feeds.length}개` : ''}
-              </span>
-              <span className="text-[11px] font-black text-[#4A82B8]">{feedsOpen ? '접기' : '열기'}</span>
-            </button>
-            {feedsOpen ? (
-              <div className="mt-3 space-y-3">
-                <p className="text-[11px] font-bold leading-5 text-[#64748B]">
-                  업체 서버가 기기 위치·배터리·대여 상태를 JSON으로 제공하는 API 주소를 등록하면, 서버가 1분 간격으로 자동 취합해 이용자 지도에 상호명과 함께 표시합니다.
-                </p>
-                {feeds.map((feed) => (
-                  <div key={feed.id} className="rounded-2xl border border-[#E2E8F0] bg-white px-3 py-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-[#0F172A]">{feed.name}</p>
-                        <p className="mt-0.5 truncate text-[10px] font-bold text-[#94A3B8]">{feed.endpointUrl}</p>
-                      </div>
-                      <button type="button" onClick={() => void removeFeed(feed)} className="shrink-0 rounded-full bg-[#FEF2F2] p-2 text-[#BE123C]" aria-label={`${feed.name} 연동 삭제`}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <p className="mt-1.5 text-[11px] font-bold">
-                      {feed.lastSyncStatus === 'ok' ? (
-                        <span className="text-[#047857]">동기화됨 · 기기 {feed.deviceCount}대{feed.lastSyncAt ? ` · ${feed.lastSyncAt.slice(5, 16).replace('T', ' ')}` : ''}</span>
-                      ) : feed.lastSyncStatus === 'error' ? (
-                        <span className="text-[#BE123C]">동기화 실패{feed.lastError ? ` — ${feed.lastError}` : ''}</span>
-                      ) : (
-                        <span className="text-[#64748B]">첫 동기화 대기 중</span>
-                      )}
-                    </p>
-                  </div>
-                ))}
-                <input
-                  value={feedName}
-                  onChange={(event) => setFeedName(event.target.value)}
-                  placeholder="업체 상호명 (예: ○○모빌리티)"
-                  className="w-full rounded-2xl border-2 border-[#BFDBFE] bg-white px-4 py-2.5 text-xs font-bold outline-none focus:border-[#4A82B8]"
-                />
-                <input
-                  value={feedUrl}
-                  onChange={(event) => setFeedUrl(event.target.value)}
-                  placeholder="API 엔드포인트 URL (https://…/devices)"
-                  className="w-full rounded-2xl border-2 border-[#BFDBFE] bg-white px-4 py-2.5 text-xs font-bold outline-none focus:border-[#4A82B8]"
-                />
-                <input
-                  value={feedKey}
-                  onChange={(event) => setFeedKey(event.target.value)}
-                  placeholder="API 키 (선택 — Bearer 인증용)"
-                  className="w-full rounded-2xl border-2 border-[#BFDBFE] bg-white px-4 py-2.5 text-xs font-bold outline-none focus:border-[#4A82B8]"
-                />
-                {feedError ? <p className="text-xs font-bold text-[#B91C1C]">{feedError}</p> : null}
-                <button
-                  type="button"
-                  disabled={feedSaving}
-                  onClick={() => void submitFeed()}
-                  className="w-full rounded-2xl bg-[#4A82B8] py-3 text-sm font-black text-white disabled:opacity-70"
-                >
-                  {feedSaving ? '등록 중…' : '연동 등록'}
-                </button>
-              </div>
-            ) : null}
+            <p className="flex items-center gap-2 text-xs font-black text-[#334155]">
+              <Link2 className="h-4 w-4 text-[#4A82B8]" />
+              외부 서버 연동 (실시간 기기 피드)
+            </p>
+            <p className="mt-1.5 text-[11px] font-bold leading-5 text-[#64748B]">
+              업체 서버가 기기 위치·배터리·대여 상태를 JSON으로 제공하는 API 주소를 등록하면, 서버가 1분 간격으로 자동 취합해 이용자 지도에 상호명과 함께 표시합니다.
+            </p>
+            <div className="mt-3">
+              <PartnerFeedsPanel ownerUid={uid} />
+            </div>
           </div>
         ) : null}
       </section>

@@ -157,8 +157,9 @@ export type PartnerSyncSummary = {
  * 소스별 장애는 격리되며(Promise.allSettled), 실패한 소스는 마지막 성공
  * 데이터가 그대로 유지되도록 upsert를 건너뛴다.
  */
-export async function syncPartnerFeeds(): Promise<PartnerSyncSummary> {
-  const sources = (await listPartnerFeeds()).filter((row) => row.enabled)
+export async function syncPartnerFeeds(feedId?: string): Promise<PartnerSyncSummary> {
+  const target = (feedId || '').trim()
+  const sources = (await listPartnerFeeds()).filter((row) => (target ? row.id === target : row.enabled))
   const settled = await Promise.allSettled(
     sources.map(async (source) => {
       const fetched = await fetchFeedDevices(source)

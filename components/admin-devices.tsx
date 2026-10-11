@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { adminHeaders } from '@/lib/admin-key'
+import { adminHeaders, getAdminKey } from '@/lib/admin-key'
+import { PartnerFeedsPanel } from '@/components/partner-feeds-panel'
 import { deviceTypeLabel, specSummary, type DeviceTelemetry } from '@/lib/device-types'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 import { AdminDetailModal } from '@/components/admin-detail-modal'
@@ -43,6 +44,9 @@ export default function AdminDevices() {
   const [pageSize, setPageSize] = useState(10)
   const [typeFilter, setTypeFilter] = useState<'all' | string>('all')
   const [detail, setDetail] = useState<DeviceTelemetry | null>(null)
+  const [adminKey, setAdminKey] = useState('')
+
+  useEffect(() => setAdminKey(getAdminKey()), [])
 
   const visible = typeFilter === 'all' ? devices : devices.filter((row) => row.type === typeFilter)
   const typeCounts = devices.reduce<Record<string, number>>((acc, row) => {
@@ -81,6 +85,18 @@ export default function AdminDevices() {
   return (
     <div className="mt-4">
       {error ? <p className="mb-3 rounded-2xl border-2 border-[#FCA5A5] bg-[#FEF2F2] px-4 py-2.5 text-xs font-black text-[#DC2626]">{error}</p> : null}
+      <section className="mb-4 rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-black text-[#4C1FB8]">외부 파트너 API 연동</p>
+          <span className="text-[10px] font-bold text-[#94A3B8]">30초마다 자동 갱신</span>
+        </div>
+        <p className="mt-1 text-[10px] font-bold text-[#94A3B8]">
+          파트너 업체 서버가 제공하는 기기 피드 목록입니다. 소스별 수동 동기화·정보 수정·연동 중지·삭제를 처리할 수 있습니다.
+        </p>
+        <div className="mt-3">
+          <PartnerFeedsPanel adminKey={adminKey} />
+        </div>
+      </section>
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-black text-[#4C1FB8]">등록 기기 · {devices.length}대</p>

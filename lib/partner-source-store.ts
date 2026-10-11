@@ -149,6 +149,38 @@ export async function upsertPartnerFeed(input: {
   return entry
 }
 
+/**
+ * 소스 정보 수정 — ownerUid가 일치하거나 관리자(allowAny)여야 한다.
+ * 상호명·엔드포인트·API 키·활성 여부를 부분 갱신한다.
+ */
+export async function updatePartnerFeed(
+  id: string,
+  patch: { name?: string; endpointUrl?: string; apiKey?: string; enabled?: boolean },
+  ownerUid: string,
+  allowAny = false,
+): Promise<PartnerFeedSource | null> {
+  const key = sanitize(id, 40)
+  const owner = sanitize(ownerUid, 64)
+  if (!key) return null
+  const entries = await readEntries()
+  const row = entries.find((item) => item.id === key)
+  if (!row || (!allowAny && row.ownerUid !== owner)) return null
+  if (patch.name !== undefined) {
+    const name = sanitize(patch.name, 64)
+    if (!name) return null
+    row.name = name
+  }
+  if (patch.endpointUrl !== undefined) {
+    const url = sanitize(patch.endpointUrl, 400)
+    if (!ENDPOINT_RE.test(url)) return null
+    row.endpointUrl = url
+  }
+  if (patch.apiKey !== undefined) row.apiKey = sanitize(patch.apiKey, 128)
+  if (patch.enabled !== undefined) row.enabled = patch.enabled === true
+  await writeEntries(entries)
+  return row
+}
+
 /** 소스 삭제 — ownerUid가 일치하거나 관리자 삭제(allowAny)여야 한다. */
 export async function removePartnerFeed(id: string, ownerUid: string, allowAny = false): Promise<boolean> {
   const key = sanitize(id, 40)

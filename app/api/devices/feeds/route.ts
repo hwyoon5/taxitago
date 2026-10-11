@@ -3,6 +3,7 @@ import {
   listPartnerFeeds,
   listPartnerFeedsByOwner,
   removePartnerFeed,
+  updatePartnerFeed,
   upsertPartnerFeed,
   type PartnerFeedSource,
 } from '@/lib/partner-source-store'
@@ -47,6 +48,34 @@ export async function POST(request: Request) {
   })
   if (!feed) {
     return NextResponse.json({ error: 'invalid_fields', message: '상호명·엔드포인트 URL(http/https)·파트너 UID가 필요합니다.' }, { status: 400 })
+  }
+  return NextResponse.json({ ok: true, feed: publicFeed(feed) })
+}
+
+/** 소스 정보 수정 — 소유 파트너 본인 또는 관리자. 상호명·URL·키·활성 여부를 부분 갱신한다. */
+export async function PATCH(request: Request) {
+  const body = (await request.json().catch(() => null)) as {
+    id?: unknown
+    ownerUid?: unknown
+    name?: unknown
+    endpointUrl?: unknown
+    apiKey?: unknown
+    enabled?: unknown
+  } | null
+  const admin = await isAdminRequest(request).catch(() => false)
+  const feed = await updatePartnerFeed(
+    typeof body?.id === 'string' ? body.id : '',
+    {
+      name: typeof body?.name === 'string' ? body.name : undefined,
+      endpointUrl: typeof body?.endpointUrl === 'string' ? body.endpointUrl : undefined,
+      apiKey: typeof body?.apiKey === 'string' ? body.apiKey : undefined,
+      enabled: typeof body?.enabled === 'boolean' ? body.enabled : undefined,
+    },
+    typeof body?.ownerUid === 'string' ? body.ownerUid : '',
+    admin,
+  )
+  if (!feed) {
+    return NextResponse.json({ error: 'not_found_or_invalid' }, { status: 404 })
   }
   return NextResponse.json({ ok: true, feed: publicFeed(feed) })
 }
