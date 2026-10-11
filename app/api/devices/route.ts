@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { listDevices, setDeviceRentalState } from '@/lib/device-store'
+import { partnerFeedsStale } from '@/lib/partner-source-store'
+import { syncPartnerFeeds } from '@/lib/partner-feed'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -17,6 +19,9 @@ const haversineKm = (aLat: number, aLng: number, bLat: number, bLng: number) => 
  * ?type=bicycle|kickboard|ev|parking  ?uid=<ownerUid>
  * ?near=<lat>,<lng>&radius=<km>  — 중심점 반경 필터
  */
+/** 활성 피드가 이 주기보다 오래됐으면 응답 후 백그라운드로 재동기화한다. */
+const FEED_STALE_MS = 60_000
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const type = (searchParams.get('type') || '').trim()
@@ -25,6 +30,12 @@ export async function GET(request: Request) {
     type: type || undefined,
     ownerUid: uid || undefined,
   })
+
+  // 파트너 피드가 stale이면 응답 이후 백그라운드 재동기화 — 다음 폴링부터 반영된다.
+  const stale = await partnerFeedsStale(FEED_STALE_MS).catch(() => false)
+  if (stale) {
+    after(() => syncPartnerFeeds().catch((error) => console.error('[PartnerFeed] auto sync failed', error)))
+  }
 
   const near = (searchParams.get('near') || '').split(',')
   const nearLat = Number(near[0])

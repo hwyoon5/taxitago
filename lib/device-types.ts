@@ -20,6 +20,10 @@ export type DeviceTelemetry = {
   spec?: DeviceSpec
   /** 파트너 폼으로 명시 등록된 시설이면 true — 원시 텔레메트리 전용 기기와 구분 */
   registered?: boolean
+  /** 외부 파트너 피드로 동기화된 기기면 소스 ID (PartnerFeedSource.id) */
+  sourceId?: string
+  /** 앱 내 대여 시작 시각 — 외부 피드 상태와 충돌 시 최신 대여를 보호하는 데 쓴다 */
+  rentedAt?: string
 }
 
 /** 자전거·킥보드 — 이동 수단 기기 스펙 */

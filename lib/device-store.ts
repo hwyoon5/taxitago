@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { kvCommand, kvConfigured } from '@/lib/kv'
 import type { DeviceSpec, DeviceTelemetry } from '@/lib/device-types'
-import { specKindForDeviceKind } from '@/lib/device-types'
+import { specKindForDeviceKind, emptySpec } from '@/lib/device-types'
 
 export type { DeviceKind, DeviceSpec, DeviceTelemetry } from '@/lib/device-types'
 export { DEVICE_TYPE_LABEL, deviceTypeLabel } from '@/lib/device-types'
@@ -302,6 +302,8 @@ export async function removePartnerDevice(deviceId: string, ownerUid: string): P
 /**
  * 이용자 대여·반납 전이 — 파트너가 대여 허용(rentable)한 모빌리티 기기만
  * 대여할 수 있다. 상태만 바꾸고 spec은 손대지 않는다.
+ * 대여 시작 시각(rentedAt)을 남겨 외부 피드 동기화가 진행 중 대여를
+ * 되돌리지 않게 한다.
  */
 export async function setDeviceRentalState(
   deviceId: string,
@@ -314,15 +316,138 @@ export async function setDeviceRentalState(
   const mobility = row?.spec?.kind === 'mobility'
   if (!row?.registered || !mobility) return { ok: false, error: 'not_found' }
   const spec = row.spec as { rentable?: boolean }
+  const now = new Date().toISOString()
   if (rented) {
     if (row.status === 'rented') return { ok: false, error: 'already_rented' }
     if (spec.rentable !== true) return { ok: false, error: 'not_rentable' }
     row.status = 'rented'
+    row.rentedAt = now
   } else {
     if (row.status !== 'rented') return { ok: false, error: 'not_rented' }
     row.status = spec.rentable === true ? 'active' : 'idle'
+    delete row.rentedAt
   }
-  row.lastSeen = new Date().toISOString()
+  row.lastSeen = now
   await writeEntries(entries)
   return { ok: true, device: row }
+}
+
+// ── 외부 파트너 피드 동기화 ────────────────────────────────────────────────
+
+/** 파트너 피드에서 정규화된 기기 1건 (lib/partner-feed.ts가 생성). */
+export type ExternalDeviceRow = {
+  /** 파트너 시스템 내 고유 ID — 소스 ID와 조합해 ext 네임스페이스로 저장된다 */
+  deviceId: string
+  type: string
+  latitude: number
+  longitude: number
+  batteryLevel: number | null
+  status: 'active' | 'idle' | 'rented'
+  rentable: boolean
+  model: string
+  address: string
+}
+
+/** 외부 피드 기기의 내부 ID — 소스 간 충돌 방지용 네임스페이스. */
+export function externalDeviceId(sourceId: string, partnerDeviceId: string) {
+  return `ext:${sourceId}:${partnerDeviceId}`.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64)
+}
+
+/** 인앱 대여가 진행 중으로 보호되는 최대 시간 — 이후엔 파트너 상태가 이긴다. */
+const RENTAL_GUARD_MS = 6 * 60 * 60 * 1000
+
+/**
+ * 한 피드 소스의 기기 목록을 통째로 갱신한다 — 소스의 기존 ext 행 중
+ * 이번 페이로드에 없는 것은 제거하고, 위치·배터리·spec은 피드 값으로 덮는다.
+ * 단, 최근 6시간 내 인앱 대여 중인 기기는 파트너가 비대여 상태를 보내도
+ * 'rented'를 유지한다(파트너가 인앱 대여를 모르는 동안의 이중 대여 방지).
+ * @returns 반영된 기기 수
+ */
+export async function upsertExternalDevices(
+  sourceId: string,
+  sourceName: string,
+  ownerUid: string,
+  rows: ExternalDeviceRow[],
+): Promise<number> {
+  const source = (sourceId || '').trim()
+  if (!source) return 0
+  const now = new Date().toISOString()
+  const entries = await readEntries()
+  const keep = new Set<string>()
+
+  for (const row of rows) {
+    const id = externalDeviceId(source, row.deviceId)
+    if (!id || keep.has(id)) continue
+    keep.add(id)
+    const existing = entries.find((item) => item.deviceId === id)
+    // 인앱 대여 보호: 로컬이 rented이고 6시간 이내면 피드의 비대여 상태를 무시한다.
+    const guarded =
+      existing?.status === 'rented' &&
+      row.status !== 'rented' &&
+      existing.rentedAt !== undefined &&
+      Date.now() - Date.parse(existing.rentedAt) < RENTAL_GUARD_MS
+    const status = guarded ? 'rented' : row.status
+    const specKind = specKindForDeviceKind(row.type)
+    if (!specKind) continue
+    const spec = emptySpec(specKind)
+    spec.address = row.address.slice(0, 256)
+    spec.latitude = row.latitude
+    spec.longitude = row.longitude
+    if (spec.kind === 'mobility') {
+      spec.model = row.model.slice(0, 128)
+      spec.batteryLevel = row.batteryLevel
+      spec.locked = status !== 'rented'
+      spec.rentable = row.rentable
+    } else if (spec.kind === 'ev') {
+      spec.placeName = row.model.slice(0, 128)
+    }
+    if (existing) {
+      existing.type = row.type
+      existing.latitude = row.latitude
+      existing.longitude = row.longitude
+      existing.batteryLevel = row.batteryLevel
+      existing.status = status
+      existing.spec = spec
+      existing.registered = true
+      existing.sourceId = source
+      existing.ownerUid = ownerUid || existing.ownerUid
+      existing.ownerName = sourceName || existing.ownerName
+      existing.lastSeen = now
+      existing.updateCount += 1
+      continue
+    }
+    entries.push({
+      deviceId: id,
+      type: row.type,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      batteryLevel: row.batteryLevel,
+      status,
+      lastSeen: now,
+      firstSeen: now,
+      updateCount: 1,
+      ownerUid,
+      ownerName: sourceName,
+      spec,
+      registered: true,
+      sourceId: source,
+      ...(status === 'rented' ? { rentedAt: now } : {}),
+    })
+  }
+
+  // 이번 페이로드에서 빠진 이 소스의 기기는 제거 — 다른 소스·폼 등록 기기는 안 건드린다.
+  const next = entries.filter((item) => !(item.sourceId === source && !keep.has(item.deviceId)))
+  await writeEntries(next)
+  return keep.size
+}
+
+/** 피드 소스 삭제 시 해당 소스의 외부 기기를 모두 정리한다. */
+export async function removeExternalDevices(sourceId: string): Promise<number> {
+  const source = (sourceId || '').trim()
+  if (!source) return 0
+  const entries = await readEntries()
+  const next = entries.filter((item) => item.sourceId !== source)
+  if (next.length === entries.length) return 0
+  await writeEntries(next)
+  return entries.length - next.length
 }

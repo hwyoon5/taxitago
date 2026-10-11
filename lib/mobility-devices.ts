@@ -261,6 +261,65 @@ async function transitionRental(serial: string, rent: boolean): Promise<Mobility
 export const rentMobilityDevice = (serial: string) => transitionRental(serial, true)
 export const returnMobilityDevice = (serial: string) => transitionRental(serial, false)
 
+// ── 외부 파트너 피드 연동 (서버가 주기 폴링해 기기를 자동 취합) ────────────
+
+export type PartnerFeedInfo = {
+  id: string
+  name: string
+  endpointUrl: string
+  enabled: boolean
+  hasApiKey: boolean
+  lastSyncAt: string
+  lastSyncStatus: '' | 'ok' | 'error'
+  lastError: string
+  deviceCount: number
+}
+
+export async function fetchMyPartnerFeeds(ownerUid: string): Promise<PartnerFeedInfo[]> {
+  const uid = ownerUid.trim()
+  if (!uid) return []
+  try {
+    const res = await fetch(`/api/devices/feeds?uid=${encodeURIComponent(uid)}`, { cache: 'no-store' })
+    const data = (await res.json().catch(() => null)) as { feeds?: PartnerFeedInfo[] } | null
+    return res.ok && Array.isArray(data?.feeds) ? data.feeds : []
+  } catch {
+    return []
+  }
+}
+
+export async function registerPartnerFeed(input: {
+  name: string
+  endpointUrl: string
+  apiKey?: string
+  ownerUid: string
+}): Promise<{ ok: boolean; feed?: PartnerFeedInfo; error?: string }> {
+  try {
+    const res = await fetch('/api/devices/feeds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    const data = (await res.json().catch(() => null)) as { feed?: PartnerFeedInfo; message?: string; error?: string } | null
+    if (!res.ok || !data?.feed) return { ok: false, error: data?.message || data?.error || '연동 등록에 실패했습니다.' }
+    return { ok: true, feed: data.feed }
+  } catch {
+    return { ok: false, error: '네트워크 오류로 연동 등록에 실패했습니다.' }
+  }
+}
+
+export async function deletePartnerFeed(id: string, ownerUid: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/devices/feeds', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ownerUid }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 // ── 이용자 지도/목록용 파트너 변환 ──────────────────────────────────────────
 
 export function mobilityPartnersForService(service: string): RegisteredNearbyPartner[] {
