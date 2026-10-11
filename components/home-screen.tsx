@@ -9,6 +9,7 @@ import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
 import { TermsDetailView, TermsListView } from '@/components/more/terms-pages'
 import { PaymentHandler, QrScanModal } from '@/components/PaymentHandler'
+import { RentalConsentModal } from '@/components/rental-consent-modal'
 import { serviceIllustrations } from '@/components/service-illustrations'
 import { LocationTileMap, TaxiLiveMap, toTaxiLivePhase, type TaxiMatchPhase } from '@/components/app-map'
 import { NearbyServiceMap } from '@/components/nearby-service-map'
@@ -3252,6 +3253,9 @@ function ServiceSheet({
   const [qrScanned, setQrScanned] = useState(false)
   /** QR이 인증된 스팟 — 스캔 후 다른 기기를 고르면 다시 스캔해야 한다. */
   const [qrScannedItem, setQrScannedItem] = useState('')
+  /** 면책 동의가 확인된 기기 스팟 — 선택이 바뀌면 다시 동의를 받는다. */
+  const [consentOpen, setConsentOpen] = useState(false)
+  const [consentItem, setConsentItem] = useState('')
   const [parkingOption, setParkingOption] = useState<'prepaid' | 'postpaid'>('prepaid')
   const [prepaidSettled, setPrepaidSettled] = useState(false)
   // Derived from the server ride record — the single source of truth for progress.
@@ -3372,6 +3376,8 @@ function ServiceSheet({
   const selectedRentable = !selectedDevice || isDeviceRentable(selectedDevice)
   // QR 인증은 스캔 시점에 선택된 기기에 묶인다 — 선택이 바뀌면 스캔이 무효가 된다.
   const qrScannedBound = qrScanned && (!vehicle || !selectedItem.startsWith('device-') || qrScannedItem === selectedItem)
+  // 면책 동의도 선택된 기기에 묶인다 — 다른 기기로 바꾸면 동의를 다시 받는다.
+  const consentBound = Boolean(consentItem) && consentItem === selectedItem
   useEffect(() => {
     if (!selfServe || !nearbySpots.length) return
     if (nearbySpots.some((item) => item.id === selectedItem)) return
@@ -3391,7 +3397,7 @@ function ServiceSheet({
     rentalSerialRef.current = ''
     void returnMobilityDevice(serial).catch(() => null)
   }
-  const startService = async (scanned?: boolean) => {
+  const startService = async (scanned?: boolean, consented?: boolean) => {
     if (service === '택배' || ride) {
       const gap = routeGap(daeriTrip?.pickup || pickupAddress, daeriTrip?.dest || destAddress)
       if (gap) {
@@ -3434,6 +3440,11 @@ function ServiceSheet({
       const device = findDeviceBySpotId(selectedItem)
       if (!device || !isDeviceRentable(device)) {
         onNotice(device ? `${device.serial}은(는) ${MOBILITY_STATUS_LABEL[device.status]} 상태라 대여할 수 없어요.` : '이 기기는 지금 대여할 수 없어요.')
+        return
+      }
+      // 중개 서비스 면책 동의 인터셉트 — 동의 전에는 대여 전이를 호출하지 않는다.
+      if (!(consented ?? consentBound)) {
+        setConsentOpen(true)
         return
       }
       // 서버가 대여 전이를 검증한다 — 다른 이용자가 먼저 대여했으면 실패한다.
@@ -4309,6 +4320,17 @@ function ServiceSheet({
             setQrOpen(false)
             onNotice(`${service} QR 스캔이 완료되었어요.`)
             if (paymentPolicy?.timing === 'qr_auto') startService(true)
+          }}
+        />
+      ) : null}
+      {consentOpen ? (
+        <RentalConsentModal
+          device={selectedDevice ? { serial: selectedDevice.serial, kind: selectedDevice.kind, ownerName: selectedDevice.ownerName } : null}
+          onClose={() => setConsentOpen(false)}
+          onConsent={() => {
+            setConsentItem(selectedItem)
+            setConsentOpen(false)
+            void startService(true, true)
           }}
         />
       ) : null}
