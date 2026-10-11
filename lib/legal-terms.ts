@@ -7,12 +7,19 @@ export type LegalTermId =
   | 'location-privacy'
   | 'opensource'
 
+import type { AppLocale } from '@/lib/i18n'
+
 export type LegalTermDoc = {
   id: LegalTermId
   title: string
   subtitle: string
   updated: string
   sections: { heading: string; body: string }[]
+  /**
+   * 검수된 언어별 번역본 — ko 문서가 기준이며, 번역이 준비된 언어·필드만
+   * 이곳에 추가하면 localizeLegalTerm이 자동으로 해당 언어를 표시한다.
+   */
+  translations?: Partial<Record<AppLocale, { title?: string; subtitle?: string; sections?: { heading: string; body: string }[] }>>
 }
 
 export const legalTermList: Array<Pick<LegalTermDoc, 'id' | 'title' | 'subtitle'>> = [
@@ -239,4 +246,20 @@ const docs: Record<LegalTermId, LegalTermDoc> = {
 export function getLegalTerm(id: string | undefined): LegalTermDoc | null {
   if (!id) return null
   return docs[id as LegalTermId] ?? null
+}
+
+/**
+ * 문서의 번역본이 준비된 필드만 현재 locale로 치환해 돌려준다.
+ * 번역이 없으면 원문(ko)을 그대로 돌려 내용이 비는 일이 없다.
+ */
+export function localizeLegalTerm(doc: LegalTermDoc | null, locale: AppLocale): LegalTermDoc | null {
+  if (!doc || locale === 'ko') return doc
+  const tr = doc.translations?.[locale]
+  if (!tr) return doc
+  return {
+    ...doc,
+    title: tr.title ?? doc.title,
+    subtitle: tr.subtitle ?? doc.subtitle,
+    sections: tr.sections ?? doc.sections,
+  }
 }

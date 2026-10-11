@@ -7,6 +7,7 @@ import SupportCenter from '@/components/support-center'
 import { useLocale } from '@/components/locale-provider'
 import type { AppLocale, MessageKey } from '@/lib/i18n'
 import { applyThemeMode, loadThemeMode, saveThemeMode, type ThemeMode } from '@/lib/theme'
+import { translateService } from '@/lib/i18n'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 
 const THEME_LABEL: Record<ThemeMode, MessageKey> = {
@@ -25,7 +26,7 @@ function PageFrame({ title, caption, onBack, children }: { title: string; captio
   return (
     <div className="flex flex-col">
       <div className="flex items-start gap-3">
-        <button type="button" onClick={onBack} className="mt-0.5 rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="뒤로가기">
+        <button type="button" onClick={onBack} className="mt-0.5 rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label={t('common.back')}>
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div className="min-w-0">
@@ -37,7 +38,7 @@ function PageFrame({ title, caption, onBack, children }: { title: string; captio
       <div className="mt-5 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]">
         {children}
         <p className="mt-6 text-center text-[11px] font-bold leading-5 text-[#64748B]">
-          대표 문의{' '}
+          {t('terms.contact')}{' '}
           <a href={SUPPORT_MAILTO} className="break-all font-black text-[#4A82B8]">
             {SUPPORT_EMAIL}
           </a>
@@ -48,8 +49,9 @@ function PageFrame({ title, caption, onBack, children }: { title: string; captio
 }
 
 export function NoticeListView({ onBack, onOpen }: { onBack: () => void; onOpen: (id: string) => void }) {
+  const { t } = useLocale()
   return (
-    <PageFrame title="공지사항" caption="서비스 소식과 업데이트를 확인하세요." onBack={onBack}>
+    <PageFrame title={t('more.notice')} caption={t('more.noticeCaption')} onBack={onBack}>
       <div className="space-y-2">
         {notices.map((item) => (
           <button key={item.id} type="button" onClick={() => onOpen(item.id)} className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
@@ -64,34 +66,36 @@ export function NoticeListView({ onBack, onOpen }: { onBack: () => void; onOpen:
 }
 
 export function NoticeDetailView({ id, onBack }: { id: string; onBack: () => void }) {
+  const { t } = useLocale()
   const item = getNotice(id)
   return (
-    <PageFrame title={item?.title || '공지사항'} caption={item ? `${item.kind} · ${item.date}` : '공지를 찾을 수 없습니다.'} onBack={onBack}>
+    <PageFrame title={item?.title || t('more.notice')} caption={item ? `${item.kind} · ${item.date}` : t('notice.missing')} onBack={onBack}>
       <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 text-sm font-medium leading-6 text-[#334155] shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-        {item?.body || '선택한 공지 내용을 불러오지 못했습니다.'}
+        {item?.body || t('notice.loadFailed')}
       </div>
     </PageFrame>
   )
 }
 
 export function FaresView({ onBack }: { onBack: () => void }) {
-  const rows = [
-    { name: '택시', fare: '2.1 Pi', note: '기본 호출 · 도착 후 후결제' },
-    { name: '대리운전', fare: '2.1~2.8 Pi', note: '착한요금 / 빠른배정' },
-    { name: '주차', fare: '1.5~3 Pi', note: '시간당 · 선결제/후결제' },
-    { name: '자전거', fare: '0.2 Pi', note: 'QR 이용 후 자동결제' },
-    { name: '킥보드', fare: '0.3 Pi', note: 'QR 이용 후 자동결제' },
-    { name: 'EV 충전', fare: '0.38~0.5 Pi', note: 'kWh 기준 선결제' },
-    { name: '택배', fare: '1.2~4.2 Pi', note: '차량·5단계 크기별 선결제' },
+  const { t, locale } = useLocale()
+  const rows: { name: string; fare: string; noteKey: MessageKey }[] = [
+    { name: '택시', fare: '2.1 Pi', noteKey: 'fares.note.taxi' },
+    { name: '대리운전', fare: '2.1~2.8 Pi', noteKey: 'fares.note.daeri' },
+    { name: '주차', fare: '1.5~3 Pi', noteKey: 'fares.note.parking' },
+    { name: '자전거', fare: '0.2 Pi', noteKey: 'fares.note.bike' },
+    { name: '킥보드', fare: '0.3 Pi', noteKey: 'fares.note.kick' },
+    { name: 'EV 충전', fare: '0.38~0.5 Pi', noteKey: 'fares.note.ev' },
+    { name: '택배', fare: '1.2~4.2 Pi', noteKey: 'fares.note.delivery' },
   ]
   return (
-    <PageFrame title="이용요금 안내" caption="기본요금과 구간별 요금 체계입니다." onBack={onBack}>
+    <PageFrame title={t('more.fares')} caption={t('more.faresCaption')} onBack={onBack}>
       <div className="overflow-hidden rounded-2xl border-2 border-[#CBD5E1] bg-white shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
         {rows.map((row, index) => (
           <div key={row.name} className={`flex items-start justify-between gap-3 px-4 py-3 ${index ? 'border-t border-[#E2E8F0]' : ''}`}>
             <div>
-              <p className="text-sm font-black text-[#0F172A]">{row.name}</p>
-              <p className="mt-0.5 text-xs font-bold text-[#64748B]">{row.note}</p>
+              <p className="text-sm font-black text-[#0F172A]">{translateService(locale, row.name)}</p>
+              <p className="mt-0.5 text-xs font-bold text-[#64748B]">{t(row.noteKey)}</p>
             </div>
             <p className="shrink-0 text-sm font-black text-[#4C1FB8]">{row.fare}</p>
           </div>
@@ -122,23 +126,24 @@ export function SupportView({
   onNotice?: (message: string) => void
   prefillLost?: import('@/components/support-center').LostPrefill | null
 }) {
+  const { t } = useLocale()
   const [actorId, setActorId] = useState('passenger-local')
   useEffect(() => {
     setActorId(localSupportActorId())
   }, [])
-  const faqs = [
-    { q: '결제는 언제 되나요?', a: '택시는 도착 후 후결제, 주차·택배는 요청 시 선결제, 자전거·킥보드는 QR 이용 후 자동결제입니다.' },
-    { q: '호출을 취소할 수 있나요?', a: '기사 배정 전에는 호출 화면에서 바로 취소할 수 있습니다. 배정 이후에는 고객센터로 문의해 주세요.' },
-    { q: '분실물은 어떻게 찾나요?', a: '이용 내역의 운행을 선택한 뒤 분실물 센터에서 물건 종류와 시각을 남기면 해당 기사님과 바로 연결됩니다.' },
-    { q: '운행 중 위급하면?', a: '호출 화면의 긴급 SOS를 누르면 현재 GPS와 차량 정보가 운영센터로 즉시 전달됩니다. 위급 시 112에도 연락해 주세요.' },
+  const faqs: { q: MessageKey; a: MessageKey }[] = [
+    { q: 'support.faq1.q', a: 'support.faq1.a' },
+    { q: 'support.faq2.q', a: 'support.faq2.a' },
+    { q: 'support.faq3.q', a: 'support.faq3.a' },
+    { q: 'support.faq4.q', a: 'support.faq4.a' },
   ]
   return (
-    <PageFrame title="고객센터" caption="SOS · 분실물 · 1:1 문의" onBack={onBack}>
+    <PageFrame title={t('more.support')} caption={t('more.supportCaption')} onBack={onBack}>
       <div className="mb-4 space-y-2">
         {faqs.map((item) => (
           <div key={item.q} className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-            <p className="text-sm font-black text-[#0F172A]">{item.q}</p>
-            <p className="mt-1 text-xs font-bold leading-5 text-[#64748B]">{item.a}</p>
+            <p className="text-sm font-black text-[#0F172A]">{t(item.q)}</p>
+            <p className="mt-1 text-xs font-bold leading-5 text-[#64748B]">{t(item.a)}</p>
           </div>
         ))}
       </div>
