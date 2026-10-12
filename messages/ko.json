@@ -718,5 +718,6 @@
   "loc.gpsFallback": "정확한 GPS를 쓰지 못해 접속 지역으로 표시했어요. 위치를 눌러 직접 바꿀 수 있어요.",
   "home.activeTaxi": "진행 중인 택시",
   "support.lostTitle": "분실물 · 고객센터",
-  "call.peerPassenger": "승객"
+  "call.peerPassenger": "승객",
+  "inbox.tabActivity": "활동 기록"
 }

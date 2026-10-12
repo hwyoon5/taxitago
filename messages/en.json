@@ -718,5 +718,6 @@
   "loc.gpsFallback": "Precise GPS unavailable — showing your access region. Tap the location to change it.",
   "home.activeTaxi": "Taxi in progress",
   "support.lostTitle": "Lost items · Support",
-  "call.peerPassenger": "Passenger"
+  "call.peerPassenger": "Passenger",
+  "inbox.tabActivity": "Activity"
 }

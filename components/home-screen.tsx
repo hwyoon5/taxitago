@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { localizedText, translateDeviceStatus, translateService, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -5651,10 +5651,9 @@ function ActivityInbox({
   transactions: PiTransaction[]
 }) {
   const { t, locale } = useLocale()
-  const [view, setView] = useState<'rides' | 'inbox'>('rides')
+  const [view, setView] = useState<'rides' | 'inbox' | 'activity'>('rides')
   const [timeFilter, setTimeFilter] = useState<InboxTimeFilter>('all')
   const [typeFilter, setTypeFilter] = useState<InboxTypeFilter>('all')
-  const [activityLogOpen, setActivityLogOpen] = useState(true)
   const [history, setHistory] = useState<PublicRide[]>([])
   const [historyReady, setHistoryReady] = useState(false)
   const unreadCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
@@ -5735,13 +5734,20 @@ function ActivityInbox({
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 pb-8 [-webkit-overflow-scrolling:touch]">
       <h2 className="pt-3 text-2xl font-black">{t('inbox.title')}</h2>
       <p className="mt-1 text-sm font-bold text-[#64748B]">{t('inbox.subtitle')}</p>
-      <div className="mt-4 grid grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+      <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
         <button
           type="button"
           onClick={() => setView('rides')}
           className={`rounded-xl py-2.5 text-xs font-black ${view === 'rides' ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
         >
           {t('inbox.tabHistory')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('activity')}
+          className={`rounded-xl py-2.5 text-xs font-black ${view === 'activity' ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
+        >
+          {t('inbox.tabActivity')}
         </button>
         <button
           type="button"
@@ -5816,55 +5822,30 @@ function ActivityInbox({
               ))}
             </div>
           ) : null}
-          <section className="mt-4 rounded-3xl border-2 border-[#CBD5E1] bg-white shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-            <button
-              type="button"
-              onClick={() => setActivityLogOpen((value) => !value)}
-              aria-expanded={activityLogOpen}
-              className="flex w-full items-center justify-between gap-2 px-4 py-3.5 text-left"
-            >
-              <span className="flex items-center gap-2">
-                <span className="text-sm font-black text-[#0F172A]">{t('acct.activityTitle')}</span>
-                <span className="rounded-full bg-[#F1F5F9] px-2 py-0.5 text-[10px] font-black text-[#64748B]">{filteredActivities.length}</span>
-              </span>
-              <ChevronDown className={`h-4 w-4 text-[#64748B] transition ${activityLogOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {activityLogOpen ? (
-              <div className="space-y-2 border-t border-[#E2E8F0] p-3">
-                {filteredActivities.length === 0 ? (
-                  <p className="rounded-2xl bg-[#F8FAFC] px-3 py-4 text-center text-xs font-bold text-[#64748B]">{t('acct.empty')}</p>
-                ) : (
-                  filteredActivities.slice(0, 30).map((entry) => (
-                    <div key={entry.id} className="flex gap-3 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
-                      <span className="shrink-0 font-mono text-xs font-bold text-[#4A82B8]">{entry.at}</span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-[#0F172A]">{entry.label}</p>
-                        <p className="mt-1 text-xs font-medium text-[#64748B]">{entry.detail}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            ) : null}
-          </section>
           {historyReady && !filteredHistory.length && !filteredEntries.length ? (
             <p className="mt-3 rounded-3xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
               {!history.length && !localEntries.length ? t('inbox.empty') : t('inbox.emptyFiltered')}
             </p>
           ) : null}
         </>
+      ) : view === 'activity' ? (
+        <div className="mt-3 space-y-2">
+          {filteredActivities.length === 0 ? (
+            <p className="rounded-3xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">{t('acct.empty')}</p>
+          ) : (
+            filteredActivities.slice(0, 50).map((entry) => (
+              <div key={entry.id} className="flex gap-3 rounded-2xl border-2 border-[#E2E8F0] bg-white p-4">
+                <span className="shrink-0 font-mono text-xs font-bold text-[#4A82B8]">{entry.at}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-[#0F172A]">{entry.label}</p>
+                  <p className="mt-1 text-xs font-medium leading-5 text-[#64748B]">{entry.detail}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       ) : (
         <div className="mt-3 space-y-3">
-          {activities.slice(0, 15).map((entry) => (
-            <div key={entry.id} className="rounded-[24px] border-2 border-[#CBD5E1] bg-white p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-              <div className="flex items-center justify-between gap-2">
-                <span className="rounded-full bg-[#EDE5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">{entry.label}</span>
-                <span className="text-[11px] font-bold text-[#8b8495]">{entry.at}</span>
-              </div>
-              <p className="mt-2 text-xs font-bold leading-5 text-[#64748B]">{entry.detail}</p>
-            </div>
-          ))}
-          {activities.length ? <p className="pt-1 text-xs font-black text-[#4C1FB8]">{t('inbox.noticeSection')}</p> : null}
           {notices.map((item) => {
             const unread = !readNoticeIds.includes(item.id)
             return (

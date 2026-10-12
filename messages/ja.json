@@ -718,5 +718,6 @@
   "loc.gpsFallback": "正確なGPSが使えず接続地域で表示しました。位置をタップして変更できます。",
   "home.activeTaxi": "進行中のタクシー",
   "support.lostTitle": "忘れ物・サポート",
-  "call.peerPassenger": "乗客"
+  "call.peerPassenger": "乗客",
+  "inbox.tabActivity": "活動記録"
 }

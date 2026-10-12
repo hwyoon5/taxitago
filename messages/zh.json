@@ -718,5 +718,6 @@
   "loc.gpsFallback": "无法使用精确定位，已按接入地区显示。点击位置可手动更改。",
   "home.activeTaxi": "进行中的出租车",
   "support.lostTitle": "失物 · 客服",
-  "call.peerPassenger": "乘客"
+  "call.peerPassenger": "乘客",
+  "inbox.tabActivity": "活动记录"
 }
