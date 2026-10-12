@@ -4193,7 +4193,13 @@ function ServiceSheet({
             {vehicle ? (
               <button
                 type="button"
-                onClick={() => setDeviceFormOpen(true)}
+                onClick={() => {
+                  if (!loadPartnerProfile()?.uid) {
+                    onNotice('파이 계정으로 파트너 등록을 먼저 완료해 주세요.')
+                    return
+                  }
+                  setDeviceFormOpen(true)
+                }}
                 className="w-full rounded-2xl border-2 border-[#4A82B8] bg-[#E8F1FA] py-3 text-sm font-black text-[#4A82B8]"
               >
                 {t('svc.partnerRegister')}
@@ -7512,8 +7518,17 @@ function PartnerStatSheet({ kind, onClose }: { kind: 'revenue' | 'trips'; onClos
   )
 }
 
-function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartTrial: () => void }) {
+function PartnerHub({ onSignup, onStartTrial, onNotice }: { onSignup: () => void; onStartTrial: () => void; onNotice: (message: string) => void }) {
   const [deviceFormOpen, setDeviceFormOpen] = useState(false)
+  // 기기 등록은 정식 파트너 등록(1단계: Pi 로그인 + 프로필 제출) 완료 후에만 —
+  // 미완료 상태에서 열리면 소유자 없는 익명 기기가 실제 지도에 등록된다.
+  const openDeviceForm = () => {
+    if (!loadPartnerProfile()?.uid) {
+      onNotice('파이 계정으로 파트너 등록을 먼저 완료해 주세요.')
+      return
+    }
+    setDeviceFormOpen(true)
+  }
   return (
     <>
     <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-4" aria-label="기사 파트너">
@@ -7535,12 +7550,12 @@ function PartnerHub({ onSignup, onStartTrial }: { onSignup: () => void; onStartT
         </button>
       </section>
       <section className="mt-4 rounded-[26px] border-2 border-[#BBF7D0] bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
-        <p className="text-xs font-black text-[#047857]">시뮬레이션 1단계</p>
+        <p className="text-xs font-black text-[#047857]">2단계 · 기기 등록</p>
         <h3 className="mt-1 text-lg font-black text-[#0F172A]">자전거 · 킥보드 기기 등록</h3>
-        <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">시리얼, 종류, 위치, 배터리와 상태를 등록하고, 목록에서 수정·삭제·상태 변경을 할 수 있습니다. 이용 가능한 기기만 대여되고, 이용 완료 시 Pi 결제 후 반납됩니다.</p>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">파트너 등록 완료 후 사용할 수 있어요. 시리얼, 종류, 위치, 배터리와 상태를 등록하고, 목록에서 수정·삭제·상태 변경을 할 수 있습니다. 이용 가능한 기기만 대여되고, 이용 완료 시 Pi 결제 후 반납됩니다.</p>
         <button
           type="button"
-          onClick={() => setDeviceFormOpen(true)}
+          onClick={openDeviceForm}
           className="mt-5 w-full rounded-2xl bg-[#047857] py-3.5 text-base font-black text-white"
         >
           기기 등록하기
@@ -10255,7 +10270,7 @@ export default function HomeScreen() {
               </SafeBoundary>
             </div>
           ) : (
-            <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} />
+            <PartnerHub onSignup={() => setPartnerSignupOpen(true)} onStartTrial={() => setPartnerTrialOpen(true)} onNotice={showNotice} />
           )
         ) : (
           <Home

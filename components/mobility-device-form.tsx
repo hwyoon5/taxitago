@@ -175,6 +175,10 @@ function MobilityDeviceFormInner({
   }
 
   const submit = async () => {
+    if (!uid) {
+      setError('파이 계정으로 파트너 등록을 먼저 완료해 주세요.')
+      return
+    }
     const serialNo = serial.trim()
     const place = location.trim()
     if (!serialNo) {
@@ -277,7 +281,7 @@ function MobilityDeviceFormInner({
         </div>
         {!uid ? (
           <p className="mt-3 rounded-2xl bg-[#FEF3C7] px-3 py-2.5 text-xs font-bold leading-5 text-[#92400E]">
-            Pi 로그인 없이 등록하면 기기 관리(수정·삭제·대여 허용 변경)를 할 수 없습니다. 로그인 후 등록을 권장합니다.
+            파이 계정으로 파트너 등록을 완료해야 기기를 등록할 수 있습니다. 등록된 기기는 소유자 UID로 관리(수정·삭제·대여 허용 변경)됩니다.
           </p>
         ) : null}
         <label className="mt-4 block">
