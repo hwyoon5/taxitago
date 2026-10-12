@@ -3,7 +3,7 @@
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
-import { localizedText, translateService, type MessageKey } from '@/lib/i18n'
+import { localizedText, translateDeviceStatus, translateService, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
@@ -270,15 +270,16 @@ function rideLongDistanceFlag(ride: PublicRide | null | undefined) {
 }
 
 function LongDistanceCallBadge({ ride }: { ride: PublicRide | null }) {
+  const { t } = useLocale()
   const flag = rideLongDistanceFlag(ride)
   if (!flag) return null
   return (
     <div className="mt-2 flex items-start gap-2 rounded-xl border border-[#FDBA74] bg-[#FFF7ED] px-3 py-2">
       <Navigation className="mt-0.5 h-4 w-4 shrink-0 text-[#EA580C]" />
       <div className="min-w-0">
-        <p className="text-xs font-black text-[#C2410C]">장거리 운행</p>
+        <p className="text-xs font-black text-[#C2410C]">{t('ride.longBadge')}</p>
         <p className="mt-0.5 text-[11px] font-bold leading-4 text-[#9A3412]">
-          예상 이동 거리 약 {flag.km.toFixed(1)}km{flag.regionExit ? ' · 타 시/도 이동' : ''} — 수락 전 경로와 요금을 확인해 주세요.
+          {t('ride.longHint', { km: flag.km.toFixed(1), exit: flag.regionExit ? t('ride.longExit') : '' })}
         </p>
       </div>
     </div>
@@ -300,6 +301,7 @@ function routeGap(pickup?: string | null, dest?: string | null): RouteGap | null
 }
 
 function RouteRequiredModal({ onConfirm }: { onConfirm: () => void }) {
+  const { t } = useLocale()
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#1e1033]/50 p-5">
       <section
@@ -313,10 +315,10 @@ function RouteRequiredModal({ onConfirm }: { onConfirm: () => void }) {
           <MapPin className="h-7 w-7" />
         </div>
         <h2 id="route-required-title" className="mt-4 text-lg font-black leading-7 text-[#0F172A]">
-          먼저 출발지와 목적지를 선택 하세요
+          {t('modal.routeRequired')}
         </h2>
         <button type="button" onClick={onConfirm} className="mt-6 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white">
-          확인
+          {t('common.ok')}
         </button>
       </section>
     </div>
@@ -336,6 +338,7 @@ function LongDistanceConfirmModal({
   onEdit: () => void
   onConfirm: () => void
 }) {
+  const { t } = useLocale()
   return (
     <div className="fixed inset-0 z-[125] flex items-center justify-center bg-[#1e1033]/50 p-5">
       <section
@@ -349,13 +352,13 @@ function LongDistanceConfirmModal({
           <Navigation className="h-7 w-7" />
         </div>
         <h2 id="long-distance-title" className="mt-4 text-lg font-black leading-7 text-[#0F172A]">
-          장거리 콜을 확인해 주세요
+          {t('modal.longTitle')}
         </h2>
         <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">
-          목적지 거리가 너무 멀리 있습니다. 목적지를 다시 한번 확인해 주세요.
+          {t('modal.longBody')}
         </p>
         <p className="mt-2 text-xs font-black text-[#EA580C]">
-          직선거리 약 {km.toFixed(1)}km{regionExit && destRegion ? ` · ${destRegion} 권역` : ''}
+          {t('modal.longDist', { km: km.toFixed(1) })}{regionExit && destRegion ? t('modal.longRegion', { region: destRegion }) : ''}
         </p>
         <div className="mt-6 grid grid-cols-2 gap-2">
           <button
@@ -363,14 +366,14 @@ function LongDistanceConfirmModal({
             onClick={onEdit}
             className="rounded-2xl border-2 border-[#E0D4FF] bg-white py-3.5 text-sm font-black text-[#4C1FB8]"
           >
-            목적지 수정하기
+            {t('modal.longEdit')}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className="rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white"
           >
-            그대로 호출하기
+            {t('modal.longCall')}
           </button>
         </div>
       </section>
@@ -412,6 +415,7 @@ function menuMobilityServices(includeMore: boolean) {
 }
 
 function ServicePreparingModal({ onClose }: { onClose: () => void }) {
+  const { t } = useLocale()
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#1e1033]/50 p-5" onClick={onClose}>
       <section
@@ -422,10 +426,10 @@ function ServicePreparingModal({ onClose }: { onClose: () => void }) {
         onClick={(event) => event.stopPropagation()}
       >
         <h2 id="service-preparing-title" className="text-lg font-black leading-7 text-[#0F172A]">
-          서비스 준비중 입니다
+          {t('modal.preparing')}
         </h2>
         <button type="button" onClick={onClose} className="mt-6 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white">
-          확인
+          {t('common.ok')}
         </button>
       </section>
     </div>
@@ -572,6 +576,7 @@ function LocationMapModal({
   initialLng?: number
   initialAddress?: string
 }) {
+  const { t } = useLocale()
   const start = {
     lat: Number.isFinite(initialLat) ? (initialLat as number) : BUSAN_CITY_HALL.lat,
     lng: Number.isFinite(initialLng) ? (initialLng as number) : BUSAN_CITY_HALL.lng,
@@ -630,13 +635,13 @@ function LocationMapModal({
   }, [])
 
   const statusLabel = gpsPending
-    ? 'GPS로 현재 위치를 확인하는 중이에요.'
+    ? t('map.stGps')
     : source === 'pick'
-      ? '지도를 움직인 중심 위치의 주소입니다.'
+      ? t('map.stPick')
       : source === 'gps'
-        ? '스마트폰 GPS 기준 현재 위치입니다.'
-        : '위치 권한이 없어 접속 지역 기준으로 표시했어요.'
-  const displayedAddress = addressPending || !usableMapAddress(address) ? ADDRESS_LOADING : address
+        ? t('map.stOk')
+        : t('map.stFallback')
+  const displayedAddress = addressPending || !usableMapAddress(address) ? t('map.loading') : address
 
   return (
     <div className="fixed inset-0 z-[90] flex items-end bg-[#1e293b]/45 sm:items-center sm:p-4" onClick={onClose}>
@@ -644,18 +649,18 @@ function LocationMapModal({
         <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
           <div className="min-w-0">
             <p className="text-xs font-semibold tracking-[0.14em] text-[#3b1d8f]">MY LOCATION</p>
-            <h2 className="mt-1 text-[26px] font-semibold leading-tight text-[#0f172a]">내 위치</h2>
+            <h2 className="mt-1 text-[26px] font-semibold leading-tight text-[#0f172a]">{t('map.title')}</h2>
             <p className="mt-1.5 text-sm font-medium leading-relaxed text-[#334155]">{statusLabel}</p>
           </div>
-          <button type="button" onClick={onClose} className="shrink-0 rounded-full bg-[#F1F5F9] p-2 text-[#0f172a]" aria-label="지도 닫기">
+          <button type="button" onClick={onClose} className="shrink-0 rounded-full bg-[#F1F5F9] p-2 text-[#0f172a]" aria-label={t('map.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
         <div className="px-5 pb-3">
           <div className="rounded-2xl border-2 border-[#334155] bg-[#f8fafc] px-3.5 py-3">
-            <p className="text-xs font-semibold text-[#3b1d8f]">{source === 'pick' ? '선택한 주소' : '현재 위치 주소'}</p>
+            <p className="text-xs font-semibold text-[#3b1d8f]">{source === 'pick' ? t('map.pickAddr') : t('map.curAddr')}</p>
             <p className="mt-1 text-base font-semibold leading-snug text-[#0f172a]">{displayedAddress}</p>
-            {addressPending ? <p className="mt-1 text-[11px] font-bold text-[#94A3B8]">지도 중심에 맞춰 주소를 갱신하는 중</p> : null}
+            {addressPending ? <p className="mt-1 text-[11px] font-bold text-[#94A3B8]">{t('map.updating')}</p> : null}
           </div>
         </div>
         <div className="relative mx-4 overflow-hidden rounded-[24px] border-2 border-[#334155] bg-[#E2E8F0]">
@@ -698,21 +703,21 @@ function LocationMapModal({
             <div className="rounded-2xl bg-white/95 px-3 py-2.5 shadow-[0_8px_18px_rgba(15,23,42,0.14)]">
               <p className="flex items-center gap-1.5 text-xs font-semibold text-[#3b1d8f]">
                 <MapPin className="h-3.5 w-3.5" />
-                {source === 'pick' ? '지도 위치' : '현재 위치'}
+                {source === 'pick' ? t('map.pickBadge') : t('map.curBadge')}
               </p>
               <p className="mt-1 text-sm font-semibold leading-snug text-[#0f172a]">{displayedAddress}</p>
-              {addressPending ? <p className="mt-1 text-[11px] font-bold text-[#94A3B8]">지도 중심에 맞춰 주소를 갱신하는 중</p> : null}
+              {addressPending ? <p className="mt-1 text-[11px] font-bold text-[#94A3B8]">{t('map.updating')}</p> : null}
             </div>
           </div>
           <div className="pointer-events-none absolute inset-x-3 bottom-8">
             <p className="rounded-xl bg-[#0f172a]/90 px-3 py-2 text-center text-sm font-medium leading-snug text-white">
-              지도를 움직이면 중심 위치의 주소가 바로 바뀝니다
+              {t('map.hint')}
             </p>
           </div>
         </div>
         <div className="px-5 pb-6 pt-4">
           <button type="button" onClick={onClose} className="w-full rounded-2xl bg-[#3b1d8f] py-3.5 text-base font-semibold text-white">
-            닫기
+            {t('common.close')}
           </button>
         </div>
       </section>
@@ -1197,6 +1202,7 @@ function FavoritePlaceModal({
   onClose: () => void
   onSave: (place: { name: string; address: string }) => void
 }) {
+  const { t } = useLocale()
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
   const canSave = name.trim().length > 0 && address.trim().length > 0
@@ -1206,23 +1212,23 @@ function FavoritePlaceModal({
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-black text-[#4C1FB8]">FAVORITE PLACE</p>
-            <h2 className="mt-1 text-xl font-black text-[#0F172A]">즐겨찾기 추가</h2>
-            <p className="mt-1 text-xs font-bold text-[#475569]">장소 이름과 주소를 입력해 주세요.</p>
+            <h2 className="mt-1 text-xl font-black text-[#0F172A]">{t('fav.title')}</h2>
+            <p className="mt-1 text-xs font-bold text-[#475569]">{t('fav.sub')}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="닫기">
+          <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
         <label className="mt-5 block">
-          <span className="text-xs font-black text-[#334155]">장소 이름</span>
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 헬스장, 부모님댁" className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]" />
+          <span className="text-xs font-black text-[#334155]">{t('fav.name')}</span>
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('fav.namePh')} className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]" />
         </label>
         <label className="mt-3 block">
-          <span className="text-xs font-black text-[#334155]">주소</span>
-          <input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="예: 서울시 강남구 테헤란로 123" className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]" />
+          <span className="text-xs font-black text-[#334155]">{t('fav.address')}</span>
+          <input value={address} onChange={(event) => setAddress(event.target.value)} placeholder={t('fav.addressPh')} className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]" />
         </label>
         <button type="button" disabled={!canSave} onClick={() => onSave({ name: name.trim(), address: address.trim() })} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_10px_22px_rgba(76,31,184,0.35)] disabled:cursor-not-allowed disabled:opacity-40">
-          즐겨찾기 등록
+          {t('fav.save')}
         </button>
       </section>
     </div>
@@ -1333,7 +1339,7 @@ function DestinationSearchModal({
       <section className="flex h-full w-full max-w-md flex-col bg-[#F4F0FB]">
         <header className="border-b border-[#E0D4FF] bg-white px-4 pb-3 pt-5">
           <div className="flex items-start gap-2">
-            <button type="button" onClick={onClose} className="mt-1.5 rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="검색 닫기">
+            <button type="button" onClick={onClose} className="mt-1.5 rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label={t('search.close')}>
               <X className="h-5 w-5" />
             </button>
             <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -1343,13 +1349,13 @@ function DestinationSearchModal({
                   ref={inputRef}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder={searchPlaceholder || '목적지를 검색해 주세요'}
+                  placeholder={searchPlaceholder || t('search.ph')}
                   className="w-full bg-transparent text-sm font-extrabold text-[#0F172A] outline-none placeholder:text-[#64748B]"
-                  aria-label="목적지 검색"
+                  aria-label={t('search.aria')}
                 />
                 {query ? (
-                  <button type="button" onClick={() => setQuery('')} className="text-[11px] font-black text-[#4C1FB8]" aria-label="검색어 지우기">
-                    지우기
+                  <button type="button" onClick={() => setQuery('')} className="text-[11px] font-black text-[#4C1FB8]" aria-label={t('search.clear')}>
+                    {t('search.clear')}
                   </button>
                 ) : null}
                 <button
@@ -1367,7 +1373,7 @@ function DestinationSearchModal({
                 className="flex min-w-0 items-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-[#F8F5FF] px-3 py-3 text-left"
               >
                 <MapPin className="h-5 w-5 shrink-0 text-[#4C1FB8]" />
-                <span className="w-full text-sm font-extrabold text-[#64748B]">지도에서 찾기</span>
+                <span className="w-full text-sm font-extrabold text-[#64748B]">{t('search.mapFind')}</span>
               </button>
             </div>
           </div>
@@ -1375,9 +1381,9 @@ function DestinationSearchModal({
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-8">
           {keyword ? (
             <div>
-              <p className="text-xs font-black text-[#4C1FB8]">{searching ? '장소를 찾는 중' : `검색 결과 ${results.length}곳`}</p>
-              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{`‘${keyword}’ 검색 결과입니다. 같은 주소는 한 번만 보여주고, 주변 시설도 함께 띄워요.`}</p>
-              {!searching && results.length === 0 ? <p className="mt-2 text-xs font-bold text-[#64748B]">검색된 장소가 없어요.</p> : null}
+              <p className="text-xs font-black text-[#4C1FB8]">{searching ? t('search.finding') : t('search.count', { count: String(results.length) })}</p>
+              <p className="mt-1 text-[11px] font-bold text-[#64748B]">{t('search.resultHint', { q: keyword })}</p>
+              {!searching && results.length === 0 ? <p className="mt-2 text-xs font-bold text-[#64748B]">{t('search.none')}</p> : null}
               <div className="mt-3 space-y-2">
                 {results.map((place) => {
                   const coords =
@@ -1393,13 +1399,13 @@ function DestinationSearchModal({
                         <span className="flex flex-wrap items-center gap-1.5">
                           <strong className="break-words text-sm font-black text-[#0F172A]">{place.name}</strong>
                           {place.kind === 'parking' ? (
-                            <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#B45309]">{place.category || '주차장'}</span>
+                            <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#B45309]">{place.category || t('search.parking')}</span>
                           ) : place.category ? (
                             <span className="rounded-full bg-[#EDE5FF] px-2 py-0.5 text-[10px] font-black text-[#4C1FB8]">{place.category}</span>
                           ) : null}
                         </span>
                         <span className="mt-1 block break-words text-xs font-bold text-[#334155]">{place.address}</span>
-                        {place.jibun && place.jibun !== place.address ? <span className="mt-0.5 block break-words text-[11px] font-bold text-[#64748B]">지번 {place.jibun}</span> : null}
+                        {place.jibun && place.jibun !== place.address ? <span className="mt-0.5 block break-words text-[11px] font-bold text-[#64748B]">{t('search.jibun', { v: place.jibun })}</span> : null}
                       </span>
                     </button>
                   )
@@ -1410,9 +1416,9 @@ function DestinationSearchModal({
             <>
               <section>
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-black text-[#4C1FB8]">즐겨찾는 장소</p>
+                  <p className="text-xs font-black text-[#4C1FB8]">{t('search.favorites')}</p>
                   <button type="button" onClick={onAddFavorite} className="text-[11px] font-black text-[#4C1FB8]">
-                    + 추가
+                    {t('search.add')}
                   </button>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1420,15 +1426,15 @@ function DestinationSearchModal({
                     <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
                       <House className="h-5 w-5" />
                     </span>
-                    <strong className="mt-3 block text-sm font-black">집</strong>
-                    <span className="mt-1 block text-[11px] font-bold text-[#64748B]">등록된 집으로 이동</span>
+                    <strong className="mt-3 block text-sm font-black">{t('search.home')}</strong>
+                    <span className="mt-1 block text-[11px] font-bold text-[#64748B]">{t('search.homeSub')}</span>
                   </button>
                   <button type="button" onClick={() => pick('회사')} className={`rounded-[22px] border-2 bg-white p-4 text-left shadow-[0_8px_16px_rgba(15,23,42,0.06)] ${destination === '회사' ? 'border-[#4C1FB8]' : 'border-[#E0D4FF]'}`}>
                     <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#EDE5FF] text-[#4C1FB8]">
                       <Building2 className="h-5 w-5" />
                     </span>
-                    <strong className="mt-3 block text-sm font-black">회사</strong>
-                    <span className="mt-1 block text-[11px] font-bold text-[#64748B]">등록된 회사로 이동</span>
+                    <strong className="mt-3 block text-sm font-black">{t('search.work')}</strong>
+                    <span className="mt-1 block text-[11px] font-bold text-[#64748B]">{t('search.workSub')}</span>
                   </button>
                   {favorites.map((place) => (
                     <div key={place.id} className="relative rounded-[22px] border-2 border-[#E0D4FF] bg-white p-4 shadow-[0_8px_16px_rgba(15,23,42,0.06)]">
@@ -1439,7 +1445,7 @@ function DestinationSearchModal({
                         <strong className="mt-3 block truncate text-sm font-black">{place.name}</strong>
                         <span className="mt-1 block truncate text-[11px] font-bold text-[#64748B]">{place.address}</span>
                       </button>
-                      <button type="button" onClick={() => onRemoveFavorite(place.id)} className="absolute right-3 top-3 rounded-full bg-[#F1F5F9] p-1 text-[#64748B]" aria-label={`${place.name} 즐겨찾기 삭제`}>
+                      <button type="button" onClick={() => onRemoveFavorite(place.id)} className="absolute right-3 top-3 rounded-full bg-[#F1F5F9] p-1 text-[#64748B]" aria-label={t('search.favDel', { name: place.name })}>
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -1448,25 +1454,25 @@ function DestinationSearchModal({
                     <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-[#4C1FB8]">
                       <MapPin className="h-5 w-5" />
                     </span>
-                    <strong className="mt-3 block text-sm font-black text-[#4C1FB8]">지도에서 찾기</strong>
-                    <span className="mt-1 block text-[11px] font-bold text-[#64748B]">핀을 옮겨 목적지 지정</span>
+                    <strong className="mt-3 block text-sm font-black text-[#4C1FB8]">{t('search.mapFind')}</strong>
+                    <span className="mt-1 block text-[11px] font-bold text-[#64748B]">{t('search.mapSub')}</span>
                   </button>
                   {onOpenMap ? (
                     <button type="button" onClick={onOpenMap} className="rounded-[22px] border-2 border-dashed border-[#94A3B8] bg-white p-4 text-left">
                       <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#F1F5F9] text-[#4C1FB8]">
                         <LocateFixed className="h-5 w-5" />
                       </span>
-                      <strong className="mt-3 block text-sm font-black text-[#0F172A]">내 위치</strong>
-                      <span className="mt-1 block text-[11px] font-bold text-[#64748B]">현재 위치 지도 보기</span>
+                      <strong className="mt-3 block text-sm font-black text-[#0F172A]">{t('search.myLoc')}</strong>
+                      <span className="mt-1 block text-[11px] font-bold text-[#64748B]">{t('search.myLocSub')}</span>
                     </button>
                   ) : null}
                 </div>
               </section>
               <section className="mt-6">
-                <p className="text-xs font-black text-[#4C1FB8]">최근 목적지</p>
+                <p className="text-xs font-black text-[#4C1FB8]">{t('search.recent')}</p>
                 <div className="mt-3 space-y-2">
                   {recents.length === 0 ? (
-                    <p className="rounded-[22px] bg-white p-4 text-xs font-bold text-[#64748B]">아직 최근 목적지가 없어요.</p>
+                    <p className="rounded-[22px] bg-white p-4 text-xs font-bold text-[#64748B]">{t('search.recentEmpty')}</p>
                   ) : (
                     recents.map((place) => (
                       <div key={place.id} className="flex items-center gap-2 rounded-[22px] border-2 border-[#E0D4FF] bg-white p-3 shadow-[0_8px_16px_rgba(15,23,42,0.06)]">
@@ -1479,7 +1485,7 @@ function DestinationSearchModal({
                             <span className="mt-0.5 block truncate text-xs font-bold text-[#64748B]">{place.address}</span>
                           </span>
                         </button>
-                        <button type="button" onClick={() => onRemoveRecent(place.id)} className="rounded-full bg-[#F1F5F9] p-2 text-[#64748B]" aria-label={`${place.name} 최근 목적지 삭제`}>
+                        <button type="button" onClick={() => onRemoveRecent(place.id)} className="rounded-full bg-[#F1F5F9] p-2 text-[#64748B]" aria-label={t('search.recDel', { name: place.name })}>
                           <X className="h-4 w-4" />
                         </button>
                       </div>
@@ -1622,6 +1628,7 @@ function DestinationTaxiLoop({ className }: { className?: string }) {
 }
 
 function SearchCard({ destination, onSelect }: { destination: string; onSelect: (value: string) => void }) {
+  const { t } = useLocale()
   const [searchOpen, setSearchOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
   const [locationMapSession, setLocationMapSession] = useState(0)
@@ -1666,27 +1673,27 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
   return (
     <section className="rounded-[28px] border border-[#CBD5E1] bg-white p-4 shadow-[0_14px_32px_rgba(15,23,42,0.14)]">
       <div className="mb-3 flex items-end justify-between gap-3">
-        <p className="text-[22px] font-bold leading-tight text-[#0f172a]">어디로 갈까요?</p>
-        <span className="shrink-0 pb-0.5 text-xs font-semibold text-[#334155]">목적지 검색</span>
+        <p className="text-[22px] font-bold leading-tight text-[#0f172a]">{t('home.whereTo')}</p>
+        <span className="shrink-0 pb-0.5 text-xs font-semibold text-[#334155]">{t('home.destSearch')}</span>
       </div>
       <button
         type="button"
         onClick={() => setSearchOpen(true)}
         className="group relative z-10 flex w-full items-stretch overflow-hidden rounded-2xl border-2 border-[#94A3B8] bg-[#F8FAFC] text-left transition hover:border-[#4C1FB8] hover:bg-white"
-        aria-label="목적지 검색 열기"
+        aria-label={t('home.destSearchOpen')}
       >
         <span className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-l-[14px] px-4 py-3.5">
           <Search className="h-5 w-5 shrink-0 text-[#4C1FB8]" />
-          <span className={`min-w-0 flex-1 truncate text-sm font-extrabold ${destination ? 'text-[#0F172A]' : 'text-[#64748B]'}`}>{destination || '목적지를 입력해 주세요'}</span>
+          <span className={`min-w-0 flex-1 truncate text-sm font-extrabold ${destination ? 'text-[#0F172A]' : 'text-[#64748B]'}`}>{destination || t('home.destPh')}</span>
         </span>
         <DestinationTaxiLoop className="w-[10.25rem] shrink-0 self-stretch rounded-r-[14px]" />
       </button>
       <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
         <button type="button" onClick={() => select('집')} className={chipClass(destination === '집')}>
-          집
+          {t('search.home')}
         </button>
         <button type="button" onClick={() => select('회사')} className={chipClass(destination === '회사')}>
-          회사
+          {t('search.work')}
         </button>
         {favorites.map((place) => {
           const active = destination === place.address || destination === place.name
@@ -1695,18 +1702,18 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
               <button type="button" onClick={() => select(place.name, place.address)} className={`${chipClass(active)} pr-2`}>
                 {place.name}
               </button>
-              <button type="button" onClick={() => removeFavorite(place.id)} className="-ml-2 mr-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#F1F5F9] text-[#64748B]" aria-label={`${place.name} 즐겨찾기 삭제`}>
+              <button type="button" onClick={() => removeFavorite(place.id)} className="-ml-2 mr-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#F1F5F9] text-[#64748B]" aria-label={t('search.favDel', { name: place.name })}>
                 <X className="h-3 w-3" />
               </button>
             </span>
           )
         })}
-        <button type="button" onClick={() => setFormOpen(true)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[#4C1FB8] bg-white text-[#4C1FB8] transition hover:bg-[#EDE5FF] active:scale-95" aria-label="즐겨찾기 장소 추가">
+        <button type="button" onClick={() => setFormOpen(true)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[#4C1FB8] bg-white text-[#4C1FB8] transition hover:bg-[#EDE5FF] active:scale-95" aria-label={t('fav.add')}>
           <Plus className="h-4 w-4" strokeWidth={3} />
         </button>
         <button type="button" onClick={openLocationMap} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border-2 border-[#4C1FB8] bg-[#EDE5FF] px-4 py-2 text-xs font-black text-[#3B16A8] shadow-[0_6px_14px_rgba(76,31,184,0.18)] transition hover:bg-[#E0D4FF] active:scale-95">
           <LocateFixed className="h-3.5 w-3.5" />
-          내 위치
+          {t('search.myLoc')}
         </button>
       </div>
       {searchOpen ? (
@@ -1737,20 +1744,21 @@ function PiPayPanel({
   balance: number
   onPay: () => void
 }) {
+  const { t } = useLocale()
   const enough = balance >= amount
   return (
     <div className="space-y-3">
       <div className="rounded-[22px] border-2 border-[#4C1FB8] bg-[#EDE5FF] p-4">
-        <p className="text-xs font-black text-[#4C1FB8]">결제 수단</p>
+        <p className="text-xs font-black text-[#4C1FB8]">{t('pay.method')}</p>
         <div className="mt-2 flex items-center justify-between">
-          <span className="text-sm font-black text-[#0F172A]">Pi 코인</span>
-          <span className="rounded-full bg-[#4C1FB8] px-2.5 py-1 text-[10px] font-black text-white">선택됨</span>
+          <span className="text-sm font-black text-[#0F172A]">{t('pay.piCoin')}</span>
+          <span className="rounded-full bg-[#4C1FB8] px-2.5 py-1 text-[10px] font-black text-white">{t('pay.selected')}</span>
         </div>
         <div className="mt-3 flex items-end justify-between">
-          <p className="text-xs font-bold text-[#475569]">보유 잔액 {balance.toFixed(7)} Pi</p>
+          <p className="text-xs font-bold text-[#475569]">{t('pay.balanceLine', { v: balance.toFixed(7) })}</p>
           <p className="text-lg font-black text-[#4C1FB8]">{amount.toFixed(7)} Pi</p>
         </div>
-        {!enough ? <p className="mt-2 text-xs font-black text-[#BE123C]">잔액이 부족합니다. 충전 후 결제해 주세요.</p> : null}
+        {!enough ? <p className="mt-2 text-xs font-black text-[#BE123C]">{t('pay.insufficient')}</p> : null}
       </div>
       {enough ? (
         <BalanceCheckoutButton
@@ -1760,11 +1768,11 @@ function PiPayPanel({
           className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
           onPaid={() => onPay()}
         >
-          {`Pi로 ${amount.toFixed(7)} 결제하기`}
+          {t('pay.checkout', { v: amount.toFixed(7) })}
         </BalanceCheckoutButton>
       ) : (
         <button type="button" onClick={onPay} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
-          잔액 충전하기
+          {t('pay.chargeBtn')}
         </button>
       )}
     </div>
@@ -1788,34 +1796,35 @@ function InTripCancelConfirmModal({
   onKeep: () => void
   onConfirm: () => void
 }) {
+  const { t } = useLocale()
   return (
     <div className="pointer-events-auto fixed inset-0 z-[120] flex items-end bg-[#1e293b]/50 sm:items-center sm:p-4">
       <section className="pointer-events-auto mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-        <h2 className="text-2xl font-black text-[#0F172A]">이용 취소</h2>
-        <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">운행 중 취소 시 취소 수수료가 부과될 수 있습니다. 정말 취소하시겠습니까?</p>
+        <h2 className="text-2xl font-black text-[#0F172A]">{t('cancel.title')}</h2>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">{t('cancel.desc')}</p>
         <div className="mt-5 rounded-[22px] border-2 border-[#FECACA] bg-[#FEF2F2] p-4 text-left">
-          <p className="text-xs font-black text-[#BE123C]">취소 수수료 정산</p>
-          <p className="mt-2 text-[11px] font-bold leading-5 text-[#7F1D1D]">기사님의 이동 수고를 반영해 이용 요금의 일부가 위약금(취소 수수료)으로 기사에게 지급되고, 나머지는 청구되지 않습니다.</p>
+          <p className="text-xs font-black text-[#BE123C]">{t('cancel.feeTitle')}</p>
+          <p className="mt-2 text-[11px] font-bold leading-5 text-[#7F1D1D]">{t('cancel.feeDesc')}</p>
           <div className="mt-3 flex items-center justify-between">
-            <span className="text-xs font-medium text-[#64748B]">운행 요금</span>
+            <span className="text-xs font-medium text-[#64748B]">{t('cancel.fare')}</span>
             <span className="text-sm font-bold text-[#64748B]">{quoted.toFixed(7)} Pi</span>
           </div>
           <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs font-bold text-[#BE123C]">취소 수수료 · 기사 지급</span>
+            <span className="text-xs font-bold text-[#BE123C]">{t('cancel.feeDriver')}</span>
             <span className="text-lg font-black text-[#BE123C]">{cancelFee.toFixed(7)} Pi</span>
           </div>
           <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-[#64748B]">미청구 금액</span>
+            <span className="text-xs font-medium text-[#64748B]">{t('cancel.waived')}</span>
             <span className="text-sm font-bold text-[#047857]">{waived.toFixed(7)} Pi</span>
           </div>
-          <p className="mt-3 text-[11px] font-bold text-[#7F1D1D]">기사 지급 {driverPayout.toFixed(7)} Pi · 미청구 {waived.toFixed(7)} Pi</p>
+          <p className="mt-3 text-[11px] font-bold text-[#7F1D1D]">{t('cancel.summary', { p: driverPayout.toFixed(7), w: waived.toFixed(7) })}</p>
         </div>
         <button type="button" disabled={settling} onClick={onConfirm} className="mt-5 w-full rounded-2xl bg-[#BE123C] py-3.5 font-black text-white disabled:opacity-60">
-          {settling ? '정산 중…' : '취소 수수료 내고 이용 취소'}
+          {settling ? t('cancel.settling') : t('cancel.confirm')}
         </button>
         <button type="button" disabled={settling} onClick={onKeep} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
-          운행 계속하기
+          {t('cancel.keep')}
         </button>
       </section>
     </div>
@@ -1831,6 +1840,7 @@ function RideCompleteCancelBar({
   onCancel: () => void
   hint?: string
 }) {
+  const { t } = useLocale()
   return (
     <div className="sticky bottom-0 z-30 -mx-5 mt-3 space-y-2 border-t-2 border-[#FECDD3] bg-white px-5 pb-[max(0.9rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_20px_rgba(15,23,42,0.06)]">
       {children}
@@ -1839,7 +1849,7 @@ function RideCompleteCancelBar({
         onClick={onCancel}
         className="w-full rounded-2xl border-2 border-[#BE123C] bg-[#FFF1F2] py-3.5 text-base font-black text-[#BE123C] shadow-[0_4px_12px_rgba(190,18,60,0.12)]"
       >
-        이용 취소
+        {t('cancel.title')}
       </button>
       {hint ? <p className="text-center text-[11px] font-bold leading-5 text-[#BE123C]">{hint}</p> : null}
     </div>
@@ -1847,6 +1857,7 @@ function RideCompleteCancelBar({
 }
 
 function InsufficientBalanceModal({ onConfirm }: { onConfirm: () => void }) {
+  const { t } = useLocale()
   return (
     <div className="fixed inset-0 z-[96] flex items-end bg-[#1e293b]/50 sm:items-center sm:p-4">
       <section className="mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
@@ -1854,10 +1865,10 @@ function InsufficientBalanceModal({ onConfirm }: { onConfirm: () => void }) {
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#FEF2F2] text-[#BE123C]">
           <WalletCards className="h-7 w-7" />
         </div>
-        <h2 className="mt-4 text-2xl font-bold text-[#0F172A]">잔액 부족</h2>
-        <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">보유 잔액이 부족합니다. Pi 충전 후 다시 결제해 주세요.</p>
+        <h2 className="mt-4 text-2xl font-bold text-[#0F172A]">{t('insuff.title')}</h2>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">{t('insuff.desc')}</p>
         <button type="button" onClick={onConfirm} className="mt-6 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white">
-          확인
+          {t('common.ok')}
         </button>
       </section>
     </div>
@@ -1877,6 +1888,7 @@ function PaymentDoneModal({
   estimated?: number
   onClose: () => void
 }) {
+  const { t } = useLocale()
   const adjusted = estimated != null && Math.round(estimated * 100) !== Math.round(amount * 100)
   return (
     <div className="fixed inset-0 z-[95] flex items-end bg-[#1e293b]/45 sm:items-center sm:p-4" onClick={onClose}>
@@ -1885,53 +1897,53 @@ function PaymentDoneModal({
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#4A82B8] text-white">
           <Check className="h-7 w-7" strokeWidth={3} />
         </div>
-        <h2 className="mt-4 text-2xl font-bold text-[#0F172A]">Pi 결제 완료 및 영수증 확인</h2>
-        <p className="mt-2 text-sm font-semibold leading-6 text-[#334155]">정상적으로 후결제가 완료되었습니다</p>
+        <h2 className="mt-4 text-2xl font-bold text-[#0F172A]">{t('paydone.title')}</h2>
+        <p className="mt-2 text-sm font-semibold leading-6 text-[#334155]">{t('paydone.desc')}</p>
         <div className="mt-5 rounded-[22px] border-2 border-[#CBD5E1] bg-[#F8FAFC] p-4 text-left">
-          <p className="text-xs font-bold text-[#4A82B8]">영수증</p>
+          <p className="text-xs font-bold text-[#4A82B8]">{t('receipt.title')}</p>
           <p className="mt-2 text-sm font-semibold text-[#475569]">{place}</p>
           {adjusted ? (
             <>
               <div className="mt-3 flex items-center justify-between">
-                <span className="text-xs font-medium text-[#64748B]">호출 시 예상 요금</span>
+                <span className="text-xs font-medium text-[#64748B]">{t('paydone.estFare')}</span>
                 <span className="text-sm font-semibold text-[#64748B] line-through">{estimated.toFixed(7)} Pi</span>
               </div>
               <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs font-bold text-[#0F172A]">실제 이용 요금</span>
+                <span className="text-xs font-bold text-[#0F172A]">{t('paydone.actFare')}</span>
                 <span className="text-xl font-bold text-[#0F172A]">{amount.toFixed(7)} Pi</span>
               </div>
               <div className="mt-3 rounded-2xl bg-white px-3 py-3">
-                <p className="text-[11px] font-semibold leading-5 text-[#334155]">실시간 주행 거리/시간에 따라 최종 요금이 산정되었습니다</p>
+                <p className="text-[11px] font-semibold leading-5 text-[#334155]">{t('paydone.realtime')}</p>
                 <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs font-bold text-[#4A82B8]">최종 청구 금액</span>
+                  <span className="text-xs font-bold text-[#4A82B8]">{t('paydone.final')}</span>
                   <span className="text-lg font-bold text-[#4A82B8]">{amount.toFixed(7)} Pi</span>
                 </div>
               </div>
             </>
           ) : (
             <div className="mt-3 flex items-center justify-between">
-              <span className="text-xs font-medium text-[#64748B]">결제 금액</span>
+              <span className="text-xs font-medium text-[#64748B]">{t('paydone.amount')}</span>
               <span className="text-xl font-bold text-[#0F172A]">{amount.toFixed(7)} Pi</span>
             </div>
           )}
           <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-[#64748B]">결제 수단</span>
+            <span className="text-xs font-medium text-[#64748B]">{t('pay.method')}</span>
             <span className="text-sm font-bold text-[#0F172A]">Pi Network</span>
           </div>
           <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-[#64748B]">남은 잔액</span>
+            <span className="text-xs font-medium text-[#64748B]">{t('paydone.remaining')}</span>
             <span className="text-sm font-bold text-[#334155]">{remaining.toFixed(7)} Pi</span>
           </div>
         </div>
         <button type="button" onClick={onClose} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white">
-          확인
+          {t('common.ok')}
         </button>
       </section>
     </div>
   )
 }
 
-const PRAISE_TAGS = ['친절해요', '응대가 부드러워요', '설명이 명확해요', '배려가 좋아요', '운전이 안전해요', '차가 깨끗해요']
+const PRAISE_TAGS = ['kind', 'gentle', 'clear', 'caring', 'safe', 'clean'] as const
 
 function DriverReviewModal({
   driver,
@@ -1942,11 +1954,12 @@ function DriverReviewModal({
   onClose: () => void
   onSubmit: (rating: number) => void
 }) {
+  const { t } = useLocale()
   const [rating, setRating] = useState(5)
   const [tags, setTags] = useState<string[]>([])
   const [comment, setComment] = useState('')
   const [done, setDone] = useState(false)
-  const ratingLabel = ['', '아쉬워요', '보통이에요', '좋아요', '만족해요', '최고예요'][rating]
+  const ratingLabel = ['', t('review.rate1'), t('review.rate2'), t('review.rate3'), t('review.rate4'), t('review.rate5')][rating]
   const toggleTag = (tag: string) => {
     setTags((items) => (items.includes(tag) ? items.filter((item) => item !== tag) : [...items, tag]))
   }
@@ -1962,46 +1975,46 @@ function DriverReviewModal({
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#4C1FB8] text-white">
               <Check className="h-8 w-8" strokeWidth={3} />
             </div>
-            <h2 className="mt-4 text-2xl font-black text-[#0F172A]">감사합니다</h2>
-            <p className="mt-2 text-sm font-bold leading-6 text-[#475569]">소중한 평가가 반영되었습니다. 리뷰 감사 포인트 0.1 Pi가 적립됩니다.</p>
+            <h2 className="mt-4 text-2xl font-black text-[#0F172A]">{t('review.thanks')}</h2>
+            <p className="mt-2 text-sm font-bold leading-6 text-[#475569]">{t('review.thanksSub')}</p>
           </div>
         ) : (
           <>
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-black text-[#4C1FB8]">{driver.kind === 'service' ? '이용 완료 · 서비스 평가' : '이용 완료 · 기사 평가'}</p>
-                <h2 className="mt-1 text-xl font-black leading-7 text-[#0F172A]">{driver.kind === 'service' ? '이용은 어떠셨나요?' : '기사님과의 이동은 어떠셨나요?'}</h2>
-                <p className="mt-1 text-sm font-bold text-[#64748B]">{driver.kind === 'service' ? '별점과 후기를 남겨주세요' : '친절도와 평점을 남겨주세요'}</p>
+                <p className="text-xs font-black text-[#4C1FB8]">{driver.kind === 'service' ? t('review.tagService') : t('review.tagDriver')}</p>
+                <h2 className="mt-1 text-xl font-black leading-7 text-[#0F172A]">{driver.kind === 'service' ? t('review.qService') : t('review.qDriver')}</h2>
+                <p className="mt-1 text-sm font-bold text-[#64748B]">{driver.kind === 'service' ? t('review.subService') : t('review.subDriver')}</p>
               </div>
-              <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="닫기">
+              <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label={t('common.close')}>
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div className="mt-4 flex items-center gap-3 rounded-[22px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] font-black text-white">{driver.name.slice(0, 1)}</div>
               <div>
-                <p className="font-black text-[#0F172A]">{driver.kind === 'service' ? driver.name : `${driver.name} 기사님`}</p>
+                <p className="font-black text-[#0F172A]">{driver.kind === 'service' ? driver.name : t('match.driverTitle', { name: driver.name })}</p>
                 <p className="mt-1 text-xs font-bold text-[#475569]">{driver.vehicle}{driver.plate ? ` · ${driver.plate}` : ''}</p>
               </div>
             </div>
             <div className="mt-5 text-center">
-              <p className="text-xs font-black text-[#334155]">평점 · 1점부터 5점</p>
+              <p className="text-xs font-black text-[#334155]">{t('review.ratingLbl')}</p>
               <div className="mt-2 flex justify-center gap-1.5">
                 {[1, 2, 3, 4, 5].map((value) => (
                   <button
                     key={value}
                     type="button"
                     onClick={() => setRating(value)}
-                    aria-label={`${value}점`}
+                    aria-label={t('review.starAria', { v: String(value) })}
                     className={`rounded-2xl p-1.5 transition ${value <= rating ? 'text-[#4C1FB8]' : 'text-[#D8CCF5]'}`}
                   >
                     <Star className="h-8 w-8" fill="currentColor" strokeWidth={0} />
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-sm font-black text-[#4C1FB8]">{rating}점 · {ratingLabel}</p>
+              <p className="mt-2 text-sm font-black text-[#4C1FB8]">{t('review.ratingLine', { v: String(rating), label: ratingLabel })}</p>
             </div>
-            <p className="mt-5 text-xs font-black text-[#334155]">친절도 태그 · 여러 개 선택 가능</p>
+            <p className="mt-5 text-xs font-black text-[#334155]">{t('review.tagLbl')}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {PRAISE_TAGS.map((tag) => {
                 const selected = tags.includes(tag)
@@ -2012,23 +2025,23 @@ function DriverReviewModal({
                     onClick={() => toggleTag(tag)}
                     className={`rounded-full px-3 py-2 text-xs font-black ${selected ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'border border-[#D8CCF5] bg-[#F8F5FF] text-[#4C1FB8]'}`}
                   >
-                    {tag}
+                    {t(`review.tag.${tag}`)}
                   </button>
                 )
               })}
             </div>
             <label className="mt-4 block">
-              <span className="text-xs font-black text-[#334155]">한줄 후기</span>
+              <span className="text-xs font-black text-[#334155]">{t('review.comment')}</span>
               <textarea
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
                 rows={3}
-                placeholder="기사님께 전하고 싶은 말을 남겨 주세요"
+                placeholder={t('review.commentPh')}
                 className="mt-2 w-full resize-none rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
               />
             </label>
             <button type="button" onClick={submit} className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-4 text-base font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)]">
-              평가 제출
+              {t('review.submit')}
             </button>
           </>
         )}
@@ -2056,15 +2069,18 @@ function DestinationSheet({
   onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
+  const { t } = useLocale()
   const [selectedService, setSelectedService] = useState('')
   const [matchState, setMatchState] = useState<'select' | 'matching' | 'matched'>('select')
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const finishedRef = useRef(false)
-  const options = [['택시예약', '2.5'], ['일반택시', '2.1'], ['프리미엄', '3.5'], ['대리운전', '3.0'], ['기타', '1.8']]
-  const selectedPrice = options.find(([name]) => name === selectedService)?.[1] ?? '0'
+  const options: [string, string, string][] = [['택시예약', '2.5', 'match.opt.taxiReserve'], ['일반택시', '2.1', 'match.opt.taxiNormal'], ['프리미엄', '3.5', 'match.opt.taxiPremium'], ['대리운전', '3.0', 'service.daeri'], ['기타', '1.8', 'match.opt.etc']]
+  const selectedOption = options.find(([name]) => name === selectedService)
+  const selectedPrice = selectedOption?.[1] ?? '0'
+  const selectedLabel = selectedOption ? t(selectedOption[2] as MessageKey) : ''
   const fare = Number(selectedPrice)
-  const place = destination.trim() ? destination : '선택한 목적지'
+  const place = destination.trim() ? destination : t('search.selectedDest')
   const billed = isRidePayLabel(selectedService) ? settleRideFare(fare, `dest:${selectedService}:${place}`) : { estimate: fare, actual: fare }
   const callSelected = () => {
     if (!selectedService) return
@@ -2072,21 +2088,21 @@ function DestinationSheet({
   }
   const confirmMatched = () => {
     setMatchState('matched')
-    onNotice('기사 매칭이 완료되었습니다.')
+    onNotice(t('match.doneNotice'))
   }
   const cancelMatching = () => {
     setMatchState('select')
-    onNotice('기사 호출을 취소했어요.')
+    onNotice(t('match.cancelNotice'))
   }
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-[#241d35]/35">
       <div className="w-full max-w-md rounded-t-[30px] bg-white px-5 pb-8 pt-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold text-[#8b8495]">추천 경로</p>
+            <p className="text-xs font-bold text-[#8b8495]">{t('match.recommended')}</p>
             <h2 className="mt-1 text-2xl font-black">{place}</h2>
           </div>
-          <button onClick={onClose} aria-label="닫기" className="rounded-full bg-[#f4f1f8] p-2">
+          <button onClick={onClose} aria-label={t('common.close')} className="rounded-full bg-[#f4f1f8] p-2">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -2094,25 +2110,25 @@ function DestinationSheet({
           <>
             <div className="mt-5 rounded-3xl bg-[#f7f3ff] p-4">
               <div className="flex items-center justify-between">
-                <span className="font-black">예상 시간 18분</span>
-                <span className="text-sm font-bold text-[#77717f]">약 5.2 km</span>
+                <span className="font-black">{t('match.estTime', { min: '18' })}</span>
+                <span className="text-sm font-bold text-[#77717f]">{t('match.estDist', { km: '5.2' })}</span>
               </div>
-              <p className="mt-1 text-xs font-bold text-[#8b8495]">이동 서비스를 선택해 주세요.</p>
+              <p className="mt-1 text-xs font-bold text-[#8b8495]">{t('match.pickService')}</p>
             </div>
             <div className="mt-4 grid grid-cols-5 gap-2">
-              {options.map(([name, price]) => (
+              {options.map(([name, price, key]) => (
                 <button
                   key={name}
                   onClick={() => setSelectedService(name)}
                   className={`min-h-[92px] rounded-2xl border p-2 text-center transition active:scale-95 ${selectedService === name ? 'border-[#7046dc] bg-[#7046dc] text-white shadow-lg shadow-[#7046dc]/20' : 'border-[#e2ddec] bg-white text-[#40365a] hover:border-[#bda9f5]'}`}
                 >
-                  <span className="block text-[11px] font-black leading-tight">{name}</span>
+                  <span className="block text-[11px] font-black leading-tight">{t(key as MessageKey)}</span>
                   <strong className={`mt-3 block text-xs ${selectedService === name ? 'text-white' : 'text-[#7046dc]'}`}>{price} Pi</strong>
                 </button>
               ))}
             </div>
             <button disabled={!selectedService} onClick={callSelected} className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)] transition disabled:cursor-not-allowed disabled:opacity-40">
-              {selectedService ? `${selectedService} 선택 서비스 호출하기` : '서비스를 선택해 주세요'}
+              {selectedService ? t('match.callBtn', { name: selectedLabel }) : t('match.selectService')}
             </button>
           </>
         )}
@@ -2121,34 +2137,34 @@ function DestinationSheet({
             <div className="mx-auto flex h-24 w-24 animate-pulse items-center justify-center rounded-full border-2 border-[#7046dc]">
               <div className="h-12 w-12 rounded-full bg-[#7046dc]/15" />
             </div>
-            <h3 className="mt-5 text-xl font-black">기사님 매칭 대기 중</h3>
-            <p className="mt-2 text-sm font-bold text-[#8b8495]">기사님이 콜을 수락할 때까지 이 화면을 유지합니다.</p>
+            <h3 className="mt-5 text-xl font-black">{t('match.waiting')}</h3>
+            <p className="mt-2 text-sm font-bold text-[#8b8495]">{t('match.waitingSub')}</p>
             <button type="button" onClick={confirmMatched} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
-              매칭 완료 확인
+              {t('match.confirm')}
             </button>
             <button onClick={cancelMatching} className="mt-3 w-full rounded-2xl border border-[#d8d1e5] bg-white py-3.5 font-black text-[#5f566d]">
-              호출 취소
+              {t('match.cancel')}
             </button>
           </div>
         )}
         {matchState === 'matched' && (
           <div className="mt-5 space-y-3">
             <div className="rounded-[26px] bg-[#effbf3] p-5">
-              <p className="text-sm font-black text-[#2d9a5e]">매칭 완료!</p>
+              <p className="text-sm font-black text-[#2d9a5e]">{t('match.done')}</p>
               <div className="mt-3 flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#eadfff] font-black text-[#7046dc]">김</div>
                 <div>
-                  <p className="font-black">김파이 기사님</p>
-                  <p className="text-xs font-bold text-[#64748B]">서울34바 1234 · 카카오 T {selectedService === '프리미엄' ? '모범' : '일반'}</p>
+                  <p className="font-black">{t('match.driverTitle', { name: '김파이' })}</p>
+                  <p className="text-xs font-bold text-[#64748B]">서울34바 1234 · {selectedService === '프리미엄' ? t('match.opt.taxiPremium') : t('match.opt.taxiNormal')}</p>
                 </div>
               </div>
               <div className="mt-4 flex items-end justify-between">
                 <div>
-                  <p className="text-xs font-bold text-[#64748B]">예상 도착</p>
-                  <p className="text-lg font-black text-[#7046dc]">3분 후 도착 예정</p>
+                  <p className="text-xs font-bold text-[#64748B]">{t('match.eta')}</p>
+                  <p className="text-lg font-black text-[#7046dc]">{t('match.etaIn', { min: '3' })}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-bold text-[#64748B]">결제 금액</p>
+                  <p className="text-xs font-bold text-[#64748B]">{t('paydone.amount')}</p>
                   <p className="text-lg font-black">{selectedPrice} Pi</p>
                 </div>
               </div>
@@ -2156,11 +2172,11 @@ function DestinationSheet({
             <div className="grid grid-cols-2 gap-2">
               <button type="button" onClick={() => setCallOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
                 <Phone className="h-4 w-4" />
-                전화하기
+                {t('match.call')}
               </button>
               <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 text-sm font-black text-[#4C1FB8]">
                 <MessageCircle className="h-4 w-4" />
-                채팅하기
+                {t('match.chat')}
               </button>
             </div>
             <BalanceCheckoutButton
@@ -2173,29 +2189,30 @@ function DestinationSheet({
                 onSettle(billed.actual, place, selectedService, isRidePayLabel(selectedService) ? billed.estimate : undefined, result)
                 onAskReview({
                   name: '김파이',
-                  vehicle: selectedService === '프리미엄' ? '카카오 T 모범' : '카카오 T 일반',
+                  vehicle: selectedService === '프리미엄' ? t('match.opt.taxiPremium') : t('match.opt.taxiNormal'),
                   plate: '서울34바 1234',
                 })
                 onClose()
               }}
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
-              이용 완료
+              {t('match.complete')}
             </BalanceCheckoutButton>
-            <p className="text-center text-[11px] font-bold text-[#8b8495]">목적지 도착 후 눌러 주세요 · 하차 완료</p>
+            <p className="text-center text-[11px] font-bold text-[#8b8495]">{t('match.completeHint')}</p>
             <button onClick={cancelMatching} className="w-full rounded-2xl border border-[#d8d1e5] bg-white py-3.5 font-black text-[#5f566d]">
-              호출 취소
+              {t('match.cancel')}
             </button>
           </div>
         )}
       </div>
-      {callOpen ? <SafeCallModal driverName="김파이" onHangup={() => setCallOpen(false)} /> : null}
-      {chatOpen ? <DriverChatModal driverName="김파이" onClose={() => setChatOpen(false)} /> : null}
+      {callOpen ? <SafeCallModal driverName={t('match.driverTitle', { name: '김파이' })} onHangup={() => setCallOpen(false)} /> : null}
+      {chatOpen ? <DriverChatModal driverName={t('match.driverTitle', { name: '김파이' })} onClose={() => setChatOpen(false)} /> : null}
     </div>
   )
 }
 
 function SafeCallModal({ driverName, onHangup }: { driverName: string; onHangup: () => void }) {
+  const { t } = useLocale()
   const [status, setStatus] = useState<'connecting' | 'talking'>('connecting')
   useEffect(() => {
     const timer = window.setTimeout(() => setStatus('talking'), 1600)
@@ -2204,42 +2221,75 @@ function SafeCallModal({ driverName, onHangup }: { driverName: string; onHangup:
   return (
     <div className="fixed inset-0 z-[97] flex items-center justify-center bg-[#1e1033]/70 p-6">
       <section className="w-full max-w-sm rounded-[32px] bg-white p-6 text-center shadow-2xl">
-        <p className="text-xs font-black text-[#4C1FB8]">안심 통화</p>
+        <p className="text-xs font-black text-[#4C1FB8]">{t('call.title')}</p>
         <div className="relative mx-auto mt-5 flex h-28 w-28 items-center justify-center">
           <span className={`absolute inset-0 rounded-full border-2 border-[#C4B5FD] ${status === 'connecting' ? 'animate-ping' : 'animate-pulse'}`} />
           <span className="flex h-20 w-20 items-center justify-center rounded-full bg-[#4C1FB8] text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
             <Phone className="h-8 w-8" />
           </span>
         </div>
-        <h3 className="mt-5 text-xl font-black text-[#0F172A]">{driverName} 기사님</h3>
+        <h3 className="mt-5 text-xl font-black text-[#0F172A]">{driverName}</h3>
         <p className="mt-1 font-mono text-sm font-black text-[#4C1FB8]">050-****-1842</p>
-        <p className="mt-2 text-sm font-bold text-[#64748B]">{status === 'connecting' ? '안심번호로 연결 중입니다...' : '통화 중 · 개인정보는 보호됩니다'}</p>
+        <p className="mt-2 text-sm font-bold text-[#64748B]">{status === 'connecting' ? t('call.connecting') : t('call.talking')}</p>
         <button type="button" onClick={onHangup} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#BE123C] py-3.5 font-black text-white">
           <PhoneOff className="h-5 w-5" />
-          끊기
+          {t('call.hangup')}
         </button>
       </section>
     </div>
   )
 }
 
+const MOBILITY_STATUS_LABEL_KEYS: Record<string, MessageKey> = {
+  '이용 가능': 'device.status.available',
+  '대여 중': 'device.status.rented',
+  '배터리 부족': 'device.status.low_battery',
+  '점검 중': 'device.status.maintenance',
+}
+
+function mobilityStatusText(label: string, _locale: string, t: (key: MessageKey) => string) {
+  const key = MOBILITY_STATUS_LABEL_KEYS[label]
+  return key ? t(key) : label
+}
+
+const DELIVERY_VEHICLE_KEYS: Record<DeliveryVehicle, MessageKey> = {
+  오토바이: 'svc.veh.moto',
+  다마스: 'svc.veh.damas',
+  '1톤 트럭': 'svc.veh.truck',
+}
+
+const PACKAGE_SIZE_KEYS: Record<PackageSizeId, { label: MessageKey; hint: MessageKey }> = {
+  document: { label: 'svc.pkg.document', hint: 'svc.pkg.documentHint' },
+  small: { label: 'svc.pkg.small', hint: 'svc.pkg.smallHint' },
+  medium: { label: 'svc.pkg.medium', hint: 'svc.pkg.mediumHint' },
+  large: { label: 'svc.pkg.large', hint: 'svc.pkg.largeHint' },
+  xlarge: { label: 'svc.pkg.xlarge', hint: 'svc.pkg.xlargeHint' },
+}
+
+const CHAT_QUICK_REPLIES: { q: MessageKey; r: MessageKey }[] = [
+  { q: 'chat.q1', r: 'chat.r1' },
+  { q: 'chat.q2', r: 'chat.r2' },
+  { q: 'chat.q3', r: 'chat.r3' },
+  { q: 'chat.q4', r: 'chat.r4' },
+]
+
 function DriverChatModal({ driverName, onClose }: { driverName: string; onClose: () => void }) {
-  const quickReplies = ['문 앞에 도착했습니다', '안전하게 이동 중입니다', '빨리 와주세요', '짐이 있어요']
-  const [messages, setMessages] = useState<{ from: 'me' | 'driver'; text: string }[]>([
-    { from: 'driver', text: '안녕하세요. 배차된 기사입니다. 곧 도착할게요.' },
-  ])
+  const { t } = useLocale()
+  const [messages, setMessages] = useState<{ from: 'me' | 'driver'; text: string }[]>([])
   const [draft, setDraft] = useState('')
-  const send = (text: string) => {
+  const sentIntro = useRef(false)
+  useEffect(() => {
+    if (!sentIntro.current) {
+      sentIntro.current = true
+      setMessages((items) => (items.length === 0 ? [{ from: 'driver', text: t('chat.intro') }] : items))
+    }
+  }, [t])
+  const send = (text: string, replyKey?: MessageKey) => {
     const value = text.trim()
     if (!value) return
     setDraft('')
     setMessages((items) => [...items, { from: 'me', text: value }])
-    const reply =
-      value.includes('문 앞') ? '네, 곧 내리겠습니다.' :
-      value.includes('안전') ? '네, 안전 운전하겠습니다.' :
-      value.includes('빨리') ? '최대한 빠르게 갈게요.' :
-      value.includes('짐') ? '트렁크 열어둘게요.' :
-      '네, 확인했습니다.'
+    const reply = t(replyKey ?? 'chat.rDefault')
     window.setTimeout(() => {
       setMessages((items) => [...items, { from: 'driver', text: reply }])
     }, 800)
@@ -2249,10 +2299,10 @@ function DriverChatModal({ driverName, onClose }: { driverName: string; onClose:
       <section className="mx-auto flex h-[78vh] w-full max-w-md flex-col rounded-t-[32px] bg-white shadow-2xl sm:rounded-[32px]">
         <header className="flex items-center justify-between border-b border-[#EDE5FF] px-4 py-3">
           <div>
-            <p className="text-xs font-black text-[#4C1FB8]">안심 채팅</p>
-            <h3 className="text-base font-black text-[#0F172A]">{driverName} 기사님</h3>
+            <p className="text-xs font-black text-[#4C1FB8]">{t('chat.title')}</p>
+            <h3 className="text-base font-black text-[#0F172A]">{driverName}</h3>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2" aria-label="채팅 닫기">
+          <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2" aria-label={t('chat.close')}>
             <X className="h-5 w-5" />
           </button>
         </header>
@@ -2267,9 +2317,9 @@ function DriverChatModal({ driverName, onClose }: { driverName: string; onClose:
         </div>
         <div className="border-t border-[#EDE5FF] bg-white px-3 pb-4 pt-3">
           <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-            {quickReplies.map((reply) => (
-              <button key={reply} type="button" onClick={() => send(reply)} className="shrink-0 rounded-full border border-[#D8CCF5] bg-[#F8F5FF] px-3 py-1.5 text-[11px] font-black text-[#4C1FB8]">
-                {reply}
+            {CHAT_QUICK_REPLIES.map((reply) => (
+              <button key={reply.q} type="button" onClick={() => send(t(reply.q), reply.r)} className="shrink-0 rounded-full border border-[#D8CCF5] bg-[#F8F5FF] px-3 py-1.5 text-[11px] font-black text-[#4C1FB8]">
+                {t(reply.q)}
               </button>
             ))}
           </div>
@@ -2283,11 +2333,11 @@ function DriverChatModal({ driverName, onClose }: { driverName: string; onClose:
             <input
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="메시지를 입력해 주세요"
+              placeholder={t('chat.ph')}
               className="min-w-0 flex-1 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-bold outline-none focus:border-[#4C1FB8]"
             />
             <button type="submit" className="rounded-2xl bg-[#4C1FB8] px-4 font-black text-white">
-              전송
+              {t('chat.send')}
             </button>
           </form>
         </div>
@@ -2297,6 +2347,15 @@ function DriverChatModal({ driverName, onClose }: { driverName: string; onClose:
 }
 
 
+function MatchingMapFallback() {
+  const { t } = useLocale()
+  return (
+    <div className="flex h-[268px] items-center justify-center rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0] px-4 text-center">
+      <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155]">{t('match.mapFail')}</p>
+    </div>
+  )
+}
+
 class MatchingMapBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
   static getDerivedStateFromError() {
@@ -2304,11 +2363,7 @@ class MatchingMapBoundary extends Component<{ children: ReactNode }, { failed: b
   }
   render() {
     if (this.state.failed) {
-      return (
-        <div className="flex h-[268px] items-center justify-center rounded-[24px] border-2 border-[#CBD5E1] bg-[#E2E8F0] px-4 text-center">
-          <p className="rounded-full bg-white px-3 py-2 text-xs font-bold text-[#334155]">지도를 열지 못했어요. 아래 버튼은 그대로 사용할 수 있어요.</p>
-        </div>
-      )
+      return <MatchingMapFallback />
     }
     return this.props.children
   }
@@ -2357,6 +2412,7 @@ function TaxiMatchingSheet({
   onKeep?: () => void
   onEnd?: () => void
 }) {
+  const { t } = useLocale()
   const IS_TEST_MODE = true
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
@@ -2375,7 +2431,7 @@ function TaxiMatchingSheet({
           ? 'boarding'
           : 'arriving'
   const matched = ride?.status === 'assigned' || ride?.status === 'completed'
-  const dest = destination.trim() || '선택한 목적지'
+  const dest = destination.trim() || t('search.selectedDest')
   const live = resolveLiveRidePoints({
     originLat: pickupLat,
     originLng: pickupLng,
@@ -2387,7 +2443,7 @@ function TaxiMatchingSheet({
   })
   const waypointSource: { lat?: number; lng?: number; address?: string; label?: string }[] =
     ride?.waypoints?.length ? ride.waypoints : (waypoints ?? [])
-  const waypointLabels = waypointSource.map((wp) => wp.address || wp.label || '경유지')
+  const waypointLabels = waypointSource.map((wp) => wp.address || wp.label || t('match.waypoint'))
   const route = rideRouteLabel(live.origin?.address || pickupAddress, dest, live.dest?.address || destAddress, waypointLabels)
   const mapWaypoints = waypointSource
     .filter((wp): wp is { lat: number; lng: number; address?: string; label?: string } => Number.isFinite(wp.lat) && Number.isFinite(wp.lng))
@@ -2428,19 +2484,19 @@ function TaxiMatchingSheet({
   )
   const assigned = ride?.assignedDriver
   const driver = {
-    name: assigned?.name || '배정 대기',
-    vehicle: assigned?.vehicle || '택시',
+    name: assigned?.name || t('match.driverPending'),
+    vehicle: assigned?.vehicle || t('service.taxi'),
     plate: assigned?.plate || '',
     rating: assigned?.rating || '5.00',
-    eta: assigned ? `${assigned.etaMinutes}분` : '확인 중',
+    eta: assigned ? String(assigned.etaMinutes) : '',
   }
-  const statusLabel = phase === 'arriving' ? '기사 이동 중' : phase === 'boarding' ? '탑승 중' : '목적지 이동 중'
+  const statusLabel = phase === 'arriving' ? t('match.st.arriving') : phase === 'boarding' ? t('match.st.boarding') : t('match.st.moving')
   const statusCaption =
     phase === 'arriving'
-      ? `기사님이 ${driver.eta} 뒤 도착 예정이에요.`
+      ? t('match.capArriving', { eta: driver.eta })
       : phase === 'boarding'
-        ? '탑승을 확인하고 목적지로 출발할 준비를 하고 있어요.'
-        : `${dest}까지 안전하게 이동 중이에요.`
+        ? t('match.capBoarding')
+        : t('match.capMoving', { dest })
 
   const lockMatched = (next?: PublicRide | null) => {
     matchedRef.current = true
@@ -2497,7 +2553,7 @@ function TaxiMatchingSheet({
       taxiSheetRideId = created.id
       rideIdRef.current = created.id
       setRide(created)
-      if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요.')
+      if (created.status === 'unmatched') setMatchError(t('match.errNoDriver'))
     }
     const createNew = () => {
       void startNewRide()
@@ -2505,7 +2561,7 @@ function TaxiMatchingSheet({
           attach(created)
         })
         .catch((error) => {
-          if (!cancelled && !endedRef.current) setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+          if (!cancelled && !endedRef.current) setMatchError(error instanceof Error ? error.message : t('match.errCall'))
         })
     }
     if (taxiSheetRideId) {
@@ -2578,15 +2634,15 @@ function TaxiMatchingSheet({
         if (!matchedRef.current) {
           matchedRef.current = true
           setRide(next)
-          onActivity?.('배차 완료', `${next.assignedDriver?.name || '기사'} · ${route}`)
-          onNotice('기사님이 콜을 수락했습니다. 탑승 후 이동을 시작해 주세요.')
+          onActivity?.(t('match.dispatched'), `${next.assignedDriver?.name || t('match.driver')} · ${route}`)
+          onNotice(t('match.noticeAccepted'))
           return
         }
         setFresh(next)
         return
       }
       setFresh(next)
-      if (next.status === 'unmatched') setMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
+      if (next.status === 'unmatched') setMatchError(t('match.errNoResponse'))
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
     const pull = () => {
@@ -2631,10 +2687,10 @@ function TaxiMatchingSheet({
         taxiSheetRideId = created.id
         rideIdRef.current = created.id
         setRide(created)
-        if (created.status === 'unmatched') setMatchError('지금은 배차 가능한 기사가 없어요. 다시 호출해 주세요.')
+        if (created.status === 'unmatched') setMatchError(t('match.errNoDriverRetry'))
       })
       .catch((error) => {
-        if (!endedRef.current) setMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+        if (!endedRef.current) setMatchError(error instanceof Error ? error.message : t('match.errCall'))
       })
       .finally(() => setAccepting(false))
   }
@@ -2653,8 +2709,8 @@ function TaxiMatchingSheet({
     setCancelConfirmOpen(false)
     setCancelSettling(false)
     if (rideId) void cancelRideRequest(rideId, passengerIdRef.current || localPassengerId()).catch(() => undefined)
-    onActivity?.(matched ? '배차 취소' : '택시 호출 취소', route)
-    onNotice(matched ? '배차를 취소했어요.' : '택시 호출을 취소했어요.')
+    onActivity?.(matched ? t('match.actCancelDispatch') : t('match.actCancelCall'), route)
+    onNotice(matched ? t('match.noticeCancelDispatch') : t('match.noticeCancelCall'))
     onEnd?.()
     onClose()
   }
@@ -2677,16 +2733,16 @@ function TaxiMatchingSheet({
     try {
       const finished = await cancelRideRequest(rideId, passengerIdRef.current, { settleFee: true })
       if (finished?.status === 'completed') {
-        onNotice('운행이 이미 완료되어 취소되지 않았어요. 영수증으로 정산 내역을 확인해 주세요.')
+        onNotice(t('match.noticeAlreadyDone'))
       } else {
-        onActivity?.('이용 취소', `취소 수수료 ${cancelSettlement.cancelFee.toFixed(7)} Pi · 미청구 ${cancelSettlement.waived.toFixed(7)} Pi`)
+        onActivity?.(t('cancel.title'), t('match.actCancelFee', { f: cancelSettlement.cancelFee.toFixed(7), w: cancelSettlement.waived.toFixed(7) }))
         onNotice(
-          `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(7)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(7)} Pi는 청구되지 않습니다.`,
+          t('match.noticeCancelFee', { f: cancelSettlement.cancelFee.toFixed(7), w: cancelSettlement.waived.toFixed(7) }),
         )
       }
     } catch (error) {
       console.error('[cancel] passenger taxi', error)
-      onNotice(error instanceof Error ? error.message : '취소 처리 중 문제가 생겼지만 홈으로 돌아갑니다.')
+      onNotice(error instanceof Error ? error.message : t('match.noticeCancelErr'))
     } finally {
       taxiSheetRideId = ''
       rideIdRef.current = ''
@@ -2718,14 +2774,14 @@ function TaxiMatchingSheet({
     )
       .then((next) => {
         if (next.status !== 'assigned' && next.status !== 'completed') {
-          throw new Error('배차가 완료되지 않았어요. 다시 수락해 주세요.')
+          throw new Error(t('match.errNotAssigned'))
         }
         lockMatched(next)
-        onActivity?.('배차 완료', `${next.assignedDriver?.name || '기사'} · ${route}`)
-        onNotice('기사님이 콜을 수락했습니다. 탑승 후 이동을 시작해 주세요.')
+        onActivity?.(t('match.dispatched'), `${next.assignedDriver?.name || t('match.driver')} · ${route}`)
+        onNotice(t('match.noticeAccepted'))
       })
       .catch((error) => {
-        onNotice(error instanceof Error ? error.message : '콜 수락에 실패했어요. 배차 화면에서 계속 진행할 수 있습니다.')
+        onNotice(error instanceof Error ? error.message : t('match.errAccept'))
       })
       .finally(() => setAccepting(false))
   }
@@ -2737,16 +2793,16 @@ function TaxiMatchingSheet({
     void markRideProgress(rideId, ride?.passengerId || passengerIdRef.current || localPassengerId(), step, ride)
       .then((next) => {
         setRide(next)
-        onNotice(step === 'boarded' ? '탑승을 확인했어요. 목적지에 도착하면 도착 확인을 눌러 주세요.' : '목적지 도착을 확인했어요. 이제 정산할 수 있어요.')
+        onNotice(step === 'boarded' ? t('match.noticeBoarded') : t('match.noticeArrived'))
       })
-      .catch((error) => onNotice(error instanceof Error ? error.message : '운행 상태를 저장하지 못했어요.'))
+      .catch((error) => onNotice(error instanceof Error ? error.message : t('match.errState')))
       .finally(() => setAccepting(false))
   }
 
   const finishPassengerTrip = () => {
     if (accepting || payingRef.current || settledRef.current) return
     if (!ride?.readyToSettleAt) {
-      onNotice(ride?.boardedAt ? '목적지에 도착한 뒤에 이용 완료를 눌러 주세요.' : '탑승 확인과 목적지 도착 확인 후에 이용 완료를 눌러 주세요.')
+      onNotice(ride?.boardedAt ? t('match.noticeWaitArrive') : t('match.noticeWaitBoard'))
       return
     }
     payingRef.current = true
@@ -2769,7 +2825,7 @@ function TaxiMatchingSheet({
     if (!driverId) {
       // 서버에 운행이 있는데 배정 기사가 확인되지 않은 상태에서 완료 처리를
       // 건너뛰면 기사 화면은 'assigned' 카드에 영구히 갇힌다.
-      onNotice('배정된 기사 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.')
+      onNotice(t('match.errDriverInfo'))
       releasePayLock()
       return
     }
@@ -2828,7 +2884,7 @@ function TaxiMatchingSheet({
       })
       .catch((error) => {
         const timedOut = error instanceof Error && error.name === 'AbortError'
-        onNotice(timedOut ? '정산 응답이 지연되고 있어요. 다시 눌러 주세요.' : error instanceof Error ? error.message : '정산에 실패했어요. 다시 한 번만 눌러 주세요.')
+        onNotice(timedOut ? t('match.errSettleDelay') : error instanceof Error ? error.message : t('match.errSettle'))
         releasePayLock()
       })
       .finally(() => window.clearTimeout(timeout))
@@ -2854,11 +2910,11 @@ function TaxiMatchingSheet({
           plate: receipt.plate,
         })
       }
-      onNotice('운행이 완료되었습니다. 영수증을 확인하세요.')
+      onNotice(t('match.noticeDone'))
       onClose()
     }).catch(() => {
       settledRef.current = false
-      onNotice('영수증을 불러오지 못했어요. 다시 눌러 주세요.')
+      onNotice(t('match.errReceipt'))
     })
   }
 
@@ -2875,16 +2931,16 @@ function TaxiMatchingSheet({
         {showMatching ? (
           <div className="pb-4 pt-2 text-center">
             <p className="text-xs font-black text-[#4C1FB8]">LIVE MATCHING</p>
-            <h2 className="mt-2 text-2xl font-black text-[#0F172A]">기사님 매칭 대기 중</h2>
+            <h2 className="mt-2 text-2xl font-black text-[#0F172A]">{t('match.waiting')}</h2>
             <p className="mt-2 text-sm font-bold text-[#64748B]">{route}</p>
-            {ride ? <p className="mt-1 text-xs font-black text-[#4C1FB8]">예상 요금 {ride.estimatedFare.toFixed(7)} Pi</p> : null}
+            {ride ? <p className="mt-1 text-xs font-black text-[#4C1FB8]">{t('match.estFare', { v: ride.estimatedFare.toFixed(7) })}</p> : null}
             {Number(ride?.avoidSurchargePi || 0) > 0 ? (
-              <p className="mt-1 text-[11px] font-bold text-[#B45309]">기피 지역 할증 +{Number(ride?.avoidSurchargePi).toFixed(7)} Pi 포함</p>
+              <p className="mt-1 text-[11px] font-bold text-[#B45309]">{t('match.surcharge', { v: Number(ride?.avoidSurchargePi).toFixed(7) })}</p>
             ) : null}
             {ride?.pendingOffer ? (
-              <p className="mt-2 text-sm font-bold text-[#4C1FB8]">{ride.pendingOffer.driverName} 기사님에게 콜을 요청했어요. 수락을 기다리는 중입니다.</p>
+              <p className="mt-2 text-sm font-bold text-[#4C1FB8]">{t('match.offered', { name: ride.pendingOffer.driverName })}</p>
             ) : (
-              <p className="mt-2 text-sm font-bold text-[#64748B]">주변 기사님에게 호출을 보내고 있어요.</p>
+              <p className="mt-2 text-sm font-bold text-[#64748B]">{t('match.calling')}</p>
             )}
             {matchError ? <p className="mt-2 text-xs font-bold text-[#B91C1C]">{matchError}</p> : null}
             <div className="pointer-events-auto relative z-0 isolate overflow-hidden">
@@ -2892,9 +2948,9 @@ function TaxiMatchingSheet({
                 <TaxiLiveMap
                   kind="taxi"
                   phase="arriving"
-                  journeyLabel="매칭 대기 중"
+                  journeyLabel={t('match.waiting')}
                   routeLabel={route}
-                  statusLabel="매칭 대기 중"
+                  statusLabel={t('match.waiting')}
                   originLat={live.origin?.lat ?? pickupLat}
                   originLng={live.origin?.lng ?? pickupLng}
                   destLat={destLat}
@@ -2906,17 +2962,17 @@ function TaxiMatchingSheet({
                 />
               </MatchingMapBoundary>
             </div>
-            <p className="mt-6 text-xs font-bold text-[#8b8495]">기사님이 콜을 수락하면 실시간 위치가 지도에 표시됩니다. 테스트는 아래 버튼으로 바로 수락할 수 있습니다.</p>
+            <p className="mt-6 text-xs font-bold text-[#8b8495]">{t('match.mapHint')}</p>
           </div>
         ) : (
           <div>
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-black text-[#4C1FB8]">배차 완료</p>
+                <p className="text-xs font-black text-[#4C1FB8]">{t('match.dispatched')}</p>
                 <h2 className="mt-1 text-2xl font-black text-[#0F172A]">{statusLabel}</h2>
                 <p className="mt-1 text-xs font-bold text-[#64748B]">{statusCaption}</p>
               </div>
-              <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label="닫기">
+              <button type="button" onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#334155]" aria-label={t('common.close')}>
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -2939,39 +2995,39 @@ function TaxiMatchingSheet({
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] font-black text-white">{driver.name.slice(0, 1)}</div>
                 <div className="min-w-0 flex-1">
                   <p className="font-black text-[#0F172A]">
-                    {driver.name} 기사님 <span className="ml-1 text-xs text-[#CA8A04]">★ {driver.rating}</span>
+                    {t('match.driverTitle', { name: driver.name })} <span className="ml-1 text-xs text-[#CA8A04]">★ {driver.rating}</span>
                   </p>
-                  <p className="mt-1 text-xs font-bold text-[#475569]">배차가 완료되었습니다</p>
+                  <p className="mt-1 text-xs font-bold text-[#475569]">{t('match.dispatchedSub')}</p>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-white px-3 py-2.5">
-                  <p className="text-[10px] font-bold text-[#8b8495]">차량명</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{driver.vehicle && driver.vehicle !== '택시' ? driver.vehicle : '확인 중'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{t('match.vehicle')}</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{driver.vehicle && driver.vehicle !== '택시' ? driver.vehicle : t('common.checking')}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-2.5">
-                  <p className="text-[10px] font-bold text-[#8b8495]">차량번호</p>
-                  <p className="mt-1 text-sm font-black tracking-wide text-[#0F172A]">{driver.plate && driver.plate !== '미등록' ? driver.plate : '확인 중'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{t('match.plate')}</p>
+                  <p className="mt-1 text-sm font-black tracking-wide text-[#0F172A]">{driver.plate && driver.plate !== '미등록' ? driver.plate : t('common.checking')}</p>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">예상 도착</p>
-                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{phase === 'arriving' ? `${driver.eta} 후` : phase === 'boarding' ? '탑승 확인' : '이동 중'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{t('match.eta')}</p>
+                  <p className="mt-1 text-sm font-black text-[#4C1FB8]">{phase === 'arriving' ? t('match.etaAfter', { eta: driver.eta || '?' }) : phase === 'boarding' ? t('match.boardCheck') : t('match.st.moving')}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">{phase === 'moving' ? '실제 이용 요금' : '예상 요금'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{phase === 'moving' ? t('paydone.actFare') : t('match.estFareLbl')}</p>
                   <p className="mt-1 text-sm font-black text-[#0F172A]">{(phase === 'moving' ? billed.actual : fare).toFixed(7)} Pi</p>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setCallOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
                   <Phone className="h-4 w-4" />
-                  전화하기
+                  {t('match.call')}
                 </button>
                 <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 text-sm font-black text-[#4C1FB8]">
                   <MessageCircle className="h-4 w-4" />
-                  채팅하기
+                  {t('match.chat')}
                 </button>
               </div>
               {ride?.id ? (
@@ -2993,12 +3049,12 @@ function TaxiMatchingSheet({
               {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
               {phase === 'arriving' && (
                 <button type="button" disabled={accepting} onClick={() => confirmRideProgress('boarded')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8] disabled:opacity-60">
-                  {accepting ? '확인 중…' : '탑승 확인'}
+                  {accepting ? t('match.checking') : t('match.boarded')}
                 </button>
               )}
               {phase === 'boarding' && (
                 <button type="button" disabled={accepting} onClick={() => confirmRideProgress('arrived')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8] disabled:opacity-60">
-                  {accepting ? '확인 중…' : '목적지 도착'}
+                  {accepting ? t('match.checking') : t('match.arrived')}
                 </button>
               )}
               <PaymentHandler
@@ -3019,16 +3075,16 @@ function TaxiMatchingSheet({
               />
               <div className="rounded-[22px] border-2 border-[#BFDBFE] bg-[#F8FAFC] px-4 py-3 text-center">
                 <p className="text-[11px] font-black text-[#4A82B8]">
-                  {escrowStatus === 'held' ? '에스크로 보관 중' : escrowStatus === 'released' ? '기사 지갑 정산 완료' : '이용 완료 시 결제'}
+                  {escrowStatus === 'held' ? t('match.escrowHeld') : escrowStatus === 'released' ? t('match.escrowReleased') : t('match.escrowPending')}
                 </p>
                 <p className="mt-1 text-lg font-black text-[#0F172A]">{escrowAmount.toFixed(7)} Pi</p>
                 <p className="mt-1 text-[11px] font-bold leading-5 text-[#64748B]">
                   {escrowStatus === 'held' || escrowStatus === 'released'
-                    ? '기사님이 운행 완료를 승인하면 등록된 Pi 지갑으로 자동 이체됩니다.'
-                    : '목적지 도착 후 이용 완료를 누르면 결제되고 기사님께 정산됩니다.'}
+                    ? t('match.escrowHeldDesc')
+                    : t('match.escrowPendingDesc')}
                 </p>
               </div>
-              <p className="text-center text-[11px] font-bold text-[#64748B]">목적지 도착 후 아래에서 이용 완료 또는 취소를 눌러 주세요</p>
+              <p className="text-center text-[11px] font-bold text-[#64748B]">{t('match.finishHint')}</p>
             </div>
           </div>
         )}
@@ -3042,7 +3098,7 @@ function TaxiMatchingSheet({
                 onClick={retryMatch}
                 className="pointer-events-auto w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
               >
-                {accepting ? '다시 호출 중…' : '다시 호출'}
+                {accepting ? t('match.retrying') : t('match.retry')}
               </button>
             ) : null}
             {IS_TEST_MODE ? (
@@ -3052,26 +3108,26 @@ function TaxiMatchingSheet({
                 onClick={acceptPendingOffer}
                 className="pointer-events-auto w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
               >
-                {accepting ? '수락 중…' : '이 기기에서 기사 콜 수락'}
+                {accepting ? t('match.accepting') : t('match.acceptHere')}
               </button>
             ) : null}
             <button type="button" onClick={cancelRide} className="pointer-events-auto w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
-              호출 취소
+              {t('match.cancel')}
             </button>
             <button type="button" onClick={onClose} className="pointer-events-auto w-full rounded-2xl py-2 text-sm font-black text-[#64748B]">
-              이전 화면으로
+              {t('match.back')}
             </button>
           </div>
         ) : (
           <div className="pointer-events-auto relative z-[80] shrink-0 border-t border-[#FECDD3] bg-white px-5 py-4">
             {ride?.status === 'completed' ? (
               <button type="button" onClick={openCompletedReceipt} className="pointer-events-auto w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
-                운행 종료 · 영수증 보기
+                {t('match.endReceipt')}
               </button>
             ) : (
               <RideCompleteCancelBar onCancel={() => setCancelConfirmOpen(true)}>
                 <button type="button" disabled={accepting || !ride?.readyToSettleAt} aria-busy={accepting} onClick={finishPassengerTrip} className="pointer-events-auto w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
-                  {accepting ? '결제 진행 중…' : ride?.readyToSettleAt ? '이용 완료' : ride?.boardedAt ? '목적지 도착 후 완료 가능' : '탑승 확인 후 진행'}
+                  {accepting ? t('match.paying') : ride?.readyToSettleAt ? t('match.complete') : ride?.boardedAt ? t('match.completeWaitArrive') : t('match.completeWaitBoard')}
                 </button>
               </RideCompleteCancelBar>
             )}
@@ -3083,7 +3139,7 @@ function TaxiMatchingSheet({
           rideId={ride.id}
           actorId={passengerIdRef.current || localPassengerId()}
           role="passenger"
-          peerName={`${driver.name} 기사님`}
+          peerName={t('match.driverTitle', { name: driver.name })}
           onHangup={() => setCallOpen(false)}
         />
       ) : null}
@@ -3092,7 +3148,7 @@ function TaxiMatchingSheet({
           rideId={ride.id}
           actorId={passengerIdRef.current || localPassengerId()}
           role="passenger"
-          peerName={`${driver.name} 기사님`}
+          peerName={t('match.driverTitle', { name: driver.name })}
           onClose={() => setChatOpen(false)}
         />
       ) : null}
@@ -3100,7 +3156,7 @@ function TaxiMatchingSheet({
         rideId={ride?.status === 'assigned' ? ride.id : null}
         actorId={passengerIdRef.current || localPassengerId()}
         role="passenger"
-        peerName={`${driver.name} 기사님`}
+        peerName={t('match.driverTitle', { name: driver.name })}
         chatOpen={chatOpen}
         callOpen={callOpen}
         onOpenChat={() => setChatOpen(true)}
@@ -3374,24 +3430,24 @@ function ServiceSheet({
   const place = ride
     ? rideRouteLabel(
         daeriTrip?.pickup || pickupAddress,
-        daeriTrip?.dest || destAddress || '목적지',
+        daeriTrip?.dest || destAddress || t('home.dest'),
         undefined,
         (daeriTrip?.waypoints ?? []).map((wp) => wp.address || ''),
       )
-    : selectedUsage?.name || `${pickupAddress || '현재 위치'} → ${service} 이용`
+    : selectedUsage?.name || t('svc.placeLine', { from: pickupAddress || t('loc.current'), name: translateService(locale, service) })
   const billed = ride ? settleRideFare(fare, `daeri:${place}`) : { estimate: fare, actual: fare, adjusted: false }
   const chargeAmount = ride ? billed.actual : fare
   const cancelSettlement = settleMidTripCancelFee(billed.actual, { rate: (daeriFareCfg.cancel?.rate ?? 40) / 100, min: daeriFareCfg.cancel?.min ?? 0.5 })
   const partner =
     ride
       ? {
-          name: dispatchRide?.assignedDriver?.name || '배정 대기',
-          vehicle: dispatchRide?.assignedDriver?.vehicle || '대리운전',
-          plate: dispatchRide?.assignedDriver?.plate || '파이 모빌리티',
+          name: dispatchRide?.assignedDriver?.name || t('match.driverPending'),
+          vehicle: dispatchRide?.assignedDriver?.vehicle || t('service.daeri'),
+          plate: dispatchRide?.assignedDriver?.plate || t('svc.piMobility'),
           kind: 'driver' as const,
         }
       : service === '택배'
-        ? { name: courier?.name || '배정 대기', vehicle: courier?.vehicle || '확인 중', plate: courier?.plate || '확인 중', kind: 'driver' as const }
+        ? { name: courier?.name || t('match.driverPending'), vehicle: courier?.vehicle || t('common.checking'), plate: courier?.plate || t('common.checking'), kind: 'driver' as const }
         : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate ?? '', kind: 'service' as const }
   const contactRideId = ride ? dispatchRide?.id || daeriRideIdRef.current : ''
   const canStart = more || ride || service === '택배' || Boolean(selectedItem)
@@ -3430,7 +3486,7 @@ function ServiceSheet({
     }
     if (service === '택배') {
       if (!isValidKoreanPhone(senderPhone) || !isValidKoreanPhone(recipientPhone)) {
-        setPhoneError('발신인과 수신인 연락처를 올바르게 입력해 주세요.')
+        setPhoneError(t('svc.phoneErr'))
         return
       }
       const job: DeliveryJob = {
@@ -3462,7 +3518,7 @@ function ServiceSheet({
     if (vehicle && selectedItem.startsWith('device-')) {
       const device = findDeviceBySpotId(selectedItem)
       if (!device || !isDeviceRentable(device)) {
-        onNotice(device ? `${device.serial}은(는) ${MOBILITY_STATUS_LABEL[device.status]} 상태라 대여할 수 없어요.` : '이 기기는 지금 대여할 수 없어요.')
+        onNotice(device ? t('svc.rentBlocked', { serial: device.serial, status: translateDeviceStatus(locale, device.status) }) : t('svc.rentBlockedShort'))
         return
       }
       // 중개 서비스 면책 동의 인터셉트 — 동의 전에는 대여 전이를 호출하지 않는다.
@@ -3474,14 +3530,14 @@ function ServiceSheet({
       const rented = await rentMobilityDevice(device.serial).catch(() => null)
       if (!rented) {
         void refreshMobilityDevices()
-        onNotice('방금 다른 이용자가 대여했거나 대여가 막힌 기기예요. 목록을 새로고침합니다.')
+        onNotice(t('svc.rentTaken'))
         return
       }
       rentalSerialRef.current = device.serial
     }
     setPhase('matching')
-    onActivity?.(selfServe ? `${service} 이용 시작` : `${service} 호출`, place)
-    onNotice(selfServe ? `${service} 이용을 시작했어요.` : `${service} 호출을 시작했어요.`)
+    onActivity?.(t(selfServe ? 'svc.actUseStart' : 'svc.actCall', { name: translateService(locale, service) }), place)
+    onNotice(t(selfServe ? 'svc.noticeUseStart' : 'svc.noticeCallStart', { name: translateService(locale, service) }))
   }
 
   const startNewDaeriRide = () =>
@@ -3514,13 +3570,13 @@ function ServiceSheet({
       daeriSheetRideId = created.id
       daeriRideIdRef.current = created.id
       setDispatchRide(created)
-      if (created.status === 'unmatched') setDaeriMatchError('지금은 배차 가능한 기사가 없어요.')
+      if (created.status === 'unmatched') setDaeriMatchError(t('match.errNoDriver'))
     }
     const createNew = () => {
       void startNewDaeriRide()
         .then(attach)
         .catch((error) => {
-          if (!cancelled && !daeriEndedRef.current) setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+          if (!cancelled && !daeriEndedRef.current) setDaeriMatchError(error instanceof Error ? error.message : t('match.errCall'))
         })
     }
     if (daeriSheetRideId) {
@@ -3569,12 +3625,12 @@ function ServiceSheet({
       if ((next.status === 'assigned' || next.status === 'completed') && !daeriAcceptedRef.current) {
         daeriAcceptedRef.current = true
         setPhase('assigned')
-        onActivity?.('배차 완료', `${next.assignedDriver?.name || '기사'} · ${place}`)
-        onNotice(`${service} 배정이 완료되었습니다.`)
+        onActivity?.(t('match.dispatched'), `${next.assignedDriver?.name || t('match.driver')} · ${place}`)
+        onNotice(t('svc.noticeAssigned', { name: translateService(locale, service) }))
       }
       if (daeriAcceptedRef.current && next.status !== 'assigned' && next.status !== 'completed') return
       setDispatchRide(next)
-      if (next.status === 'unmatched') setDaeriMatchError('주변 기사가 모두 응답하지 않아 배차에 실패했어요.')
+      if (next.status === 'unmatched') setDaeriMatchError(t('match.errNoResponse'))
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
     const pull = () => {
@@ -3601,9 +3657,9 @@ function ServiceSheet({
       if (!id) return
       void fetchDelivery(id).then((job) => {
         if (stopped || !job || job.status !== 'assigned' || !job.driverVehicle || !job.driverPlate) return
-        setCourier({ name: job.driverName || '기사', vehicle: job.driverVehicle, plate: job.driverPlate })
+        setCourier({ name: job.driverName || t('match.driver'), vehicle: job.driverVehicle, plate: job.driverPlate })
         setPhase('assigned')
-        onNotice('배차가 완료되었습니다.')
+        onNotice(t('match.dispatchedSub'))
       }).catch(() => undefined)
     }
     pull()
@@ -3617,7 +3673,7 @@ function ServiceSheet({
   const confirmAssignment = () => {
     daeriAcceptedRef.current = true
     setPhase('assigned')
-    onNotice(selfServe ? `${service} 이용이 시작되었습니다.` : `${service} 배정이 완료되었습니다.`)
+    onNotice(t(selfServe ? 'svc.noticeUseStart' : 'svc.noticeAssigned', { name: translateService(locale, service) }))
   }
   const retryDaeriMatch = () => {
     if (daeriAccepting) return
@@ -3640,10 +3696,10 @@ function ServiceSheet({
         daeriSheetRideId = created.id
         daeriRideIdRef.current = created.id
         setDispatchRide(created)
-        if (created.status === 'unmatched') setDaeriMatchError('지금은 배차 가능한 기사가 없어요. 다시 호출해 주세요.')
+        if (created.status === 'unmatched') setDaeriMatchError(t('match.errNoDriverRetry'))
       })
       .catch((error) => {
-        if (!daeriEndedRef.current) setDaeriMatchError(error instanceof Error ? error.message : '호출에 실패했어요.')
+        if (!daeriEndedRef.current) setDaeriMatchError(error instanceof Error ? error.message : t('match.errCall'))
       })
       .finally(() => setDaeriAccepting(false))
   }
@@ -3663,16 +3719,16 @@ function ServiceSheet({
     try {
       const finished = await cancelRideRequest(rideId, daeriPassengerIdRef.current || localPassengerId(), { settleFee: true })
       if (finished?.status === 'completed') {
-        onNotice('운행이 이미 완료되어 취소되지 않았어요. 영수증으로 정산 내역을 확인해 주세요.')
+        onNotice(t('match.noticeAlreadyDone'))
       } else {
-        onActivity?.('이용 취소', `${service} · 취소 수수료 ${cancelSettlement.cancelFee.toFixed(7)} Pi`)
+        onActivity?.(t('cancel.title'), t('svc.actCancelFee', { name: translateService(locale, service), f: cancelSettlement.cancelFee.toFixed(7) }))
         onNotice(
-          `운행을 취소했습니다. 취소 수수료 ${cancelSettlement.cancelFee.toFixed(7)} Pi가 기사님께 지급되었고, 나머지 ${cancelSettlement.waived.toFixed(7)} Pi는 청구되지 않습니다.`,
+          t('match.noticeCancelFee', { f: cancelSettlement.cancelFee.toFixed(7), w: cancelSettlement.waived.toFixed(7) }),
         )
       }
     } catch (error) {
       console.error('[cancel] passenger service', error)
-      onNotice(error instanceof Error ? error.message : '취소 처리 중 문제가 생겼지만 홈으로 돌아갑니다.')
+      onNotice(error instanceof Error ? error.message : t('match.noticeCancelErr'))
     } finally {
       daeriSheetRideId = ''
       daeriRideIdRef.current = ''
@@ -3717,7 +3773,7 @@ function ServiceSheet({
                 kind="daeri"
                 phase="arriving"
                 routeLabel={place}
-                statusLabel="호출 중"
+                statusLabel={t('svc.calling')}
                 originLat={rideOriginLat}
                 originLng={rideOriginLng}
                 destLat={rideDestLat}
@@ -3755,9 +3811,9 @@ function ServiceSheet({
                       daeriAcceptedRef.current = true
                       setDispatchRide(next)
                       setPhase('assigned')
-                      onActivity?.('배차 완료', `${next.assignedDriver?.name || '기사'} · ${place}`)
+                      onActivity?.(t('match.dispatched'), `${next.assignedDriver?.name || t('match.driver')} · ${place}`)
                     })
-                    .catch((error) => setDaeriMatchError(error instanceof Error ? error.message : '콜 수락에 실패했어요.'))
+                    .catch((error) => setDaeriMatchError(error instanceof Error ? error.message : t('match.errAccept')))
                     .finally(() => setDaeriAccepting(false))
                 }}
                 className="w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
@@ -3772,7 +3828,7 @@ function ServiceSheet({
                 onClick={retryDaeriMatch}
                 className="w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white disabled:opacity-60"
               >
-                {daeriAccepting ? '다시 호출 중…' : '다시 호출'}
+                {daeriAccepting ? t('match.retrying') : t('match.retry')}
               </button>
             ) : null}
             <button
@@ -3789,7 +3845,7 @@ function ServiceSheet({
                   void cancelRideRequest(staleId, daeriPassengerIdRef.current || localPassengerId()).catch(() => undefined)
                 }
                 releaseRental()
-                onActivity?.(selfServe ? '이용 취소' : '호출 취소', place)
+                onActivity?.(selfServe ? t('cancel.title') : t('match.actCancelCall'), place)
                 onClose()
               }}
               className="w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]"
@@ -3859,9 +3915,9 @@ function ServiceSheet({
               }}
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
-              {vehicle ? '이용 완료 · 반납 결제' : settleTiming === 'qr_auto' ? '이용 완료 · 자동결제' : settleTiming === 'postpaid' ? '이용 완료 · 후결제' : '이용 완료'}
+              {vehicle ? t('svc.doneReturn') : settleTiming === 'qr_auto' ? t('svc.doneAuto') : settleTiming === 'postpaid' ? t('svc.donePost') : t('match.complete')}
             </BalanceCheckoutButton>
-            <p className="text-center text-[11px] font-bold text-[#64748B]">이용이 끝나면 눌러 주세요</p>
+            <p className="text-center text-[11px] font-bold text-[#64748B]">{t('svc.doneHint')}</p>
           </div>
         )}
         {!more && phase === 'assigned' && !selfServe && (
@@ -3871,7 +3927,7 @@ function ServiceSheet({
                 kind="daeri"
                 phase={rideStage === 'moving' ? 'moving' : 'arriving'}
                 routeLabel={place}
-                statusLabel={rideStage === 'moving' ? '목적지 이동 중' : '기사 이동 중'}
+                statusLabel={rideStage === 'moving' ? t('match.st.moving') : t('match.st.arriving')}
                 originLat={rideOriginLat}
                 originLng={rideOriginLng}
                 destLat={rideDestLat}
@@ -3883,42 +3939,42 @@ function ServiceSheet({
               />
             ) : null}
             <div className="rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
-              <p className="text-xs font-black text-[#2d9a5e]">{ride ? (rideStage === 'moving' ? '운행 시작' : '배정 완료') : '배정 완료'}</p>
+              <p className="text-xs font-black text-[#2d9a5e]">{ride ? (rideStage === 'moving' ? t('svc.tripStart') : t('match.dispatched')) : t('match.dispatched')}</p>
               <div className="mt-3 flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#4C1FB8] font-black text-white">{partner.name.slice(0, 1)}</div>
                 <div>
-                  <p className="font-black text-[#0F172A]">{partner.name} 기사님</p>
-                  <p className="mt-1 text-xs font-bold text-[#64748B]">배차가 완료되었습니다</p>
+                  <p className="font-black text-[#0F172A]">{t('match.driverTitle', { name: partner.name })}</p>
+                  <p className="mt-1 text-xs font-bold text-[#64748B]">{t('match.dispatchedSub')}</p>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-white px-3 py-2.5">
-                  <p className="text-[10px] font-bold text-[#8b8495]">차량명</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{partner.vehicle || '확인 중'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{t('match.vehicle')}</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{partner.vehicle || t('common.checking')}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-2.5">
-                  <p className="text-[10px] font-bold text-[#8b8495]">차량번호</p>
-                  <p className="mt-1 text-sm font-black tracking-wide text-[#0F172A]">{partner.plate || '확인 중'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{t('match.plate')}</p>
+                  <p className="mt-1 text-sm font-black tracking-wide text-[#0F172A]">{partner.plate || t('common.checking')}</p>
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">{ride && rideStage === 'moving' ? '실제 이용 요금' : '예상 요금'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{ride && rideStage === 'moving' ? t('paydone.actFare') : t('match.estFareLbl')}</p>
                   <p className="mt-1 text-sm font-black text-[#4C1FB8]">{(ride && rideStage === 'moving' ? billed.actual : fare).toFixed(7)} Pi</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
-                  <p className="text-[10px] font-bold text-[#8b8495]">이용 상태</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{ride ? (rideStage === 'moving' ? '목적지 이동 중' : '호출자에게 이동 중') : '이동/이용 중'}</p>
+                  <p className="text-[10px] font-bold text-[#8b8495]">{t('svc.status')}</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{ride ? (rideStage === 'moving' ? t('match.st.moving') : t('svc.movingToCaller')) : t('svc.moving')}</p>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setCallOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
                   <Phone className="h-4 w-4" />
-                  전화하기
+                  {t('match.call')}
                 </button>
                 <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 text-sm font-black text-[#4C1FB8]">
                   <MessageCircle className="h-4 w-4" />
-                  채팅하기
+                  {t('match.chat')}
                 </button>
               </div>
             </div>
@@ -3934,14 +3990,14 @@ function ServiceSheet({
                   void markRideProgress(rideId, daeriPassengerIdRef.current || localPassengerId(), 'boarded')
                     .then((next) => {
                       setDispatchRide(next)
-                      onNotice('탑승을 확인했어요.')
+                      onNotice(t('match.noticeBoardedShort'))
                     })
-                    .catch((error) => onNotice(error instanceof Error ? error.message : '탑승 확인에 실패했어요.'))
+                    .catch((error) => onNotice(error instanceof Error ? error.message : t('match.errBoard')))
                     .finally(() => setDaeriAccepting(false))
                 }}
                 className="w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-base font-bold text-[#4A82B8] disabled:opacity-60"
               >
-                탑승 확인
+                {t('match.boarded')}
               </button>
             ) : null}
             {ride && dispatchRide?.boardedAt && !dispatchRide.readyToSettleAt ? (
@@ -3955,14 +4011,14 @@ function ServiceSheet({
                   void markRideProgress(rideId, daeriPassengerIdRef.current || localPassengerId(), 'arrived')
                     .then((next) => {
                       setDispatchRide(next)
-                      onNotice('목적지 도착을 확인했어요.')
+                      onNotice(t('match.noticeArrivedShort'))
                     })
-                    .catch((error) => onNotice(error instanceof Error ? error.message : '도착 확인에 실패했어요.'))
+                    .catch((error) => onNotice(error instanceof Error ? error.message : t('match.errArrive')))
                     .finally(() => setDaeriAccepting(false))
                 }}
                 className="w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-base font-bold text-[#4A82B8] disabled:opacity-60"
               >
-                목적지 도착
+                {t('match.arrived')}
               </button>
             ) : null}
             {ride ? (
@@ -3976,15 +4032,15 @@ function ServiceSheet({
                   }}
                   className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white"
                 >
-                  운행 종료 · 기사 평가
+                  {t('svc.endReview')}
                 </button>
               ) : (
               <RideCompleteCancelBar
                 onCancel={() => setCancelConfirmOpen(true)}
                 hint={
                   rideStage === 'arriving'
-                    ? '기사님이 도착하면 운행을 시작해 주세요 · 취소 시 수수료가 부과될 수 있습니다'
-                    : '운행 중 취소 시 취소 수수료가 기사님께 지급되고 나머지는 청구되지 않습니다'
+                    ? t('svc.hintWaitArrive')
+                    : t('svc.hintCancelFee')
                 }
               >
                 <BalanceCheckoutButton
@@ -4037,7 +4093,7 @@ function ServiceSheet({
                         })
                         .catch((error) => {
                           console.error('[daeri] ride complete failed', error)
-                          onNotice('결제는 완료되었어요. 운행 완료 처리는 기사 화면에서도 확인됩니다.')
+                          onNotice(t('svc.noticePaid'))
                         })
                         .finally(() => window.clearTimeout(timeout))
                     }
@@ -4046,7 +4102,7 @@ function ServiceSheet({
                   }}
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
                 >
-                  이용 완료
+                  {t('match.complete')}
                 </BalanceCheckoutButton>
               </RideCompleteCancelBar>
               )
@@ -4063,9 +4119,9 @@ function ServiceSheet({
                   }}
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
                 >
-                  이용 완료
+                  {t('match.complete')}
                 </BalanceCheckoutButton>
-                <p className="text-center text-[11px] font-bold text-[#8b8495]">도착 후 눌러 주세요 · 하차 완료</p>
+                <p className="text-center text-[11px] font-bold text-[#8b8495]">{t('svc.doneHint2')}</p>
               </>
             )}
           </div>
@@ -4078,23 +4134,23 @@ function ServiceSheet({
               <Car className="relative z-10 h-6 w-6 text-[#7046dc]" />
             </div>
             <div className="rounded-3xl border border-[#ece8f4] bg-[#F8F5FF] p-4">
-              <p className="text-xs font-black text-[#4C1FB8]">주변 대리기사 대기 중</p>
-              <p className="mt-2 text-sm font-bold text-[#475569]">호출하면 가까운 기사님이 배정됩니다.</p>
+              <p className="text-xs font-black text-[#4C1FB8]">{t('svc.daeriIdleTitle')}</p>
+              <p className="mt-2 text-sm font-bold text-[#475569]">{t('svc.daeriIdleSub')}</p>
               <div className="mt-4 flex items-end justify-between">
                 <div>
-                  <p className="text-xs font-bold text-[#8b8495]">예상 도착</p>
-                  <p className="text-lg font-black text-[#4C1FB8]">약 4분</p>
+                  <p className="text-xs font-bold text-[#8b8495]">{t('match.eta')}</p>
+                  <p className="text-lg font-black text-[#4C1FB8]">{t('svc.aboutMin', { min: '4' })}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-bold text-[#8b8495]">예상 요금</p>
+                  <p className="text-xs font-bold text-[#8b8495]">{t('match.estFareLbl')}</p>
                   <p className="text-lg font-black">{fare.toFixed(7)} Pi</p>
                 </div>
               </div>
             </div>
             <button type="button" onClick={() => startService()} className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
-              대리운전 호출하기
+              {t('svc.daeriCallBtn')}
             </button>
-            <p className="text-center text-[11px] font-bold text-[#8b8495]">호출 후 기사 배정이 시작됩니다.</p>
+            <p className="text-center text-[11px] font-bold text-[#8b8495]">{t('svc.daeriCallHint')}</p>
           </div>
         )}
         {phase === 'idle' && selfServe && (
@@ -4105,7 +4161,7 @@ function ServiceSheet({
                 onClick={() => setDeviceFormOpen(true)}
                 className="w-full rounded-2xl border-2 border-[#4A82B8] bg-[#E8F1FA] py-3 text-sm font-black text-[#4A82B8]"
               >
-                파트너 기기 등록
+                {t('svc.partnerRegister')}
               </button>
             ) : null}
             <div className="relative w-full shrink-0 overflow-hidden rounded-3xl" style={{ height: 160, minHeight: 160 }}>
@@ -4122,22 +4178,11 @@ function ServiceSheet({
                 }}
                 className="h-full w-full"
               />
-              {selectedUsage ? (
-                <div className="pointer-events-none absolute left-2.5 top-2.5 z-10 max-w-[78%] rounded-2xl bg-white/95 px-3 py-2 shadow-md backdrop-blur">
-                  {selectedUsage.brand ? <p className="text-[10px] font-black uppercase tracking-wide text-[#4A82B8]">{selectedUsage.brand}</p> : null}
-                  <p className="truncate text-xs font-black text-[#0F172A]">{selectedUsage.name}</p>
-                  <p className="mt-0.5 text-[10px] font-bold text-[#64748B]">
-                    {selectedUsage.distance}
-                    {selectedUsage.battery != null ? ` · 배터리 ${selectedUsage.battery}%` : ''}
-                    {selectedUsage.statusLabel ? ` · ${selectedUsage.statusLabel}` : ''}
-                  </p>
-                </div>
-              ) : null}
             </div>
             {vehicle && !catalog.length ? (
               <div className="rounded-2xl border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-4 py-6 text-center">
-                <p className="text-sm font-black text-[#0F172A]">주변에 등록된 대여 기기가 없어요</p>
-                <p className="mt-1 text-xs font-bold leading-5 text-[#64748B]">파트너가 자전거·킥보드를 등록하면 위치와 대여 가능 상태가 이 지도에 바로 표시됩니다.</p>
+                <p className="text-sm font-black text-[#0F172A]">{t('svc.noDevices')}</p>
+                <p className="mt-1 text-xs font-bold leading-5 text-[#64748B]">{t('svc.noDevicesSub')}</p>
               </div>
             ) : null}
             <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
@@ -4173,12 +4218,12 @@ function ServiceSheet({
                       </span>
                       <span className="mt-1.5 flex flex-wrap gap-1.5">
                         {item.statusLabel ? (
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${statusTone}`}>{item.statusLabel}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${statusTone}`}>{mobilityStatusText(item.statusLabel, locale, t)}</span>
                         ) : item.available ? (
-                          <span className="rounded-full bg-[#ECFDF5] px-2 py-0.5 text-[10px] font-black text-[#047857]">이용 가능</span>
+                          <span className="rounded-full bg-[#ECFDF5] px-2 py-0.5 text-[10px] font-black text-[#047857]">{t('device.status.available')}</span>
                         ) : null}
                         {item.battery != null ? (
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${batteryTone}`}>배터리 {item.battery}%</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${batteryTone}`}>{t('device.battery')} {item.battery}%</span>
                         ) : null}
                       </span>
                     </span>
@@ -4188,7 +4233,7 @@ function ServiceSheet({
               })}
             </div>
             {vehicle && selectedItem.startsWith('device-') && !selectedRentable ? (
-              <p className="text-center text-sm font-black text-[#9F1239]">이 기기는 지금 대여할 수 없어요.</p>
+              <p className="text-center text-sm font-black text-[#9F1239]">{t('svc.rentBlockedShort')}</p>
             ) : null}
             <PaymentHandler
               service={service}
@@ -4198,12 +4243,12 @@ function ServiceSheet({
               qrScanned={qrScannedBound}
               parkingOption={parkingOption}
               prepaidSettled={prepaidSettled}
-              continueLabel={!selectedItem ? (vehicle ? '차량을 선택해 주세요' : '장소를 선택해 주세요') : selectedRentable ? '이용 시작' : '대여할 수 없는 기기'}
+              continueLabel={!selectedItem ? (vehicle ? t('svc.pickVehicle') : t('svc.pickPlace')) : selectedRentable ? t('svc.startUse') : t('svc.notRentable')}
               canProceed={Boolean(selectedItem) && selectedRentable}
               onParkingOption={setParkingOption}
               onRequestQr={() => {
                 if (!selectedItem) {
-                  onNotice(vehicle ? '먼저 차량을 선택해 주세요.' : '먼저 장소를 선택해 주세요.')
+                  onNotice(vehicle ? t('svc.pickVehicleFirst') : t('svc.pickPlaceFirst'))
                   return
                 }
                 setQrOpen(true)
@@ -4221,17 +4266,17 @@ function ServiceSheet({
         {phase === 'idle' && service === '택배' && (
           <div className="mt-5 space-y-4">
             <div>
-              <p className="mb-2 text-sm font-black">차량 선택</p>
+              <p className="mb-2 text-sm font-black">{t('svc.vehiclePick')}</p>
               <div className="grid grid-cols-3 gap-2">
                 {DELIVERY_VEHICLES.map((item) => (
                   <button key={item} onClick={() => setDeliveryVehicle(item)} className={`rounded-2xl border p-3 text-xs font-black ${deliveryVehicle === item ? 'border-[#7046dc] bg-[#7046dc] text-white' : 'border-[#ece8f4] bg-white'}`}>
-                    {item}
+                    {t(DELIVERY_VEHICLE_KEYS[item])}
                   </button>
                 ))}
               </div>
             </div>
             <div>
-              <p className="mb-2 text-sm font-black">상품 크기</p>
+              <p className="mb-2 text-sm font-black">{t('svc.pkgSize')}</p>
               <div className="flex flex-col gap-2">
                 {PACKAGE_SIZES.map((item) => {
                   const selected = packageSize === item.id
@@ -4246,9 +4291,9 @@ function ServiceSheet({
                         <span className={`block h-full w-full rounded-full ${selected ? 'bg-[#7046dc]' : 'bg-transparent'}`} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <strong className="block text-sm font-black leading-5 text-[#1f1630]">{item.label}</strong>
+                        <strong className="block text-sm font-black leading-5 text-[#1f1630]">{t(PACKAGE_SIZE_KEYS[item.id].label)}</strong>
                         <span className={`mt-1 block whitespace-normal break-keep text-xs font-bold leading-5 ${selected ? 'text-[#6b57a8]' : 'text-[#8b8495]'}`}>
-                          ({item.hint})
+                          ({t(PACKAGE_SIZE_KEYS[item.id].hint)})
                         </span>
                       </span>
                     </button>
@@ -4257,9 +4302,9 @@ function ServiceSheet({
               </div>
             </div>
             <div>
-              <p className="mb-2 text-sm font-black">연락처</p>
+              <p className="mb-2 text-sm font-black">{t('svc.contacts')}</p>
               <label className="block">
-                <span className="text-[10px] font-black text-[#8b8495]">발신인 연락처</span>
+                <span className="text-[10px] font-black text-[#8b8495]">{t('svc.sender')}</span>
                 <input
                   type="tel"
                   inputMode="numeric"
@@ -4274,7 +4319,7 @@ function ServiceSheet({
                 />
               </label>
               <label className="mt-3 block">
-                <span className="text-[10px] font-black text-[#8b8495]">수신인 연락처</span>
+                <span className="text-[10px] font-black text-[#8b8495]">{t('svc.recipient')}</span>
                 <input
                   type="tel"
                   inputMode="numeric"
@@ -4292,15 +4337,15 @@ function ServiceSheet({
             </div>
             <div className="rounded-3xl bg-[#f7f3ff] p-4">
               <div className="flex justify-between">
-                <span className="font-black">예상 배송 요금</span>
+                <span className="font-black">{t('svc.delivFare')}</span>
                 <strong className="text-xl text-[#7046dc]">{formatDeliveryFare(deliveryFare)} Pi</strong>
               </div>
               <p className="mt-2 whitespace-normal break-keep text-xs font-bold leading-5 text-[#8b8495]">
-                {deliveryVehicle} · {packageOption.label} ({packageOption.hint}) · 30분 내 배차
+                {t('svc.delivSummary', { veh: t(DELIVERY_VEHICLE_KEYS[deliveryVehicle]), pkg: t(PACKAGE_SIZE_KEYS[packageSize].label), hint: t(PACKAGE_SIZE_KEYS[packageSize].hint), min: '30' })}
               </p>
             </div>
             <button type="button" onClick={() => startService()} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white">
-              배송 요청하기
+              {t('svc.delivBtn')}
             </button>
           </div>
         )}
@@ -4320,7 +4365,7 @@ function ServiceSheet({
                         return
                       }
                       if (onSelectService) onSelectService(item.label)
-                      else action(`${item.label} 서비스를 선택했어요.`)
+                      else action(t('svc.selected', { name: translateService(locale, item.label) }))
                     }}
                   />
                 ))}
@@ -4341,7 +4386,7 @@ function ServiceSheet({
             setQrScanned(true)
             setQrScannedItem(selectedItem)
             setQrOpen(false)
-            onNotice(`${service} QR 스캔이 완료되었어요.`)
+            onNotice(t('svc.qrDone', { name: translateService(locale, service) }))
             if (paymentPolicy?.timing === 'qr_auto') startService(true)
           }}
         />
@@ -4374,7 +4419,7 @@ function ServiceSheet({
             rideId={contactRideId}
             actorId={daeriPassengerIdRef.current || localPassengerId()}
             role="passenger"
-            peerName={`${partner.name} 기사님`}
+            peerName={t('match.driverTitle', { name: partner.name })}
             onHangup={() => setCallOpen(false)}
           />
         ) : (
@@ -4387,7 +4432,7 @@ function ServiceSheet({
             rideId={contactRideId}
             actorId={daeriPassengerIdRef.current || localPassengerId()}
             role="passenger"
-            peerName={`${partner.name} 기사님`}
+            peerName={t('match.driverTitle', { name: partner.name })}
             onClose={() => setChatOpen(false)}
           />
         ) : (
@@ -4398,7 +4443,7 @@ function ServiceSheet({
         rideId={ride && dispatchRide?.status === 'assigned' ? contactRideId : null}
         actorId={daeriPassengerIdRef.current || localPassengerId()}
         role="passenger"
-        peerName={`${partner.name} 기사님`}
+        peerName={t('match.driverTitle', { name: partner.name })}
         chatOpen={chatOpen}
         callOpen={callOpen}
         onOpenChat={() => setChatOpen(true)}
@@ -4440,6 +4485,7 @@ function DaeriCallSetupSheet({
   onCall: (trip: DaeriTrip) => void
   onRequireRoute?: (kind: RouteGap) => void
 }) {
+  const { t } = useLocale()
   const [pickup, setPickup] = useState(originAddress)
   const [waypoints, setWaypoints] = useState<string[]>((initialWaypoints ?? []).slice(0, MAX_WAYPOINTS))
   const waypointPlaces = useRef(new Map<string, RideCoords>())
@@ -4465,8 +4511,8 @@ function DaeriCallSetupSheet({
   const dragRef = useRef({ active: false, startY: 0, pointerId: -1 })
   const peekHeight = 72
   const plans = [
-    { id: '착한요금' as const, fare: 2.1, caption: '합리적인 기본 요금' },
-    { id: '빠른배정' as const, fare: 2.8, caption: '가까운 기사 우선 배정' },
+    { id: '착한요금' as const, fare: 2.1, nameKey: 'daeri.plan.fair' as MessageKey, captionKey: 'daeri.plan.fairCap' as MessageKey },
+    { id: '빠른배정' as const, fare: 2.8, nameKey: 'daeri.plan.fast' as MessageKey, captionKey: 'daeri.plan.fastCap' as MessageKey },
   ]
   const selected = plans.find((item) => item.id === plan) ?? plans[0]
   const pickSeq = useRef(0)
@@ -4562,11 +4608,11 @@ function DaeriCallSetupSheet({
           onPick={mapPicker ? pickMapPoint : undefined}
         />
         {mapPicker ? (
-          <button type="button" onClick={closePicker} className="absolute left-4 top-5 z-20 rounded-full bg-white p-2 text-[#334155] shadow-md" aria-label="지도 선택 닫기">
+          <button type="button" onClick={closePicker} className="absolute left-4 top-5 z-20 rounded-full bg-white p-2 text-[#334155] shadow-md" aria-label={t('daeri.mapClose')}>
             <ChevronLeft className="h-5 w-5" />
           </button>
         ) : (
-          <button type="button" onClick={onClose} className="absolute left-4 top-5 z-20 rounded-full bg-white p-2 text-[#334155] shadow-md" aria-label="닫기">
+          <button type="button" onClick={onClose} className="absolute left-4 top-5 z-20 rounded-full bg-white p-2 text-[#334155] shadow-md" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         )}
@@ -4574,7 +4620,7 @@ function DaeriCallSetupSheet({
           className={`absolute inset-x-0 bottom-0 z-20 px-3 pb-5 transition-all duration-300 ease-out ${mapPicker && pendingPick ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-8 opacity-0'}`}
         >
           <div className="rounded-[26px] border-2 border-[#334155] bg-white px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.18)]">
-            <p className="text-sm font-semibold text-[#1d4ed8]">선택한 위치</p>
+            <p className="text-sm font-semibold text-[#1d4ed8]">{t('daeri.picked')}</p>
             <p className="mt-1.5 text-lg font-bold leading-snug text-[#0f172a]">{pendingPick?.address ?? ''}</p>
             <button
               type="button"
@@ -4586,7 +4632,7 @@ function DaeriCallSetupSheet({
               }}
               className="mt-4 w-full rounded-2xl bg-[#2563EB] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(37,99,235,0.38)]"
             >
-              출발지로 설정
+              {t('daeri.setPickup')}
             </button>
           </div>
         </div>
@@ -4598,7 +4644,7 @@ function DaeriCallSetupSheet({
           <button
             type="button"
             aria-expanded={sheetOpen}
-            aria-label={sheetOpen ? '호출 창 접기' : '호출 창 펼치기'}
+            aria-label={sheetOpen ? t('daeri.fold') : t('daeri.unfold')}
             className="flex w-full touch-none flex-col items-center pb-2 pt-2"
             onPointerDown={(event) => {
               dragRef.current = { active: true, startY: event.clientY, pointerId: event.pointerId }
@@ -4613,38 +4659,38 @@ function DaeriCallSetupSheet({
             onPointerCancel={(event) => finishSheetDrag(event.clientY)}
           >
             <span className="h-1.5 w-12 rounded-full bg-[#D4D4D8]" />
-            <span className="mt-2 text-[11px] font-bold text-[#94A3B8]">{sheetOpen ? '아래로 밀어 지도를 더 보기' : '위로 밀어 호출 창 열기'}</span>
+            <span className="mt-2 text-[11px] font-bold text-[#94A3B8]">{sheetOpen ? t('daeri.dragDown') : t('daeri.dragUp')}</span>
           </button>
-          <p className="text-xs font-black text-[#4C1FB8]">대리 호출 준비</p>
+          <p className="text-xs font-black text-[#4C1FB8]">{t('daeri.prepare')}</p>
           <label className="mt-3 block">
-            <span className="text-[10px] font-black text-[#8b8495]">출발지 주소</span>
+            <span className="text-[10px] font-black text-[#8b8495]">{t('daeri.pickupLbl')}</span>
             <div className="mt-2 flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3">
               <LocateFixed className="h-4 w-4 shrink-0 text-[#4C1FB8]" />
               <input
                 value={pickup}
                 onChange={(event) => setPickup(event.target.value)}
-                placeholder="출발지 주소를 입력해 주세요"
-                aria-label="출발지 주소 수정"
+                placeholder={t('daeri.pickupPh')}
+                aria-label={t('daeri.pickupAria')}
                 className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"
               />
             </div>
           </label>
           <div className="mt-3 block">
-            <span className="text-[10px] font-black text-[#8b8495]">경유지 (선택 · 최대 {MAX_WAYPOINTS}곳)</span>
+            <span className="text-[10px] font-black text-[#8b8495]">{t('daeri.waypointLbl', { max: String(MAX_WAYPOINTS) })}</span>
             {waypoints.map((waypoint, index) => (
               <div key={index} className="mt-2 flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3">
                 <MapPin className="h-4 w-4 shrink-0 text-[#EA580C]" />
                 <input
                   value={waypoint}
                   onChange={(event) => setWaypoints((list) => list.map((item, i) => (i === index ? event.target.value : item)))}
-                  placeholder={`경유지 ${index + 1}`}
-                  aria-label={`경유지 ${index + 1}`}
+                  placeholder={t('daeri.waypointPh', { n: String(index + 1) })}
+                  aria-label={t('daeri.waypointPh', { n: String(index + 1) })}
                   className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setWaypointSearchIndex(index)}
-                  aria-label={`경유지 ${index + 1} 검색`}
+                  aria-label={t('daeri.wpSearch', { n: String(index + 1) })}
                   className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EDE5FF] text-[#6D28D9] transition hover:bg-[#E0D4FF] active:scale-95"
                 >
                   <Search className="h-3.5 w-3.5" />
@@ -4652,7 +4698,7 @@ function DaeriCallSetupSheet({
                 <button
                   type="button"
                   onClick={() => setWaypoints((list) => list.filter((_, i) => i !== index))}
-                  aria-label={`경유지 ${index + 1} 삭제`}
+                  aria-label={t('daeri.wpDel', { n: String(index + 1) })}
                   className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#F1F5F9] text-[#64748B] transition hover:bg-[#E2E8F0] active:scale-95"
                 >
                   <Minus className="h-3.5 w-3.5" />
@@ -4666,23 +4712,23 @@ function DaeriCallSetupSheet({
                 className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-[#C4B5FD] bg-white py-2.5 text-xs font-black text-[#6D28D9] transition hover:bg-[#F8F5FF] active:scale-[0.99]"
               >
                 <Plus className="h-4 w-4" />
-                경유지 추가
+                {t('daeri.wpAdd')}
               </button>
             ) : null}
           </div>
           <label className="mt-3 block">
-            <span className="text-[10px] font-black text-[#8b8495]">도착지 · 목적지</span>
+            <span className="text-[10px] font-black text-[#8b8495]">{t('daeri.destLbl')}</span>
             <div className="mt-2 flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3">
               <MapPin className="h-4 w-4 text-[#4C1FB8]" />
               <input
                 value={dest}
                 onChange={(event) => setDest(event.target.value)}
-                placeholder="어디로 갈까요?"
+                placeholder={t('home.destPlaceholder')}
                 className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"
               />
             </div>
           </label>
-          <p className="mt-4 text-xs font-black text-[#334155]">요금 선택</p>
+          <p className="mt-4 text-xs font-black text-[#334155]">{t('daeri.fareLbl')}</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
             {plans.map((item) => (
               <button
@@ -4691,8 +4737,8 @@ function DaeriCallSetupSheet({
                 onClick={() => setPlan(item.id)}
                 className={`rounded-[20px] border-2 p-3 text-left ${plan === item.id ? 'border-[#4C1FB8] bg-[#F8F5FF]' : 'border-[#E2E8F0] bg-white'}`}
               >
-                <p className="text-sm font-black text-[#0F172A]">{item.id}</p>
-                <p className="mt-1 text-[11px] font-bold text-[#8b8495]">{item.caption}</p>
+                <p className="text-sm font-black text-[#0F172A]">{t(item.nameKey)}</p>
+                <p className="mt-1 text-[11px] font-bold text-[#8b8495]">{t(item.captionKey)}</p>
                 <p className="mt-2 text-base font-black text-[#4C1FB8]">{item.fare.toFixed(1)} Pi</p>
               </button>
             ))}
@@ -4722,7 +4768,7 @@ function DaeriCallSetupSheet({
             }}
             className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
           >
-            대리 호출하기
+            {t('daeri.callBtn')}
           </button>
         </section>
         {longDist ? (
@@ -4746,7 +4792,7 @@ function DaeriCallSetupSheet({
             originLat={pickupPoint.lat}
             originLng={pickupPoint.lng}
             originAddress={pickup}
-            searchPlaceholder="경유지를 검색해 주세요"
+            searchPlaceholder={t('daeri.wpSearchPh')}
             onClose={() => setWaypointSearchIndex(null)}
             onSelect={(name, address, coords) => {
               const index = waypointSearchIndex
@@ -4779,6 +4825,7 @@ function DaeriCallSetupSheet({
 }
 
 function DaeriPromoBanner({ onCall }: { onCall: () => void }) {
+  const { t } = useLocale()
   const [open, setOpen] = useState(false)
   const [hidden, setHidden] = useState(false)
   if (hidden) return null
@@ -4787,17 +4834,17 @@ function DaeriPromoBanner({ onCall }: { onCall: () => void }) {
       <div className={`pointer-events-auto overflow-hidden rounded-[22px] shadow-[0_12px_28px_rgba(76,31,184,0.35)] ${open ? 'bg-gradient-to-b from-[#F3E8FF] via-[#8B5CF6] to-[#1E1B4B] text-[#3B16A8]' : 'bg-gradient-to-b from-[#6D28D9] via-[#4C1FB8] to-[#1E1B4B] text-white'}`}>
         <div className="flex w-full items-center gap-5 px-4 py-3">
           <button type="button" onClick={() => setOpen((value) => !value)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-            <span className={`min-w-0 flex-1 text-sm font-black tracking-tight ${open ? 'text-[#3B16A8]' : 'text-white'}`}>&lsquo;대리&rsquo; 필요하신가요?</span>
+            <span className={`min-w-0 flex-1 text-sm font-black tracking-tight ${open ? 'text-[#3B16A8]' : 'text-white'}`}>{t('promo.daeri')}</span>
             <ChevronUp className={`h-5 w-5 shrink-0 transition-transform duration-300 ${open ? 'rotate-0 text-[#4C1FB8]' : 'rotate-180 text-white'}`} />
           </button>
-          <button type="button" onClick={() => setHidden(true)} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${open ? 'bg-[#4C1FB8]/15 text-[#4C1FB8]' : 'bg-white/20 text-white'}`} aria-label="배너 닫기">
+          <button type="button" onClick={() => setHidden(true)} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${open ? 'bg-[#4C1FB8]/15 text-[#4C1FB8]' : 'bg-white/20 text-white'}`} aria-label={t('promo.close')}>
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
           <div className="overflow-hidden">
             <div className="border-t border-white/20 px-4 pb-4 pt-2">
-              <p className="text-xs font-bold leading-5 text-white">쿠폰으로 부담 없이, 편하게 집까지 이동해보세요</p>
+              <p className="text-xs font-bold leading-5 text-white">{t('promo.daeriSub')}</p>
               <button
                 type="button"
                 onClick={(event) => {
@@ -4806,7 +4853,7 @@ function DaeriPromoBanner({ onCall }: { onCall: () => void }) {
                 }}
                 className="mt-3 w-full rounded-2xl bg-white py-3 text-sm font-black text-[#3B16A8] shadow-[0_8px_16px_rgba(15,23,42,0.18)]"
               >
-                대리 호출하기 &gt;
+                {t('daeri.callBtn')} &gt;
               </button>
             </div>
           </div>
@@ -4820,9 +4867,9 @@ const HOME_EVENT_BANNERS = [
   {
     id: 'first-ride',
     badge: 'EVENT',
-    title: '첫 호출 50% Pi 할인',
-    subtitle: '신규 탑승 쿠폰이 자동 적용돼요',
-    cta: '지금 호출',
+    titleKey: 'promo.ev1Title' as MessageKey,
+    subtitleKey: 'promo.ev1Sub' as MessageKey,
+    ctaKey: 'promo.ev1Cta' as MessageKey,
     action: '택시' as ServiceLabel,
     icon: Sparkles,
     className: 'from-[#6D28D9] via-[#5B21B6] to-[#1E1B4B]',
@@ -4830,9 +4877,9 @@ const HOME_EVENT_BANNERS = [
   {
     id: 'daeri-night',
     badge: 'AD',
-    title: '심야 대리 3,000원 쿠폰',
-    subtitle: '늦은 밤에도 편하게 집까지',
-    cta: '대리 보기',
+    titleKey: 'promo.ev2Title' as MessageKey,
+    subtitleKey: 'promo.ev2Sub' as MessageKey,
+    ctaKey: 'promo.ev2Cta' as MessageKey,
     action: '대리운전' as ServiceLabel,
     icon: Car,
     className: 'from-[#0F766E] via-[#0F172A] to-[#1E1B4B]',
@@ -4840,9 +4887,9 @@ const HOME_EVENT_BANNERS = [
   {
     id: 'invite-pi',
     badge: 'EVENT',
-    title: '친구 초대하고 Pi 적립',
-    subtitle: '친구 초대 시 각각 0.5 Pi가 지급됩니다',
-    cta: '혜택 보기',
+    titleKey: 'promo.ev3Title' as MessageKey,
+    subtitleKey: 'promo.ev3Sub' as MessageKey,
+    ctaKey: 'promo.ev3Cta' as MessageKey,
     action: '더보기' as ServiceLabel,
     icon: Gift,
     className: 'from-[#DB2777] via-[#7C3AED] to-[#312E81]',
@@ -4850,12 +4897,13 @@ const HOME_EVENT_BANNERS = [
 ] as const
 
 function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => void }) {
+  const { t } = useLocale()
   const [inviteOpen, setInviteOpen] = useState(false)
   return (
-    <section className="mt-3" aria-label="이벤트 및 광고">
+    <section className="mt-3" aria-label={t('promo.eventsAria')}>
       <div className="flex items-end justify-between px-0.5">
-        <h2 className="text-sm font-black tracking-tight text-[#0F172A]">이벤트 · 혜택</h2>
-        <span className="text-[10px] font-bold text-[#64748B]">좌우로 넘겨 보세요</span>
+        <h2 className="text-sm font-black tracking-tight text-[#0F172A]">{t('promo.events')}</h2>
+        <span className="text-[10px] font-bold text-[#64748B]">{t('promo.swipe')}</span>
       </div>
       <div className="mt-2 flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {HOME_EVENT_BANNERS.map((banner) => {
@@ -4872,7 +4920,7 @@ function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => v
                 onAction(banner.action)
               }}
               className={`relative min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start overflow-hidden rounded-[22px] bg-gradient-to-br p-4 text-left text-white shadow-[0_12px_24px_rgba(76,31,184,0.22)] ${banner.className}`}
-              aria-label={`${banner.badge} ${banner.title}`}
+              aria-label={`${banner.badge} ${t(banner.titleKey)}`}
             >
               <span className="pointer-events-none absolute -right-4 -top-6 h-24 w-24 rounded-full bg-white/10" />
               <span className="pointer-events-none absolute bottom-[-1.5rem] right-8 h-20 w-20 rounded-full bg-white/10" />
@@ -4880,10 +4928,10 @@ function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => v
                 <Icon className="h-3 w-3" />
                 {banner.badge}
               </span>
-              <p className="mt-2.5 text-[17px] font-black leading-snug tracking-tight">{banner.title}</p>
-              <p className="mt-1 text-[12px] font-bold leading-5 text-white/80">{banner.subtitle}</p>
+              <p className="mt-2.5 text-[17px] font-black leading-snug tracking-tight">{t(banner.titleKey)}</p>
+              <p className="mt-1 text-[12px] font-bold leading-5 text-white/80">{t(banner.subtitleKey)}</p>
               <span className="mt-3 inline-flex items-center gap-0.5 text-[12px] font-black">
-                {banner.cta}
+                {t(banner.ctaKey)}
                 <ChevronRight className="h-3.5 w-3.5" />
               </span>
             </button>
@@ -4898,16 +4946,16 @@ function HomeEventBanners({ onAction }: { onAction: (service: ServiceLabel) => v
 const HOME_PARTNER_BANNERS: {
   id: string
   name: string
-  subtitle: string
-  cta: string
+  subtitleKey: MessageKey
+  ctaKey: MessageKey
   href: string | null
   logoSrc: string
 }[] = [
   {
     id: 'baroonda',
     name: 'BaroOnda',
-    subtitle: 'Pi 생태계 파트너 스토어로 이동합니다',
-    cta: '스토어 방문하기',
+    subtitleKey: 'promo.storeSub',
+    ctaKey: 'promo.storeCta',
     href: 'https://apppistorekoreay8282.pinet.com',
     logoSrc: '/ads/baroonda-logo.svg?v=cart-pi',
   },
@@ -4918,12 +4966,13 @@ const PARTNER_CARD_BASE =
   'relative flex min-h-[7.5rem] w-[min(86%,19rem)] shrink-0 snap-start flex-col overflow-hidden rounded-[22px] p-4 text-left'
 
 function HomePartnerBanners() {
+  const { t } = useLocale()
   const [adInfoOpen, setAdInfoOpen] = useState(false)
   return (
-    <section className="mt-3" aria-label="광고 / 파트너 배너">
+    <section className="mt-3" aria-label={t('promo.adsAria')}>
       <div className="flex items-end justify-between px-0.5">
-        <h2 className="text-sm font-black tracking-tight text-[#0F172A]">광고 / 파트너 배너</h2>
-        <span className="text-[10px] font-bold text-[#64748B]">좌우로 넘겨 보세요</span>
+        <h2 className="text-sm font-black tracking-tight text-[#0F172A]">{t('promo.ads')}</h2>
+        <span className="text-[10px] font-bold text-[#64748B]">{t('promo.swipe')}</span>
       </div>
       <div className="mt-2 flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {HOME_PARTNER_BANNERS.map((banner) => (
@@ -4936,13 +4985,13 @@ function HomePartnerBanners() {
               if (!banner.href) event.preventDefault()
             }}
             className={`${PARTNER_CARD_BASE} border-2 border-[#DDD6FE] bg-gradient-to-br from-[#F8F5FF] via-white to-[#EDE5FF] text-[#0F172A] shadow-[0_12px_24px_rgba(76,31,184,0.12)] transition ${banner.href ? 'cursor-pointer hover:border-[#4C1FB8] hover:shadow-[0_14px_28px_rgba(76,31,184,0.22)] active:scale-[0.98]' : 'cursor-default'}`}
-            aria-label={`${banner.name} ${banner.subtitle}`}
+            aria-label={`${banner.name} ${t(banner.subtitleKey)}`}
           >
-            <img src={banner.logoSrc} alt="BaroOnda 쇼핑 카트와 파이 로고" className="h-12 w-auto max-w-full object-contain object-left" />
+            <img src={banner.logoSrc} alt="BaroOnda" className="h-12 w-auto max-w-full object-contain object-left" />
             <p className="mt-2 text-[15px] font-black leading-snug tracking-tight">{banner.name}</p>
-            <p className="mt-1 text-[12px] font-bold leading-5 text-[#64748B]">{banner.subtitle}</p>
+            <p className="mt-1 text-[12px] font-bold leading-5 text-[#64748B]">{t(banner.subtitleKey)}</p>
             <span className="mt-2 inline-flex items-center gap-0.5 text-[12px] font-black text-[#4C1FB8]">
-              {banner.cta}
+              {t(banner.ctaKey)}
               <ChevronRight className="h-3.5 w-3.5" />
             </span>
           </a>
@@ -4951,14 +5000,14 @@ function HomePartnerBanners() {
           type="button"
           onClick={() => setAdInfoOpen(true)}
           className={`${PARTNER_CARD_BASE} cursor-pointer items-center justify-center border-2 border-dashed border-[#C4B5FD] bg-white/70 text-center transition hover:border-[#4C1FB8] hover:bg-[#F8F5FF] active:scale-[0.98]`}
-          aria-label="광고 등록 안내"
+          aria-label={t('promo.adGuide')}
         >
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EDE9FE]">
             <Sparkles className="h-4 w-4 text-[#4C1FB8]" />
           </span>
-          <p className="mt-2 text-[13px] font-black leading-snug text-[#4C1FB8]">여기는 당신의 광고를<br />올리는 곳입니다</p>
+          <p className="mt-2 text-[13px] font-black leading-snug text-[#4C1FB8]">{t('promo.adSlot')}</p>
           <span className="mt-2 inline-flex items-center gap-0.5 text-[11px] font-black text-[#64748B]">
-            광고 등록 안내
+            {t('promo.adGuide')}
             <ChevronRight className="h-3.5 w-3.5" />
           </span>
         </button>
@@ -4968,26 +5017,25 @@ function HomePartnerBanners() {
   )
 }
 
+const AD_INQUIRY_STEPS: MessageKey[] = ['promo.adStep1', 'promo.adStep2', 'promo.adStep3']
+
 function AdInquiryModal({ onClose }: { onClose: () => void }) {
+  const { t } = useLocale()
   return (
     <div className="fixed inset-0 z-[130] flex items-end justify-center bg-[#241d35]/50 sm:items-center sm:p-4" onClick={onClose}>
       <section className="w-full max-w-md rounded-t-[28px] bg-white p-5 sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs font-black text-[#4C1FB8]">광고 / 파트너 배너</p>
-            <h3 className="mt-1 text-lg font-black">이 자리에 광고를 등록하는 방법</h3>
+            <p className="text-xs font-black text-[#4C1FB8]">{t('promo.ads')}</p>
+            <h3 className="mt-1 text-lg font-black">{t('promo.adTitle')}</h3>
           </div>
-          <button type="button" onClick={onClose} className="text-sm font-black text-[#64748B]" aria-label="닫기">닫기</button>
+          <button type="button" onClick={onClose} className="text-sm font-black text-[#64748B]" aria-label={t('common.close')}>{t('common.close')}</button>
         </div>
         <ol className="mt-4 space-y-3">
-          {[
-            { step: '1', text: '홍보할 서비스명 · 배너 이미지 · 연결할 링크를 준비해 주세요.' },
-            { step: '2', text: '아래 문의 이메일로 광고 신청을 보내 주세요. 제목에 [광고등록]을 붙여 주시면 빠르게 처리됩니다.' },
-            { step: '3', text: '담당자 검토·심사 후 이 영역에 광고 배너가 노출됩니다.' },
-          ].map((row) => (
-            <li key={row.step} className="flex items-start gap-2.5">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#4C1FB8] text-[11px] font-black text-white">{row.step}</span>
-              <p className="text-[13px] font-bold leading-5 text-[#334155]">{row.text}</p>
+          {AD_INQUIRY_STEPS.map((stepKey, index) => (
+            <li key={stepKey} className="flex items-start gap-2.5">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#4C1FB8] text-[11px] font-black text-white">{index + 1}</span>
+              <p className="text-[13px] font-bold leading-5 text-[#334155]">{t(stepKey)}</p>
             </li>
           ))}
         </ol>
@@ -4995,7 +5043,7 @@ function AdInquiryModal({ onClose }: { onClose: () => void }) {
           href={`${SUPPORT_MAILTO}?subject=${encodeURIComponent('[광고등록] TaxiTago 배너 광고 문의')}`}
           className="mt-4 block rounded-2xl bg-[#4C1FB8] py-3 text-center text-sm font-black text-white"
         >
-          이메일로 광고 신청하기
+          {t('promo.adMail')}
         </a>
         <p className="mt-2 break-all text-center text-[10px] font-bold text-[#94A3B8]">{SUPPORT_EMAIL}</p>
       </section>
@@ -5100,8 +5148,8 @@ function Home({
     pickupFromMap || gpsStatus === 'ready'
       ? null
       : gpsStatus === 'pending'
-        ? 'GPS로 위치를 확인하는 중이에요'
-        : '탭해서 지도에서 출발지를 지정하세요'
+        ? t('home.gpsPending')
+        : t('home.pickOnMap')
 
   return (
     <main
@@ -5131,15 +5179,15 @@ function Home({
                 type="button"
                 onClick={() => setWaypointSearchIndex(index)}
                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                aria-label={`경유지 ${index + 1} 검색`}
+                aria-label={t('daeri.wpSearch', { n: String(index + 1) })}
               >
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#FFF7ED] text-[#EA580C]">
                   <MapPin className="h-3.5 w-3.5" />
                 </span>
                 <span className="min-w-0 flex-1 py-0.5">
-                  <span className="block text-[10px] font-bold leading-3 text-[#64748B]">경유지 {index + 1}</span>
+                  <span className="block text-[10px] font-bold leading-3 text-[#64748B]">{t('daeri.waypointPh', { n: String(index + 1) })}</span>
                   <span className={`mt-0.5 block truncate text-[13px] font-black leading-4 ${waypoint ? 'text-[#0F172A]' : 'font-bold text-[#94A3B8]'}`}>
-                    {waypoint || '경유할 곳을 검색해 주세요'}
+                    {waypoint || t('daeri.wpSearchPh')}
                   </span>
                 </span>
                 <Search className="h-3.5 w-3.5 shrink-0 text-[#94A3B8]" />
@@ -5147,7 +5195,7 @@ function Home({
               <button
                 type="button"
                 onClick={() => onWaypointsChange?.(waypoints.filter((_, i) => i !== index))}
-                aria-label={`경유지 ${index + 1} 삭제`}
+                aria-label={t('daeri.wpDel', { n: String(index + 1) })}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#F1F5F9] text-[#64748B] transition hover:bg-[#E2E8F0] active:scale-95"
               >
                 <Minus className="h-3.5 w-3.5" />
@@ -5164,7 +5212,7 @@ function Home({
               className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#C4B5FD] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#6D28D9] transition hover:bg-[#F8F5FF] active:scale-[0.99]"
             >
               <Plus className="h-3.5 w-3.5" />
-              경유지 추가
+              {t('daeri.wpAdd')}
             </button>
           ) : null}
           <div className="mt-1 flex items-stretch gap-1.5">
@@ -5237,8 +5285,8 @@ function Home({
           className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] px-3 py-3 text-[13px] font-black text-white shadow-[0_8px_18px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] active:scale-[0.99]"
         >
           <ScanLine className="h-5 w-5" />
-          QR 코드로 결제하기
-          <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black">현장 결제</span>
+          {t('home.qrPay')}
+          <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black">{t('home.qrPayBadge')}</span>
         </button>
         <section className="mt-4">
           <div className="flex items-end justify-between px-0.5">
@@ -5263,7 +5311,7 @@ function Home({
         ) : (
           <div className="mt-3 w-full rounded-xl border border-dashed border-[#E2E8F0] bg-white/70 px-3 py-2.5">
             <p className="text-[10px] font-bold text-[#64748B]">{t('home.recent')}</p>
-            <p className="text-[13px] font-bold leading-tight text-[#94A3B8]">아직 이용 내역이 없습니다</p>
+            <p className="text-[13px] font-bold leading-tight text-[#94A3B8]">{t('inbox.empty')}</p>
           </div>
         )}
         <HomeEventBanners onAction={onService} />
@@ -5306,7 +5354,7 @@ function Home({
           originLat={pickupLat}
           originLng={pickupLng}
           originAddress={pickup}
-          searchPlaceholder="경유지를 검색해 주세요"
+          searchPlaceholder={t('daeri.wpSearchPh')}
           onClose={() => setWaypointSearchIndex(null)}
           onSelect={(name, address, coords) => {
             const index = waypointSearchIndex
@@ -5936,6 +5984,7 @@ function WalletModal({
   onNotice: (message: string) => void
   onReceipt: (ride: RideReceipt) => void
 }) {
+  const { t } = useLocale()
   const [tab, setTab] = useState<'charge' | 'refund' | 'history'>('charge')
   const [chargeValue, setChargeValue] = useState<number | ''>(10)
   // 메인넷: 임의 잔액 대신 Pi 공식 블록체인 API가 읽어온 실제 온체인 잔액을 표시한다.
@@ -6040,7 +6089,7 @@ function WalletModal({
   const saveWithdrawAddress = () => {
     const next = addressDraft.trim()
     if (!isPiWalletAddress(next)) {
-      onNotice('Pi 지갑 주소 형식을 확인해 주세요. (G로 시작하는 56자리)')
+      onNotice(t('wallet.errAddrFmt'))
       return
     }
     try {
@@ -6051,7 +6100,7 @@ function WalletModal({
     setAddress(next)
     setDestInput(next)
     setEditingAddress(false)
-    onNotice('출금 주소를 저장했습니다.')
+    onNotice(t('wallet.savedAddr'))
   }
 
   const copyWithdrawAddress = async () => {
@@ -6060,7 +6109,7 @@ function WalletModal({
     } catch {
       /* clipboard may be unavailable in some browsers */
     }
-    onNotice('출금 주소가 복사되었습니다')
+    onNotice(t('wallet.copiedAddr'))
   }
 
   // 자동 입금 감지 — 연동된 내 Pi 지갑에서 플랫폼 수신지로 들어온 온체인 결제를
@@ -6102,7 +6151,7 @@ function WalletModal({
       .catch((error) => {
         if (cancelled) return
         setProcess(null)
-        onNotice(error instanceof Error ? error.message : '출금 전송에 실패했어요.')
+        onNotice(error instanceof Error ? error.message : t('wallet.errSend'))
       })
     return () => {
       cancelled = true
@@ -6117,7 +6166,7 @@ function WalletModal({
     } catch {
       /* clipboard may be unavailable in some browsers */
     }
-    onNotice('주소가 복사되었습니다')
+    onNotice(t('wallet.copied'))
   }
 
   const setQuickAmount = (ratio: number) => {
@@ -6129,27 +6178,27 @@ function WalletModal({
     if (process) return
     const dest = destInput.trim()
     if (dest && !isPiWalletAddress(dest)) {
-      onNotice('출금할 지갑 주소 형식이 올바르지 않습니다. 주소를 다시 확인해 주세요.')
+      onNotice(t('wallet.errDest'))
       return
     }
     if (!(dest || loadPiIdentity()?.uid) || !withdrawValue || withdrawValue <= 0 || withdrawValue > balance) {
-      onNotice('Pi 계정 연동과 출금 가능 금액을 확인해 주세요.')
+      onNotice(t('wallet.errAmt'))
       return
     }
     setProcess({ kind: 'withdraw', phase: 'pending', amount: withdrawValue, dest })
   }
 
   const tabs = [
-    { id: 'charge' as const, label: '충전' },
-    { id: 'refund' as const, label: '출금ㆍ환불' },
-    { id: 'history' as const, label: '이용 내역' },
+    { id: 'charge' as const, labelKey: 'wallet.kindCharge' as const },
+    { id: 'refund' as const, labelKey: 'wallet.refundTab' as const },
+    { id: 'history' as const, labelKey: 'inbox.tabHistory' as const },
   ]
 
   const historyRanges = [
-    { id: 'all' as const, label: '전체' },
-    { id: 'week' as const, label: '주간' },
-    { id: 'month' as const, label: '월간' },
-    { id: 'year' as const, label: '년간' },
+    { id: 'all' as const, labelKey: 'wallet.rAll' as const },
+    { id: 'week' as const, labelKey: 'wallet.rWeek' as const },
+    { id: 'month' as const, labelKey: 'wallet.rMonth' as const },
+    { id: 'year' as const, labelKey: 'wallet.rYear' as const },
   ]
   const historyNow = new Date()
   const historyStart =
@@ -6180,10 +6229,10 @@ function WalletModal({
     (tx.label === '리뷰 적립' && tx.amount > 0) ||
     (tx.amount < 0 && /택시|대리/.test(tx.label))
   const historyStats = [
-    { label: '총 충전', value: historySum((tx) => tx.label === 'Pi 충전' && tx.amount > 0), tone: 'text-[#059669]' },
-    { label: '총 출금·환불', value: historySum((tx) => (tx.label === 'Pi 환불' || tx.label === 'Pi 출금') && tx.amount < 0), tone: 'text-[#DC2626]' },
-    { label: '총 리뷰 이벤트', value: historySum((tx) => tx.label === '리뷰 적립' && tx.amount > 0), tone: 'text-[#D97706]' },
-    { label: '총 택시 이용', value: historySum((tx) => tx.amount < 0 && /택시|대리/.test(tx.label)), tone: 'text-[#2563EB]' },
+    { labelKey: 'wallet.sumCharge' as const, value: historySum((tx) => tx.label === 'Pi 충전' && tx.amount > 0), tone: 'text-[#059669]' },
+    { labelKey: 'wallet.sumRefund' as const, value: historySum((tx) => (tx.label === 'Pi 환불' || tx.label === 'Pi 출금') && tx.amount < 0), tone: 'text-[#DC2626]' },
+    { labelKey: 'wallet.sumReview' as const, value: historySum((tx) => tx.label === '리뷰 적립' && tx.amount > 0), tone: 'text-[#D97706]' },
+    { labelKey: 'wallet.sumRide' as const, value: historySum((tx) => tx.amount < 0 && /택시|대리/.test(tx.label)), tone: 'text-[#2563EB]' },
   ]
   // 분류되지 않는 나머지(택배·자전거·킥보드·EV·주차·취소 수수료 등)도 합계에 포함해
   // 기초 잔액 + 전체 기간 순변동이 '사용 가능 잔액'과 정확히 일치하도록 한다.
@@ -6198,22 +6247,22 @@ function WalletModal({
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-black text-[#4C1FB8]">PI WALLET</p>
-            <h2 className="mt-1 text-2xl font-black text-[#0F172A]">Pi 월렛 관리</h2>
+            <h2 className="mt-1 text-2xl font-black text-[#0F172A]">{t('wallet.title')}</h2>
           </div>
-          <button onClick={onClose} className="rounded-full bg-white p-2 text-[#5f566d]" aria-label="지갑 닫기">
+          <button onClick={onClose} className="rounded-full bg-white p-2 text-[#5f566d]" aria-label={t('wallet.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
         <section className="mt-5 rounded-[26px] bg-[#4C1FB8] p-5 text-white shadow-[0_16px_32px_rgba(76,31,184,0.35)]">
-          <p className="text-xs font-bold text-[#E8DCFF]">사용 가능 잔액</p>
+          <p className="text-xs font-bold text-[#E8DCFF]">{t('wallet.avail')}</p>
           <p className="mt-2 text-3xl font-black">
             {balance.toFixed(7)} <span className="text-lg text-[#E8DCFF]">Pi</span>
           </p>
           <p className="mt-2 text-xs font-bold text-[#E8DCFF]">
-            {PI_SANDBOX ? '샌드박스 테스트 잔액으로 충전됩니다' : 'Pi Browser에서 충전하면 공식 결제 창이 열립니다'}
+            {PI_SANDBOX ? t('wallet.sandboxNote') : t('wallet.mainnetNote')}
           </p>
           {!PI_SANDBOX && onchainPi !== null ? (
-            <p className="mt-1 text-[10px] font-bold text-[#E8DCFF]/80">메인넷 온체인 잔액 {onchainPi.toFixed(7)} Pi</p>
+            <p className="mt-1 text-[10px] font-bold text-[#E8DCFF]/80">{t('wallet.onchain', { v: onchainPi.toFixed(7) })}</p>
           ) : null}
         </section>
         <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
@@ -6224,7 +6273,7 @@ function WalletModal({
               onClick={() => setTab(item.id)}
               className={`rounded-xl py-2.5 text-xs font-black transition ${tab === item.id ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
             >
-              {item.label}
+              {t(item.labelKey)}
             </button>
           ))}
         </div>
@@ -6232,35 +6281,35 @@ function WalletModal({
           <div className="mt-4 flex flex-col gap-3">
             <section className="order-3 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
               <div className="flex items-center justify-between">
-                <p className="font-black">입금 주소</p>
-                <span className="rounded-full bg-[#EDE5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">입금 전용</span>
+                <p className="font-black">{t('wallet.depositAddr')}</p>
+                <span className="rounded-full bg-[#EDE5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">{t('wallet.depositOnly')}</span>
               </div>
-              <p className="mt-2 text-xs font-bold text-[#8b8495]">Pi Wallet 앱에서 아래 주소(G로 시작하는 56자리 Pi 주소)로 송금하면 잔액이 충전됩니다.</p>
+              <p className="mt-2 text-xs font-bold text-[#8b8495]">{t('wallet.depositDesc')}</p>
               {!depositAddressValid ? (
                 <p className="mt-2 rounded-xl bg-[#FFFBEB] px-3 py-2 text-[11px] font-black leading-4 text-[#B45309]">
-                  플랫폼 입금 지갑이 아직 등록되지 않았습니다. 아래 임시 표시는 실제 Pi 주소가 아니므로 송금하지 마세요. Pi Browser에서는 위 충전 버튼의 SDK 결제로 바로 충전할 수 있습니다.
+                  {t('wallet.depositPending')}
                 </p>
               ) : null}
               <div className="mt-3 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-3">
                 <p className="min-w-0 flex-1 break-all font-mono text-xs font-bold text-[#3B16A8]">{depositAddress}</p>
                 <button type="button" disabled={!depositAddressValid} onClick={copyAddress} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#4C1FB8] px-3 py-2 text-[11px] font-black text-white disabled:opacity-40">
                   <Copy className="h-3.5 w-3.5" />
-                  복사
+                  {t('common.copy')}
                 </button>
               </div>
             </section>
             <p className="order-2 rounded-2xl border border-[#F2DCB8] bg-[#FFFBEB] px-4 py-2.5 text-center text-xs font-black text-[#B45309]">
-              파이 충전이 안 될 시 아래 입금 주소로 수동 충전 하세요
+              {t('wallet.manualHint')}
             </p>
             <section className="order-1 rounded-3xl border-2 border-[#E0D4FF] bg-white p-3.5">
-              <p className="font-black">파이 충전 단위</p>
-              <p className="mt-1 text-xs font-bold text-[#8b8495]">빠른 선택을 누르거나, 원하는 수량을 직접 입력해 주세요. 24시간 충전 한도는 {PI_CHARGE_MAX_PI} Pi입니다.</p>
+              <p className="font-black">{t('wallet.chargeUnit')}</p>
+              <p className="mt-1 text-xs font-bold text-[#8b8495]">{t('wallet.chargeHint', { max: String(PI_CHARGE_MAX_PI) })}</p>
               <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#F1EBFF] px-3 py-1.5 text-[11px] font-black text-[#4C1FB8]">
                 <WalletCards className="h-3.5 w-3.5" />
-                파이 지갑과 연동되어 충전 됩니다
+                {t('wallet.linkedNote')}
               </p>
               <p className={`mt-1.5 text-xs font-black ${chargeCapRemaining > 0 ? 'text-[#4C1FB8]' : 'text-[#DC2626]'}`}>
-                {chargeCapRemaining > 0 ? `남은 한도 ${chargeCapRemaining.toFixed(7)} Pi` : '24시간 충전 한도를 모두 사용했어요'}
+                {chargeCapRemaining > 0 ? t('wallet.capLeft', { v: chargeCapRemaining.toFixed(7) }) : t('wallet.capUsed')}
               </p>
               <div className="mt-2.5 grid grid-cols-4 gap-1.5">
                 {chargeUnits.map((unit) => (
@@ -6276,7 +6325,7 @@ function WalletModal({
                 ))}
               </div>
               <label className="mt-3 block" htmlFor="pi-charge-amount">
-                <span className="text-xs font-black text-[#334155]">직접 입력</span>
+                <span className="text-xs font-black text-[#334155]">{t('wallet.customAmt')}</span>
                 <div className="mt-1.5 flex items-center gap-2 rounded-xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-2 focus-within:border-[#4C1FB8]">
                   <input
                     id="pi-charge-amount"
@@ -6297,8 +6346,8 @@ function WalletModal({
                       const next = event.target.valueAsNumber
                       setChargeValue(Number.isFinite(next) ? next : '')
                     }}
-                    placeholder="원하는 수량"
-                    aria-label="충전할 Pi 수량 직접 입력"
+                    placeholder={t('wallet.amtPh')}
+                    aria-label={t('wallet.amtAria')}
                     className="min-w-0 flex-1 bg-transparent text-base font-black tabular-nums text-[#0F172A] outline-none [appearance:auto]"
                   />
                   <span className="shrink-0 text-sm font-black text-[#4C1FB8]">Pi</span>
@@ -6306,11 +6355,11 @@ function WalletModal({
               </label>
               {chargeOverCap ? (
                 <p className="mt-2 rounded-xl bg-[#FEF2F2] px-3 py-2 text-[11px] font-black text-[#DC2626]">
-                  24시간 충전 한도 {PI_CHARGE_MAX_PI} Pi를 초과할 수 없어요. {chargeCapRemaining > 0 ? `남은 한도는 ${chargeCapRemaining.toFixed(7)} Pi입니다.` : '한도를 모두 사용했습니다.'}
+                  {t('wallet.capOver', { max: String(PI_CHARGE_MAX_PI) })} {chargeCapRemaining > 0 ? t('wallet.capLeftIs', { v: chargeCapRemaining.toFixed(7) }) : t('wallet.capAllUsed')}
                 </p>
               ) : null}
               <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F8F5FF] px-3.5 py-2.5">
-                <span className="text-xs font-bold text-[#64748B]">신청 수량</span>
+                <span className="text-xs font-bold text-[#64748B]">{t('wallet.reqAmt')}</span>
                 <strong className="text-base font-black text-[#4C1FB8]">{chargeValid ? `${chargeAmount.toFixed(7)} Pi` : '—'}</strong>
               </div>
               <button
@@ -6319,12 +6368,12 @@ function WalletModal({
                 className="mt-3 w-full rounded-xl bg-[#4C1FB8] py-3 text-sm font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-60"
                 onClick={() => {
                   if (process || !chargeValid) {
-                    if (chargeOverCap) onNotice(`24시간 충전 한도 ${PI_CHARGE_MAX_PI} Pi를 초과할 수 없어요.`)
+                    if (chargeOverCap) onNotice(t('wallet.capOver', { max: String(PI_CHARGE_MAX_PI) }))
                     return
                   }
                   const amount = Math.min(Math.round(chargeAmount * 100) / 100, chargeCapRemaining)
                   if (!(amount > 0)) {
-                    onNotice('24시간 충전 한도를 모두 사용했어요.')
+                    onNotice(t('wallet.errCap'))
                     return
                   }
                   setProcess({ kind: 'charge', phase: 'pending', amount })
@@ -6355,18 +6404,18 @@ function WalletModal({
                     })
                 }}
               >
-                {chargeValid ? `${chargeAmount.toFixed(7)} Pi 충전 신청` : '충전 신청'}
+                {chargeValid ? t('wallet.chargeBtnAmt', { v: chargeAmount.toFixed(7) }) : t('wallet.chargeBtn')}
               </button>
             </section>
           </div>
         )}
         {tab === 'refund' && (
           <section className="mt-4 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
-            <p className="font-black">출금ㆍ환불</p>
-            <p className="mt-1 text-xs font-bold text-[#8b8495]">보유 Pi를 원하는 지갑 주소로 보내거나, 결제 금액을 환불받을 때 사용합니다. 실제 블록체인 전송 후 txid가 기록에 남습니다.</p>
+            <p className="font-black">{t('wallet.refundTab')}</p>
+            <p className="mt-1 text-xs font-bold text-[#8b8495]">{t('wallet.wdDesc')}</p>
             <div className="mt-4 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] p-3.5">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-black text-[#334155]">내 출금 주소</p>
+                <p className="text-xs font-black text-[#334155]">{t('wallet.myAddr')}</p>
                 <div className="flex gap-1.5">
                   <button
                     type="button"
@@ -6374,7 +6423,7 @@ function WalletModal({
                     disabled={!address}
                     className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-[#4C1FB8] disabled:opacity-50"
                   >
-                    복사
+                    {t('common.copy')}
                   </button>
                   <button
                     type="button"
@@ -6384,7 +6433,7 @@ function WalletModal({
                     }}
                     className="rounded-full bg-[#EDE5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8]"
                   >
-                    {editingAddress ? '취소' : '수정'}
+                    {editingAddress ? t('common.cancel') : t('common.edit')}
                   </button>
                 </div>
               </div>
@@ -6393,14 +6442,14 @@ function WalletModal({
                   <input
                     value={addressDraft}
                     onChange={(event) => setAddressDraft(event.target.value)}
-                    placeholder="G로 시작하는 56자리 Pi 지갑 주소"
+                    placeholder={t('wallet.addrPh')}
                     spellCheck={false}
                     autoComplete="off"
                     className="mt-2 w-full rounded-xl border-2 border-[#D8CCF5] bg-white px-3 py-2 font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
                   />
                   {addressDraft.trim() && !isPiWalletAddress(addressDraft) ? (
                     <p className="mt-1 text-[10px] font-black text-[#DC2626]">
-                      ⚠ {piWalletError(addressDraft) ?? 'Pi 지갑 주소 형식이 올바르지 않습니다.'}
+                      ⚠ {piWalletError(addressDraft) ?? t('wallet.addrBad')}
                     </p>
                   ) : null}
                   <button
@@ -6409,63 +6458,61 @@ function WalletModal({
                     onClick={saveWithdrawAddress}
                     className="mt-2 w-full rounded-xl bg-[#4C1FB8] py-2 text-xs font-black text-white disabled:opacity-50"
                   >
-                    주소 저장
+                    {t('common.save')}
                   </button>
                 </>
               ) : (
                 <p className="mt-1.5 break-all font-mono text-[11px] font-bold leading-4 text-[#0F172A]">
-                  {address || '연동된 Pi 계정 지갑'}
+                  {address || t('wallet.linkedWallet')}
                 </p>
               )}
               <p className="mt-1.5 text-[10px] font-bold text-[#8b8495]">
-                {isPiWalletAddress(address)
-                  ? '출금 신청 시 이 주소가 기본으로 입력됩니다.'
-                  : '주소가 없으면 연동된 Pi 계정 지갑으로 출금됩니다.'}
+                {isPiWalletAddress(address) ? t('wallet.addrUsed') : t('wallet.addrFallback')}
               </p>
             </div>
             <div className="mt-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-black text-[#334155]">출금할 지갑 주소</p>
+                <p className="text-xs font-black text-[#334155]">{t('wallet.destAddr')}</p>
                 <button
                   type="button"
                   onClick={() => setDestInput(address)}
                   disabled={!isPiWalletAddress(address)}
                   className="rounded-full bg-[#EDE5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8] disabled:opacity-50"
                 >
-                  내 주소
+                  {t('wallet.myAddrBtn')}
                 </button>
               </div>
               <input
                 value={destInput}
                 onChange={(event) => setDestInput(event.target.value)}
-                placeholder="G로 시작하는 56자리 Pi 지갑 주소"
+                placeholder={t('wallet.addrPh')}
                 spellCheck={false}
                 autoComplete="off"
                 className="mt-2 w-full rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-4 py-3 font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
               />
               {destInput.trim() && !isPiWalletAddress(destInput) ? (
                 <p className="mt-1 text-[10px] font-black text-[#DC2626]">
-                  ⚠ {piWalletError(destInput) ?? 'Pi 지갑 주소 형식이 올바르지 않습니다.'}
+                  ⚠ {piWalletError(destInput) ?? t('wallet.addrBad')}
                 </p>
               ) : destInput.trim() && isPiWalletAddress(destInput) && destInput.trim() !== address ? (
                 <p className="mt-1 text-[10px] font-black text-[#B45309]">
-                  ⚠ 내 출금 주소와 다른 주소입니다. 타 계정 송금·현장 결제 등 목적지를 다시 한 번 확인해 주세요.
+                  ⚠ {t('wallet.destDiff')}
                 </p>
               ) : (
                 <p className="mt-1 text-[10px] font-bold text-[#8b8495]">
-                  타 계정 송금·현장 QR 결제 등 필요하면 다른 주소를 직접 입력할 수 있습니다.
+                  {t('wallet.destHint')}
                 </p>
               )}
             </div>
             <div className="mt-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-black text-[#334155]">출금ㆍ환불할 파이 개수</p>
+                <p className="text-xs font-black text-[#334155]">{t('wallet.wdAmt')}</p>
                 <div className="flex gap-1.5">
                   <button type="button" onClick={() => setQuickAmount(0.5)} className="rounded-full bg-[#EDE5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8]">
                     50%
                   </button>
                   <button type="button" onClick={() => setQuickAmount(1)} className="rounded-full bg-[#4C1FB8] px-2.5 py-1 text-[10px] font-black text-white">
-                    최대
+                    {t('wallet.max')}
                   </button>
                 </div>
               </div>
@@ -6473,12 +6520,12 @@ function WalletModal({
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
                 inputMode="decimal"
-                placeholder="출금 Pi"
+                placeholder={t('wallet.wdPh')}
                 className="mt-2 w-full rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-4 py-3 text-sm font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
               />
             </div>
             <button type="button" onClick={requestWithdraw} className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)]">
-              출금ㆍ환불 신청
+              {t('wallet.wdBtn')}
             </button>
           </section>
         )}
@@ -6492,17 +6539,17 @@ function WalletModal({
                   onClick={() => setHistoryRange(item.id)}
                   className={`flex-1 rounded-xl py-2 text-xs font-black transition ${historyRange === item.id ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
                 >
-                  {item.label}
+                  {t(item.labelKey)}
                 </button>
               ))}
             </div>
             <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {([
-                { id: 'all' as const, label: '전체' },
-                { id: 'charge' as const, label: '충전' },
-                { id: 'refund' as const, label: '출금·환불' },
-                { id: 'ride' as const, label: '택시·대리' },
-                { id: 'etc' as const, label: '기타' },
+                { id: 'all' as const, labelKey: 'wallet.fAll' as const },
+                { id: 'charge' as const, labelKey: 'wallet.fCharge' as const },
+                { id: 'refund' as const, labelKey: 'wallet.fRefund' as const },
+                { id: 'ride' as const, labelKey: 'wallet.fRide' as const },
+                { id: 'etc' as const, labelKey: 'wallet.fEtc' as const },
               ]).map((item) => (
                 <button
                   key={item.id}
@@ -6511,21 +6558,21 @@ function WalletModal({
                   aria-pressed={historyType === item.id}
                   className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black transition active:scale-95 ${historyType === item.id ? 'bg-[#4C1FB8] text-white shadow-[0_4px_10px_rgba(76,31,184,0.28)]' : 'bg-white text-[#64748B] ring-1 ring-[#E2E8F0]'}`}
                 >
-                  {item.label}
+                  {t(item.labelKey)}
                 </button>
               ))}
             </div>
             <section className="rounded-2xl border border-[#E2E8F0] bg-white p-3.5 shadow-[0_8px_18px_rgba(15,23,42,0.06)]">
-              <p className="text-[11px] font-black text-[#64748B]">기간 요약</p>
+              <p className="text-[11px] font-black text-[#64748B]">{t('wallet.sumTitle')}</p>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {historyStats.map((stat) => (
-                  <div key={stat.label} className="rounded-xl bg-[#F8FAFC] px-3 py-2.5">
-                    <p className="text-[10px] font-bold text-[#64748B]">{stat.label}</p>
+                  <div key={stat.labelKey} className="rounded-xl bg-[#F8FAFC] px-3 py-2.5">
+                    <p className="text-[10px] font-bold text-[#64748B]">{t(stat.labelKey)}</p>
                     <p className={`mt-0.5 text-sm font-black tabular-nums ${stat.tone}`}>{stat.value.toFixed(7)} Pi</p>
                   </div>
                 ))}
                 <div className="col-span-2 rounded-xl bg-[#F8FAFC] px-3 py-2.5">
-                  <p className="text-[10px] font-bold text-[#64748B]">기타 결제·조정</p>
+                  <p className="text-[10px] font-bold text-[#64748B]">{t('wallet.sumOther')}</p>
                   <p className="mt-0.5 text-sm font-black tabular-nums text-[#475569]">
                     {historyOtherNet >= 0 ? '+' : ''}{historyOtherNet.toFixed(7)} Pi
                   </p>
@@ -6533,17 +6580,17 @@ function WalletModal({
               </div>
               {historyRange === 'all' ? (
                 <p className="mt-2.5 rounded-xl bg-[#F1F5F9] px-3 py-2 text-[11px] font-black leading-4 text-[#334155]">
-                  기초 지급·조정 {historyOpening.toFixed(7)} + 기간 합계 {(historyNet >= 0 ? '+' : '')}{historyNet.toFixed(7)} = 현재 잔액 {balance.toFixed(7)} Pi
+                  {t('wallet.sumAll', { open: historyOpening.toFixed(7), net: `${historyNet >= 0 ? '+' : ''}${historyNet.toFixed(7)}`, bal: balance.toFixed(7) })}
                 </p>
               ) : (
                 <p className="mt-2.5 rounded-xl bg-[#F1F5F9] px-3 py-2 text-[11px] font-black text-[#334155]">
-                  기간 순변동 {(historyNet >= 0 ? '+' : '')}{historyNet.toFixed(7)} Pi
+                  {t('wallet.sumNet', { net: `${historyNet >= 0 ? '+' : ''}${historyNet.toFixed(7)}` })}
                 </p>
               )}
             </section>
             {historyTransactions.length === 0 && (
               <p className="rounded-2xl border-2 border-dashed border-[#D8CCF5] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
-                해당 조건의 이용 내역이 없습니다.
+                {t('wallet.emptyHist')}
               </p>
             )}
             {historyTransactions.map((transaction, index) => (
@@ -6566,7 +6613,7 @@ function WalletModal({
                     {transaction.amount.toFixed(7)} Pi
                   </strong>
                 </div>
-                <p className="mt-3 text-xs font-black text-[#4C1FB8]">상세 영수증 보기 ›</p>
+                <p className="mt-3 text-xs font-black text-[#4C1FB8]">{t('wallet.viewReceipt')}</p>
               </button>
             ))}
           </section>
@@ -6578,9 +6625,9 @@ function WalletModal({
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#EDE5FF] text-[#4C1FB8]">
               <LoaderCircle className="h-7 w-7 animate-spin" />
             </div>
-            <h3 className="mt-4 text-xl font-black text-[#0F172A]">블록체인 네트워크 승인 대기</h3>
+            <h3 className="mt-4 text-xl font-black text-[#0F172A]">{t('wallet.pending')}</h3>
             <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">
-              {process.kind === 'charge' ? '충전' : '출금ㆍ환불'} {process.amount.toFixed(7)} Pi 트랜잭션을 Pi Network에서 확인하고 있습니다.
+              {t('wallet.pendingDesc', { kind: t(process.kind === 'charge' ? 'wallet.kindCharge' : 'wallet.kindWd'), v: process.amount.toFixed(7) })}
             </p>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#EDE5FF]">
               <div className="h-full w-2/3 animate-pulse rounded-full bg-[#4C1FB8]" />
@@ -6594,20 +6641,20 @@ function WalletModal({
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#4C1FB8] text-white">
               <Check className="h-7 w-7" strokeWidth={3} />
             </div>
-            <h3 className="mt-4 text-xl font-black text-[#0F172A]">{process.kind === 'charge' ? '충전이 완료되었습니다!' : '출금이 완료되었습니다'}</h3>
+            <h3 className="mt-4 text-xl font-black text-[#0F172A]">{process.kind === 'charge' ? t('wallet.doneCharge') : t('wallet.doneWd')}</h3>
             <p className="mt-2 text-sm font-bold text-[#64748B]">
-              {process.kind === 'charge' ? '충전' : '출금ㆍ환불'} {process.amount.toFixed(7)} Pi가 월렛에 반영되었습니다.
+              {t('wallet.doneDesc', { kind: t(process.kind === 'charge' ? 'wallet.kindCharge' : 'wallet.kindWd'), v: process.amount.toFixed(7) })}
             </p>
             {process.txid ? (
               <p className="mt-2 break-all rounded-xl bg-[#F8F5FF] px-3 py-2 text-[11px] font-black text-[#4C1FB8]">
-                전송 해시 {process.txid.slice(0, 20)}…
+                {t('wallet.txid', { tx: process.txid.slice(0, 20) })}
               </p>
             ) : null}
             {process.kind === 'charge' ? (
-              <p className="mt-2 rounded-xl bg-[#F8F5FF] px-3 py-2 text-sm font-black text-[#4C1FB8]">현재 잔액 {balance.toFixed(7)} Pi</p>
+              <p className="mt-2 rounded-xl bg-[#F8F5FF] px-3 py-2 text-sm font-black text-[#4C1FB8]">{t('wallet.curBal', { v: balance.toFixed(7) })}</p>
             ) : null}
             <button type="button" onClick={() => setProcess(null)} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
-              확인
+              {t('common.ok')}
             </button>
           </section>
         </div>
@@ -6617,17 +6664,18 @@ function WalletModal({
 }
 
 function WithdrawConfirmModal({ busy, onConfirm, onClose }: { busy?: boolean; onConfirm: () => void; onClose: () => void }) {
+  const { t } = useLocale()
   return (
     <div className="fixed inset-0 z-[97] flex items-center justify-center bg-[#1e1033]/55 px-5" onClick={onClose}>
       <section className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <h2 className="text-lg font-bold leading-snug text-[#0F172A]">정말로 회원 탈퇴 하시겠습니까?</h2>
-        <p className="mt-2 text-sm font-medium leading-6 text-[#64748B]">승인하면 계정 연동이 해제되고 로그아웃됩니다. 지갑 잔액이 남아있으면 탈퇴할 수 없습니다.</p>
+        <h2 className="text-lg font-bold leading-snug text-[#0F172A]">{t('wd.title')}</h2>
+        <p className="mt-2 text-sm font-medium leading-6 text-[#64748B]">{t('wd.desc')}</p>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-bold text-[#334155] disabled:opacity-60">
-            돌아가기
+            {t('wd.back')}
           </button>
           <button type="button" onClick={onConfirm} disabled={busy} className="rounded-2xl bg-[#B91C1C] py-3 text-sm font-bold text-white disabled:opacity-60">
-            {busy ? '처리 중…' : '회원탈퇴'}
+            {busy ? t('wd.busy') : t('wd.confirm')}
           </button>
         </div>
       </section>
@@ -6652,6 +6700,7 @@ function HeaderModal({
   onUnlinkPi: () => void | Promise<void | boolean>
   activities?: ActivityEntry[]
 }) {
+  const { t } = useLocale()
   const isActivity = kind === 'activity'
   const [linking, setLinking] = useState(false)
   const [unlinkConfirm, setUnlinkConfirm] = useState(false)
@@ -6679,16 +6728,16 @@ function HeaderModal({
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-bold text-[#4A82B8]">{isActivity ? 'ACTIVITY' : 'PI ACCOUNT'}</p>
-            <h2 className="mt-1 text-xl font-bold text-[#0F172A]">{isActivity ? '시간별 활동 기록' : '파이 계정 연동'}</h2>
+            <h2 className="mt-1 text-xl font-bold text-[#0F172A]">{isActivity ? t('acct.activityTitle') : t('acct.title')}</h2>
           </div>
-          <button onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#64748B]" aria-label="닫기">
+          <button onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#64748B]" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
         {isActivity ? (
           <div className="mt-5 max-h-[50vh] space-y-3 overflow-y-auto">
             {activities.length === 0 ? (
-              <p className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-4 text-sm font-bold text-[#64748B]">아직 활동이 없어요. 호출, 결제, 취소가 여기에 쌓입니다.</p>
+              <p className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-4 text-sm font-bold text-[#64748B]">{t('acct.empty')}</p>
             ) : (
               activities.map((item) => (
                 <div key={item.id} className="flex gap-3 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
@@ -6709,30 +6758,30 @@ function HeaderModal({
               </div>
               <div>
                 <p className="font-bold text-[#0F172A]">{username}</p>
-                <p className="text-xs font-medium text-[#64748B]">Pi Pioneer · 회원가입 완료</p>
+                <p className="text-xs font-medium text-[#64748B]">{t('acct.joined')}</p>
               </div>
             </div>
             <div className="flex items-center justify-between rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] p-4">
               <div>
-                <p className="text-base font-bold text-[#0F172A]">Pi Network 계정 연동됨</p>
-                <p className="mt-1 text-xs font-medium text-[#047857]">안전하게 인증된 계정입니다.</p>
+                <p className="text-base font-bold text-[#0F172A]">{t('acct.linked')}</p>
+                <p className="mt-1 text-xs font-medium text-[#047857]">{t('acct.linkedSub')}</p>
               </div>
               <span className="h-3 w-3 rounded-full bg-[#10B981]" />
             </div>
-            <p className="px-1 text-sm font-semibold leading-6 text-[#B91C1C]">Pi 계정 연동을 해제하면 회원 탈퇴 처리됩니다.</p>
+            <p className="px-1 text-sm font-semibold leading-6 text-[#B91C1C]">{t('acct.withdrawWarn')}</p>
             <button
               type="button"
               onClick={() => setUnlinkConfirm(true)}
               className="flex min-h-12 w-full items-center justify-center rounded-2xl border-2 border-[#FECACA] bg-[#FEF2F2] px-3 py-3.5 text-sm font-bold text-[#B91C1C] transition hover:bg-[#FEE2E2] active:scale-[0.99]"
             >
-              회원 탈퇴
+              {t('acct.withdraw')}
             </button>
           </div>
         ) : (
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
-              <p className="text-lg font-bold leading-snug text-[#0F172A]">파이 계정으로 로그인할까요?</p>
-              <p className="mt-2 text-sm font-semibold leading-6 text-[#334155]">Pi Sign-in이 끝나면 고유 UID와 지갑 주소가 프로필·정산에 연동됩니다.</p>
+              <p className="text-lg font-bold leading-snug text-[#0F172A]">{t('acct.loginQ')}</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-[#334155]">{t('acct.loginDesc')}</p>
             </div>
             <div className="flex items-center gap-3 rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F1FA] text-[#4A82B8]">
@@ -6740,7 +6789,7 @@ function HeaderModal({
               </div>
               <div>
                 <p className="font-bold text-[#0F172A]">{username}</p>
-                <p className="text-xs font-medium text-[#64748B]">Pi Pioneer · 미연동</p>
+                <p className="text-xs font-medium text-[#64748B]">{t('acct.unlinked')}</p>
               </div>
             </div>
             <button
@@ -6749,10 +6798,10 @@ function HeaderModal({
               disabled={linking}
               className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-[#4A82B8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] disabled:opacity-70"
             >
-              {linking ? 'Pi Sign-in 중…' : '파이 계정 로그인'}
+              {linking ? t('acct.linking') : t('acct.loginBtn')}
             </button>
             <button type="button" onClick={onClose} className="w-full py-2 text-sm font-bold text-[#64748B]">
-              나중에
+              {t('acct.later')}
             </button>
           </div>
         )}
@@ -9407,7 +9456,7 @@ export default function HomeScreen() {
     if (pickingMapRef.current) return
     const readyLabel = usableMapAddress(point.address)
     const keepLabel = usableMapAddress(pickupRef.current?.address)
-    const pendingAddress = readyLabel || keepLabel || '주소를 확인하는 중'
+    const pendingAddress = readyLabel || keepLabel || t('common.checking')
     setGps({ status: readyLabel ? status : 'pending', address: pendingAddress, lat: point.lat, lng: point.lng })
     applyPickup({ address: pendingAddress, lat: point.lat, lng: point.lng, source })
     if (readyLabel) return
@@ -9433,7 +9482,7 @@ export default function HomeScreen() {
     const fallback = await resolveFlexibleFallback()
     await applyLocatedPoint(fallback, 'approx', 'gps')
     if (promptOnFail) {
-      showNotice('정확한 GPS를 쓰지 못해 접속 지역으로 표시했어요. 위치를 눌러 직접 바꿀 수 있어요.')
+      showNotice(t('loc.gpsFallback'))
     }
     return false
   }
@@ -9521,7 +9570,7 @@ export default function HomeScreen() {
   ) => {
     if (!proof.paymentId || !proof.txid) {
       console.error('[Pi] blocked local receipt without Pi payment proof')
-      showNotice('파이 지갑 승인이 완료되어야 영수증으로 넘어갑니다.')
+      showNotice(t('toast.payPending'))
       return
     }
     if (isSettledPayment(proof.paymentId) || isSettledPayment(proof.txid)) return
@@ -9684,9 +9733,9 @@ export default function HomeScreen() {
       const at = formatPiTime()
       setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
       setTransactions((items) => [{ label: '리뷰 적립', amount, detail: `기사 평가 · ${at}`, place: '리뷰 감사 포인트', at, ts: Date.now() }, ...items])
-      showNotice('평가 감사합니다. 0.1 Pi가 적립되었습니다.')
+      showNotice(t('toast.reviewPi'))
     } else {
-      showNotice('평가 감사합니다. 리뷰가 등록되었습니다.')
+      showNotice(t('toast.reviewDone'))
     }
     void recordReviewReward(localPassengerId(), key)
   }
@@ -9711,7 +9760,7 @@ export default function HomeScreen() {
         (amount, _txid, ts) => {
           if (stopped) return
           depositWallet(amount, ts)
-          showNotice(`${amount.toFixed(2)} Pi 입금 확인 — 지갑에 자동 충전되었습니다.`)
+          showNotice(t('toast.deposit', { v: amount.toFixed(2) }))
         },
         (spendable) => {
           if (stopped) return
@@ -9825,7 +9874,7 @@ export default function HomeScreen() {
     // 로그인된 계정(Pi 세션 또는 파트너/기사 프로필)이면 권한과 무관하게
     // 승객 호출을 허용한다 — uid가 전혀 없는 익명 상태만 연동 모달로 보낸다.
     if (loadPiIdentity()?.uid) return true
-    showNotice('Pi 계정 연동 및 로그인 후 이용해 주세요.')
+    showNotice(t('toast.needLogin'))
     setHeaderModal('account')
     return false
   }
@@ -9844,7 +9893,7 @@ export default function HomeScreen() {
       if (place) setDestPlace(place)
     }
     if (!place) {
-      showNotice('목적지 위치를 확인하지 못했어요. 추천 장소나 주소를 다시 선택해 주세요.')
+      showNotice(t('toast.destUnknown'))
       return
     }
     // 장거리 콜(직선 25km+ 또는 타 시/도 권역)이면 이용자 확인을 먼저 받는다.
@@ -9891,7 +9940,7 @@ export default function HomeScreen() {
       writeStoredTaxi({ rideId: serverActive.id, trip })
       setSelectedService('택시')
       setTab('홈')
-      showNotice('진행 중인 택시 호출로 돌아갑니다.')
+      showNotice(t('toast.backToCall'))
       return
     }
     taxiSheetRideId = ''
@@ -9915,14 +9964,14 @@ export default function HomeScreen() {
   }
   const selectDestination = (value: string, coords?: RideCoords) => {
     applyDestinationPlace(value, coords)
-    if (value) showNotice(`${value} 목적지를 선택했어요.`)
+    if (value) showNotice(t('toast.destPicked', { name: value }))
   }
   const enterDriverMode = () => {
     setDriverMode(true)
     // 명시적인 '기사 모드 전환' 액션은 복합 권한 유저에게 기사 뷰를 연다.
     setPartnerTabRole('driver')
     setTab('기사/파트너')
-    showNotice('기사 모드로 전환했어요.')
+    showNotice(t('toast.driverMode'))
   }
   useEffect(() => {
     const openFromAlert = () => {
@@ -9945,7 +9994,7 @@ export default function HomeScreen() {
   const leaveDriverMode = () => {
     setDriverMode(false)
     setTab('홈')
-    showNotice('승객 모드로 전환했어요.')
+    showNotice(t('toast.passengerMode'))
   }
   const toggleDriverOnline = () => setDriverOnline((value) => !value)
   const toggleDriverMode = () => {
@@ -9993,7 +10042,7 @@ export default function HomeScreen() {
       // 잔액 잔존 등 서버가 돌려준 차단 사유를 이용자에게 보인다 —
       // 탈퇴는 진행되지 않는다. false를 돌려 모달이 열린 채 남아 재시도할
       // 수 있게 한다(삼키면 호출부가 성공으로 간주해 모달을 닫아버린다).
-      showNotice(error instanceof Error ? error.message : '회원 탈퇴에 실패했어요.')
+      showNotice(error instanceof Error ? error.message : t('toast.withdrawFail'))
       return false
     }
     setIsPiLinked(false)
@@ -10006,7 +10055,7 @@ export default function HomeScreen() {
     setDriverOnline(false)
     setHeaderModal(null)
     setTab('홈')
-    showNotice('회원 탈퇴가 완료되어 로그아웃되었습니다')
+    showNotice(t('toast.withdrawn'))
     // 메모리에 남은 사용자 상태(지갑 잔액·내역·입금 멱등 캐시)까지 비우기 위해
     // 완전히 새로고침한다 — 재가입이 깨끗한 신규 상태로 시작된다.
     window.setTimeout(() => window.location.reload(), 800)
@@ -10160,7 +10209,7 @@ export default function HomeScreen() {
               commitPickup(place, 'map')
               pickingMapRef.current = false
               setPickupMapOpen(false)
-              showNotice('출발지를 지정했어요')
+              showNotice(t('toast.pickupSet'))
             }}
           />
         ) : null}
@@ -10185,7 +10234,7 @@ export default function HomeScreen() {
                 savePiIdentity(session)
                 setIsPiLinked(true)
                 saveIsPiLinked(true)
-                showNotice(`파이 로그인 완료 · UID ${session.uid.slice(0, 8)}…`)
+                showNotice(t('toast.piLogin', { uid: session.uid.slice(0, 8) }))
               } catch (error) {
                 showNotice(describePiUserMessage(error))
               }
@@ -10251,7 +10300,7 @@ export default function HomeScreen() {
         ) : null}
         {activeTrip && selectedService !== '택시' && tab === '홈' ? (
           <button type="button" onClick={() => setSelectedService('택시')} className="fixed bottom-24 left-1/2 z-40 w-[min(100%-2rem,24rem)] -translate-x-1/2 rounded-2xl bg-[#0F172A] px-4 py-3 text-left text-white shadow-lg">
-            <p className="text-[11px] font-bold text-[#93C5FD]">진행 중인 택시</p>
+            <p className="text-[11px] font-bold text-[#93C5FD]">{t('home.activeTaxi')}</p>
             <p className="mt-1 text-sm font-black">{activeTrip.originAddress} → {activeTrip.destLabel}</p>
           </button>
         ) : null}
@@ -10321,8 +10370,8 @@ export default function HomeScreen() {
           <div className="fixed inset-0 z-[96] flex items-end bg-[#241d35]/45" onClick={() => setSupportDesk(null)}>
             <section className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white px-5 py-5" onClick={(event) => event.stopPropagation()}>
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-xl font-black">분실물 · 고객센터</h2>
-                <button type="button" onClick={() => setSupportDesk(null)} className="text-sm font-black text-[#64748B]">닫기</button>
+                <h2 className="text-xl font-black">{t('support.lostTitle')}</h2>
+                <button type="button" onClick={() => setSupportDesk(null)} className="text-sm font-black text-[#64748B]">{t('common.close')}</button>
               </div>
               <SupportCenter
                 actorId={localPassengerId()}

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link2, QrCode, ScanLine, X } from 'lucide-react'
 import { apiFetch } from '@/lib/app-origin'
 import { payFromBalance } from '@/lib/balance-pay'
+import { useLocale } from '@/components/locale-provider'
+import type { MessageKey } from '@/lib/i18n'
 
 /**
  * 승객용 QR 결제 스캐너 — 기사 모달이 생성한 /pay/manual/{id} QR(또는 링크)을
@@ -52,11 +54,12 @@ export default function QrPayScanModal({
   /** 결제 완료 후 호출 — 호출부가 지갑 잔액 차감·거래 내역·활동 기록을 반영한다. */
   onPaid?: (record: ManualPayPublic, proof: { paymentId: string; txid: string }) => void
 }) {
+  const { t } = useLocale()
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const doneRef = useRef(false)
   const [stage, setStage] = useState<Stage>('scan')
-  const [cameraHint, setCameraHint] = useState('카메라 권한을 확인하고 있어요.')
+  const [cameraHint, setCameraHint] = useState<MessageKey>('qrpay.camCheck')
   const [cameraLive, setCameraLive] = useState(false)
   const [detectorOk, setDetectorOk] = useState(true)
   const [record, setRecord] = useState<ManualPayPublic | null>(null)
@@ -95,7 +98,7 @@ export default function QrPayScanModal({
   const handleCode = (raw: string) => {
     const id = extractManualPayId(raw)
     if (!id) {
-      setError('TaxiTago 결제 QR이 아닙니다. 기사가 보여준 결제 QR을 스캔해 주세요.')
+      setError(t('qrpay.notOurs'))
       return
     }
     doneRef.current = true
@@ -107,10 +110,10 @@ export default function QrPayScanModal({
     if (doneRef.current) return
     stopCamera()
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraHint('이 기기에서는 카메라를 쓸 수 없어요. 아래에 결제 링크를 붙여 넣어 주세요.')
+      setCameraHint('qrpay.camNo')
       return
     }
-    setCameraHint('카메라 권한을 허용해 주세요.')
+    setCameraHint('qrpay.camAllow')
     try {
       let stream: MediaStream
       try {
@@ -128,9 +131,9 @@ export default function QrPayScanModal({
         await video.play().catch(() => undefined)
       }
       setCameraLive(true)
-      setCameraHint(getBarcodeDetector() ? '결제 QR 코드를 화면 안쪽에 맞춰 주세요.' : 'QR을 비춰 주세요. 인식이 안 되면 아래에 링크를 붙여 넣으세요.')
+      setCameraHint(getBarcodeDetector() ? 'qrpay.camAim' : 'qrpay.camAimNo')
     } catch {
-      setCameraHint('카메라를 사용할 수 없어요. 아래에 결제 링크를 붙여 넣어 주세요.')
+      setCameraHint('qrpay.camFail')
     }
   }
 
@@ -177,7 +180,7 @@ export default function QrPayScanModal({
         setStage('done')
       })
       .catch((payError) => {
-        setError(payError instanceof Error ? payError.message : '결제를 처리하지 못했습니다.')
+        setError(payError instanceof Error ? payError.message : t('qrpay.payFail'))
         setStage('confirm')
       })
   }
@@ -199,12 +202,12 @@ export default function QrPayScanModal({
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs font-bold text-[#4C1FB8]">QR 결제</p>
+            <p className="text-xs font-bold text-[#4C1FB8]">{t('qrpay.title')}</p>
             <h2 className="mt-1 text-xl font-bold text-[#0F172A]">
-              {stage === 'scan' || stage === 'loading' ? '기사의 결제 QR을 스캔해 주세요' : '결제 확인'}
+              {stage === 'scan' || stage === 'loading' ? t('qrpay.scanTitle') : t('qrpay.confirmTitle')}
             </h2>
             {stage === 'scan' ? (
-              <p className="mt-2 text-sm font-medium leading-6 text-[#475569]">기사가 보여준 결제 QR을 스캔하면 Pi 결제 시트가 열립니다.</p>
+              <p className="mt-2 text-sm font-medium leading-6 text-[#475569]">{t('qrpay.scanHint')}</p>
             ) : null}
           </div>
           <button
@@ -214,7 +217,7 @@ export default function QrPayScanModal({
               onClose()
             }}
             className="rounded-full bg-[#F1F5F9] p-2 text-[#64748B]"
-            aria-label="닫기"
+            aria-label={t('common.close')}
           >
             <X className="h-5 w-5" />
           </button>
@@ -235,10 +238,10 @@ export default function QrPayScanModal({
                 </>
               )}
               {stage === 'loading' ? (
-                <span className="absolute inset-0 flex items-center justify-center bg-[#0F172A]/70 text-sm font-bold text-white">결제 정보를 확인하는 중…</span>
+                <span className="absolute inset-0 flex items-center justify-center bg-[#0F172A]/70 text-sm font-bold text-white">{t('qrpay.loading')}</span>
               ) : null}
             </div>
-            <p className="mt-4 text-center text-xs font-medium leading-5 text-[#64748B]">{cameraHint}</p>
+            <p className="mt-4 text-center text-xs font-medium leading-5 text-[#64748B]">{t(cameraHint)}</p>
             {error ? <p className="mt-2 text-center text-xs font-black text-[#DC2626]">{error}</p> : null}
             {(!cameraLive || !detectorOk) && (
               <div className="mt-3 flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-3 py-2">
@@ -246,7 +249,7 @@ export default function QrPayScanModal({
                 <input
                   value={pasteValue}
                   onChange={(event) => setPasteValue(event.target.value)}
-                  placeholder="결제 링크를 붙여 넣으세요"
+                  placeholder={t('qrpay.pastePh')}
                   className="w-full bg-transparent text-xs font-bold text-[#0F172A] outline-none placeholder:text-[#94A3B8]"
                 />
                 <button
@@ -254,7 +257,7 @@ export default function QrPayScanModal({
                   onClick={() => handleCode(pasteValue)}
                   className="shrink-0 rounded-xl bg-[#4C1FB8] px-3 py-1.5 text-[11px] font-black text-white"
                 >
-                  확인
+                  {t('common.ok')}
                 </button>
               </div>
             )}
@@ -264,7 +267,7 @@ export default function QrPayScanModal({
         {(stage === 'confirm' || stage === 'paying') && record ? (
           <>
             <div className="mt-4 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] p-5 text-center">
-              <p className="text-sm font-black text-[#0F172A]">{record.driverName || '기사'}님에게 결제</p>
+              <p className="text-sm font-black text-[#0F172A]">{t('qrpay.payTo', { name: record.driverName || t('qrpay.driver') })}</p>
               {record.memo ? <p className="mt-1 text-xs font-bold text-[#64748B]">{record.memo}</p> : null}
               <p className="mt-3 text-3xl font-black text-[#4C1FB8]">{record.amount.toFixed(7)} Pi</p>
             </div>
@@ -276,45 +279,45 @@ export default function QrPayScanModal({
               className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(76,31,184,0.3)] disabled:opacity-70"
             >
               <ScanLine className="h-5 w-5" />
-              {stage === 'paying' ? '잔액 결제 처리 중…' : '앱 잔액으로 결제하기'}
+              {stage === 'paying' ? t('qrpay.paying') : t('qrpay.payBtn')}
             </button>
             <p className="mt-2 text-center text-[11px] font-bold leading-5 text-[#94A3B8]">
-              앱 내 충전 잔액에서 즉시 차감됩니다. 플랫폼 수수료가 자동 정산됩니다.
+              {t('qrpay.payNote')}
             </p>
             <button type="button" onClick={reset} className="mt-2 w-full py-2 text-xs font-black text-[#64748B]">
-              다른 QR 스캔하기
+              {t('qrpay.rescan')}
             </button>
           </>
         ) : null}
 
         {stage === 'done' ? (
           <div className="mt-4 rounded-2xl bg-[#ECFDF5] p-5 text-center">
-            <p className="text-base font-black text-[#047857]">결제가 완료되었습니다</p>
+            <p className="text-base font-black text-[#047857]">{t('qrpay.done')}</p>
             <p className="mt-1 text-xs font-bold text-[#065F46]">
-              {record ? `${record.driverName || '기사'}님에게 ${record.amount.toFixed(7)} Pi가 전달되었습니다.` : '정산이 완료되었습니다.'}
+              {record ? t('qrpay.doneTo', { name: record.driverName || t('qrpay.driver'), amount: record.amount.toFixed(7) }) : t('qrpay.doneGeneric')}
             </p>
             <button type="button" onClick={onClose} className="mt-4 w-full rounded-2xl bg-[#10B981] py-3 text-sm font-black text-white">
-              확인
+              {t('common.ok')}
             </button>
           </div>
         ) : null}
 
         {stage === 'closed' ? (
           <div className="mt-4 rounded-2xl bg-[#F1F5F9] p-5 text-center">
-            <p className="text-base font-black text-[#334155]">취소된 결제입니다</p>
-            <p className="mt-1 text-xs font-bold text-[#64748B]">기사가 이 결제 요청을 취소했습니다.</p>
+            <p className="text-base font-black text-[#334155]">{t('qrpay.cancelled')}</p>
+            <p className="mt-1 text-xs font-bold text-[#64748B]">{t('qrpay.cancelledDesc')}</p>
             <button type="button" onClick={reset} className="mt-4 w-full rounded-2xl border border-[#CBD5E1] bg-white py-3 text-sm font-black text-[#334155]">
-              다시 스캔
+              {t('qrpay.again')}
             </button>
           </div>
         ) : null}
 
         {stage === 'missing' ? (
           <div className="mt-4 rounded-2xl bg-[#FFF1F2] p-5 text-center">
-            <p className="text-base font-black text-[#BE123C]">결제 요청을 찾을 수 없어요</p>
-            <p className="mt-1 text-xs font-bold text-[#64748B]">링크가 만료되었거나 잘못되었습니다. 기사에게 새 결제 QR을 받아 주세요.</p>
+            <p className="text-base font-black text-[#BE123C]">{t('qrpay.missing')}</p>
+            <p className="mt-1 text-xs font-bold text-[#64748B]">{t('qrpay.missingDesc')}</p>
             <button type="button" onClick={reset} className="mt-4 w-full rounded-2xl border border-[#FDA4AF] bg-white py-3 text-sm font-black text-[#BE123C]">
-              다시 스캔
+              {t('qrpay.again')}
             </button>
           </div>
         ) : null}

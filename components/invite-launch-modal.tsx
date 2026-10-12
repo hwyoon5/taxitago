@@ -1,10 +1,10 @@
 'use client'
 
 import { Gift } from 'lucide-react'
-
-export const INVITE_LAUNCH_NOTICE = '정식 배포(메인넷 런칭) 시 혜택이 최종 지급됩니다.'
+import { useLocale } from '@/components/locale-provider'
 
 export function InviteLaunchModal({ onClose }: { onClose: () => void }) {
+  const { t } = useLocale()
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-[#1e1033]/50 p-5" onClick={onClose} role="presentation">
       <section
@@ -17,12 +17,12 @@ export function InviteLaunchModal({ onClose }: { onClose: () => void }) {
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#F3E8FF] text-[#4C1FB8]">
           <Gift className="h-7 w-7" />
         </div>
-        <p className="mt-4 text-xs font-black tracking-wide text-[#4C1FB8]">친구 초대 혜택</p>
+        <p className="mt-4 text-xs font-black tracking-wide text-[#4C1FB8]">{t('invite.badge')}</p>
         <h2 id="invite-launch-title" className="mt-2 text-lg font-black leading-7 text-[#0F172A]">
-          {INVITE_LAUNCH_NOTICE}
+          {t('invite.notice')}
         </h2>
         <button type="button" onClick={onClose} className="mt-6 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-base font-black text-white">
-          확인
+          {t('common.ok')}
         </button>
       </section>
     </div>
