@@ -230,6 +230,7 @@ export async function sendDriverPresence(input: {
   plate?: string
   wallet?: string
   piUid?: string
+  phone?: string
   altDriverId?: string
 }) {
   if (!isUsableCoord(input.lat, input.lng)) return

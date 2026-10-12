@@ -79,6 +79,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
           lng: assigned.lng,
           heading: assigned.heading ?? 0,
           updatedAt: assigned.lastSeenAt,
+          phone: assigned.phone,
         }
       : null,
     escrow: toPublicEscrow(getEscrowByRide(ride.id)),
@@ -772,6 +773,7 @@ export function upsertDriverPresence(input: {
   status: 'online' | 'offline'
   wallet?: string
   piUid?: string
+  phone?: string
   altDriverId?: string
 }) {
   syncDispatchFromDisk()
@@ -813,6 +815,7 @@ export function upsertDriverPresence(input: {
     virtual: false,
     wallet: input.wallet?.trim() || current?.wallet,
     piUid: input.piUid?.trim() || current?.piUid,
+    phone: input.phone?.trim() || current?.phone,
   }
   return saveDriver(next)
 }

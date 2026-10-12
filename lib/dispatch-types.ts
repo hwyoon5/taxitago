@@ -99,6 +99,8 @@ export type DriverRecord = {
   virtual: boolean
   wallet?: string
   piUid?: string
+  /** 등록된 연락처 — 승객 '전화하기'(tel:) 직통 연결에 사용. */
+  phone?: string
 }
 
 export type PublicDriver = {
@@ -113,6 +115,7 @@ export type PublicDriver = {
   lng: number
   heading: number
   updatedAt: string
+  phone?: string
 }
 
 export type EscrowStatus = 'pending' | 'held' | 'released' | 'refunded'

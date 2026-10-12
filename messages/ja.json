@@ -744,5 +744,6 @@
   "acct.phoneTitle": "電話番号の登録 (必須)",
   "acct.phoneDesc": "サービス利用とドライバー・パートナー連絡のため、ご本人名義の携帯電話番号を認証してください。",
   "acct.phoneDone": "認証済み番号",
-  "signup.phoneLabel": "連絡先 (本人認証必須)"
+  "signup.phoneLabel": "連絡先 (本人認証必須)",
+  "match.safeCall": "安心番号通話"
 }

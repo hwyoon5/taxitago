@@ -31,6 +31,7 @@ export async function POST(request: Request) {
     plate: typeof body?.plate === 'string' ? body.plate : undefined,
     wallet: typeof body?.wallet === 'string' ? body.wallet : undefined,
     piUid: typeof body?.piUid === 'string' ? body.piUid : undefined,
+    phone: typeof body?.phone === 'string' ? body.phone : undefined,
     altDriverId: typeof body?.altDriverId === 'string' ? body.altDriverId.trim() : undefined,
   })
   await flushDispatchPersist()

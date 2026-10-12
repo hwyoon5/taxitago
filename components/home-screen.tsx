@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { localizedText, translateDeviceStatus, translateService, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -41,7 +41,7 @@ import { DEFAULT_FARE_CONFIG, fetchDepositWallet, fetchFareConfig, FLAT_SERVICE_
 import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
-import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
+import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
 import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } from '@/lib/member-profile'
 import PhoneVerifyForm from '@/components/phone-verify-form'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
@@ -2491,6 +2491,7 @@ function TaxiMatchingSheet({
     plate: assigned?.plate || '',
     rating: assigned?.rating || '5.00',
     eta: assigned ? String(assigned.etaMinutes) : '',
+    phone: assigned?.phone || '',
   }
   const statusLabel = phase === 'arriving' ? t('match.st.arriving') : phase === 'boarding' ? t('match.st.boarding') : t('match.st.moving')
   const statusCaption =
@@ -3023,7 +3024,17 @@ function TaxiMatchingSheet({
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setCallOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // 회원가입 시 인증된 기사 연락처로 기기 다이얼러 직통 연결.
+                    // 번호가 아직 동기되지 않은 기사면 앱 내 안심 통화로 폴백한다.
+                    const href = telHref(driver.phone)
+                    if (href) window.location.href = href
+                    else setCallOpen(true)
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white"
+                >
                   <Phone className="h-4 w-4" />
                   {t('match.call')}
                 </button>
@@ -3033,18 +3044,14 @@ function TaxiMatchingSheet({
                 </button>
               </div>
               {ride?.id ? (
-                <div className="mt-2">
-                  <RideSosButton
-                    rideId={ride.id}
-                    actorId={passengerIdRef.current || localPassengerId()}
-                    role="passenger"
-                    fallbackLat={live.origin?.lat ?? pickupLat}
-                    fallbackLng={live.origin?.lng ?? pickupLng}
-                    vehicle={driver.vehicle}
-                    plate={driver.plate}
-                    onNotice={onNotice}
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setCallOpen(true)}
+                  className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] py-3 text-sm font-black text-[#047857]"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  {t('match.safeCall')}
+                </button>
               ) : null}
             </div>
             <div className="mt-4 space-y-2">
@@ -3446,11 +3453,12 @@ function ServiceSheet({
           name: dispatchRide?.assignedDriver?.name || t('match.driverPending'),
           vehicle: dispatchRide?.assignedDriver?.vehicle || t('service.daeri'),
           plate: dispatchRide?.assignedDriver?.plate || t('svc.piMobility'),
+          phone: dispatchRide?.assignedDriver?.phone || '',
           kind: 'driver' as const,
         }
       : service === '택배'
-        ? { name: courier?.name || t('match.driverPending'), vehicle: courier?.vehicle || t('common.checking'), plate: courier?.plate || t('common.checking'), kind: 'driver' as const }
-        : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate ?? '', kind: 'service' as const }
+        ? { name: courier?.name || t('match.driverPending'), vehicle: courier?.vehicle || t('common.checking'), plate: courier?.plate || t('common.checking'), phone: '', kind: 'driver' as const }
+        : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate ?? '', phone: '', kind: 'service' as const }
   const contactRideId = ride ? dispatchRide?.id || daeriRideIdRef.current : ''
   const canStart = more || ride || service === '택배' || Boolean(selectedItem)
   const selectedDevice = vehicle && selectedItem.startsWith('device-') ? findDeviceBySpotId(selectedItem) : null
@@ -3970,7 +3978,15 @@ function ServiceSheet({
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setCallOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const href = telHref(partner.phone)
+                    if (href) window.location.href = href
+                    else setCallOpen(true)
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white"
+                >
                   <Phone className="h-4 w-4" />
                   {t('match.call')}
                 </button>
@@ -3979,6 +3995,14 @@ function ServiceSheet({
                   {t('match.chat')}
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={() => setCallOpen(true)}
+                className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] py-3 text-sm font-black text-[#047857]"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                {t('match.safeCall')}
+              </button>
             </div>
             {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
             {ride && !dispatchRide?.boardedAt ? (
@@ -7958,6 +7982,7 @@ function DriverOfferWatcher({
         plate: fleet.plate,
         wallet: partner?.wallet,
         piUid: partner?.uid,
+        phone: partner?.phone || memberPhone(),
       }).then(() => {
         delay = document.visibilityState === 'visible' ? 12000 : 20000
       }).catch(() => {
@@ -8430,6 +8455,7 @@ function DriverDashboard({
         plate: fleet.plate,
         wallet: partner?.wallet,
         piUid: partner?.uid,
+        phone: partner?.phone || memberPhone(),
       }).then(() => {
         delay = document.visibilityState === 'visible' ? 12000 : 20000
       }).catch(() => {
