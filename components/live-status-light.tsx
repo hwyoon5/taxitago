@@ -54,13 +54,13 @@ export default function LiveStatusLight() {
   return (
     <span className="flex items-center gap-2" role="status" aria-label={`${t('home.liveStatus')} ${DOT[level].label}`}>
       <span className="text-[10px] font-bold text-[#475569]">{t('home.liveStatus')}</span>
-      <span className="flex items-center gap-1 rounded-full bg-[#0F172A] px-1.5 py-1">
+      <span className="flex items-center gap-1.5">
         {ORDER.map((key) => {
           const active = key === level && live
           return (
             <span
               key={key}
-              className={`h-2 w-2 rounded-full transition ${active ? `${DOT[key].cls} animate-pulse` : 'bg-[#334155]'}`}
+              className={`h-2.5 w-2.5 rounded-full transition ${active ? `${DOT[key].cls} animate-pulse` : 'bg-[#CBD5E1]'}`}
               style={active ? { boxShadow: DOT[key].glow } : undefined}
             />
           )
