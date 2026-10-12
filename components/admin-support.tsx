@@ -12,6 +12,7 @@ import AdminUsers from '@/components/admin-users'
 import AdminNotepad from '@/components/admin-notepad'
 import AdminAuditLog from '@/components/admin-audit-log'
 import AdminDevices from '@/components/admin-devices'
+import AdminLiveDashboard from '@/components/admin-live'
 import AttachmentGallery from '@/components/photo-gallery'
 import { positionDisplayLabel } from '@/lib/staff-positions'
 import {
@@ -36,12 +37,12 @@ import { AdminExportButton } from '@/components/admin-export-button'
 const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'staff', 'audit', 'memo'] as const
+const ADMIN_VIEWS = ['live', 'inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'staff', 'audit', 'memo'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 /** URL 해시(#ledger) 또는 ?view= 쿼리에서 탭을 복원 — 리마운트·새로고침 시에도 마지막 메뉴를 유지한다. */
 function viewFromLocation(): AdminView {
-  if (typeof window === 'undefined') return 'inbox'
+  if (typeof window === 'undefined') return 'live'
   const hash = window.location.hash.replace(/^#/, '').split(/[?&]/)[0]
   if ((ADMIN_VIEWS as readonly string[]).includes(hash)) return hash as AdminView
   try {
@@ -50,7 +51,7 @@ function viewFromLocation(): AdminView {
   } catch {
     undefined
   }
-  return 'inbox'
+  return 'live'
 }
 
 const SELECTION_KEY = 'taxitago.admin.selection'
@@ -387,7 +388,7 @@ export default function AdminSupportDesk() {
           <Link href="/" className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]">홈</Link>
         </div>
       </div>
-      <div className="mt-4 grid grid-cols-4 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
+      <div className="mt-4 grid grid-cols-5 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
         {ADMIN_VIEWS.map((tab) => (
           <button
             key={tab}
@@ -395,7 +396,9 @@ export default function AdminSupportDesk() {
             onClick={() => selectView(tab)}
             className={`rounded-xl py-2 text-xs font-black ${view === tab ? 'bg-white text-[#4C1FB8] shadow-sm' : 'text-[#64748B]'}`}
           >
-            {tab === 'inbox'
+            {tab === 'live'
+              ? '실시간 현황'
+              : tab === 'inbox'
               ? '문의 관리'
               : tab === 'users'
                 ? '가입자'
@@ -415,7 +418,9 @@ export default function AdminSupportDesk() {
           </button>
         ))}
       </div>
-      {view === 'partners' ? (
+      {view === 'live' ? (
+        <AdminLiveDashboard />
+      ) : view === 'partners' ? (
         <div className="mt-4">
           <AdminPartners />
         </div>

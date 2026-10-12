@@ -42,6 +42,8 @@ import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
+import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } from '@/lib/member-profile'
+import PhoneVerifyForm from '@/components/phone-verify-form'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
@@ -6711,6 +6713,8 @@ function HeaderModal({
   const [linking, setLinking] = useState(false)
   const [unlinkConfirm, setUnlinkConfirm] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
+  // Pi 연동 직후 전화번호 미등록이면 본인인증 스텝을 필수로 보여준다.
+  const [phoneDone, setPhoneDone] = useState(() => Boolean(memberPhone()))
   const showLinked = piLinked
   const connect = () => {
     if (linking || piLinked) return
@@ -6757,6 +6761,27 @@ function HeaderModal({
                 <p className="mt-1 text-xs font-medium text-[#047857]">{t('acct.linkedSub')}</p>
               </div>
               <span className="h-3 w-3 rounded-full bg-[#10B981]" />
+            </div>
+            <div className="rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
+              <p className="text-sm font-bold text-[#0F172A]">{t('acct.phoneTitle')}</p>
+              {phoneDone ? (
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs font-black text-[#047857]">
+                  <span className="inline-block h-2 w-2 rounded-full bg-[#10B981]" />
+                  {t('acct.phoneDone')} · {memberPhone()}
+                </p>
+              ) : (
+                <>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-[#64748B]">{t('acct.phoneDesc')}</p>
+                  <div className="mt-3">
+                    <PhoneVerifyForm
+                      onVerified={(verifiedPhone) => {
+                        saveMemberPhone(verifiedPhone, loadPiIdentity()?.uid || '')
+                        setPhoneDone(true)
+                      }}
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <p className="px-1 text-sm font-semibold leading-6 text-[#B91C1C]">{t('acct.withdrawWarn')}</p>
             <button
@@ -6836,6 +6861,8 @@ function PartnerSignupModal({
   const [facilitySpec, setFacilitySpec] = useState<DeviceSpec | null>(null)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  // 휴대전화는 인증 완료된 번호만 제출 허용 — 폼 입력만으로는 통과 못 한다.
+  const [phoneVerified, setPhoneVerified] = useState(false)
   const [vehicleName, setVehicleName] = useState('')
   const [plateNumber, setPlateNumber] = useState('')
   const [region, setRegion] = useState('서울')
@@ -6849,7 +6876,7 @@ function PartnerSignupModal({
   const photoInput = useRef<HTMLInputElement>(null)
   const insuranceDocInput = useRef<HTMLInputElement>(null)
   const skipVehicle = role === '기사' && serviceType === '대리운전'
-  const canSubmit = Boolean(session) && name.trim() && phone.trim() && (role === '기사' ? skipVehicle || (vehicleName.trim() && plateNumber.trim()) : vehicleName.trim())
+  const canSubmit = Boolean(session) && name.trim() && phoneVerified && (role === '기사' ? skipVehicle || (vehicleName.trim() && plateNumber.trim()) : vehicleName.trim())
 
   const startPiLogin = async () => {
     if (signing) return
@@ -6889,6 +6916,10 @@ function PartnerSignupModal({
       setFormError(`이미 ${existingRole}(으)로 등록된 계정입니다. 기사와 파트너는 중복으로 가입할 수 없습니다.`)
       return
     }
+    if (!phoneVerified) {
+      setFormError('휴대전화 인증을 완료해 주세요.')
+      return
+    }
     const insuranceTouched = Boolean(insuranceCompany.trim() || insurancePolicyNo.trim() || insuranceExpiresAt.trim())
     if (insuranceTouched && !(insuranceCompany.trim() && insurancePolicyNo.trim() && insuranceExpiresAt.trim())) {
       setFormError('보험 정보를 입력하려면 보험사·증권번호·유효기간을 모두 채워 주세요.')
@@ -6911,6 +6942,8 @@ function PartnerSignupModal({
       linkedAt: new Date().toISOString(),
     }
     savePartnerProfile(profile)
+    // 회원 프로필에도 인증된 번호를 저장 — 내 정보 화면에서 공통으로 표시된다.
+    saveMemberPhone(profile.phone, session.uid)
     void syncPartnerLink(profile)
     if (role === '파트너' && facilitySpec) {
       const kind = facilityTypeToDeviceKind(facilityType)
@@ -7092,10 +7125,18 @@ function PartnerSignupModal({
                 </div>
               </div>
             )}
-            <label className="mt-3 block">
-              <span className="text-xs font-black text-[#334155]">연락처</span>
-              <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="010-0000-0000" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />
-            </label>
+            <div className="mt-3 block">
+              <span className="text-xs font-black text-[#334155]">연락처 (본인인증 필수)</span>
+              <div className="mt-2">
+                <PhoneVerifyForm
+                  onVerified={(verifiedPhone) => {
+                    setPhone(verifiedPhone)
+                    setPhoneVerified(true)
+                    setFormError('')
+                  }}
+                />
+              </div>
+            </div>
             {role === '기사' ? (
               <div className="mt-3 grid grid-cols-1 gap-3">
                 <label className="block">
@@ -9417,6 +9458,40 @@ export default function HomeScreen() {
     window.dispatchEvent(new Event('taxitago:ledger-changed'))
   }
 
+  // 앱 접속 하트비트 — 관리자 '실시간 현황'이 역할(이용자/기사/파트너)별 접속자를
+  // 집계하는 데 쓴다. 25초 주기로 보내고 화면이 숨겨진 동안은 보내지 않아
+  // 90초 윈도 뒤엔 자동으로 오프라인 집계된다.
+  useEffect(() => {
+    const beat = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      const profile = loadPartnerProfile()
+      const registeredPartner = isPartnerRegistered || profile?.role === '파트너'
+      const registeredDriver = isDriverRegistered
+      let role: 'passenger' | 'driver' | 'partner' = 'passenger'
+      if (tab === '기사/파트너' && (registeredPartner || registeredDriver)) {
+        role = registeredPartner && (!registeredDriver || partnerTabRole === 'partner') ? 'partner' : 'driver'
+      }
+      const id = loadPiIdentity()?.uid || profile?.uid || localPassengerId()
+      void fetch('/api/presence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, role }),
+        cache: 'no-store',
+        keepalive: true,
+      }).catch(() => undefined)
+    }
+    beat()
+    const timer = window.setInterval(beat, 25_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') beat()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [tab, isDriverRegistered, isPartnerRegistered, partnerTabRole])
+
   const applyPickup = (place: PickupPlace) => {
     pickupRef.current = place
     setPickup(place)
@@ -10043,6 +10118,7 @@ export default function HomeScreen() {
     saveIsPartnerRegistered(false)
     setDriverMode(false)
     setDriverOnline(false)
+    clearMemberProfile()
     setHeaderModal(null)
     setTab('홈')
     showNotice(t('toast.withdrawn'))

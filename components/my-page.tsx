@@ -10,7 +10,9 @@ import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { PartnerDevicePanel } from '@/components/partner-device-panel'
 import { PartnerDashboardSafe } from '@/components/partner-dashboard'
 import { copyInviteCode, getOrCreateInviteCode, inviteShareLink } from '@/lib/invite-code'
-import { loadPartnerProfile, loadPiIdentity, type PartnerProfile } from '@/lib/partner-account'
+import { loadPartnerProfile, loadPiIdentity, updatePartnerProfile, type PartnerProfile } from '@/lib/partner-account'
+import { memberPhone, saveMemberPhone } from '@/lib/member-profile'
+import PhoneVerifyForm from '@/components/phone-verify-form'
 import { useLocale } from '@/components/locale-provider'
 import type { MessageKey } from '@/lib/i18n'
 
@@ -176,6 +178,8 @@ export default function MyPage({
   const [centerRole, setCenterRole] = useState<'driver' | 'partner'>('partner')
   const [devicePanelOpen, setDevicePanelOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [phoneSheetOpen, setPhoneSheetOpen] = useState(false)
+  const [memberPhoneValue, setMemberPhoneValue] = useState('')
   const [historyRows, setHistoryRows] = useState<HistoryEntry[]>([])
   const [histTime, setHistTime] = useState<HistoryTimeFilter>('all')
   const [histType, setHistType] = useState<HistoryTypeFilter>('all')
@@ -210,6 +214,7 @@ export default function MyPage({
     setInviteCode(getOrCreateInviteCode(username))
     setPartnerProfile(loadPartnerProfile())
     setPiUid(loadPiIdentity()?.uid?.trim() || '')
+    setMemberPhoneValue(memberPhone())
   }, [username])
 
   const notify = (message: string) => {
@@ -318,6 +323,24 @@ export default function MyPage({
 
   const openProfile = () => {
     setProfileSheet(true)
+  }
+
+  /** 인증 완료된 번호를 회원 프로필에 저장하고, 파트너 연락처도 같은 번호로 맞춘다. */
+  const saveVerifiedPhone = (verified: string) => {
+    saveMemberPhone(verified, piUid)
+    setMemberPhoneValue(verified)
+    if (partnerProfile) {
+      void updatePartnerProfile({
+        name: partnerProfile.name,
+        phone: verified,
+        region: partnerProfile.region,
+        detail: partnerProfile.detail,
+      })
+        .then((next) => { if (next) setPartnerProfile(next) })
+        .catch(() => undefined)
+    }
+    setPhoneSheetOpen(false)
+    notify(t('mypage.phoneUpdated'))
   }
 
   const shareLink = inviteCode ? inviteShareLink(inviteCode) : ''
@@ -464,6 +487,22 @@ export default function MyPage({
                   <dd className="m-0 rounded-2xl bg-[#F8FAFC] p-3">
                     <span className="block text-[10px] font-black text-[#94A3B8]">{t('mypage.piLink')}</span>
                     <span className="mt-1 block font-black text-[#0F172A]">{linked ? t('mypage.linked') : t('mypage.unlinked')}</span>
+                  </dd>
+                  <dt className="sr-only">{t('mypage.phone')}</dt>
+                  <dd className="col-span-2 m-0">
+                    <button
+                      type="button"
+                      onClick={() => setPhoneSheetOpen(true)}
+                      className="w-full rounded-2xl bg-[#F8FAFC] p-3 text-left transition hover:bg-[#E8F1FA]"
+                    >
+                      <span className="block text-[10px] font-black text-[#94A3B8]">{t('mypage.phone')}</span>
+                      <span className="mt-1 flex items-center justify-between font-black text-[#0F172A]">
+                        {memberPhoneValue || t('mypage.phoneNone')}
+                        <span className="shrink-0 text-[11px] font-black text-[#4A82B8]">
+                          {memberPhoneValue ? t('mypage.phoneEdit') : t('mypage.phoneRegister')}
+                        </span>
+                      </span>
+                    </button>
                   </dd>
                 </dl>
               </article>
@@ -758,6 +797,26 @@ export default function MyPage({
                   </button>
                 ) : null}
                 <button type="button" onClick={() => setProfileSheet(false)} className="mt-2 w-full py-2 text-sm font-black text-[#64748B]">
+                  {t('common.close')}
+                </button>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
+      {mounted && phoneSheetOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-[120] flex items-end justify-center bg-[#1e1033]/45 p-0 sm:items-center sm:p-4" onClick={() => setPhoneSheetOpen(false)}>
+              <section className="w-full max-w-md rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
+                <p className="text-xs font-black text-[#4A82B8]">{t('mypage.phone')}</p>
+                <h3 className="mt-1 text-xl font-black text-[#0F172A]">
+                  {memberPhoneValue ? t('mypage.phoneEditTitle') : t('acct.phoneTitle')}
+                </h3>
+                <p className="mt-2 text-xs font-bold leading-5 text-[#64748B]">{t('acct.phoneDesc')}</p>
+                <div className="mt-4">
+                  <PhoneVerifyForm initialPhone={memberPhoneValue} onVerified={saveVerifiedPhone} />
+                </div>
+                <button type="button" onClick={() => setPhoneSheetOpen(false)} className="mt-3 w-full py-2 text-sm font-black text-[#64748B]">
                   {t('common.close')}
                 </button>
               </section>

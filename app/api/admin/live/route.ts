@@ -1,0 +1,82 @@
+import { NextResponse } from 'next/server'
+import { adminActor } from '@/lib/admin-auth'
+import { presenceCounts } from '@/lib/presence-store'
+import { ensureSeedDrivers, getDriver, hydrateDispatchFromKv, listDrivers, listRides } from '@/lib/dispatch-store'
+import { listDevices } from '@/lib/device-store'
+import { DRIVER_STALE_MS } from '@/lib/dispatch-types'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+/** 매칭 파이프라인에 아직 살아 있는 운행 상태 — 이외(완료·취소·미배정 종료)는 현황에서 제외. */
+const ACTIVE_STATUSES = new Set(['searching', 'offered', 'assigned'])
+
+export async function GET(request: Request) {
+  const actor = await adminActor(request)
+  if (!actor) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+  await hydrateDispatchFromKv().catch(() => undefined)
+  ensureSeedDrivers()
+  const [presence, devices] = await Promise.all([
+    presenceCounts(),
+    listDevices().catch(() => [] as Awaited<ReturnType<typeof listDevices>>),
+  ])
+
+  const now = Date.now()
+  const activeRides = listRides()
+    .filter((ride) => ACTIVE_STATUSES.has(ride.status))
+    .sort((a, b) => Date.parse(b.updatedAt || '') - Date.parse(a.updatedAt || ''))
+    .slice(0, 50)
+
+  const rides = activeRides.map((ride) => {
+    const driverId = ride.assignedDriverId || (ride.currentOffer?.decision === 'pending' ? ride.currentOffer.driverId : null)
+    const driver = driverId ? getDriver(driverId) : null
+    return {
+      id: ride.id,
+      kind: ride.kind === 'daeri' ? 'daeri' : 'taxi',
+      status: ride.status,
+      passengerId: ride.passengerId,
+      pickup: ride.pickup.address || ride.pickup.label || '',
+      dest: ride.dest.address || ride.dest.label || '',
+      estimatedFare: ride.estimatedFare,
+      driver: driver ? { id: driver.id, name: driver.name, vehicle: driver.vehicle, plate: driver.plate } : null,
+      offerExpiresAt: ride.currentOffer?.decision === 'pending' ? ride.currentOffer.expiresAt : null,
+      createdAt: ride.createdAt,
+      updatedAt: ride.updatedAt,
+    }
+  })
+
+  const dutyDrivers = listDrivers().filter((driver) => !driver.virtual)
+  const fresh = (driver: (typeof dutyDrivers)[number]) => now - Date.parse(driver.lastSeenAt || '') <= DRIVER_STALE_MS
+  const matching = {
+    searching: activeRides.filter((ride) => ride.status === 'searching').length,
+    offered: activeRides.filter((ride) => ride.status === 'offered').length,
+    assigned: activeRides.filter((ride) => ride.status === 'assigned').length,
+    driversOnline: dutyDrivers.filter((driver) => driver.status === 'online' && fresh(driver)).length,
+    driversBusy: dutyDrivers.filter((driver) => driver.status === 'busy' && fresh(driver)).length,
+  }
+
+  const bucket = () => ({ total: 0, rented: 0, idle: 0, active: 0, other: 0 })
+  const mobility: Record<'bicycle' | 'kickboard', ReturnType<typeof bucket>> = { bicycle: bucket(), kickboard: bucket() }
+  for (const device of devices) {
+    const type = (typeof device.type === 'string' ? device.type : '').trim().toLowerCase()
+    if (type !== 'bicycle' && type !== 'kickboard') continue
+    const row = mobility[type]
+    row.total += 1
+    if (device.status === 'rented') row.rented += 1
+    else if (device.status === 'idle') row.idle += 1
+    else if (device.status === 'active') row.active += 1
+    else row.other += 1
+  }
+
+  return NextResponse.json({
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    presence,
+    matching,
+    rides,
+    mobility,
+    presenceWindowMs: 90_000,
+  })
+}
