@@ -204,6 +204,28 @@ export async function editTicketReply(ticketId: string, messageId: string, text:
   return data.ticket
 }
 
+export async function assignTicket(ticketId: string, assignee: { staffId: string; staffName: string } | null) {
+  const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+    body: JSON.stringify({ assignee, role: 'admin' }),
+  })
+  const data = await readJson<{ ticket?: SupportTicket; error?: string }>(res)
+  if (!res.ok || !data.ticket) throw new Error(data.error || '담당자를 배정하지 못했어요.')
+  return data.ticket
+}
+
+export async function addTicketNote(ticketId: string, memo: string) {
+  const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+    body: JSON.stringify({ memo, role: 'admin' }),
+  })
+  const data = await readJson<{ ticket?: SupportTicket; error?: string }>(res)
+  if (!res.ok || !data.ticket) throw new Error(data.error || '내부 메모를 저장하지 못했어요.')
+  return data.ticket
+}
+
 export async function setTicketStatus(ticketId: string, status: TicketStatus) {
   const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'PATCH',

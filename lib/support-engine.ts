@@ -15,6 +15,7 @@ import type {
   SupportTicket,
   TicketCategory,
   TicketMessage,
+  TicketNote,
   TicketStatus,
 } from '@/lib/support-types'
 
@@ -296,7 +297,12 @@ export async function ticketInbox(filter: { actorId?: string; role?: SupportActo
     filter.role === 'admin' || !filter.actorId
       ? await listTickets()
       : (await listTickets()).filter((item) => item.userId === filter.actorId)
-  return tickets.map((item) => ({ ...item, reporter: reporterOf(item.userId, item.userRole) }))
+  return tickets.map((item) => ({
+    ...item,
+    reporter: reporterOf(item.userId, item.userRole),
+    // 내부 메모는 직원 전용 — 고객·기사 인박스에서는 제거한다.
+    ...(filter.role === 'admin' ? {} : { notes: undefined }),
+  }))
 }
 
 export async function postTicketMessage(input: { ticketId: string; actorId: string; role: SupportActor; text: string }) {
@@ -318,7 +324,7 @@ export async function postTicketMessage(input: { ticketId: string; actorId: stri
   const status: TicketStatus =
     input.role === 'admin'
       ? 'resolved'
-      : ticket.status === 'in_progress' || ticket.status === 'resolved'
+      : ticket.status === 'in_progress' || ticket.status === 'resolved' || ticket.status === 'assigned'
         ? 'waiting'
         : ticket.status
   const needsReview =
@@ -351,4 +357,41 @@ export async function setTicketStatus(id: string, status: TicketStatus) {
   const ticket = await getTicket(id)
   if (!ticket) return null
   return saveTicket({ ...ticket, status, updatedAt: nowIso() })
+}
+
+/** 담당자 배정/해제 — 배정 즉시 상태가 '담당자 배정됨'으로 진행된다. */
+export async function assignTicket(id: string, assignee: { staffId: string; staffName: string } | null) {
+  const ticket = await getTicket(id)
+  if (!ticket) return null
+  const status: TicketStatus = assignee
+    ? ticket.status === 'received' || ticket.status === 'waiting' || ticket.status === 'assigned'
+      ? 'assigned'
+      : ticket.status
+    : ticket.status === 'assigned'
+      ? 'received'
+      : ticket.status
+  return saveTicket({
+    ...ticket,
+    status,
+    assigneeId: assignee?.staffId,
+    assigneeName: assignee?.staffName,
+    updatedAt: nowIso(),
+  })
+}
+
+/** 내부 메모 추가 — 메모를 남기면 업무가 시작된 것으로 보고 '처리 중'으로 진행한다. */
+export async function addTicketNote(id: string, note: { staffId: string; staffName: string; text: string }) {
+  const ticket = await getTicket(id)
+  if (!ticket) return null
+  const text = note.text.trim().slice(0, 500)
+  if (!text) return null
+  const entry: TicketNote = {
+    id: crypto.randomUUID(),
+    staffId: note.staffId,
+    staffName: note.staffName,
+    text,
+    at: nowIso(),
+  }
+  const status: TicketStatus = ticket.status === 'received' || ticket.status === 'assigned' ? 'in_progress' : ticket.status
+  return saveTicket({ ...ticket, status, notes: [...(ticket.notes ?? []), entry], updatedAt: nowIso() })
 }

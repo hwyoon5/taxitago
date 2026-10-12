@@ -66,7 +66,16 @@ export type LostItem = {
 }
 
 export type TicketCategory = 'fare_dispute' | 'general' | 'payment' | 'safety' | 'lost'
-export type TicketStatus = 'received' | 'in_progress' | 'waiting' | 'resolved' | 'closed'
+export type TicketStatus = 'received' | 'assigned' | 'in_progress' | 'waiting' | 'resolved' | 'closed'
+
+/** 관리자 내부 메모 — 고객에게 노출되지 않는 직원 간 기록. */
+export type TicketNote = {
+  id: string
+  staffId: string
+  staffName: string
+  text: string
+  at: string
+}
 
 export type TicketMessage = {
   id: string
@@ -88,8 +97,13 @@ export type SupportTicket = {
   body: string
   rideId: string | null
   status: TicketStatus
+  /** 배정된 담당 직원 — 미배정이면 undefined. */
+  assigneeId?: string
+  assigneeName?: string
   reporter?: ReporterInfo
   messages: TicketMessage[]
+  /** 직원 전용 내부 메모 — 고객 화면·API에는 노출되지 않는다. */
+  notes?: TicketNote[]
   /** 첨부 사진 수 — 실제 이미지는 taxitago:attach:{id} 에 따로 저장된다. */
   photoCount?: number
   autoResolved?: boolean
@@ -107,10 +121,11 @@ export const TICKET_CATEGORY_LABEL: Record<TicketCategory, string> = {
 }
 
 export const TICKET_STATUS_LABEL: Record<TicketStatus, string> = {
-  received: '접수',
+  received: '신규 접수',
+  assigned: '담당자 배정됨',
   in_progress: '처리 중',
   waiting: '답변 대기',
-  resolved: '해결',
+  resolved: '답변 완료',
   closed: '종료',
 }
 

@@ -16,6 +16,8 @@ import AdminLiveDashboard from '@/components/admin-live'
 import AttachmentGallery from '@/components/photo-gallery'
 import { positionDisplayLabel } from '@/lib/staff-positions'
 import {
+  addTicketNote,
+  assignTicket,
   editTicketReply,
   fetchAdminInbox,
   fetchLostInbox,
@@ -31,11 +33,13 @@ import {
   type SupportTicket,
   type TicketStatus,
 } from '@/lib/support-types'
+import { REPLY_TEMPLATES } from '@/lib/support-templates'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 import { AdminExportButton } from '@/components/admin-export-button'
 
 const ADMIN_ID = 'ops-admin'
-const STATUSES: TicketStatus[] = ['received', 'in_progress', 'waiting', 'resolved', 'closed']
+const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
+const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
 const ADMIN_VIEWS = ['live', 'inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'staff', 'audit', 'memo'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
@@ -123,6 +127,8 @@ export default function AdminSupportDesk() {
   const [view, setView] = useState<AdminView>(viewFromLocation)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
+  const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all')
+  const [memoDraft, setMemoDraft] = useState('')
   const seenRef = useRef<Set<string> | null>(null)
   const { logout, actor } = useAdminAuth()
 
@@ -210,11 +216,13 @@ export default function AdminSupportDesk() {
     row.status !== 'closed' &&
     row.status !== 'resolved' &&
     (row.needsReview === true || row.status === 'received' || row.status === 'waiting')
-  const pendingTickets = tickets.filter(needsAdmin)
-  const otherTickets = tickets.filter((row) => !needsAdmin(row))
+  // 상태 필터 — 특정 단계만 볼 때 문의를 걸러낸다. 분실물은 '전체'에서만 섞어 보인다.
+  const filteredTickets = statusFilter === 'all' ? tickets : tickets.filter((row) => row.status === statusFilter)
+  const pendingTickets = filteredTickets.filter(needsAdmin)
+  const otherTickets = filteredTickets.filter((row) => !needsAdmin(row))
   const otherList: ({ type: 'ticket'; row: SupportTicket } | { type: 'lost'; row: LostItem })[] = [
     ...otherTickets.map((row) => ({ type: 'ticket' as const, row })),
-    ...lost.map((row) => ({ type: 'lost' as const, row })),
+    ...(statusFilter === 'all' ? lost.map((row) => ({ type: 'lost' as const, row })) : []),
   ]
   const inboxTotalPages = Math.max(1, Math.ceil(otherList.length / pageSize))
   const inboxPageSafe = Math.min(page, inboxTotalPages - 1)
@@ -240,6 +248,7 @@ export default function AdminSupportDesk() {
     const stored = loadDraft('ticket', next.id)
     setDraft(stored ?? reply?.text ?? '')
     setEditing(stored == null ? Boolean(reply) : stored === (reply?.text ?? ''))
+    setMemoDraft('')
   }
   const openLost = (next: LostItem) => {
     setKind('lost')
@@ -305,6 +314,37 @@ export default function AdminSupportDesk() {
       .catch((error) => guard(error, '답변을 저장하지 못했어요.'))
       .finally(() => setBusy(false))
   }
+  const changeAssignee = (value: string) => {
+    if (!ticket || busy) return
+    const assignee =
+      value === ''
+        ? null
+        : value === (actor?.staffId ?? '')
+          ? { staffId: actor!.staffId, staffName: actor!.staffName }
+          : { staffId: value, staffName: ticket.assigneeName || value }
+    setBusy(true)
+    void assignTicket(ticket.id, assignee)
+      .then((next) => {
+        setTickets((rows) => rows.map((row) => (row.id === next.id ? next : row)))
+        tell(assignee ? `담당자를 ${assignee.staffName}(으)로 배정했습니다.` : '담당자 배정을 해제했습니다.')
+      })
+      .catch((error) => guard(error, '담당자를 배정하지 못했어요.'))
+      .finally(() => setBusy(false))
+  }
+  const saveTicketNote = () => {
+    if (!ticket || busy) return
+    const text = memoDraft.trim()
+    if (!text) return
+    setBusy(true)
+    void addTicketNote(ticket.id, text)
+      .then((next) => {
+        setTickets((rows) => rows.map((row) => (row.id === next.id ? next : row)))
+        setMemoDraft('')
+        tell('내부 메모를 저장했습니다.')
+      })
+      .catch((error) => guard(error, '내부 메모를 저장하지 못했어요.'))
+      .finally(() => setBusy(false))
+  }
 
   const roleBadge = (label: string) => {
     const tone = label.includes('기사')
@@ -331,7 +371,10 @@ export default function AdminSupportDesk() {
       </div>
       <p className="mt-1 text-sm font-black">{row.subject}</p>
       <p className="mt-1 line-clamp-2 text-xs font-bold text-[#64748B]">{row.body}</p>
-      <p className="mt-1 text-[11px] font-bold text-[#64748B]">{reporterLine(row.reporter, row.userId)}</p>
+      <p className="mt-1 text-[11px] font-bold text-[#64748B]">
+        {reporterLine(row.reporter, row.userId)}
+        {row.assigneeName ? <span className="ml-1.5 rounded-full bg-[#DBEAFE] px-1.5 py-0.5 text-[9px] font-black text-[#1D4ED8]">담당 {row.assigneeName}</span> : null}
+      </p>
     </button>
   )
 
@@ -473,7 +516,7 @@ export default function AdminSupportDesk() {
               {lastSync ? <span className="font-bold text-[#94A3B8]">마지막 새로고침 {lastSync}</span> : null}
               <AdminExportButton
                 filename="taxitago-support-inbox"
-                headers={['구분', '상태', '카테고리/물품', '제목·내용', '신고자', '이용자 ID', '운행 ID', '기사', '차량번호', '메시지 수', '접수일', '수정일', 'ID']}
+                headers={['구분', '상태', '카테고리/물품', '제목·내용', '신고자', '담당자', '이용자 ID', '운행 ID', '기사', '차량번호', '메시지 수', '접수일', '수정일', 'ID']}
                 rows={[
                   ...tickets.map((row) => [
                     '1:1 문의',
@@ -481,6 +524,7 @@ export default function AdminSupportDesk() {
                     TICKET_CATEGORY_LABEL[row.category],
                     `${row.subject} — ${row.body}`,
                     row.reporter ? `${row.reporter.label} · ${row.reporter.name} · ${row.reporter.phone}` : '',
+                    row.assigneeName || '',
                     row.userId,
                     row.rideId || '',
                     '',
@@ -496,6 +540,7 @@ export default function AdminSupportDesk() {
                     row.itemType,
                     row.description,
                     row.reporter ? `${row.reporter.label} · ${row.reporter.name} · ${row.reporter.phone}` : '',
+                    '',
                     row.reporterId,
                     row.rideId || '',
                     row.driverName || '',
@@ -509,6 +554,19 @@ export default function AdminSupportDesk() {
               />
               <PageSizeSelect pageSize={pageSize} onChange={setPageSize} />
             </span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {STATUS_FILTERS.map((status) => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => { setStatusFilter(status); setPage(0) }}
+                className={`rounded-full px-2.5 py-1 text-[10px] font-black ${statusFilter === status ? 'bg-[#4C1FB8] text-white' : 'bg-white text-[#64748B] ring-1 ring-[#CBD5E1]'}`}
+              >
+                {status === 'all' ? '전체' : TICKET_STATUS_LABEL[status]}
+                {status !== 'all' ? ` · ${tickets.filter((row) => row.status === status).length}` : ` · ${tickets.length + lost.length}`}
+              </button>
+            ))}
           </div>
           {tickets.length + lost.length === 0 ? (
             <p className="rounded-2xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">아직 접수된 문의가 없습니다.</p>
@@ -576,6 +634,21 @@ export default function AdminSupportDesk() {
               >
                 {STATUSES.map((status) => <option key={status} value={status}>{TICKET_STATUS_LABEL[status]}</option>)}
               </select>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="shrink-0 text-[11px] font-black text-[#64748B]">담당자</span>
+                <select
+                  value={ticket.assigneeId ?? ''}
+                  disabled={busy}
+                  onChange={(event) => changeAssignee(event.target.value)}
+                  className="w-full rounded-xl border border-[#BFDBFE] bg-[#E8F1FA] px-2 py-2 text-xs font-black text-[#4A82B8]"
+                >
+                  <option value="">미배정</option>
+                  {actor ? <option value={actor.staffId}>{actor.staffName} (나)</option> : null}
+                  {ticket.assigneeId && ticket.assigneeId !== actor?.staffId ? (
+                    <option value={ticket.assigneeId}>{ticket.assigneeName || ticket.assigneeId}</option>
+                  ) : null}
+                </select>
+              </div>
               <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
                 {ticket.messages.map((message) => (
                   <div key={message.id} className={`rounded-2xl px-3 py-2 text-sm font-bold ${message.fromRole === 'admin' ? 'bg-[#F8F5FF] text-[#4C1FB8]' : 'bg-[#F1F5F9] text-[#0F172A]'}`}>
@@ -585,10 +658,50 @@ export default function AdminSupportDesk() {
                   </div>
                 ))}
               </div>
-              <textarea value={draft} onChange={(event) => updateDraft(event.target.value)} rows={4} placeholder={latestAdmin ? '등록한 답변을 수정하거나 새 답변을 작성' : '답변을 작성하세요'} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none" />
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {REPLY_TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => { updateDraft(template.text); setEditing(false) }}
+                    className="rounded-full border border-[#D8CCF5] bg-[#F8F5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8]"
+                  >
+                    {template.label}
+                  </button>
+                ))}
+              </div>
+              <textarea value={draft} onChange={(event) => updateDraft(event.target.value)} rows={4} placeholder={latestAdmin ? '등록한 답변을 수정하거나 새 답변을 작성' : '답변을 작성하세요'} className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none" />
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <button type="button" disabled={busy} onClick={() => { setEditing(false); updateDraft(''); }} className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]">새 답변</button>
                 <button type="button" disabled={busy} onClick={saveTicketReply} className="rounded-2xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white disabled:opacity-60">{busy ? '저장 중…' : editing && latestAdmin ? '답변 수정' : '답변 등록'}</button>
+              </div>
+              <div className="mt-4 rounded-2xl border-2 border-dashed border-[#F59E0B] bg-[#FFFBEB] p-3">
+                <p className="text-[11px] font-black text-[#B45309]">내부 메모 · 직원에게만 보입니다 (특이사항, 유관부서 확인 중 등)</p>
+                {ticket.notes?.length ? (
+                  <ul className="mt-2 max-h-28 space-y-1.5 overflow-y-auto">
+                    {[...ticket.notes].reverse().map((note) => (
+                      <li key={note.id} className="rounded-xl bg-white/80 px-2.5 py-2">
+                        <p className="text-[10px] font-black text-[#92400E]">{note.staffName} · {note.at.slice(5, 16).replace('T', ' ')}</p>
+                        <p className="mt-0.5 whitespace-pre-wrap text-xs font-bold text-[#334155]">{note.text}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <textarea
+                  value={memoDraft}
+                  onChange={(event) => setMemoDraft(event.target.value)}
+                  rows={2}
+                  placeholder="직원 간 공유할 메모를 입력하세요"
+                  className="mt-2 w-full rounded-2xl border-2 border-[#F59E0B]/50 bg-white px-3 py-2 text-xs font-bold outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={busy || !memoDraft.trim()}
+                  onClick={saveTicketNote}
+                  className="mt-1.5 w-full rounded-2xl bg-[#F59E0B] py-2 text-[11px] font-black text-white disabled:opacity-60"
+                >
+                  {busy ? '저장 중…' : '메모 저장'}
+                </button>
               </div>
             </div>
           ) : null}
