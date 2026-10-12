@@ -9947,34 +9947,7 @@ export default function HomeScreen() {
     setTab('홈')
     showNotice('승객 모드로 전환했어요.')
   }
-  const toggleDriverOnline = () => {
-    if (!driverOnline) {
-      setDriverOnline(true)
-      return
-    }
-    // 영업 종료 → 대시보드가 곧 언마운트되므로 오프라인 presence는 여기서
-    // 먼저 보내 두고 승객 모드(홈)로 자동 복귀한다.
-    const profile = loadPartnerProfile()
-    const id = localDriverId(profile?.uid)
-    if (id) {
-      const legacyId = readOrCreateLocalId(DRIVER_ID_KEY, 'driver')
-      const fleet = partnerVehicle(profile)
-      void sendDriverPresence({
-        driverId: id,
-        altDriverId: legacyId !== id ? legacyId : undefined,
-        lat: origin.lat,
-        lng: origin.lng,
-        online: false,
-        name: profile?.name,
-        vehicle: fleet.vehicle,
-        plate: fleet.plate,
-        wallet: profile?.wallet,
-        piUid: profile?.uid,
-      }).catch(() => undefined)
-    }
-    setDriverOnline(false)
-    leaveDriverMode()
-  }
+  const toggleDriverOnline = () => setDriverOnline((value) => !value)
   const toggleDriverMode = () => {
     if (driverMode) {
       leaveDriverMode()
