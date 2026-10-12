@@ -8807,18 +8807,28 @@ function DriverDashboard({
       </section>
       <button
         type="button"
+        disabled={!online}
+        aria-disabled={!online}
         onClick={() => {
+          if (!online) {
+            onNotice('영업 시작(Online) 상태에서만 현장 결제를 사용할 수 있습니다.')
+            return
+          }
           if (!driverId) {
             onNotice('기사/파트너 로그인이 필요합니다.')
             return
           }
           setManualPayOpen(true)
         }}
-        className="mt-2 flex w-full items-center justify-between gap-2 rounded-2xl bg-gradient-to-r from-[#4C1FB8] to-[#7C3AED] px-4 py-3.5 text-left shadow-lg shadow-[#4C1FB8]/30 transition active:scale-[0.99]"
+        className={`mt-2 flex w-full items-center justify-between gap-2 rounded-2xl px-4 py-3.5 text-left transition ${
+          online
+            ? 'bg-gradient-to-r from-[#4C1FB8] to-[#7C3AED] shadow-lg shadow-[#4C1FB8]/30 active:scale-[0.99]'
+            : 'cursor-not-allowed bg-[#CBD5E1] opacity-60 shadow-none'
+        }`}
       >
         <span>
           <span className="block text-sm font-black text-white">현장 수동 승객 탑승 · Pi 결제 (수동 정산)</span>
-          <span className="mt-0.5 block text-[10px] font-bold text-white/80">배차 없이 현장 승객에게 바로 청구하고 오늘의 수익에 반영합니다</span>
+          <span className="mt-0.5 block text-[10px] font-bold text-white/80">{online ? '배차 없이 현장 승객에게 바로 청구하고 오늘의 수익에 반영합니다' : '영업 종료 상태에서는 사용할 수 없습니다'}</span>
         </span>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/20 text-base font-black text-white">＋</span>
       </button>
@@ -9902,6 +9912,34 @@ export default function HomeScreen() {
     setTab('홈')
     showNotice('승객 모드로 전환했어요.')
   }
+  const toggleDriverOnline = () => {
+    if (!driverOnline) {
+      setDriverOnline(true)
+      return
+    }
+    // 영업 종료 → 대시보드가 곧 언마운트되므로 오프라인 presence는 여기서
+    // 먼저 보내 두고 승객 모드(홈)로 자동 복귀한다.
+    const profile = loadPartnerProfile()
+    const id = localDriverId(profile?.uid)
+    if (id) {
+      const legacyId = readOrCreateLocalId(DRIVER_ID_KEY, 'driver')
+      const fleet = partnerVehicle(profile)
+      void sendDriverPresence({
+        driverId: id,
+        altDriverId: legacyId !== id ? legacyId : undefined,
+        lat: origin.lat,
+        lng: origin.lng,
+        online: false,
+        name: profile?.name,
+        vehicle: fleet.vehicle,
+        plate: fleet.plate,
+        wallet: profile?.wallet,
+        piUid: profile?.uid,
+      }).catch(() => undefined)
+    }
+    setDriverOnline(false)
+    leaveDriverMode()
+  }
   const toggleDriverMode = () => {
     if (driverMode) {
       leaveDriverMode()
@@ -10022,7 +10060,7 @@ export default function HomeScreen() {
                 </div>
               ) : null}
               <SafeBoundary label="기사 화면을 불러오는 중 문제가 발생했어요.">
-                <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={() => setDriverOnline((value) => !value)} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} openLostId={driverLostOpen} onLostOpened={() => setDriverLostOpen(null)} />
+                <DriverDashboard online={driverOnline} lat={origin.lat} lng={origin.lng} onToggleOnline={toggleDriverOnline} onPassengerMode={leaveDriverMode} onWithdraw={logoutMember} onNotice={showNotice} onAskPassengerReview={setRideReview} onActivity={recordActivity} deliveryJob={deliveryJob} openLostId={driverLostOpen} onLostOpened={() => setDriverLostOpen(null)} />
               </SafeBoundary>
             </div>
           ) : (
