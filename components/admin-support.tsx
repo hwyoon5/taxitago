@@ -6,6 +6,7 @@ import { useAdminAuth } from '@/components/admin-guard'
 import { getAdminKey } from '@/lib/admin-key'
 import AdminPartners from '@/components/admin-partners'
 import AdminSettlements from '@/components/admin-settlements'
+import AdminPayouts from '@/components/admin-payouts'
 import AdminFareSettings from '@/components/admin-fare-settings'
 import AdminStaff from '@/components/admin-staff'
 import AdminUsers from '@/components/admin-users'
@@ -45,7 +46,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'staff', 'audit', 'memo', 'shift'] as const
+const ADMIN_VIEWS = ['live', 'inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'payouts', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 /** URL 해시(#ledger) 또는 ?view= 쿼리에서 탭을 복원 — 리마운트·새로고침 시에도 마지막 메뉴를 유지한다. */
@@ -514,7 +515,9 @@ export default function AdminSupportDesk() {
                   ? '수수료 설정'
                   : tab === 'ledger'
                     ? '정산 내역'
-                    : tab === 'staff'
+                    : tab === 'payouts'
+                      ? '출금 요청'
+                      : tab === 'staff'
                       ? '직원 관리'
                       : tab === 'memo'
                         ? '메모장'
@@ -538,6 +541,8 @@ export default function AdminSupportDesk() {
         <AdminFareSettings />
       ) : view === 'ledger' ? (
         <AdminSettlements />
+      ) : view === 'payouts' ? (
+        <AdminPayouts />
       ) : view === 'staff' ? (
         <AdminStaff />
       ) : view === 'audit' ? (

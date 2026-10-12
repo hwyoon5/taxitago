@@ -18,6 +18,7 @@ import {
 import { useLocale } from '@/components/locale-provider'
 import { localizeDynamic, translateDeviceKind, translateDeviceStatus } from '@/lib/i18n'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
+import PayoutRequestSheet from '@/components/payout-request-sheet'
 import { loadPartnerProfile, loadPiIdentity, type PartnerProfile, type PiIdentity } from '@/lib/partner-account'
 
 const statusTone = (status: MobilityDeviceStatus) =>
@@ -74,6 +75,7 @@ export function PartnerDashboard({
   const [formOpen, setFormOpen] = useState(false)
   const [editDevice, setEditDevice] = useState<MobilityDevice | null>(null)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
+  const [payoutOpen, setPayoutOpen] = useState(false)
 
   const fetchData = useCallback(async () => {
     const [d, f] = await Promise.allSettled([fetchMyMobilityDevices(uid), fetchMyPartnerFeeds(uid)])
@@ -252,6 +254,13 @@ export function PartnerDashboard({
             {t('partner.operations')}
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => setPayoutOpen(true)}
+          className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-white py-2.5 text-xs font-black text-[#4A82B8]"
+        >
+          수익 출금 신청
+        </button>
       </article>
 
       {/* 내 기기 목록 */}
@@ -357,6 +366,16 @@ export function PartnerDashboard({
         />
       ) : null}
       {statSheet ? <PartnerStatSheet key={`${statSheet}-${dataVersion}`} kind={statSheet} onClose={() => setStatSheet(null)} /> : null}
+      {payoutOpen ? (
+        <PayoutRequestSheet
+          applicantId={uid}
+          role="partner"
+          name={company}
+          wallet={profile?.wallet ?? ''}
+          onClose={() => setPayoutOpen(false)}
+          onNotice={onNotice}
+        />
+      ) : null}
     </div>
   )
 }

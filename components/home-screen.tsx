@@ -86,6 +86,7 @@ import QrPayScanModal from '@/components/qr-pay-scan'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import { PartnerTabScreen } from '@/components/partner-dashboard'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
+import PayoutRequestSheet from '@/components/payout-request-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
 import RideChat from '@/components/ride-chat'
 import RideCommsAlerts from '@/components/ride-comms-alerts'
@@ -8275,6 +8276,7 @@ function DriverDashboard({
   const penaltyLevelRef = useRef<DriverPenaltyInfo['level']>('ok')
   const [busy, setBusy] = useState(false)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
+  const [payoutOpen, setPayoutOpen] = useState(false)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [manualPayOpen, setManualPayOpen] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
@@ -8972,6 +8974,19 @@ function DriverDashboard({
       </section>
       <button
         type="button"
+        onClick={() => {
+          if (!driverId) {
+            onNotice('기사/파트너 로그인이 필요합니다.')
+            return
+          }
+          setPayoutOpen(true)
+        }}
+        className="mt-2 w-full rounded-xl border-2 border-[#BFDBFE] bg-[#E8F1FA] py-2.5 text-xs font-black text-[#4A82B8] transition active:scale-[0.99]"
+      >
+        수익 출금 신청
+      </button>
+      <button
+        type="button"
         disabled={!online}
         aria-disabled={!online}
         onClick={() => {
@@ -9347,6 +9362,17 @@ function DriverDashboard({
         />
       ) : null}
       {statSheet ? <EarningsStatSheet kind={statSheet} stats={earnings} onClose={() => setStatSheet(null)} /> : null}
+      {payoutOpen ? (
+        <PayoutRequestSheet
+          applicantId={driverId}
+          aliasIds={[driverAliasRef.current].filter(Boolean)}
+          role="driver"
+          name={partner?.name || partner?.username || ''}
+          wallet={partner?.wallet || ''}
+          onClose={() => setPayoutOpen(false)}
+          onNotice={onNotice}
+        />
+      ) : null}
       {manualPayOpen ? (
         <ManualPayModal
           driverId={driverId}
