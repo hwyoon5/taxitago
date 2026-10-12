@@ -10,6 +10,8 @@ import AdminFareSettings from '@/components/admin-fare-settings'
 import AdminStaff from '@/components/admin-staff'
 import AdminUsers from '@/components/admin-users'
 import AdminNotepad from '@/components/admin-notepad'
+import AdminPresence from '@/components/admin-presence'
+import AdminShiftBoard from '@/components/admin-shift-board'
 import AdminAuditLog from '@/components/admin-audit-log'
 import AdminDevices from '@/components/admin-devices'
 import AdminLiveDashboard from '@/components/admin-live'
@@ -43,7 +45,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'staff', 'audit', 'memo'] as const
+const ADMIN_VIEWS = ['live', 'inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 /** URL 해시(#ledger) 또는 ?view= 쿼리에서 탭을 복원 — 리마운트·새로고침 시에도 마지막 메뉴를 유지한다. */
@@ -487,6 +489,9 @@ export default function AdminSupportDesk() {
           <Link href="/" className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#4C1FB8]">홈</Link>
         </div>
       </div>
+      <div className="mt-3">
+        <AdminPresence />
+      </div>
       <div className="mt-4 grid grid-cols-5 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
         {ADMIN_VIEWS.map((tab) => (
           <button
@@ -513,7 +518,9 @@ export default function AdminSupportDesk() {
                       ? '직원 관리'
                       : tab === 'memo'
                         ? '메모장'
-                        : '업무 기록'}
+                        : tab === 'shift'
+                          ? '인수인계'
+                          : '업무 기록'}
           </button>
         ))}
       </div>
@@ -537,6 +544,8 @@ export default function AdminSupportDesk() {
         <AdminAuditLog />
       ) : view === 'memo' ? (
         <AdminNotepad />
+      ) : view === 'shift' ? (
+        <AdminShiftBoard />
       ) : (
       <>
       {storage === 'file' ? (
