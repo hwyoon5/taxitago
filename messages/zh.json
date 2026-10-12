@@ -745,5 +745,6 @@
   "acct.phoneDesc": "为使用服务及与司机/合作伙伴联系，请验证您本人的手机号码。",
   "acct.phoneDone": "已验证号码",
   "signup.phoneLabel": "联系方式 (需实名认证)",
-  "match.safeCall": "安全号码通话"
+  "match.safeCall": "安全号码通话",
+  "home.liveStatus": "实时状态"
 }

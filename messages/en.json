@@ -745,5 +745,6 @@
   "acct.phoneDesc": "Please verify your own mobile number for service use and driver/partner contact.",
   "acct.phoneDone": "Verified number",
   "signup.phoneLabel": "Phone (verification required)",
-  "match.safeCall": "Safe-number call"
+  "match.safeCall": "Safe-number call",
+  "home.liveStatus": "Live status"
 }

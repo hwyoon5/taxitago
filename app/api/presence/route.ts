@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { beatPresence, PRESENCE_ROLES, type PresenceRole } from '@/lib/presence-store'
+import { beatPresence, PRESENCE_ROLES, presenceCounts, type PresenceRole } from '@/lib/presence-store'
+import { ensureSeedDrivers, hydrateDispatchFromKv, listDrivers, listRides } from '@/lib/dispatch-store'
+import { DRIVER_STALE_MS } from '@/lib/dispatch-types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -14,4 +16,20 @@ export async function POST(request: Request) {
   }
   await beatPresence(id, role as PresenceRole)
   return NextResponse.json({ ok: true })
+}
+
+/**
+ * 공개 집계 스냅샷 — 홈 화면 신호등이 참조하는 역할별 접속자 수와
+ * 매칭 수요(대기+제안)만 돌려주며 개인 식별 정보는 일절 포함하지 않는다.
+ */
+export async function GET() {
+  await hydrateDispatchFromKv().catch(() => undefined)
+  ensureSeedDrivers()
+  const presence = await presenceCounts()
+  const now = Date.now()
+  const demand = listRides().filter((ride) => ride.status === 'searching' || ride.status === 'offered').length
+  const driversOnline = listDrivers().filter(
+    (driver) => !driver.virtual && driver.status !== 'offline' && now - Date.parse(driver.lastSeenAt || '') <= DRIVER_STALE_MS,
+  ).length
+  return NextResponse.json({ ok: true, presence, matching: { demand, driversOnline } })
 }

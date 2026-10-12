@@ -44,6 +44,7 @@ import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, pu
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
 import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } from '@/lib/member-profile'
 import PhoneVerifyForm from '@/components/phone-verify-form'
+import LiveStatusLight from '@/components/live-status-light'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
@@ -5318,7 +5319,7 @@ function Home({
         <section className="mt-4">
           <div className="flex items-end justify-between px-0.5">
             <h2 className="text-sm font-black tracking-tight text-[#0F172A]">{t('home.whatToUse')}</h2>
-            <span className="text-[10px] font-bold text-[#475569]">{t('home.serviceCount', { count: '8' })}</span>
+            <LiveStatusLight />
           </div>
           <div className="mt-2 rounded-[22px] bg-[#E2E8F0] p-3">
             <div className="grid grid-cols-4 gap-x-2 gap-y-4">

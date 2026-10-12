@@ -745,5 +745,6 @@
   "acct.phoneDesc": "서비스 이용과 기사·파트너 연락을 위해 본인 명의 휴대전화 번호를 인증해 주세요.",
   "acct.phoneDone": "인증된 번호",
   "signup.phoneLabel": "연락처 (본인인증 필수)",
-  "match.safeCall": "안심번호 통화"
+  "match.safeCall": "안심번호 통화",
+  "home.liveStatus": "실시간 현황"
 }
