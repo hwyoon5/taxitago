@@ -55,7 +55,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Pi 계정 연동 및 로그인 후 이용해 주세요.' }, { status: 401 })
   }
   const sandbox = isPiSandboxRequest(request)
-  const sandboxSession = sandbox && piUid === 'sandbox-uid-taxitago'
+  // 테스트넷은 /v2/me가 불안정하므로 로그인 계정(uid 존재)이면 토큰 없이도
+  // 호출을 허용한다 — 파트너/기사 가입 계정의 승객 호출이 연동 모달로 튀지
+  // 않게 한다. 메인넷은 아래에서 토큰을 그대로 fail-closed 검증한다.
+  const sandboxSession = sandbox
   if (!sandboxSession) {
     if (!piToken) {
       return NextResponse.json({ error: 'Pi 계정 연동 및 로그인 후 이용해 주세요.' }, { status: 401 })

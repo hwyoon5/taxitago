@@ -95,7 +95,14 @@ export function loadPiIdentity(): PiIdentity | null {
   }
   const profile = loadPartnerProfile()
   if (profile?.uid && profile.wallet) {
-    return { uid: profile.uid, username: profile.username, wallet: profile.wallet }
+    // 파트너 가입 시 저장된 accessToken도 함께 넘겨야 호출 게이트가
+    // 토큰 보유 세션으로 인식한다 — 토큰을 버리면 연동 모달로 튄다.
+    return {
+      uid: profile.uid,
+      username: profile.username,
+      wallet: profile.wallet,
+      ...(profile.accessToken ? { accessToken: profile.accessToken } : {}),
+    }
   }
   return null
 }

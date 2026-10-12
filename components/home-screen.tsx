@@ -23,7 +23,6 @@ import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveF
 import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import {
   appendSettlementEntry,
-  hasPiCallCredential,
   loadPartnerProfile,
   loadPiIdentity,
   partnerVehicle,
@@ -9778,7 +9777,9 @@ export default function HomeScreen() {
    * 계정 연동 모달로 보낸다. 서버도 동일 자격을 /v2/me로 재검증한다.
    */
   const requirePiForCall = () => {
-    if (hasPiCallCredential(loadPiIdentity())) return true
+    // 로그인된 계정(Pi 세션 또는 파트너/기사 프로필)이면 권한과 무관하게
+    // 승객 호출을 허용한다 — uid가 전혀 없는 익명 상태만 연동 모달로 보낸다.
+    if (loadPiIdentity()?.uid) return true
     showNotice('Pi 계정 연동 및 로그인 후 이용해 주세요.')
     setHeaderModal('account')
     return false

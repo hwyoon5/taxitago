@@ -14,16 +14,22 @@ export const PI_AUTH_REQUIRED_MESSAGE = 'Pi 계정 연동 및 로그인 후 이�
  * 생기므로 같은 localStorage 키를 직접 읽는다. 서버는 이 헤더를 /v2/me로 재검증한다.
  */
 function piSessionCredential(): { uid: string; accessToken: string } | null {
-  try {
-    const raw = window.localStorage.getItem('taxitago-pi-session')
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as { uid?: unknown; accessToken?: unknown }
-    const uid = typeof parsed?.uid === 'string' ? parsed.uid.trim() : ''
-    if (!uid) return null
-    return { uid, accessToken: typeof parsed?.accessToken === 'string' ? parsed.accessToken.trim() : '' }
-  } catch {
-    return null
+  // partner-account를 import하면 순환 참조가 생기므로 같은 localStorage 키를
+  // 직접 읽는다 — 파트너·기사 가입 계정은 세션 키가 없고 프로필에 uid/토큰이
+  // 있으므로 둘 다 본다. 서버는 이 헤더를 /v2/me로 재검증한다.
+  for (const key of ['taxitago-pi-session', 'taxitago-partner-profile']) {
+    try {
+      const raw = window.localStorage.getItem(key)
+      if (!raw) continue
+      const parsed = JSON.parse(raw) as { uid?: unknown; accessToken?: unknown }
+      const uid = typeof parsed?.uid === 'string' ? parsed.uid.trim() : ''
+      if (!uid) continue
+      return { uid, accessToken: typeof parsed?.accessToken === 'string' ? parsed.accessToken.trim() : '' }
+    } catch {
+      continue
+    }
   }
+  return null
 }
 
 export async function createRideRequest(input: {
