@@ -119,10 +119,21 @@ export async function PATCH(request: Request) {
     reason?: unknown
     name?: unknown
     phone?: unknown
+    baseUpdatedAt?: unknown
   } | null
   const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
   if (!uid) return NextResponse.json({ error: 'uid required' }, { status: 400 })
+
+  // 낙관적 동시성 제어 — 클라이언트가 본 updatedAt(병합 뷰 기준)과 다르면
+  // 조회 후 다른 직원이 먼저 수정한 것이므로 409 + 최신 레코드를 돌려준다.
+  const base = typeof body?.baseUpdatedAt === 'string' ? body.baseUpdatedAt : ''
+  if (base) {
+    const current = (await mergedUsers()).find((row) => row.uid === uid)
+    if (current && current.updatedAt !== base) {
+      return NextResponse.json({ error: 'conflict', user: current }, { status: 409 })
+    }
+  }
 
   if (body?.action === 'lock' || body?.action === 'unlock') {
     const locked = body.action === 'lock'

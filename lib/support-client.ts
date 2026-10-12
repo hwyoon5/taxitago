@@ -119,25 +119,38 @@ export async function fetchLostItem(id: string) {
   return data.item
 }
 
-export async function sendLostMessage(itemId: string, actorId: string, role: SupportActor, text: string) {
+/** 서버가 409 conflict를 돌려줄 때 던지는 에러 — data에 최신 레코드를 싣는다. */
+export class ConflictError extends Error {
+  constructor(
+    message = 'conflict',
+    public latest?: unknown,
+  ) {
+    super(message)
+    this.name = 'ConflictError'
+  }
+}
+
+export async function sendLostMessage(itemId: string, actorId: string, role: SupportActor, text: string, baseUpdatedAt?: string) {
   const res = await apiFetch(`/api/lost-items/${encodeURIComponent(itemId)}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-    body: JSON.stringify({ actorId, role, text }),
+    body: JSON.stringify({ actorId, role, text, baseUpdatedAt }),
   })
   const data = await readJson<{ item?: LostItem; error?: string }>(res)
-  if (!res.ok || !data.item) throw new Error(data.error || '메시지를 보내지 못했어요.')
+  if (res.status === 409) throw new ConflictError('conflict', data?.item)
+  if (!res.ok || !data.item) throw new Error(data?.error || '메시지를 보내지 못했어요.')
   return data.item
 }
 
-export async function setLostStatus(itemId: string, status: LostStatus, actorId: string, role: SupportActor) {
+export async function setLostStatus(itemId: string, status: LostStatus, actorId: string, role: SupportActor, baseUpdatedAt?: string) {
   const res = await apiFetch(`/api/lost-items/${encodeURIComponent(itemId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-    body: JSON.stringify({ status, actorId, role }),
+    body: JSON.stringify({ status, actorId, role, baseUpdatedAt }),
   })
   const data = await readJson<{ item?: LostItem; error?: string }>(res)
-  if (!res.ok || !data.item) throw new Error(data.error || '상태를 바꾸지 못했어요.')
+  if (res.status === 409) throw new ConflictError('conflict', data?.item)
+  if (!res.ok || !data.item) throw new Error(data?.error || '상태를 바꾸지 못했어요.')
   return data.item
 }
 
@@ -175,14 +188,15 @@ export async function fetchAdminInbox(actorId: string) {
   return { tickets: data.tickets ?? [], storage }
 }
 
-export async function sendTicketMessage(ticketId: string, actorId: string, role: SupportActor, text: string) {
+export async function sendTicketMessage(ticketId: string, actorId: string, role: SupportActor, text: string, baseUpdatedAt?: string) {
   const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-    body: JSON.stringify({ actorId, role, text }),
+    body: JSON.stringify({ actorId, role, text, baseUpdatedAt }),
   })
   const data = await readJson<{ ticket?: SupportTicket; error?: string }>(res)
-  if (!res.ok || !data.ticket) throw new Error(data.error || '답변을 보내지 못했어요.')
+  if (res.status === 409) throw new ConflictError('conflict', data?.ticket)
+  if (!res.ok || !data.ticket) throw new Error(data?.error || '답변을 보내지 못했어요.')
   return data.ticket
 }
 
@@ -193,46 +207,50 @@ export async function fetchTicket(ticketId: string) {
   return data.ticket
 }
 
-export async function editTicketReply(ticketId: string, messageId: string, text: string) {
+export async function editTicketReply(ticketId: string, messageId: string, text: string, baseUpdatedAt?: string) {
   const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-    body: JSON.stringify({ role: 'admin', messageId, text }),
+    body: JSON.stringify({ role: 'admin', messageId, text, baseUpdatedAt }),
   })
   const data = await readJson<{ ticket?: SupportTicket; error?: string }>(res)
-  if (!res.ok || !data.ticket) throw new Error(data.error || '답변을 수정하지 못했어요.')
+  if (res.status === 409) throw new ConflictError('conflict', data?.ticket)
+  if (!res.ok || !data.ticket) throw new Error(data?.error || '답변을 수정하지 못했어요.')
   return data.ticket
 }
 
-export async function assignTicket(ticketId: string, assignee: { staffId: string; staffName: string } | null) {
+export async function assignTicket(ticketId: string, assignee: { staffId: string; staffName: string } | null, baseUpdatedAt?: string) {
   const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-    body: JSON.stringify({ assignee, role: 'admin' }),
+    body: JSON.stringify({ assignee, role: 'admin', baseUpdatedAt }),
   })
   const data = await readJson<{ ticket?: SupportTicket; error?: string }>(res)
-  if (!res.ok || !data.ticket) throw new Error(data.error || '담당자를 배정하지 못했어요.')
+  if (res.status === 409) throw new ConflictError('conflict', data?.ticket)
+  if (!res.ok || !data.ticket) throw new Error(data?.error || '담당자를 배정하지 못했어요.')
   return data.ticket
 }
 
-export async function addTicketNote(ticketId: string, memo: string) {
+export async function addTicketNote(ticketId: string, memo: string, baseUpdatedAt?: string) {
   const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-    body: JSON.stringify({ memo, role: 'admin' }),
+    body: JSON.stringify({ memo, role: 'admin', baseUpdatedAt }),
   })
   const data = await readJson<{ ticket?: SupportTicket; error?: string }>(res)
-  if (!res.ok || !data.ticket) throw new Error(data.error || '내부 메모를 저장하지 못했어요.')
+  if (res.status === 409) throw new ConflictError('conflict', data?.ticket)
+  if (!res.ok || !data.ticket) throw new Error(data?.error || '내부 메모를 저장하지 못했어요.')
   return data.ticket
 }
 
-export async function setTicketStatus(ticketId: string, status: TicketStatus) {
+export async function setTicketStatus(ticketId: string, status: TicketStatus, baseUpdatedAt?: string) {
   const res = await apiFetch(`/api/support/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-    body: JSON.stringify({ status, role: 'admin' }),
+    body: JSON.stringify({ status, role: 'admin', baseUpdatedAt }),
   })
   const data = await readJson<{ ticket?: SupportTicket; error?: string }>(res)
-  if (!res.ok || !data.ticket) throw new Error(data.error || '처리 상태를 바꾸지 못했어요.')
+  if (res.status === 409) throw new ConflictError('conflict', data?.ticket)
+  if (!res.ok || !data.ticket) throw new Error(data?.error || '처리 상태를 바꾸지 못했어요.')
   return data.ticket
 }

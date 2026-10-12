@@ -15,6 +15,7 @@ import { listAudit, recordAudit } from '@/lib/audit-store'
 import { getRide, hydrateDispatchFromKv, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { piRound } from '@/lib/pi-format'
 import { getFareConfig, saveFareConfig } from '@/lib/fare-config-server'
+import { normalizeFareConfig } from '@/lib/fare-config'
 import { getAdminWallet, saveAdminWallet } from '@/lib/admin-wallet'
 import { isPiWalletAddress, piWalletError } from '@/lib/pi-wallet'
 import { depositTotals, listDeposits, recordDeposit } from '@/lib/deposit-store'
@@ -178,6 +179,9 @@ export async function PATCH(request: Request) {
     fromWallet?: unknown
     fromUid?: unknown
     amount?: unknown
+    baseWallet?: unknown
+    baseRates?: unknown
+    baseFare?: unknown
   } | null
   const action = body?.action
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
@@ -194,6 +198,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: piWalletError(address) ?? 'Pi 지갑 주소 형식이 올바르지 않습니다.' }, { status: 400 })
     }
     const before = await getAdminWallet()
+    // 낙관적 동시성 제어 — 클라이언트가 본 값과 현재값이 다르면 409로 거절.
+    if (typeof body?.baseWallet === 'string' && body.baseWallet.trim() !== before) {
+      return NextResponse.json({ error: 'conflict', adminWallet: before }, { status: 409 })
+    }
     const adminWallet = await saveAdminWallet(address)
     await recordAudit({ kind: 'wallet', actor: actor.staffId, actorName: actor.staffName, reason, before: { address: before }, after: { address: adminWallet } }).catch(() => undefined)
     return NextResponse.json({ ok: true, adminWallet })
@@ -257,6 +265,13 @@ export async function PATCH(request: Request) {
 
   if (action === 'fare') {
     const before = await getFareConfig()
+    // 낙관적 동시성 제어 — 클라이언트가 본 설정(정규화 후)과 다르면 409로 거절.
+    if (body?.baseFare && typeof body.baseFare === 'object') {
+      const baseFare = normalizeFareConfig(body.baseFare as Partial<FareConfig>)
+      if (JSON.stringify(baseFare) !== JSON.stringify(before)) {
+        return NextResponse.json({ error: 'conflict', fare: before }, { status: 409 })
+      }
+    }
     const fare = await saveFareConfig((body?.fare ?? {}) as Partial<FareConfig>)
     await recordAudit({ kind: 'fare', actor: actor.staffId, actorName: actor.staffName, reason, before, after: fare }).catch(() => undefined)
     return NextResponse.json({ ok: true, fare })
@@ -269,6 +284,14 @@ export async function PATCH(request: Request) {
       next[service] = Number.isFinite(raw) ? Math.min(50, Math.max(0, Math.round(raw * 10) / 10)) : 0
     }
     const before = await getCommissionRates()
+    // 낙관적 동시성 제어 — 클라이언트가 본 수수료율과 다르면 409로 거절.
+    if (body?.baseRates && typeof body.baseRates === 'object') {
+      const base = body.baseRates as Record<string, unknown>
+      const stale = SERVICES.some((service) => Number(base[service]) !== before[service])
+      if (stale) {
+        return NextResponse.json({ error: 'conflict', rates: before }, { status: 409 })
+      }
+    }
     const rates = await saveCommissionRates(next)
     // 과거에 수수료율 0으로 기록된 pending 건을 새 수수료율로 복구한다.
     const healed = await healZeroCommissionEntries(rates).catch(() => 0)

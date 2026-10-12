@@ -82,6 +82,7 @@ export async function POST(request: Request) {
     insuranceCompany?: unknown
     insurancePolicyNo?: unknown
     insuranceExpiresAt?: unknown
+    baseUpdatedAt?: unknown
   } | null
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
   const phone = typeof body?.phone === 'string' ? body.phone.trim() : ''
@@ -89,6 +90,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'name and phone required' }, { status: 400 })
   }
   const uid = typeof body?.uid === 'string' && body.uid.trim() ? body.uid.trim() : `partner-${crypto.randomUUID().slice(0, 8)}`
+  // 낙관적 동시성 제어 — 기존 레코드 수정 시 클라이언트가 본 updatedAt과
+  // 병합 뷰의 현재값이 다르면 다른 관리자가 먼저 저장한 것이므로 409로 거절.
+  const base = typeof body?.baseUpdatedAt === 'string' ? body.baseUpdatedAt : ''
+  if (base) {
+    const current = (await mergedPartners()).find((row) => row.uid === uid)
+    if (current && current.updatedAt !== base) {
+      return NextResponse.json({ error: 'conflict', partner: current }, { status: 409 })
+    }
+  }
   const previous = getPartnerLink(uid)
   const role = body?.role === '파트너' ? '파트너' : '기사'
   const serviceType =

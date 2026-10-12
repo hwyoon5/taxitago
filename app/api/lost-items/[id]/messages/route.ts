@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { postLostMessage } from '@/lib/support-engine'
+import { getLostItem } from '@/lib/support-store'
 import { adminActor } from '@/lib/admin-auth'
 import { recordAudit } from '@/lib/audit-store'
 import type { SupportActor } from '@/lib/support-types'
@@ -19,6 +20,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const actor = role === 'admin' ? await adminActor(request) : null
   if (role === 'admin' && !actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+  // 낙관적 동시성 제어 — 조회 후 다른 직원이 먼저 저장했으면 409로 거절.
+  if (actor) {
+    const base = typeof body?.baseUpdatedAt === 'string' ? body.baseUpdatedAt : ''
+    if (base) {
+      const current = await getLostItem(id)
+      if (current && current.updatedAt !== base) {
+        return NextResponse.json({ error: 'conflict', item: current }, { status: 409 })
+      }
+    }
   }
   const result = await postLostMessage({ itemId: id, actorId, role: role as SupportActor, text })
   if (!result.ok) {

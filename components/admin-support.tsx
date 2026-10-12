@@ -18,6 +18,7 @@ import { positionDisplayLabel } from '@/lib/staff-positions'
 import {
   addTicketNote,
   assignTicket,
+  ConflictError,
   editTicketReply,
   fetchAdminInbox,
   fetchLostInbox,
@@ -25,6 +26,7 @@ import {
   sendTicketMessage,
   setTicketStatus,
 } from '@/lib/support-client'
+import { acquireEditLock, releaseEditLock, renewEditLock } from '@/lib/edit-lock-client'
 import {
   LOST_STATUS_LABEL,
   TICKET_CATEGORY_LABEL,
@@ -129,6 +131,10 @@ export default function AdminSupportDesk() {
   const [pageSize, setPageSize] = useState(10)
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all')
   const [memoDraft, setMemoDraft] = useState('')
+  // 다른 관리자가 편집 중인 항목 이름 — 비어있지 않으면 상세는 읽기 전용.
+  const [lockedBy, setLockedBy] = useState('')
+  const lockRef = useRef<{ kind: 'ticket' | 'lost'; id: string } | null>(null)
+  const lockTimerRef = useRef(0)
   const seenRef = useRef<Set<string> | null>(null)
   const { logout, actor } = useAdminAuth()
 
@@ -239,10 +245,44 @@ export default function AdminSupportDesk() {
   }, [pageSize])
   const pendingCount = pendingTickets.length + lost.filter((row) => row.status === 'open').length
 
+  // 편집 잠금 — 상세를 여는 즉시 소유를 선언하고 30초마다 연장한다.
+  // 다른 관리자가 쥐고 있으면 lockedBy에 이름이 세팅되어 읽기 전용이 된다.
+  const dropLock = () => {
+    if (lockTimerRef.current) {
+      window.clearInterval(lockTimerRef.current)
+      lockTimerRef.current = 0
+    }
+    const held = lockRef.current
+    lockRef.current = null
+    if (held) void releaseEditLock(held.kind, held.id)
+  }
+  const claimLock = (lockKind: 'ticket' | 'lost', id: string) => {
+    dropLock()
+    setLockedBy('')
+    void acquireEditLock(lockKind, id).then((res) => {
+      if (!res.self) {
+        setLockedBy(res.holder)
+        return
+      }
+      lockRef.current = { kind: lockKind, id }
+      lockTimerRef.current = window.setInterval(() => {
+        void renewEditLock(lockKind, id).then((next) => {
+          if (!next.self) {
+            dropLock()
+            setLockedBy(next.holder || '다른')
+          }
+        })
+      }, 30_000)
+    })
+  }
+  // 화면을 떠날 때 들고 있던 잠금을 해제한다.
+  useEffect(() => () => dropLock(), []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const openTicket = (next: SupportTicket) => {
     setKind('ticket')
     setSelectedId(next.id)
     saveSelection('ticket', next.id)
+    claimLock('ticket', next.id)
     setFreshIds((prev) => prev.filter((id) => id !== `t:${next.id}`))
     const reply = next.messages.filter((message) => message.fromRole === 'admin').at(-1)
     const stored = loadDraft('ticket', next.id)
@@ -254,6 +294,7 @@ export default function AdminSupportDesk() {
     setKind('lost')
     setSelectedId(next.id)
     saveSelection('lost', next.id)
+    claimLock('lost', next.id)
     setFreshIds((prev) => prev.filter((id) => id !== `l:${next.id}`))
     const reply = [...next.messages].reverse().find((message) => message.fromRole === 'admin')
     const stored = loadDraft('lost', next.id)
@@ -273,6 +314,21 @@ export default function AdminSupportDesk() {
       logout()
       return
     }
+    // 낙관적 동시성 충돌 — 서버가 돌려준 최신 레코드로 갱신하고 재시도를 안내한다.
+    if (error instanceof ConflictError) {
+      const latest = error.latest
+      if (latest && typeof latest === 'object' && 'id' in latest) {
+        if ('subject' in latest || 'category' in latest) {
+          const row = latest as SupportTicket
+          setTickets((rows) => rows.map((item) => (item.id === row.id ? row : item)))
+        } else {
+          const row = latest as LostItem
+          setLost((rows) => rows.map((item) => (item.id === row.id ? row : item)))
+        }
+      }
+      tell('다른 사용자에 의해 내용이 변경되었습니다. 최신 정보를 불러온 후 다시 시도해 주세요.')
+      return
+    }
     const message = error instanceof Error ? error.message : ''
     if (message === 'not_found') {
       tell('서버에서 해당 문의를 찾지 못했습니다. 영구 저장소 연결 상태를 확인한 뒤 새로고침해 주세요.')
@@ -281,13 +337,13 @@ export default function AdminSupportDesk() {
     tell(message || fallback)
   }
   const saveTicketReply = () => {
-    if (!ticket || busy) return
+    if (!ticket || busy || lockedBy) return
     const text = draft.trim()
     if (!text) return
     setBusy(true)
     const request = editing && latestAdmin
-      ? editTicketReply(ticket.id, latestAdmin.id, text)
-      : sendTicketMessage(ticket.id, ADMIN_ID, 'admin', text).then((next) => {
+      ? editTicketReply(ticket.id, latestAdmin.id, text, ticket.updatedAt)
+      : sendTicketMessage(ticket.id, ADMIN_ID, 'admin', text, ticket.updatedAt).then((next) => {
           setEditing(true)
           return next
         })
@@ -301,11 +357,11 @@ export default function AdminSupportDesk() {
       .finally(() => setBusy(false))
   }
   const saveLostReply = () => {
-    if (!item || busy) return
+    if (!item || busy || lockedBy) return
     const text = draft.trim()
     if (!text) return
     setBusy(true)
-    void sendLostMessage(item.id, ADMIN_ID, 'admin', text)
+    void sendLostMessage(item.id, ADMIN_ID, 'admin', text, item.updatedAt)
       .then((next) => {
         setLost((rows) => rows.map((row) => (row.id === next.id ? next : row)))
         updateDraft('')
@@ -315,7 +371,7 @@ export default function AdminSupportDesk() {
       .finally(() => setBusy(false))
   }
   const changeAssignee = (value: string) => {
-    if (!ticket || busy) return
+    if (!ticket || busy || lockedBy) return
     const assignee =
       value === ''
         ? null
@@ -323,7 +379,7 @@ export default function AdminSupportDesk() {
           ? { staffId: actor!.staffId, staffName: actor!.staffName }
           : { staffId: value, staffName: ticket.assigneeName || value }
     setBusy(true)
-    void assignTicket(ticket.id, assignee)
+    void assignTicket(ticket.id, assignee, ticket.updatedAt)
       .then((next) => {
         setTickets((rows) => rows.map((row) => (row.id === next.id ? next : row)))
         tell(assignee ? `담당자를 ${assignee.staffName}(으)로 배정했습니다.` : '담당자 배정을 해제했습니다.')
@@ -332,11 +388,11 @@ export default function AdminSupportDesk() {
       .finally(() => setBusy(false))
   }
   const saveTicketNote = () => {
-    if (!ticket || busy) return
+    if (!ticket || busy || lockedBy) return
     const text = memoDraft.trim()
     if (!text) return
     setBusy(true)
-    void addTicketNote(ticket.id, text)
+    void addTicketNote(ticket.id, text, ticket.updatedAt)
       .then((next) => {
         setTickets((rows) => rows.map((row) => (row.id === next.id ? next : row)))
         setMemoDraft('')
@@ -607,6 +663,11 @@ export default function AdminSupportDesk() {
         </section>
         <section className="rounded-[24px] border-2 border-[#CBD5E1] bg-white p-4">
           {!ticket && !item ? <p className="text-sm font-bold text-[#64748B]">왼쪽 목록에서 문의를 선택해 주세요.</p> : null}
+          {lockedBy ? (
+            <p className="mb-3 rounded-2xl border-2 border-[#F59E0B] bg-[#FFFBEB] px-3 py-2.5 text-xs font-black leading-5 text-[#92400E]">
+              현재 {lockedBy} 관리자가 편집 중인 항목입니다. 읽기 전용으로 열립니다.
+            </p>
+          ) : null}
           {ticket ? (
             <div>
               <p className="text-xs font-black text-[#4C1FB8]">
@@ -622,8 +683,9 @@ export default function AdminSupportDesk() {
               <AttachmentGallery entityId={ticket.id} photoCount={ticket.photoCount} />
               <select
                 value={ticket.status}
+                disabled={busy || Boolean(lockedBy)}
                 onChange={(event) => {
-                  void setTicketStatus(ticket.id, event.target.value as TicketStatus)
+                  void setTicketStatus(ticket.id, event.target.value as TicketStatus, ticket.updatedAt)
                     .then((next) => {
                       setTickets((rows) => rows.map((row) => (row.id === next.id ? next : row)))
                       tell('상태를 바꿨습니다.')
@@ -638,7 +700,7 @@ export default function AdminSupportDesk() {
                 <span className="shrink-0 text-[11px] font-black text-[#64748B]">담당자</span>
                 <select
                   value={ticket.assigneeId ?? ''}
-                  disabled={busy}
+                  disabled={busy || Boolean(lockedBy)}
                   onChange={(event) => changeAssignee(event.target.value)}
                   className="w-full rounded-xl border border-[#BFDBFE] bg-[#E8F1FA] px-2 py-2 text-xs font-black text-[#4A82B8]"
                 >
@@ -663,17 +725,18 @@ export default function AdminSupportDesk() {
                   <button
                     key={template.id}
                     type="button"
+                    disabled={Boolean(lockedBy)}
                     onClick={() => { updateDraft(template.text); setEditing(false) }}
-                    className="rounded-full border border-[#D8CCF5] bg-[#F8F5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8]"
+                    className="rounded-full border border-[#D8CCF5] bg-[#F8F5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8] disabled:opacity-50"
                   >
                     {template.label}
                   </button>
                 ))}
               </div>
-              <textarea value={draft} onChange={(event) => updateDraft(event.target.value)} rows={4} placeholder={latestAdmin ? '등록한 답변을 수정하거나 새 답변을 작성' : '답변을 작성하세요'} className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none" />
+              <textarea value={draft} onChange={(event) => updateDraft(event.target.value)} rows={4} disabled={Boolean(lockedBy)} placeholder={latestAdmin ? '등록한 답변을 수정하거나 새 답변을 작성' : '답변을 작성하세요'} className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none disabled:bg-[#F1F5F9]" />
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <button type="button" disabled={busy} onClick={() => { setEditing(false); updateDraft(''); }} className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]">새 답변</button>
-                <button type="button" disabled={busy} onClick={saveTicketReply} className="rounded-2xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white disabled:opacity-60">{busy ? '저장 중…' : editing && latestAdmin ? '답변 수정' : '답변 등록'}</button>
+                <button type="button" disabled={busy || Boolean(lockedBy)} onClick={() => { setEditing(false); updateDraft(''); }} className="rounded-2xl border-2 border-[#CBD5E1] py-2.5 text-xs font-black text-[#475569]">새 답변</button>
+                <button type="button" disabled={busy || Boolean(lockedBy)} onClick={saveTicketReply} className="rounded-2xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white disabled:opacity-60">{busy ? '저장 중…' : editing && latestAdmin ? '답변 수정' : '답변 등록'}</button>
               </div>
               <div className="mt-4 rounded-2xl border-2 border-dashed border-[#F59E0B] bg-[#FFFBEB] p-3">
                 <p className="text-[11px] font-black text-[#B45309]">내부 메모 · 직원에게만 보입니다 (특이사항, 유관부서 확인 중 등)</p>
@@ -691,12 +754,13 @@ export default function AdminSupportDesk() {
                   value={memoDraft}
                   onChange={(event) => setMemoDraft(event.target.value)}
                   rows={2}
+                  disabled={Boolean(lockedBy)}
                   placeholder="직원 간 공유할 메모를 입력하세요"
-                  className="mt-2 w-full rounded-2xl border-2 border-[#F59E0B]/50 bg-white px-3 py-2 text-xs font-bold outline-none"
+                  className="mt-2 w-full rounded-2xl border-2 border-[#F59E0B]/50 bg-white px-3 py-2 text-xs font-bold outline-none disabled:bg-[#F1F5F9]"
                 />
                 <button
                   type="button"
-                  disabled={busy || !memoDraft.trim()}
+                  disabled={busy || Boolean(lockedBy) || !memoDraft.trim()}
                   onClick={saveTicketNote}
                   className="mt-1.5 w-full rounded-2xl bg-[#F59E0B] py-2 text-[11px] font-black text-white disabled:opacity-60"
                 >
@@ -723,8 +787,8 @@ export default function AdminSupportDesk() {
                   </div>
                 ))}
               </div>
-              <textarea value={draft} onChange={(event) => updateDraft(event.target.value)} rows={4} placeholder="분실물 답변" className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none" />
-              <button type="button" disabled={busy} onClick={saveLostReply} className="mt-2 w-full rounded-2xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white disabled:opacity-60">{busy ? '저장 중…' : '답변 등록'}</button>
+              <textarea value={draft} onChange={(event) => updateDraft(event.target.value)} rows={4} disabled={Boolean(lockedBy)} placeholder="분실물 답변" className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] px-3 py-3 text-sm font-bold outline-none disabled:bg-[#F1F5F9]" />
+              <button type="button" disabled={busy || Boolean(lockedBy)} onClick={saveLostReply} className="mt-2 w-full rounded-2xl bg-[#4C1FB8] py-2.5 text-xs font-black text-white disabled:opacity-60">{busy ? '저장 중…' : '답변 등록'}</button>
             </div>
           ) : null}
         </section>

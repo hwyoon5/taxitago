@@ -86,21 +86,31 @@ export default function AdminFareSettings() {
       body: JSON.stringify(body),
     }).then(async (res) => {
       const data = await res.json().catch(() => null)
+      if (res.status === 409) throw new Error('conflict')
       if (!res.ok) throw new Error(data?.error || 'failed')
       return data
     })
+
+  // 낙관적 동시성 충돌 공통 처리 — 최신값으로 다시 불러오고 재시도를 안내한다.
+  const onConflict = () => {
+    setError('다른 사용자에 의해 내용이 변경되었습니다. 최신 정보를 불러온 후 다시 시도해 주세요.')
+    reload()
+  }
 
   const saveWallet = () => {
     if (!canEdit || busy) return
     const address = walletDraft.trim()
     if (!isPiWalletAddress(address)) return
     setBusy(true)
-    void patch({ action: 'wallet', wallet: address })
+    void patch({ action: 'wallet', wallet: address, baseWallet: wallet })
       .then(() => {
         setWallet(address)
         tell('관리자 Pi 지갑 주소가 안전하게 저장되었습니다.')
       })
-      .catch((err) => setError(err instanceof Error && err.message !== 'failed' ? err.message : '지갑 주소 저장에 실패했습니다.'))
+      .catch((err) => {
+        if (err instanceof Error && err.message === 'conflict') return onConflict()
+        setError(err instanceof Error && err.message !== 'failed' ? err.message : '지갑 주소 저장에 실패했습니다.')
+      })
       .finally(() => setBusy(false))
   }
 
@@ -124,26 +134,32 @@ export default function AdminFareSettings() {
   const saveRates = () => {
     if (!canEdit || busy) return
     setBusy(true)
-    void patch({ action: 'rates', rates: rateDraft })
+    void patch({ action: 'rates', rates: rateDraft, baseRates: rates })
       .then(() => {
         setRates(rateDraft)
         tell('수수료율을 저장했습니다. 이후 정산부터 적용됩니다.')
         reload()
       })
-      .catch(() => setError('수수료율 저장에 실패했습니다.'))
+      .catch((err) => {
+        if (err instanceof Error && err.message === 'conflict') return onConflict()
+        setError('수수료율 저장에 실패했습니다.')
+      })
       .finally(() => setBusy(false))
   }
 
   const saveFare = () => {
     if (!canEdit || busy) return
     setBusy(true)
-    void patch({ action: 'fare', fare: fareDraft })
+    void patch({ action: 'fare', fare: fareDraft, baseFare: fare })
       .then(() => {
         setFare(fareDraft)
         tell('요금·수수료 설정을 저장했습니다. 이후 호출부터 적용됩니다.')
         reload()
       })
-      .catch(() => setError('요금 설정 저장에 실패했습니다.'))
+      .catch((err) => {
+        if (err instanceof Error && err.message === 'conflict') return onConflict()
+        setError('요금 설정 저장에 실패했습니다.')
+      })
       .finally(() => setBusy(false))
   }
 

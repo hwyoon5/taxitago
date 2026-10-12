@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PaginationBar, PageSizeSelect, usePagination } from '@/components/admin-pagination'
 import { AdminExportButton } from '@/components/admin-export-button'
 import { CopyButton } from '@/components/admin-detail-modal'
 import { adminHeaders } from '@/lib/admin-key'
+import { acquireEditLock, releaseEditLock, renewEditLock } from '@/lib/edit-lock-client'
 
 export type AdminUserRow = {
   uid: string
@@ -49,6 +50,10 @@ export default function AdminUsers() {
   const [openUid, setOpenUid] = useState('')
   const [busy, setBusy] = useState(false)
   const [lockReason, setLockReason] = useState('')
+  // 다른 관리자가 편집 중인 회원 — 비어있지 않으면 펼친 카드는 읽기 전용.
+  const [lockedBy, setLockedBy] = useState('')
+  const editLockRef = useRef('')
+  const lockTimerRef = useRef(0)
   const [adjust, setAdjust] = useState<{ action: 'credit' | 'debit'; amount: string; reason: string }>({
     action: 'credit',
     amount: '',
@@ -85,6 +90,43 @@ export default function AdminUsers() {
     return () => window.clearTimeout(timer)
   }, [q, reload])
 
+  // 편집 잠금 — 회원 카드를 펼치는 순간 소유를 선언하고 30초마다 연장한다.
+  const dropLock = () => {
+    if (lockTimerRef.current) {
+      window.clearInterval(lockTimerRef.current)
+      lockTimerRef.current = 0
+    }
+    const held = editLockRef.current
+    editLockRef.current = ''
+    if (held) void releaseEditLock('user', held)
+  }
+  const claimLock = (uid: string) => {
+    dropLock()
+    setLockedBy('')
+    void acquireEditLock('user', uid).then((res) => {
+      if (!res.self) {
+        setLockedBy(res.holder)
+        return
+      }
+      editLockRef.current = uid
+      lockTimerRef.current = window.setInterval(() => {
+        void renewEditLock('user', uid).then((next) => {
+          if (!next.self) {
+            dropLock()
+            setLockedBy(next.holder || '다른')
+          }
+        })
+      }, 30_000)
+    })
+  }
+  const toggleOpen = (uid: string, open: boolean) => {
+    if (open) claimLock(uid)
+    else dropLock()
+    setOpenUid(open ? uid : '')
+  }
+  // 화면을 떠날 때 들고 있던 잠금을 해제한다.
+  useEffect(() => () => dropLock(), []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const patch = (body: Record<string, unknown>) =>
     fetch('/api/admin/users', {
       method: 'PATCH',
@@ -92,6 +134,11 @@ export default function AdminUsers() {
       body: JSON.stringify(body),
     }).then(async (res) => {
       const data = await res.json().catch(() => null)
+      if (res.status === 409) {
+        const err = new Error('conflict')
+        ;(err as Error & { user?: AdminUserRow }).user = data?.user
+        throw err
+      }
       if (!res.ok) throw new Error(data?.error || 'failed')
       return data
     })
@@ -108,30 +155,44 @@ export default function AdminUsers() {
     })
 
   const toggleLock = (user: AdminUserRow) => {
-    if (busy) return
+    if (busy || lockedBy) return
     setBusy(true)
-    void patch({ action: user.locked ? 'unlock' : 'lock', uid: user.uid, reason: lockReason.trim() })
+    void patch({ action: user.locked ? 'unlock' : 'lock', uid: user.uid, reason: lockReason.trim(), baseUpdatedAt: user.updatedAt })
       .then(() => {
         tell(user.locked ? '이용 정지를 해제했습니다.' : '계정을 이용 정지(Lock)했습니다.')
         setLockReason('')
         reload(q)
       })
-      .catch((err) => setError(err instanceof Error && err.message !== 'failed' ? err.message : '처리에 실패했습니다.'))
+      .catch((err) => {
+        if (err instanceof Error && err.message === 'conflict') {
+          setError('다른 사용자에 의해 내용이 변경되었습니다. 최신 정보를 불러온 후 다시 시도해 주세요.')
+          reload(q)
+          return
+        }
+        setError(err instanceof Error && err.message !== 'failed' ? err.message : '처리에 실패했습니다.')
+      })
       .finally(() => setBusy(false))
   }
 
   const submitAdjust = (user: AdminUserRow) => {
-    if (busy) return
+    if (busy || lockedBy) return
     const amount = Number(adjust.amount)
     if (!Number.isFinite(amount) || amount <= 0 || !adjust.reason.trim()) return
     setBusy(true)
-    void post({ action: adjust.action, uid: user.uid, wallet: user.wallet, amount, reason: adjust.reason.trim() })
+    void post({ action: adjust.action, uid: user.uid, wallet: user.wallet, amount, reason: adjust.reason.trim(), baseUpdatedAt: user.updatedAt })
       .then(() => {
         tell(adjust.action === 'credit' ? `+${amount} Pi 수동 입금을 반영했습니다.` : `-${amount} Pi 수동 출금을 반영했습니다.`)
         setAdjust({ action: 'credit', amount: '', reason: '' })
         reload(q)
       })
-      .catch((err) => setError(err instanceof Error && err.message !== 'failed' ? err.message : '보정 처리에 실패했습니다.'))
+      .catch((err) => {
+        if (err instanceof Error && err.message === 'conflict') {
+          setError('다른 사용자에 의해 내용이 변경되었습니다. 최신 정보를 불러온 후 다시 시도해 주세요.')
+          reload(q)
+          return
+        }
+        setError(err instanceof Error && err.message !== 'failed' ? err.message : '보정 처리에 실패했습니다.')
+      })
       .finally(() => setBusy(false))
   }
 
@@ -229,7 +290,7 @@ export default function AdminUsers() {
             <div key={user.uid} className={`rounded-2xl border-2 bg-white p-3.5 ${user.locked ? 'border-[#FCA5A5]' : 'border-[#CBD5E1]'}`}>
               <button
                 type="button"
-                onClick={() => setOpenUid(open ? '' : user.uid)}
+                onClick={() => toggleOpen(user.uid, !open)}
                 className="flex w-full items-center justify-between gap-2 text-left"
               >
                 <div className="min-w-0">
@@ -257,6 +318,11 @@ export default function AdminUsers() {
 
               {open ? (
                 <div className="mt-3 space-y-2.5 border-t border-[#E2E8F0] pt-3">
+                  {lockedBy ? (
+                    <p className="rounded-xl border-2 border-[#F59E0B] bg-[#FFFBEB] px-3 py-2 text-xs font-black leading-5 text-[#92400E]">
+                      현재 {lockedBy} 관리자가 편집 중인 항목입니다. 읽기 전용으로 열립니다.
+                    </p>
+                  ) : null}
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] font-bold text-[#475569]">
                     <div>
                       <dt className="text-[9px] font-black text-[#94A3B8]">UID</dt>
@@ -286,12 +352,13 @@ export default function AdminUsers() {
                         onChange={(event) => setLockReason(event.target.value)}
                         placeholder="정지 사유 (선택)"
                         maxLength={60}
-                        className="mt-1.5 w-full rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#DC2626]"
+                        disabled={Boolean(lockedBy)}
+                        className="mt-1.5 w-full rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#DC2626] disabled:bg-[#F1F5F9]"
                       />
                     ) : null}
                     <button
                       type="button"
-                      disabled={busy}
+                      disabled={busy || Boolean(lockedBy)}
                       onClick={() => toggleLock(user)}
                       className={`mt-1.5 w-full rounded-xl py-2 text-xs font-black text-white disabled:opacity-50 ${user.locked ? 'bg-[#047857]' : 'bg-[#DC2626]'}`}
                     >
@@ -321,18 +388,20 @@ export default function AdminUsers() {
                       value={adjust.amount}
                       onChange={(event) => setAdjust((prev) => ({ ...prev, amount: event.target.value }))}
                       placeholder="금액 (Pi)"
-                      className="mt-1.5 w-full rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#4C1FB8]"
+                      disabled={Boolean(lockedBy)}
+                      className="mt-1.5 w-full rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#4C1FB8] disabled:bg-[#F1F5F9]"
                     />
                     <input
                       value={adjust.reason}
                       onChange={(event) => setAdjust((prev) => ({ ...prev, reason: event.target.value }))}
                       placeholder="사유 (필수 — 감사 로그에 기록됨)"
                       maxLength={60}
-                      className="mt-1.5 w-full rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#4C1FB8]"
+                      disabled={Boolean(lockedBy)}
+                      className="mt-1.5 w-full rounded-lg border border-[#CBD5E1] px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#4C1FB8] disabled:bg-[#F1F5F9]"
                     />
                     <button
                       type="button"
-                      disabled={busy || !(Number(adjust.amount) > 0) || !adjust.reason.trim()}
+                      disabled={busy || Boolean(lockedBy) || !(Number(adjust.amount) > 0) || !adjust.reason.trim()}
                       onClick={() => submitAdjust(user)}
                       className="mt-1.5 w-full rounded-xl bg-[#0F172A] py-2 text-xs font-black text-white disabled:opacity-50"
                     >

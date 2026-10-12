@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
 import { adminHeaders } from '@/lib/admin-key'
+import { acquireEditLock, releaseEditLock, renewEditLock } from '@/lib/edit-lock-client'
 import { PaginationBar, PageSizeSelect } from '@/components/admin-pagination'
 import { AdminDetailModal } from '@/components/admin-detail-modal'
 import { AdminExportButton } from '@/components/admin-export-button'
@@ -80,6 +81,12 @@ export default function AdminPartners() {
   const [pageSize, setPageSize] = useState(20)
   const [docFile, setDocFile] = useState<{ name: string; mime: string; dataUrl: string } | null>(null)
   const [detail, setDetail] = useState<PartnerLinkRecord | null>(null)
+  // 수정 중인 레코드의 로드 시점 버전 — 저장 시 서버와 비교해 충돌을 감지한다.
+  const [editBase, setEditBase] = useState('')
+  // 다른 관리자가 편집 중인 파트너 — 비어있지 않으면 수정 폼은 읽기 전용.
+  const [lockedBy, setLockedBy] = useState('')
+  const editLockRef = useRef('')
+  const lockTimerRef = useRef(0)
   const docInput = useRef<HTMLInputElement>(null)
 
   const reload = () => {
@@ -124,6 +131,38 @@ export default function AdminPartners() {
     window.setTimeout(() => setNotice(''), 2200)
   }
 
+  // 편집 잠금 — '수정'을 눌러 폼에 올리는 순간 소유를 선언하고 30초마다 연장한다.
+  const dropLock = () => {
+    if (lockTimerRef.current) {
+      window.clearInterval(lockTimerRef.current)
+      lockTimerRef.current = 0
+    }
+    const held = editLockRef.current
+    editLockRef.current = ''
+    if (held) void releaseEditLock('partner', held)
+  }
+  const claimLock = (uid: string) => {
+    dropLock()
+    setLockedBy('')
+    void acquireEditLock('partner', uid).then((res) => {
+      if (!res.self) {
+        setLockedBy(res.holder)
+        return
+      }
+      editLockRef.current = uid
+      lockTimerRef.current = window.setInterval(() => {
+        void renewEditLock('partner', uid).then((next) => {
+          if (!next.self) {
+            dropLock()
+            setLockedBy(next.holder || '다른')
+          }
+        })
+      }, 30_000)
+    })
+  }
+  // 화면을 떠날 때 들고 있던 잠금을 해제한다.
+  useEffect(() => () => dropLock(), []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const onDocFile = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -154,7 +193,7 @@ export default function AdminPartners() {
   )
 
   const submit = () => {
-    if (busy || !canSubmit) return
+    if (busy || !canSubmit || lockedBy) return
     const insuranceTouched = Boolean(form.insuranceCompany.trim() || form.insurancePolicyNo.trim() || form.insuranceExpiresAt.trim())
     if (insuranceTouched && !(form.insuranceCompany.trim() && form.insurancePolicyNo.trim() && form.insuranceExpiresAt.trim())) {
       setError('보험 정보를 입력하려면 보험사·증권번호·유효기간을 모두 채워 주세요.')
@@ -167,6 +206,7 @@ export default function AdminPartners() {
       ...form,
       vehicle: form.role === '파트너' || needsVehicle ? form.vehicle : '',
       plate: form.role === '파트너' ? form.plate : needsVehicle ? form.plate : '',
+      baseUpdatedAt: editBase,
     }
     void apiFetch('/api/admin/partners', {
       method: 'POST',
@@ -175,6 +215,7 @@ export default function AdminPartners() {
     })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { partner?: PartnerLinkRecord; error?: string } | null
+        if (res.status === 409) throw new Error('conflict')
         if (!res.ok || !data?.partner) throw new Error(data?.error || '등록 실패')
         return data.partner
       })
@@ -198,6 +239,11 @@ export default function AdminPartners() {
       })
       .catch((reason) => {
         const message = reason instanceof Error ? reason.message : ''
+        if (message === 'conflict') {
+          setError('다른 사용자에 의해 내용이 변경되었습니다. 최신 정보를 불러온 후 다시 시도해 주세요.')
+          reload()
+          return
+        }
         setError(message === 'unauthorized' ? '관리자 인증이 필요합니다.' : message && message !== '등록 실패' ? message : '등록에 실패했습니다.')
       })
       .finally(() => setBusy(false))
@@ -220,6 +266,8 @@ export default function AdminPartners() {
       insuranceExpiresAt: row.insuranceExpiresAt || '',
       insuranceDocName: row.insuranceDocName || '',
     })
+    setEditBase(row.updatedAt)
+    claimLock(row.uid)
     setDocFile(null)
     if (docInput.current) docInput.current.value = ''
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -234,7 +282,7 @@ export default function AdminPartners() {
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-black">{form.uid ? '기사/파트너 정보 수정' : '기사/파트너 등록'}</h2>
           {form.uid ? (
-            <button type="button" onClick={() => setForm(EMPTY_FORM)} className="text-xs font-black text-[#64748B]">
+            <button type="button" onClick={() => { setForm(EMPTY_FORM); setEditBase(''); dropLock(); setLockedBy('') }} className="text-xs font-black text-[#64748B]">
               새로 등록
             </button>
           ) : null}
@@ -353,9 +401,14 @@ export default function AdminPartners() {
             </div>
           </div>
         </div>
+        {lockedBy ? (
+          <p className="mt-3 rounded-xl border-2 border-[#F59E0B] bg-[#FFFBEB] px-3 py-2 text-xs font-black leading-5 text-[#92400E]">
+            현재 {lockedBy} 관리자가 편집 중인 항목입니다. 읽기 전용으로 열립니다.
+          </p>
+        ) : null}
         <button
           type="button"
-          disabled={busy || !canSubmit}
+          disabled={busy || !canSubmit || Boolean(lockedBy)}
           onClick={submit}
           className="mt-3 w-full rounded-2xl bg-[#4C1FB8] py-3 text-sm font-black text-white disabled:opacity-50"
         >

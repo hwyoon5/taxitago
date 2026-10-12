@@ -10,6 +10,19 @@ export const dynamic = 'force-dynamic'
 
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
+/**
+ * 낙관적 동시성 제어 — 클라이언트가 조회 시각의 updatedAt을 baseUpdatedAt으로
+ * 보내면, 그 사이 다른 직원이 저장해 값이 어긋난 경우 409로 거절한다.
+ * 최신 레코드를 함께 돌려줘 클라이언트가 즉시 갱신할 수 있다.
+ */
+async function staleCheck(id: string, baseUpdatedAt: unknown): Promise<{ conflict: boolean; ticket: Awaited<ReturnType<typeof getTicket>> }> {
+  const base = typeof baseUpdatedAt === 'string' ? baseUpdatedAt : ''
+  if (!base) return { conflict: false, ticket: null }
+  const current = await getTicket(id)
+  if (!current) return { conflict: false, ticket: null }
+  return { conflict: current.updatedAt !== base, ticket: current }
+}
+
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
   const ticket = await getTicket(id)
@@ -31,6 +44,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const actor = role === 'admin' ? await adminActor(request) : null
   if (role === 'admin' && !actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+  if (actor) {
+    const stale = await staleCheck(id, body?.baseUpdatedAt)
+    if (stale.conflict) {
+      return NextResponse.json({ error: 'conflict', ticket: stale.ticket }, { status: 409 })
+    }
   }
   const result = await postTicketMessage({ ticketId: id, actorId, role: role as SupportActor, text })
   if (!result.ok) {
@@ -56,6 +75,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  // 모든 관리자 변경에 낙관적 동시성 검사 — 조회 후 다른 직원이 먼저 저장했으면 거절.
+  const stale = await staleCheck(id, body?.baseUpdatedAt)
+  if (stale.conflict) {
+    return NextResponse.json({ error: 'conflict', ticket: stale.ticket }, { status: 409 })
+  }
   const messageId = typeof body?.messageId === 'string' ? body.messageId.trim() : ''
   const text = typeof body?.text === 'string' ? body.text : ''
   if (messageId) {

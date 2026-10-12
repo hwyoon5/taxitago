@@ -16,6 +16,8 @@ export default function AdminNotepad() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  // 다른 관리자가 먼저 저장해 충돌이 난 경우 true — 내 초안은 유지한 채 최신본 로딩을 유도한다.
+  const [conflict, setConflict] = useState(false)
   const dirtyRef = useRef(false)
 
   const tell = (message: string) => {
@@ -35,6 +37,7 @@ export default function AdminNotepad() {
         setDoc(data.memo)
         setDraft(data.memo.content)
         dirtyRef.current = false
+        setConflict(false)
         setError('')
       })
       .catch(() => setError('메모를 불러오지 못했습니다.'))
@@ -48,13 +51,22 @@ export default function AdminNotepad() {
       return fetch('/api/admin/memo', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-        body: JSON.stringify({ scope, content: draft }),
+        body: JSON.stringify({ scope, content: draft, baseUpdatedAt: doc.updatedAt }),
       })
         .then(async (res) => {
           const data = await res.json().catch(() => null)
+          if (res.status === 409) {
+            // 다른 관리자가 먼저 저장했다 — 최신본을 doc에 반영하고 초안은 보존.
+            const latest = (data as { memo?: MemoDoc } | null)?.memo
+            if (latest) setDoc(latest)
+            dirtyRef.current = draft !== (latest?.content ?? doc.content)
+            setConflict(true)
+            return false
+          }
           if (!res.ok) throw new Error(data?.error || 'failed')
           setDoc((data as { memo: MemoDoc }).memo)
           dirtyRef.current = false
+          setConflict(false)
           if (!silent) tell('메모를 저장했습니다.')
           return true
         })
@@ -64,7 +76,7 @@ export default function AdminNotepad() {
         })
         .finally(() => setSaving(false))
     },
-    [draft, saving, scope],
+    [draft, saving, scope, doc],
   )
 
   const switchScope = (next: Scope) => {
@@ -103,6 +115,20 @@ export default function AdminNotepad() {
   return (
     <div className="mt-4 space-y-3">
       {error ? <p className="text-xs font-black text-[#DC2626]">{error}</p> : null}
+      {conflict ? (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border-2 border-[#F59E0B] bg-[#FFFBEB] px-4 py-3">
+          <p className="text-xs font-black leading-5 text-[#92400E]">
+            다른 사용자에 의해 내용이 변경되었습니다. 최신 정보를 불러온 후 다시 시도해 주세요.
+          </p>
+          <button
+            type="button"
+            onClick={() => load(scope)}
+            className="shrink-0 rounded-xl bg-[#F59E0B] px-3 py-1.5 text-[11px] font-black text-white"
+          >
+            최신 불러오기
+          </button>
+        </div>
+      ) : null}
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex gap-1.5 rounded-xl bg-[#F1F5F9] p-1">

@@ -25,7 +25,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   not_found: '해당 직원을 찾을 수 없습니다.',
 }
 
-type EditState = { id: string; name: string; password: string; position: string; customPosition: string }
+type EditState = { id: string; name: string; password: string; position: string; customPosition: string; baseUpdatedAt: string }
+
+const CONFLICT_MESSAGE = '다른 사용자에 의해 내용이 변경되었습니다. 최신 정보를 불러온 후 다시 시도해 주세요.'
 
 export default function AdminStaff() {
   const [staff, setStaff] = useState<PublicStaff[]>([])
@@ -110,11 +112,18 @@ export default function AdminStaff() {
         id: editing.id,
         name: editing.name,
         position: editing.position === CUSTOM_POSITION ? editing.customPosition : editing.position,
+        baseUpdatedAt: editing.baseUpdatedAt,
         ...(editing.password.trim() ? { password: editing.password } : {}),
       }),
     })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { staff?: PublicStaff; error?: string } | null
+        if (res.status === 409) {
+          if (data?.staff) setStaff((rows) => rows.map((row) => (row.id === data.staff!.id ? data.staff! : row)))
+          setEditing(null)
+          fail('', CONFLICT_MESSAGE)
+          return
+        }
         if (!res.ok) throw new Error(data?.error || 'update_failed')
         setStaff((rows) => rows.map((row) => (row.id === data!.staff!.id ? data!.staff! : row)))
         setEditing(null)
@@ -131,10 +140,15 @@ export default function AdminStaff() {
     void fetch('/api/admin/staff', {
       method: 'PATCH',
       headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: row.id, password: temp }),
+      body: JSON.stringify({ id: row.id, password: temp, baseUpdatedAt: row.updatedAt }),
     })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { staff?: PublicStaff; error?: string } | null
+        if (res.status === 409) {
+          fail('', CONFLICT_MESSAGE)
+          load()
+          return
+        }
         if (!res.ok) throw new Error(data?.error || 'reset_failed')
         setTempPw({ loginId: row.loginId, name: row.name, password: temp })
       })
@@ -149,10 +163,15 @@ export default function AdminStaff() {
     void fetch('/api/admin/staff', {
       method: 'DELETE',
       headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: row.id }),
+      body: JSON.stringify({ id: row.id, baseUpdatedAt: row.updatedAt }),
     })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+        if (res.status === 409) {
+          fail('', CONFLICT_MESSAGE)
+          load()
+          return
+        }
         if (!res.ok) throw new Error(data?.error || 'delete_failed')
         setStaff((rows) => rows.filter((item) => item.id !== row.id))
         tell(`직원 계정 ${row.loginId}을(를) 삭제했습니다.`)
@@ -379,6 +398,7 @@ export default function AdminStaff() {
                         password: '',
                         position: known ? row.position! : CUSTOM_POSITION,
                         customPosition: known ? '' : row.position || '',
+                        baseUpdatedAt: row.updatedAt,
                       })
                     }}
                     className="flex items-center gap-1 rounded-full border-2 border-[#D8CCF5] bg-white px-2.5 py-1.5 text-[10px] font-black text-[#4C1FB8]"

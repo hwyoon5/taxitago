@@ -71,11 +71,19 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'privileged_only' }, { status: 403 })
   }
   const body = (await request.json().catch(() => null)) as {
-    id?: unknown; name?: unknown; password?: unknown; role?: unknown; position?: unknown
+    id?: unknown; name?: unknown; password?: unknown; role?: unknown; position?: unknown; baseUpdatedAt?: unknown
   } | null
   const id = typeof body?.id === 'string' ? body.id.trim() : ''
   if (!id) {
     return NextResponse.json({ error: 'id required' }, { status: 400 })
+  }
+  // 낙관적 동시성 제어 — 조회 후 다른 관리자가 먼저 수정했으면 409로 거절.
+  const base = typeof body?.baseUpdatedAt === 'string' ? body.baseUpdatedAt : ''
+  if (base) {
+    const current = (await listStaff()).find((entry) => entry.id === id)
+    if (current && current.updatedAt !== base) {
+      return NextResponse.json({ error: 'conflict', staff: publicStaff(current) }, { status: 409 })
+    }
   }
   const position = typeof body?.position === 'string' ? sanitizePosition(body.position) : undefined
   const result = await updateStaff(id, {
@@ -107,10 +115,18 @@ export async function DELETE(request: Request) {
   if (!hasAdminPrivilege(actor)) {
     return NextResponse.json({ error: 'privileged_only' }, { status: 403 })
   }
-  const body = (await request.json().catch(() => null)) as { id?: unknown } | null
+  const body = (await request.json().catch(() => null)) as { id?: unknown; baseUpdatedAt?: unknown } | null
   const id = typeof body?.id === 'string' ? body.id.trim() : ''
   if (!id) {
     return NextResponse.json({ error: 'id required' }, { status: 400 })
+  }
+  // 낙관적 동시성 제어 — 조회 후 다른 관리자가 먼저 수정했으면 409로 거절.
+  const base = typeof body?.baseUpdatedAt === 'string' ? body.baseUpdatedAt : ''
+  if (base) {
+    const current = (await listStaff()).find((entry) => entry.id === id)
+    if (current && current.updatedAt !== base) {
+      return NextResponse.json({ error: 'conflict', staff: publicStaff(current) }, { status: 409 })
+    }
   }
   const result = await deleteStaff(id)
   if (!result.ok) {

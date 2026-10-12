@@ -29,6 +29,17 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (role === 'admin' && !actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
+  // 낙관적 동시성 제어 — 관리자가 보낸 baseUpdatedAt과 현재값이 어긋나면
+  // 조회 후 다른 직원이 먼저 저장한 것이므로 409로 거절한다.
+  if (actor) {
+    const base = typeof body?.baseUpdatedAt === 'string' ? body.baseUpdatedAt : ''
+    if (base) {
+      const current = await getLostItem(id)
+      if (current && current.updatedAt !== base) {
+        return NextResponse.json({ error: 'conflict', item: current }, { status: 409 })
+      }
+    }
+  }
   const result = await updateLostStatus(id, status as LostStatus, actorId, role as SupportActor)
   if (!result.ok) {
     const code = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 409

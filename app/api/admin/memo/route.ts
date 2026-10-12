@@ -60,13 +60,24 @@ export async function GET(request: Request) {
   return NextResponse.json({ ok: true, memo: doc ?? { content: '', updatedAt: '', updatedBy: '' } })
 }
 
-/** PUT {scope, content} — 내용을 통째로 덮어쓰는 단순 저장(마지막 작성자 표기). */
+/** PUT {scope, content, baseUpdatedAt} — 내용을 통째로 덮어쓰되, 조회 시점 이후
+ *  다른 관리자가 먼저 저장했으면 409로 거절해 덮어쓰기 유실을 막는다. */
 export async function PUT(request: Request) {
   const actor = await adminActor(request)
   if (!actor) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  const body = (await request.json().catch(() => null)) as { scope?: unknown; content?: unknown } | null
+  const body = (await request.json().catch(() => null)) as
+    | { scope?: unknown; content?: unknown; baseUpdatedAt?: unknown }
+    | null
   const scope = body?.scope === 'mine' ? 'mine' : 'shared'
   const content = typeof body?.content === 'string' ? body.content.slice(0, MAX_MEMO_LEN) : ''
+  // 낙관적 동시성 제어 — 클라이언트가 불러온 시점의 updatedAt과 다르면 충돌.
+  const base = typeof body?.baseUpdatedAt === 'string' ? body.baseUpdatedAt : ''
+  if (base) {
+    const current = await readMemo(scope, actor.staffId)
+    if (current && current.updatedAt !== base) {
+      return NextResponse.json({ ok: false, error: 'conflict', memo: current }, { status: 409 })
+    }
+  }
   const doc: MemoDoc = {
     content,
     updatedAt: new Date().toISOString(),
