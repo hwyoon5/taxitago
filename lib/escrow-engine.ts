@@ -329,7 +329,7 @@ export async function settlePassengerCancelFee(rideId: string) {
   const driverId = ride.assignedDriverId
   if (!driverId || ride.status !== 'assigned') return { ok: false as const, error: 'not_assigned' }
   const fareConfig = await getFareConfig()
-  const settlement = settleMidTripCancelFee(ride.estimatedFare, { rate: fareConfig.cancel.rate / 100, min: fareConfig.cancel.min })
+  const settlement = settleMidTripCancelFee(ride.estimatedFare, { rate: (fareConfig.cancel?.rate ?? 40) / 100, min: fareConfig.cancel?.min ?? 0.5 })
   const cancelService: SettlementService = ride.kind === 'daeri' ? 'daeri' : 'taxi'
   const cancelRate = (await getCommissionRates().catch(() => null))?.[cancelService] ?? 0
   const cancelCommission = piRound(settlement.cancelFee * cancelRate / 100)

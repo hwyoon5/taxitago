@@ -145,7 +145,15 @@ export function listNearbyServiceSpots(
 ): NearbyServiceSpot[] {
   const origin = isUsableCoord(lat, lng) ? { lat, lng } : BUSAN_CITY_HALL
   const count = Math.min(7, Math.max(5, limit))
-  const fallback = SEEDS[kind][0]
+  // 자전거·킥보드는 데모 시드가 비어 있어 SEEDS[kind][0]이 undefined —
+  // 파트너가 rate를 누락해도 기본 요금으로 수렴해 렌더를 막지 않는다.
+  const DEFAULT_RATES: Record<NearbyServiceKind, string> = {
+    parking: '2 Pi / 시간',
+    ev: '0.4 Pi / kWh',
+    bike: '0.2 Pi',
+    scooter: '0.3 Pi',
+  }
+  const fallbackRate = SEEDS[kind][0]?.rate ?? DEFAULT_RATES[kind]
   const live = partners
     .filter((partner) => partner.name.trim() && isUsableCoord(partner.lat, partner.lng))
     .map((partner) =>
@@ -155,7 +163,7 @@ export function listNearbyServiceSpots(
           id: partner.id,
           name: partner.name.trim(),
           extra: partner.extra?.trim() || '등록 파트너',
-          rate: partner.rate?.trim() || fallback.rate,
+          rate: partner.rate?.trim() || fallbackRate,
           lat: partner.lat,
           lng: partner.lng,
           brand: partner.brand?.trim() || undefined,

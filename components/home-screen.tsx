@@ -2401,7 +2401,7 @@ function TaxiMatchingSheet({
   }, [])
   const fare = ride?.estimatedFare ?? fareCfg.taxi.base
   const billed = settleRideFare(fare, ride?.id ?? route)
-  const cancelSettlement = settleMidTripCancelFee(phase === 'moving' ? billed.actual : fare, { rate: fareCfg.cancel.rate / 100, min: fareCfg.cancel.min })
+  const cancelSettlement = settleMidTripCancelFee(phase === 'moving' ? billed.actual : fare, { rate: (fareCfg.cancel?.rate ?? 40) / 100, min: fareCfg.cancel?.min ?? 0.5 })
   const [accepting, setAccepting] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
@@ -3348,7 +3348,7 @@ function ServiceSheet({
       name: item.name,
       distance: item.distanceLabel,
       extra: item.extra,
-      rate: item.rate,
+      rate: item.rate ?? '',
       brand: item.brand,
       battery: item.battery,
       available: item.listing === 'partner' && rentable && (!item.statusLabel || item.statusLabel === '이용 가능'),
@@ -3359,7 +3359,7 @@ function ServiceSheet({
   const selectedUsage = catalog.find((item) => item.id === selectedItem) ?? catalog[0]
   const packageOption = getPackageSize(packageSize)
   const deliveryFare = estimateDeliveryFare(deliveryVehicle, packageSize)
-  const listedPi = Number(selectedUsage?.rate.match(/(\d+(?:\.\d+)?)/)?.[1])
+  const listedPi = Number(String(selectedUsage?.rate ?? '').match(/(\d+(?:\.\d+)?)/)?.[1])
   const [daeriFareCfg, setDaeriFareCfg] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
   useEffect(() => {
     void fetchFareConfig().then(setDaeriFareCfg).catch(() => undefined)
@@ -3381,7 +3381,7 @@ function ServiceSheet({
     : selectedUsage?.name || `${pickupAddress || '현재 위치'} → ${service} 이용`
   const billed = ride ? settleRideFare(fare, `daeri:${place}`) : { estimate: fare, actual: fare, adjusted: false }
   const chargeAmount = ride ? billed.actual : fare
-  const cancelSettlement = settleMidTripCancelFee(billed.actual, { rate: daeriFareCfg.cancel.rate / 100, min: daeriFareCfg.cancel.min })
+  const cancelSettlement = settleMidTripCancelFee(billed.actual, { rate: (daeriFareCfg.cancel?.rate ?? 40) / 100, min: daeriFareCfg.cancel?.min ?? 0.5 })
   const partner =
     ride
       ? {
@@ -3392,7 +3392,7 @@ function ServiceSheet({
         }
       : service === '택배'
         ? { name: courier?.name || '배정 대기', vehicle: courier?.vehicle || '확인 중', plate: courier?.plate || '확인 중', kind: 'driver' as const }
-        : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate || '', kind: 'service' as const }
+        : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate ?? '', kind: 'service' as const }
   const contactRideId = ride ? dispatchRide?.id || daeriRideIdRef.current : ''
   const canStart = more || ride || service === '택배' || Boolean(selectedItem)
   const selectedDevice = vehicle && selectedItem.startsWith('device-') ? findDeviceBySpotId(selectedItem) : null
@@ -3815,7 +3815,7 @@ function ServiceSheet({
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">{service === 'EV 충전' ? t('sheet.chargeFee') : t('sheet.useFee')}</p>
-                  <p className="mt-1 text-sm font-black text-[#0F172A]">{selectedUsage?.rate}</p>
+                  <p className="mt-1 text-sm font-black text-[#0F172A]">{selectedUsage?.rate || '—'}</p>
                 </div>
                 <div className="rounded-2xl bg-white px-3 py-3">
                   <p className="text-[10px] font-bold text-[#8b8495]">{service === '자전거' || service === '킥보드' ? t('device.battery') : t('sheet.progress')}</p>
@@ -4182,7 +4182,7 @@ function ServiceSheet({
                         ) : null}
                       </span>
                     </span>
-                    <span className="shrink-0 text-xs font-black text-[#7046dc]">{item.rate}</span>
+                    <span className="shrink-0 text-xs font-black text-[#7046dc]">{item.rate || '—'}</span>
                   </button>
                 )
               })}
