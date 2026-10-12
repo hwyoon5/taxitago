@@ -9524,6 +9524,8 @@ export default function HomeScreen() {
   // 앱 접속 하트비트 — 관리자 '실시간 현황'이 역할(이용자/기사/파트너)별 접속자를
   // 집계하는 데 쓴다. 25초 주기로 보내고 화면이 숨겨진 동안은 보내지 않아
   // 90초 윈도 뒤엔 자동으로 오프라인 집계된다.
+  const gpsRef = useRef(gps)
+  gpsRef.current = gps
   useEffect(() => {
     const beat = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
@@ -9535,10 +9537,11 @@ export default function HomeScreen() {
         role = registeredPartner && (!registeredDriver || partnerTabRole === 'partner') ? 'partner' : 'driver'
       }
       const id = loadPiIdentity()?.uid || profile?.uid || localPassengerId()
+      const fix = gpsRef.current
       void fetch('/api/presence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, role }),
+        body: JSON.stringify({ id, role, ...(fix.status === 'ready' ? { lat: fix.lat, lng: fix.lng } : {}) }),
         cache: 'no-store',
         keepalive: true,
       }).catch(() => undefined)

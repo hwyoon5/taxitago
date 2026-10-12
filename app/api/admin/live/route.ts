@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { adminActor } from '@/lib/admin-auth'
-import { presenceCounts } from '@/lib/presence-store'
+import { presenceCounts, presenceDetails } from '@/lib/presence-store'
 import { ensureSeedDrivers, getDriver, hydrateDispatchFromKv, listDrivers, listRides } from '@/lib/dispatch-store'
 import { listDevices } from '@/lib/device-store'
 import { DRIVER_STALE_MS } from '@/lib/dispatch-types'
@@ -18,9 +18,11 @@ export async function GET(request: Request) {
   }
   await hydrateDispatchFromKv().catch(() => undefined)
   ensureSeedDrivers()
-  const [presence, devices] = await Promise.all([
+  const [presence, devices, riderDetails, partnerDetails] = await Promise.all([
     presenceCounts(),
     listDevices().catch(() => [] as Awaited<ReturnType<typeof listDevices>>),
+    presenceDetails('passenger').catch(() => []),
+    presenceDetails('partner').catch(() => []),
   ])
 
   const now = Date.now()
@@ -57,6 +59,51 @@ export async function GET(request: Request) {
     driversBusy: dutyDrivers.filter((driver) => driver.status === 'busy' && fresh(driver)).length,
   }
 
+  // 관제 대시보드 — 온라인 기사의 마지막 좌표·영업 상태(운행 건과 연결).
+  const rideByDriver = new Map<string, (typeof activeRides)[number]>()
+  const rideByPassenger = new Map<string, (typeof activeRides)[number]>()
+  for (const ride of activeRides) {
+    const dId = ride.assignedDriverId || (ride.currentOffer?.decision === 'pending' ? ride.currentOffer.driverId : null)
+    if (dId && !rideByDriver.has(dId)) rideByDriver.set(dId, ride)
+    if (ride.passengerId && !rideByPassenger.has(ride.passengerId)) rideByPassenger.set(ride.passengerId, ride)
+  }
+  const trackingDrivers = dutyDrivers
+    .filter((driver) => driver.status !== 'offline' && fresh(driver))
+    .map((driver) => {
+      const ride = rideByDriver.get(driver.id) ?? null
+      return {
+        id: driver.id,
+        name: driver.name || driver.id,
+        vehicle: driver.vehicle || '',
+        plate: driver.plate || '',
+        duty: driver.status,
+        rideStatus: ride ? ride.status : null,
+        rideKind: ride ? ride.kind : null,
+        lat: driver.lat,
+        lng: driver.lng,
+        lastSeenAt: driver.lastSeenAt,
+      }
+    })
+    .sort((a, b) => Date.parse(b.lastSeenAt || '') - Date.parse(a.lastSeenAt || ''))
+  const maskId = (id: string) => (id.length > 12 ? `${id.slice(0, 10)}…` : id)
+  const trackingUsers = [
+    ...riderDetails.map((d) => ({ ...d, role: 'passenger' as const })),
+    ...partnerDetails.map((d) => ({ ...d, role: 'partner' as const })),
+  ]
+    .map((detail) => {
+      const ride = rideByPassenger.get(detail.id) ?? null
+      return {
+        id: maskId(detail.id),
+        role: detail.role,
+        rideStatus: ride ? ride.status : null,
+        rideKind: ride ? ride.kind : null,
+        lat: detail.lat ?? null,
+        lng: detail.lng ?? null,
+        lastSeenAt: new Date(detail.lastSeen).toISOString(),
+      }
+    })
+    .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt))
+
   const bucket = () => ({ total: 0, rented: 0, idle: 0, active: 0, other: 0 })
   const mobility: Record<'bicycle' | 'kickboard', ReturnType<typeof bucket>> = { bicycle: bucket(), kickboard: bucket() }
   for (const device of devices) {
@@ -76,6 +123,7 @@ export async function GET(request: Request) {
     presence,
     matching,
     rides,
+    tracking: { drivers: trackingDrivers, users: trackingUsers },
     mobility,
     presenceWindowMs: 90_000,
   })

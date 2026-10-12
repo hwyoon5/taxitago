@@ -21,6 +21,29 @@ type LiveRide = {
 
 type MobilityBucket = { total: number; rented: number; idle: number; active: number; other: number }
 
+type TrackedDriver = {
+  id: string
+  name: string
+  vehicle: string
+  plate: string
+  duty: string
+  rideStatus: string | null
+  rideKind: 'taxi' | 'daeri' | null
+  lat: number
+  lng: number
+  lastSeenAt: string
+}
+
+type TrackedUser = {
+  id: string
+  role: 'passenger' | 'partner'
+  rideStatus: string | null
+  rideKind: 'taxi' | 'daeri' | null
+  lat: number | null
+  lng: number | null
+  lastSeenAt: string
+}
+
 type LiveSnapshot = {
   ok: boolean
   generatedAt: string
@@ -33,6 +56,7 @@ type LiveSnapshot = {
     driversBusy: number
   }
   rides: LiveRide[]
+  tracking: { drivers: TrackedDriver[]; users: TrackedUser[] }
   mobility: { bicycle: MobilityBucket; kickboard: MobilityBucket }
   presenceWindowMs: number
 }
@@ -65,6 +89,80 @@ const fmtAgo = (iso: string) => {
 const fmtTime = (iso: string) => {
   const d = new Date(iso)
   return Number.isFinite(d.getTime()) ? d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
+}
+
+const DRIVER_STATUS: Record<string, { label: string; cls: string }> = {
+  online: { label: '대기 중', cls: 'bg-[#DBEAFE] text-[#1D4ED8]' },
+  busy: { label: '운행 중', cls: 'bg-[#DCFCE7] text-[#15803D]' },
+  offline: { label: '오프라인', cls: 'bg-[#F1F5F9] text-[#64748B]' },
+}
+const USER_STATUS: Record<string, { label: string; cls: string }> = {
+  searching: { label: '호출 대기', cls: 'bg-[#FEF3C7] text-[#92400E]' },
+  offered: { label: '배차 제안 중', cls: 'bg-[#DBEAFE] text-[#1D4ED8]' },
+  assigned: { label: '이용 중', cls: 'bg-[#DCFCE7] text-[#15803D]' },
+}
+const USER_ROLE: Record<TrackedUser['role'], { label: string; cls: string }> = {
+  passenger: { label: '승객', cls: 'bg-[#E8F1FA] text-[#4A82B8]' },
+  partner: { label: '파트너', cls: 'bg-[#FEF3E2] text-[#D97706]' },
+}
+
+/** 기사·승객 좌표를 스캐터 플롯으로 그리는 간단 관제 맵 — 외부 지도 API 없이 구현. */
+function TrackingMap({ drivers, users }: { drivers: TrackedDriver[]; users: TrackedUser[] }) {
+  const W = 600
+  const H = 260
+  const PAD = 26
+  const points = [
+    ...drivers.map((d) => ({ lat: d.lat, lng: d.lng })),
+    ...users.filter((u) => u.lat != null && u.lng != null).map((u) => ({ lat: u.lat as number, lng: u.lng as number })),
+  ]
+  if (!points.length) {
+    return (
+      <p className="rounded-xl bg-[#F8FAFC] px-3 py-8 text-center text-[11px] font-bold text-[#94A3B8]">
+        위치가 보고된 접속자가 없습니다.
+      </p>
+    )
+  }
+  const lats = points.map((p) => p.lat)
+  const lngs = points.map((p) => p.lng)
+  const minLat = Math.min(...lats) - 0.004
+  const maxLat = Math.max(...lats) + 0.004
+  const minLng = Math.min(...lngs) - 0.006
+  const maxLng = Math.max(...lngs) + 0.006
+  const xAt = (lng: number) => PAD + ((lng - minLng) / Math.max(0.0001, maxLng - minLng)) * (W - PAD * 2)
+  const yAt = (lat: number) => H - PAD - ((lat - minLat) / Math.max(0.0001, maxLat - minLat)) * (H - PAD * 2)
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-64 w-full rounded-xl bg-[#F8FAFC]" role="img" aria-label="실시간 위치 관제 지도">
+        {[0.25, 0.5, 0.75].map((g) => (
+          <line key={`h${g}`} x1={PAD} x2={W - PAD} y1={H - PAD - g * (H - PAD * 2)} y2={H - PAD - g * (H - PAD * 2)} stroke="#E2E8F0" strokeDasharray="4 4" strokeWidth="1" />
+        ))}
+        {[0.25, 0.5, 0.75].map((g) => (
+          <line key={`v${g}`} y1={PAD} y2={H - PAD} x1={PAD + g * (W - PAD * 2)} x2={PAD + g * (W - PAD * 2)} stroke="#E2E8F0" strokeDasharray="4 4" strokeWidth="1" />
+        ))}
+        <rect x={PAD} y={PAD} width={W - PAD * 2} height={H - PAD * 2} fill="none" stroke="#CBD5E1" strokeWidth="1" />
+        {users.map((u) =>
+          u.lat != null && u.lng != null ? (
+            <circle key={u.id} cx={xAt(u.lng)} cy={yAt(u.lat)} r="5" fill={u.role === 'partner' ? '#D97706' : '#4A82B8'} fillOpacity="0.75" stroke="#fff" strokeWidth="1.5" />
+          ) : null,
+        )}
+        {drivers.map((d) => (
+          <g key={d.id}>
+            <circle cx={xAt(d.lng)} cy={yAt(d.lat)} r="7" fill={d.duty === 'busy' ? '#15803D' : '#0D9488'} stroke="#fff" strokeWidth="2" />
+            <text x={xAt(d.lng)} y={yAt(d.lat) - 11} textAnchor="middle" fontSize="9" fontWeight="800" fill="#0F172A">
+              {d.name}
+            </text>
+          </g>
+        ))}
+      </svg>
+      <div className="mt-1 flex items-center gap-3 text-[10px] font-bold text-[#94A3B8]">
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#0D9488]" />기사 대기</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#15803D]" />기사 운행</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#4A82B8]" />승객</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#D97706]" />파트너</span>
+        <span className="ml-auto">위도 {minLat.toFixed(3)}~{maxLat.toFixed(3)} · 경도 {minLng.toFixed(3)}~{maxLng.toFixed(3)}</span>
+      </div>
+    </div>
+  )
 }
 
 /** 역할별 접속자 추이를 그리는 간단 SVG 라인 차트 — 외부 차트 라이브러리 없이 구현. */
@@ -251,6 +349,76 @@ export default function AdminLiveDashboard() {
                   현재 진행 중이거나 매칭 대기 중인 호출이 없습니다.
                 </p>
               )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border-2 border-[#0D9488] bg-white p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black text-[#334155]">실시간 위치 관제</h3>
+              <span className="text-[10px] font-bold text-[#94A3B8]">
+                기사 {snap?.tracking?.drivers.length ?? 0}명 · 승객/파트너 {snap?.tracking?.users.length ?? 0}명
+              </span>
+            </div>
+            <div className="mt-2">
+              <TrackingMap drivers={snap?.tracking?.drivers ?? []} users={snap?.tracking?.users ?? []} />
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-[11px] font-black text-[#0D9488]">접속 중인 기사</p>
+                {snap?.tracking?.drivers.length ? (
+                  snap.tracking?.drivers.map((driver) => {
+                    const status = DRIVER_STATUS[driver.duty] ?? DRIVER_STATUS.offline
+                    return (
+                      <div key={driver.id} className="rounded-xl border border-[#E2E8F0] px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-xs font-black text-[#0F172A]">
+                            {driver.name}
+                            {driver.plate ? <span className="font-bold text-[#64748B]"> · {driver.plate}</span> : null}
+                          </p>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${status.cls}`}>
+                            {driver.rideStatus === 'offered' ? '호출 제안 중' : status.label}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[10px] font-bold text-[#64748B]">
+                          {driver.vehicle ? `${driver.vehicle} · ` : ''}
+                          {driver.lat.toFixed(4)}, {driver.lng.toFixed(4)} · {fmtAgo(driver.lastSeenAt)}
+                          {driver.rideStatus === 'assigned' ? ` · ${driver.rideKind === 'daeri' ? '대리운전' : '택시'} 운행` : ''}
+                        </p>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <p className="rounded-xl bg-[#F8FAFC] px-3 py-4 text-center text-[11px] font-bold text-[#94A3B8]">접속 중인 기사가 없습니다.</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="text-[11px] font-black text-[#4A82B8]">접속 중인 승객 · 파트너</p>
+                {snap?.tracking?.users.length ? (
+                  snap.tracking?.users.map((user) => {
+                    const status = user.rideStatus ? USER_STATUS[user.rideStatus] : null
+                    const role = USER_ROLE[user.role]
+                    return (
+                      <div key={`${user.role}-${user.id}`} className="rounded-xl border border-[#E2E8F0] px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${role.cls}`}>{role.label}</span>
+                            <p className="truncate text-xs font-black text-[#0F172A]">{user.id}</p>
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${status?.cls ?? 'bg-[#F1F5F9] text-[#64748B]'}`}>
+                            {status?.label ?? '접속 중'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[10px] font-bold text-[#64748B]">
+                          {user.lat != null && user.lng != null ? `${user.lat.toFixed(4)}, ${user.lng.toFixed(4)}` : '위치 미보고'} · {fmtAgo(user.lastSeenAt)}
+                          {user.rideKind ? ` · ${user.rideKind === 'daeri' ? '대리운전' : '택시'}` : ''}
+                        </p>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <p className="rounded-xl bg-[#F8FAFC] px-3 py-4 text-center text-[11px] font-bold text-[#94A3B8]">접속 중인 승객·파트너가 없습니다.</p>
+                )}
+              </div>
             </div>
           </section>
 

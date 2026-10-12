@@ -14,7 +14,11 @@ export async function POST(request: Request) {
   if (!id || !(PRESENCE_ROLES as readonly string[]).includes(role)) {
     return NextResponse.json({ error: 'id and valid role required' }, { status: 400 })
   }
-  await beatPresence(id, role as PresenceRole)
+  // 선택적 위치 — 관리자 관제 대시보드가 마지막 알려진 좌표를 표시하는 데 쓴다.
+  const lat = Number(body?.lat)
+  const lng = Number(body?.lng)
+  const loc = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : undefined
+  await beatPresence(id, role as PresenceRole, loc)
   return NextResponse.json({ ok: true })
 }
 
