@@ -6789,6 +6789,9 @@ function PartnerSignupModal({
   const [signing, setSigning] = useState(false)
   const [signError, setSignError] = useState('')
   const [role, setRole] = useState<'기사' | '파트너'>('기사')
+  // 이미 등록된 역할이 있으면 다른 역할은 선택할 수 없게 잠근다 — 한 계정은
+  // 기사·파트너 중 한 가지 역할만 가질 수 있다(서버도 409로 같은 규칙을 강제).
+  const [lockedRole, setLockedRole] = useState<'기사' | '파트너' | null>(null)
   const [serviceType, setServiceType] = useState<'택시' | '대리운전' | '택배'>('택시')
   const [facilityType, setFacilityType] = useState<'주차' | '자전거' | '킥보드' | 'EV 충전'>('주차')
   const [facilitySpec, setFacilitySpec] = useState<DeviceSpec | null>(null)
@@ -6818,6 +6821,19 @@ function PartnerSignupModal({
       setSession(next)
       savePiIdentity(next)
       onPiLinked(next)
+      // 이미 등록된 역할을 조회해 반대 역할 가입을 원천 차단한다 —
+      // 로컬 프로필을 우선 보고, 없으면 서버 레지스트리에서 확인한다.
+      let existingRole = loadPartnerProfile()?.role
+      if (existingRole !== '기사' && existingRole !== '파트너') {
+        const res = await fetch(`/api/partner/link/?uid=${encodeURIComponent(next.uid)}`, { cache: 'no-store' }).catch(() => null)
+        const data = res ? ((await res.json().catch(() => null)) as { profile?: { role?: string } } | null) : null
+        const serverRole = data?.profile?.role
+        if (serverRole === '기사' || serverRole === '파트너') existingRole = serverRole
+      }
+      if (existingRole === '기사' || existingRole === '파트너') {
+        setLockedRole(existingRole)
+        setRole(existingRole)
+      }
       setStep('profile')
     } catch (error) {
       setSignError(describePiUserMessage(error))
@@ -6828,6 +6844,12 @@ function PartnerSignupModal({
 
   const submit = () => {
     if (!canSubmit || !session) return
+    // 역할 중복 가입 차단 — 잠긴 역할이나 로컬 프로필 역할과 다른 선택은 거부.
+    const existingRole = lockedRole ?? loadPartnerProfile()?.role
+    if ((existingRole === '기사' || existingRole === '파트너') && existingRole !== role) {
+      setFormError(`이미 ${existingRole}(으)로 등록된 계정입니다. 기사와 파트너는 중복으로 가입할 수 없습니다.`)
+      return
+    }
     const insuranceTouched = Boolean(insuranceCompany.trim() || insurancePolicyNo.trim() || insuranceExpiresAt.trim())
     if (insuranceTouched && !(insuranceCompany.trim() && insurancePolicyNo.trim() && insuranceExpiresAt.trim())) {
       setFormError('보험 정보를 입력하려면 보험사·증권번호·유효기간을 모두 채워 주세요.')
@@ -6956,17 +6978,25 @@ function PartnerSignupModal({
             </div>
             {session ? <div className="mt-4"><PiIdentityCard session={session} /></div> : null}
             <div className="mt-4 grid grid-cols-2 gap-1 rounded-2xl bg-[#E8F1FA] p-1">
-              {(['기사', '파트너'] as const).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setRole(item)}
-                  className={`rounded-xl py-2.5 text-xs font-black ${role === item ? 'bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]' : 'text-[#64748B]'}`}
-                >
-                  {item === '파트너' ? '파트너(가맹점/업체)' : '기사 등록'}
-                </button>
-              ))}
+              {(['기사', '파트너'] as const).map((item) => {
+                const disabled = lockedRole !== null && lockedRole !== item
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    disabled={disabled}
+                    aria-disabled={disabled}
+                    onClick={() => !disabled && setRole(item)}
+                    className={`rounded-xl py-2.5 text-xs font-black ${role === item ? 'bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]' : disabled ? 'cursor-not-allowed text-[#CBD5E1]' : 'text-[#64748B]'}`}
+                  >
+                    {item === '파트너' ? '파트너(가맹점/업체)' : '기사 등록'}
+                  </button>
+                )
+              })}
             </div>
+            {lockedRole ? (
+              <p className="mt-2 text-[11px] font-bold text-[#B45309]">이미 {lockedRole}(으)로 등록된 계정입니다. 기사와 파트너는 중복으로 가입할 수 없습니다.</p>
+            ) : null}
             {role === '기사' ? (
               <div className="mt-4">
                 <p className="text-xs font-black text-[#334155]">서비스 항목 선택</p>
@@ -7877,7 +7907,9 @@ function DriverOfferWatcher({
     if (!driverId) return
     primeDriverAlertAudio()
     const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; active?: PublicRide | null } | null) => {
-      const fetched = pending?.ride ?? null
+      let fetched = pending?.ride ?? null
+      // 본인 승객 호출은 내 기사 오퍼가 아니다 — 서버 매칭 제외와 별개로 클라이언트에서도 차단.
+      if (fetched && fetched.passengerId === localPassengerId()) fetched = null
       const ride = fetched && dismissedRef.current.has(fetched.id) ? null : fetched
       const active = pending?.active && pending.active.status === 'assigned' ? pending.active : null
       setActiveRide((current) => {
@@ -8463,7 +8495,10 @@ function DriverDashboard({
         penaltyLevelRef.current = level
       }
       if (active && endedRideIds.current.has(active.id)) active = null
-      const fetched = pending?.ride ?? null
+      let fetched = pending?.ride ?? null
+      // 본인이 승객으로 부른 콜은 내 기사 단말기의 오퍼가 아니다 — 서버가
+      // 매칭에서 제외하지만, 구형 레코드·스냅샷 경유 도착도 여기서 걸러낸다.
+      if (fetched && fetched.passengerId === localPassengerId()) fetched = null
       if (fetched && dismissedOfferIds.current.has(fetched.id) && localOfferRef.current?.ride.id === fetched.id) {
         localOfferRef.current = null
       }
@@ -9960,9 +9995,14 @@ export default function HomeScreen() {
     if (role === '파트너') {
       setIsPartnerRegistered(true)
       saveIsPartnerRegistered(true)
+      // 역할 상호배타 — 파트너 등록 계정에 기사 플래그가 남아있으면 제거한다.
+      setIsDriverRegistered(false)
+      saveIsDriverRegistered(false)
     } else {
       setIsDriverRegistered(true)
       saveIsDriverRegistered(true)
+      setIsPartnerRegistered(false)
+      saveIsPartnerRegistered(false)
       setDriverMode(true)
     }
     setDriverGateOpen(false)

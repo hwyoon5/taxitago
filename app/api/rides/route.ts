@@ -134,6 +134,7 @@ export async function POST(request: Request) {
     id: crypto.randomUUID(),
     kind,
     passengerId,
+    passengerUid: piUid,
     pickup,
     waypoints,
     dest,

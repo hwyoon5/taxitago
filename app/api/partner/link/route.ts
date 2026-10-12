@@ -46,6 +46,15 @@ export async function POST(request: Request) {
   }
   const previous = getPartnerLink(uid)
   const text = (value: unknown, fallback?: string) => (typeof value === 'string' ? value.trim() : fallback)
+  // 역할 상호배타 — 하나의 계정(uid)은 기사·파트너 중 한 가지 역할만 가진다.
+  // 이미 다른 역할로 등록된 uid가 반대 역할로 등록·동기화를 시도하면 차단한다.
+  const incomingRole = text(body?.role)
+  if (previous?.role && incomingRole && previous.role !== incomingRole) {
+    return NextResponse.json(
+      { error: `이미 ${previous.role}(으)로 등록된 계정입니다. 기사와 파트너 역할은 중복으로 가질 수 없습니다.` },
+      { status: 409 },
+    )
+  }
   const record = upsertPartnerLink({
     uid,
     username: username || uid,

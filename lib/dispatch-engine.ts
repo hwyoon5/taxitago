@@ -99,6 +99,9 @@ function prematchEligible(driver: DriverRecord, activeRide: RideRequestRecord) {
 
 function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: number) {
   if (driver.status === 'offline') return false
+  // 본인 호출 원천 차단 — 등록 기사/파트너가 승객으로 부른 콜이 자기
+  // 단말기(기사 id 또는 piUid가 같은 레코드)로 배정되지 않게 한다.
+  if (ride.passengerUid && (driver.id === ride.passengerUid || driver.piUid === ride.passengerUid)) return false
   const assignedRide = listRides().find((item) => item.assignedDriverId === driver.id && item.status === 'assigned')
   if (assignedRide && !prematchEligible(driver, assignedRide)) return false
   if (listRides().some((item) => item.id !== ride.id && item.currentOffer?.driverId === driver.id && item.currentOffer.decision === 'pending')) return false
@@ -274,6 +277,7 @@ export function createRideAndMatch(input: {
   id: string
   kind?: RideRequestRecord['kind']
   passengerId: string
+  passengerUid?: string
   pickup: RideRequestRecord['pickup']
   waypoints?: RideRequestRecord['waypoints']
   dest: RideRequestRecord['dest']
