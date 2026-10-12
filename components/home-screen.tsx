@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { localizedText, translateDeviceStatus, translateService, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -5635,8 +5635,6 @@ function receiptFromRideHistory(ride: PublicRide): RideReceipt {
 
 type InboxIdentity = { id: string; role: 'passenger' | 'driver' }
 
-const PAYMENT_ACTIVITY_LABELS = new Set(['결제 완료', '취소 수수료 결제', 'Pi 충전 완료', 'Pi 환불'])
-
 function ActivityInbox({
   tabRides,
   readNoticeIds,
@@ -5656,6 +5654,7 @@ function ActivityInbox({
   const [view, setView] = useState<'rides' | 'inbox'>('rides')
   const [timeFilter, setTimeFilter] = useState<InboxTimeFilter>('all')
   const [typeFilter, setTypeFilter] = useState<InboxTypeFilter>('all')
+  const [activityLogOpen, setActivityLogOpen] = useState(true)
   const [history, setHistory] = useState<PublicRide[]>([])
   const [historyReady, setHistoryReady] = useState(false)
   const unreadCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
@@ -5703,11 +5702,10 @@ function ActivityInbox({
 
   const kindClass = (kind: Notice['kind']) =>
     kind === '이벤트' ? 'bg-[#FEF3C7] text-[#B45309]' : kind === '업데이트' ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-[#EDE5FF] text-[#4C1FB8]'
+  // 활동 로그는 이용 내역 하단의 전용 '시간별 활동 기록' 섹션으로 이전했다 —
+  // 결제·충전 원장만 목록에 합치고 활동 이벤트는 섹션에서 시간순으로 보여준다.
   const localEntries = [
     ...transactions.map((tx, index) => ({ id: `tx-${index}`, label: tx.label, detail: tx.detail || tx.place, amount: tx.amount, at: tx.at, ts: tx.ts ?? 0, kind: 'payment' as const })),
-    ...activities
-      .filter((entry) => !PAYMENT_ACTIVITY_LABELS.has(entry.label))
-      .map((entry) => ({ id: entry.id, label: entry.label, detail: entry.detail, amount: null as number | null, at: entry.at, ts: entry.ts ?? 0, kind: 'activity' as const })),
   ].sort((a, b) => b.ts - a.ts)
 
   // 시간 필터 — 오늘(로컬 날짜)/7일/30일. 타임스탬프가 없는 항목은 '전체'에서만 보인다.
@@ -5727,6 +5725,7 @@ function ActivityInbox({
   const filteredEntries = localEntries.filter(
     (entry) => withinTime(entry.ts) && (typeFilter === 'all' || typeFilter === entry.kind),
   )
+  const filteredActivities = activities.filter((entry) => withinTime(entry.ts ?? 0))
   const filterChip = (active: boolean) =>
     `shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black transition active:scale-95 ${
       active ? 'bg-[#4A82B8] text-white shadow-[0_4px_10px_rgba(74,130,184,0.28)]' : 'bg-[#F1F5F9] text-[#64748B]'
@@ -5817,6 +5816,37 @@ function ActivityInbox({
               ))}
             </div>
           ) : null}
+          <section className="mt-4 rounded-3xl border-2 border-[#CBD5E1] bg-white shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+            <button
+              type="button"
+              onClick={() => setActivityLogOpen((value) => !value)}
+              aria-expanded={activityLogOpen}
+              className="flex w-full items-center justify-between gap-2 px-4 py-3.5 text-left"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-black text-[#0F172A]">{t('acct.activityTitle')}</span>
+                <span className="rounded-full bg-[#F1F5F9] px-2 py-0.5 text-[10px] font-black text-[#64748B]">{filteredActivities.length}</span>
+              </span>
+              <ChevronDown className={`h-4 w-4 text-[#64748B] transition ${activityLogOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {activityLogOpen ? (
+              <div className="space-y-2 border-t border-[#E2E8F0] p-3">
+                {filteredActivities.length === 0 ? (
+                  <p className="rounded-2xl bg-[#F8FAFC] px-3 py-4 text-center text-xs font-bold text-[#64748B]">{t('acct.empty')}</p>
+                ) : (
+                  filteredActivities.slice(0, 30).map((entry) => (
+                    <div key={entry.id} className="flex gap-3 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+                      <span className="shrink-0 font-mono text-xs font-bold text-[#4A82B8]">{entry.at}</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-[#0F172A]">{entry.label}</p>
+                        <p className="mt-1 text-xs font-medium text-[#64748B]">{entry.detail}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </section>
           {historyReady && !filteredHistory.length && !filteredEntries.length ? (
             <p className="mt-3 rounded-3xl border-2 border-dashed border-[#CBD5E1] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
               {!history.length && !localEntries.length ? t('inbox.empty') : t('inbox.emptyFiltered')}
@@ -6684,24 +6714,19 @@ function WithdrawConfirmModal({ busy, onConfirm, onClose }: { busy?: boolean; on
 }
 
 function HeaderModal({
-  kind,
   username,
   piLinked,
   onClose,
   onLinkPi,
   onUnlinkPi,
-  activities = [],
 }: {
-  kind: 'activity' | 'account'
   username: string
   piLinked: boolean
   onClose: () => void
   onLinkPi: () => void | Promise<void>
   onUnlinkPi: () => void | Promise<void | boolean>
-  activities?: ActivityEntry[]
 }) {
   const { t } = useLocale()
-  const isActivity = kind === 'activity'
   const [linking, setLinking] = useState(false)
   const [unlinkConfirm, setUnlinkConfirm] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
@@ -6727,30 +6752,14 @@ function HeaderModal({
       <section className="w-full max-w-md rounded-[28px] border-2 border-[#CBD5E1] bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs font-bold text-[#4A82B8]">{isActivity ? 'ACTIVITY' : 'PI ACCOUNT'}</p>
-            <h2 className="mt-1 text-xl font-bold text-[#0F172A]">{isActivity ? t('acct.activityTitle') : t('acct.title')}</h2>
+            <p className="text-xs font-bold text-[#4A82B8]">PI ACCOUNT</p>
+            <h2 className="mt-1 text-xl font-bold text-[#0F172A]">{t('acct.title')}</h2>
           </div>
           <button onClick={onClose} className="rounded-full bg-[#F1F5F9] p-2 text-[#64748B]" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
-        {isActivity ? (
-          <div className="mt-5 max-h-[50vh] space-y-3 overflow-y-auto">
-            {activities.length === 0 ? (
-              <p className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-4 text-sm font-bold text-[#64748B]">{t('acct.empty')}</p>
-            ) : (
-              activities.map((item) => (
-                <div key={item.id} className="flex gap-3 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
-                  <span className="shrink-0 font-mono text-xs font-bold text-[#4A82B8]">{item.at}</span>
-                  <div>
-                    <p className="text-sm font-bold text-[#0F172A]">{item.label}</p>
-                    <p className="mt-1 text-xs font-medium text-[#64748B]">{item.detail}</p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        ) : showLinked ? (
+        {showLinked ? (
           <div className="mt-5 space-y-4">
             <div className="flex items-center gap-3 rounded-2xl border-2 border-[#CBD5E1] bg-[#F8FAFC] p-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F1FA] text-[#4A82B8]">
@@ -9379,7 +9388,7 @@ export default function HomeScreen() {
   })
   const [chargePromptOpen, setChargePromptOpen] = useState(false)
   const [walletReady, setWalletReady] = useState(false)
-  const [headerModal, setHeaderModal] = useState<'activity' | 'account' | null>(null)
+  const [headerModal, setHeaderModal] = useState<'account' | null>(null)
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
   const [partnerTrialOpen, setPartnerTrialOpen] = useState(false)
   const [driverGateOpen, setDriverGateOpen] = useState(false)
@@ -10224,7 +10233,6 @@ export default function HomeScreen() {
         {inboxItem && <InboxDetailModal item={inboxItem} onClose={() => setInboxItem(null)} />}
         {headerModal && (
           <HeaderModal
-            kind={headerModal}
             username={user.username}
             piLinked={isPiLinked}
             onClose={() => setHeaderModal(null)}
@@ -10239,7 +10247,6 @@ export default function HomeScreen() {
                 showNotice(describePiUserMessage(error))
               }
             }}
-            activities={activities}
             onUnlinkPi={logoutMember}
           />
         )}
