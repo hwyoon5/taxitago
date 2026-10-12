@@ -130,11 +130,13 @@ export async function POST(request: Request) {
       avoidPi,
     })
   }
+  const passengerPhone = typeof body?.passengerPhone === 'string' ? body.passengerPhone.trim().slice(0, 20) : ''
   const ride = createRideAndMatch({
     id: crypto.randomUUID(),
     kind,
     passengerId,
     passengerUid: piUid,
+    passengerPhone: passengerPhone || undefined,
     pickup,
     waypoints,
     dest,

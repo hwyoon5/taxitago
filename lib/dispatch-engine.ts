@@ -50,6 +50,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
   return {
     id: ride.id,
     passengerId: ride.passengerId,
+    passengerPhone: ride.passengerPhone,
     pickup: ride.pickup,
     waypoints: ride.waypoints ?? [],
     dest: ride.dest,
@@ -279,6 +280,7 @@ export function createRideAndMatch(input: {
   kind?: RideRequestRecord['kind']
   passengerId: string
   passengerUid?: string
+  passengerPhone?: string
   pickup: RideRequestRecord['pickup']
   waypoints?: RideRequestRecord['waypoints']
   dest: RideRequestRecord['dest']

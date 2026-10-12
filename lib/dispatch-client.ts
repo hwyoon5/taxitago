@@ -34,6 +34,7 @@ function piSessionCredential(): { uid: string; accessToken: string } | null {
 
 export async function createRideRequest(input: {
   passengerId: string
+  passengerPhone?: string
   kind?: 'taxi' | 'daeri'
   pickupLat: number
   pickupLng: number

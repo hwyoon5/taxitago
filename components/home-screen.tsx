@@ -89,7 +89,6 @@ import RideSafeCall from '@/components/ride-safe-call'
 import RideChat from '@/components/ride-chat'
 import RideCommsAlerts from '@/components/ride-comms-alerts'
 import RideReviewModal, { type RideReviewTarget } from '@/components/ride-review'
-import RideSosButton from '@/components/ride-sos'
 import SupportCenter, { type LostPrefill } from '@/components/support-center'
 import LanguageQuickSwitcher from '@/components/language-quick-switcher'
 import VoiceInputModal from '@/components/voice-input-modal'
@@ -2531,6 +2530,7 @@ function TaxiMatchingSheet({
     const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
     return createRideRequest({
       passengerId: passengerIdRef.current,
+      passengerPhone: memberPhone(),
       kind: 'taxi',
       pickupLat: pickup.lat,
       pickupLng: pickup.lng,
@@ -3553,6 +3553,7 @@ function ServiceSheet({
   const startNewDaeriRide = () =>
     createRideRequest({
       passengerId: daeriPassengerIdRef.current,
+      passengerPhone: memberPhone(),
       kind: 'daeri',
       pickupLat: rideOriginLat,
       pickupLng: rideOriginLng,
@@ -9044,24 +9045,32 @@ function DriverDashboard({
             배차 취소
           </button>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setCallOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] py-3 text-sm font-bold text-white">
-              안심 통화
+            <button
+              type="button"
+              onClick={() => {
+                // 승객이 가입 시 인증한 연락처로 기기 다이얼러 직통 연결 —
+                // 번호가 없는 구형 호출은 앱 내 안심 통화로 폴백한다.
+                const href = telHref(activeRide.passengerPhone || '')
+                if (href) window.location.href = href
+                else setCallOpen(true)
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] py-3 text-sm font-bold text-white"
+            >
+              <Phone className="h-4 w-4" />
+              전화하기
             </button>
             <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border-2 border-[#4A82B8] bg-white py-3 text-sm font-bold text-[#4A82B8]">
               실시간 채팅
             </button>
           </div>
-          <div className="mt-2">
-            <RideSosButton
-              rideId={activeRide.id}
-              actorId={driverId}
-              role="driver"
-              fallbackLat={lat}
-              fallbackLng={lng}
-              vehicle={partner?.role === '기사' ? '택시' : undefined}
-              onNotice={onNotice}
-            />
-          </div>
+          <button
+            type="button"
+            onClick={() => setCallOpen(true)}
+            className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#A7F3D0] bg-[#ECFDF5] py-3 text-sm font-black text-[#047857]"
+          >
+            <ShieldCheck className="h-4 w-4" />
+            안심번호 통화
+          </button>
         </section>
       ) : null}
       {navOpen && activeRide ? (

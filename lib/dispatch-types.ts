@@ -27,6 +27,8 @@ export type RideRequestRecord = {
   /** 호출한 이용자의 Pi uid — 등록 기사/파트너가 승객으로 호출했을 때
    *  자기 기사 단말기로 콜이 가지 않도록 매칭 후보에서 제외하는 키. */
   passengerUid?: string
+  /** 승객이 인증한 연락처 — 기사 '전화하기'(tel:) 직통 연결에 사용. */
+  passengerPhone?: string
   pickup: GeoPoint
   waypoints?: GeoPoint[]
   dest: GeoPoint
@@ -132,6 +134,7 @@ export type PublicRide = {
   id: string
   kind: RideKind
   passengerId: string
+  passengerPhone?: string
   pickup: GeoPoint
   waypoints?: GeoPoint[]
   dest: GeoPoint
