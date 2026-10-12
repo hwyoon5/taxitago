@@ -115,26 +115,55 @@ export function lockEscrow(input: {
 const releasingRides = new Set<string>()
 
 /**
- * 잔액 결제(lockTxid가 balance-*)는 탑승 완료 시점의 예상 요금으로 미리 차감되고,
- * 최종 정산액은 서버가 실측 거리·정체 추가요금으로 다시 계산한다 — 그 차액을
- * 여기서 대사한다. 부족분은 지출 장부에 추가 차감(adj), 초과분은 크레딧으로
- * 환불(refund). 둘 다 txid 멱등이라 재정산·재시도에 안전하다.
+ * 정산 시점의 이용자 잔액 장부 차감 — 두 갈래를 모두 처리한다.
+ *
+ *  1. 잔액 결제(lockTxid가 balance-*이거나 이 운행의 balance-ride-* 지출이 이미
+ *     있는 건): 탑승 완료 시점의 예상 요금으로 미리 차감됐으므로 최종 정산액과의
+ *     차액만 대사한다 — 부족분은 지출 장부에 추가 차감(adj), 초과분은 크레딧
+ *     환불(refund). 실온체인 Pi 결제 잠금(지출 txid=실제 결제 txid)도 여기서
+ *     찾혀 차액만 움직인다.
+ *  2. 지출 장부에 이 운행의 차감이 없는데 잠긴 건(테스트넷 자동/모의 잠금):
+ *     정산 시점에 최종 정산액을 지출로 기록해 서버 장부(spendable)가 실제로
+ *     줄어들게 한다. 승객이 완료를 누르지 않고 기사가 먼저 정산하거나 앱이
+ *     닫혀 있어도 장부가 맞는다. 메인넷에서는 모의 잠금 자체가 성립하지 않아
+ *     이 경로는 실행되지 않는다(실결제 없는 차감을 만들지 않는다).
+ *
+ * txid 멱등이라 재정산·재시도가 겹쳐도 한 번만 반영된다.
  */
-async function reconcileBalanceSpend(lockTxid: string | null | undefined, settledAmount: number) {
-  if (!lockTxid?.startsWith('balance-')) return
+async function settleRideSpend(
+  ride: NonNullable<ReturnType<typeof getRide>>,
+  lockTxid: string | null | undefined,
+  settledAmount: number,
+) {
   const spends = await listUserSpends().catch(() => [])
-  const spend = spends.find((entry) => entry.txid === lockTxid)
-  if (!spend) return
-  const diff = piRound(settledAmount - spend.amount)
-  if (diff > 0.000001) {
-    await recordUserSpend({ txid: `${lockTxid}-adj`, wallet: spend.wallet, uid: spend.uid, amount: diff, label: '운행 정산 차액' }).catch((error) => {
-      console.error('[Spend] balance adjust debit failed', { lockTxid, diff, error })
-    })
-  } else if (diff < -0.000001) {
-    await creditUserDeposit({ txid: `${lockTxid}-refund`, wallet: spend.wallet, uid: spend.uid, amount: piRound(-diff), source: 'manual' }).catch((error) => {
-      console.error('[Spend] balance adjust refund failed', { lockTxid, diff, error })
-    })
+  const spend = spends.find(
+    (entry) => (lockTxid && entry.txid === lockTxid) || entry.txid === `balance-ride-${ride.id}`,
+  )
+  if (spend) {
+    const diff = piRound(settledAmount - spend.amount)
+    if (diff > 0.000001) {
+      await recordUserSpend({ txid: `${spend.txid}-adj`, wallet: spend.wallet, uid: spend.uid, amount: diff, label: '운행 정산 차액' }).catch((error) => {
+        console.error('[Spend] balance adjust debit failed', { lockTxid, diff, error })
+      })
+    } else if (diff < -0.000001) {
+      await creditUserDeposit({ txid: `${spend.txid}-refund`, wallet: spend.wallet, uid: spend.uid, amount: piRound(-diff), source: 'manual' }).catch((error) => {
+        console.error('[Spend] balance adjust refund failed', { lockTxid, diff, error })
+      })
+    }
+    return
   }
+  if (!isPiSandboxEnv() || !(settledAmount > 0)) return
+  const uid = ride.passengerUid || ride.passengerId
+  const entry = await recordUserSpend({
+    txid: `settle-ride-${ride.id}`,
+    uid,
+    amount: settledAmount,
+    label: '운행 요금 정산',
+  }).catch((error) => {
+    console.error('[Spend] ride settle debit failed', { rideId: ride.id, settledAmount, error })
+    return null
+  })
+  if (entry) console.log('[Spend] unfunded ride lock debited at settle', { rideId: ride.id, uid, amount: settledAmount })
 }
 
 
@@ -312,8 +341,9 @@ export async function releaseEscrow(
   if (payoutSent && settleEntry) {
     await markSettlementSettled(settleEntry.id, payoutTxid).catch(() => null)
   }
-  // 잔액 결제 건 — 예상 요금 차감분과 최종 정산액의 차액을 대사한다.
-  await reconcileBalanceSpend(escrow.lockTxid, settleAmount)
+  // 이용자 잔액 장부 — 잔액 결제 건은 차액을 대사하고, 결제 없이 잠긴 건
+  // (테스트넷 모의 잠금)은 정산 시점에 최종 요금을 차감한다.
+  await settleRideSpend(ride, escrow.lockTxid, settleAmount)
   return { ok: true as const, escrow, receipt }
   } finally {
     releasingRides.delete(rideId)
@@ -419,8 +449,8 @@ export async function settlePassengerCancelFee(rideId: string) {
     await markSettlementSettled(cancelEntry.id, payoutTxid).catch(() => null)
   }
   // 잔액 결제 건 — 예상 요금 전액이 이미 차감됐으므로 취소 수수료와의 차액(면제분)을
-  // 크레딧으로 돌려준다.
-  await reconcileBalanceSpend(escrow?.lockTxid, settlement.cancelFee)
+  // 크레딧으로 돌려준다. 모의 잠금 등 미차감 건은 취소 수수료를 정산 시점에 차감한다.
+  await settleRideSpend(ride, escrow?.lockTxid, settlement.cancelFee)
   return { ok: true as const, settlement, payoutTxid }
 }
 

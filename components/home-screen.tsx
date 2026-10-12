@@ -1020,6 +1020,12 @@ const DEFAULT_PI_TX: PiTransaction[] = [
  */
 const SIGNUP_WALLET_SEED_TESTNET = 18.4
 const SIGNUP_WALLET_SEED = PI_SANDBOX ? SIGNUP_WALLET_SEED_TESTNET : 0
+/**
+ * 리뷰 이벤트 Pi 보상 지급 스위치 — false인 동안 rewardReview의 잔액 적립과
+ * /api/rewards/review 서버 장부 기록이 모두 실행되지 않는다(UI·안내는 유지).
+ * 이벤트 재개 시 true로 되돌린다.
+ */
+const REVIEW_REWARD_ENABLED = false
 // 시드 잔액에는 가짜 이용 내역을 섞지 않는다 — '테스트 지급' 한 건만 명시해
 // 장부 합계가 맞고, 재가입/메인넷에서 '서울시청 → 강남역' 같은 더미가 안 뜬다.
 const SIGNUP_WALLET_TX: PiTransaction[] = PI_SANDBOX
@@ -2812,10 +2818,11 @@ function TaxiMatchingSheet({
     payingRef.current = true
     setAccepting(true)
     const amount = phase === 'moving' ? billed.actual : fare
-    const openPayReceipt = (paymentId: string, txid: string) => {
+    const openPayReceipt = (paymentId: string, txid: string, settled?: number) => {
       if (settledRef.current) return
       settledRef.current = true
-      onSettle(amount, route, '택시 결제', billed.estimate, { paymentId, txid }, ride?.id)
+      // 서버 정산 영수증 금액이 있으면 그것이 권위 — 실측 거리·정체 할증이 반영된 값.
+      onSettle(settled && settled > 0 ? settled : amount, route, '택시 결제', billed.estimate, { paymentId, txid }, ride?.id)
     }
     const releasePayLock = () => {
       payingRef.current = false
@@ -2876,7 +2883,7 @@ function TaxiMatchingSheet({
         if (result.ride) setRide(result.ride)
         const txid = result.receipt?.payoutTxid || result.ride?.escrow?.payoutTxid || proof?.txid || `done-${ride.id.slice(0, 8)}`
         const paymentId = proof?.paymentId || result.receipt?.lockTxid || result.ride?.escrow?.lockTxid || txid
-        openPayReceipt(paymentId, txid)
+        openPayReceipt(paymentId, txid, result.receipt?.amount)
         onAskReview({
           rideId: ride.id,
           raterId: passengerIdRef.current || localPassengerId(),
@@ -9493,6 +9500,11 @@ export default function HomeScreen() {
   const emitLedgerChange = () => {
     window.dispatchEvent(new Event('taxitago:ledger-changed'))
   }
+  // 결제·정산 직후 서버 장부 잔액을 즉시 다시 읽어오라는 신호 — 입금 폴러의
+  // 다음 10초 주기를 기다리지 않고 상단 잔액이 정산액으로 곧바로 맞춰진다.
+  const emitWalletResync = () => {
+    window.dispatchEvent(new Event('taxitago:wallet-resync'))
+  }
 
   // 앱 접속 하트비트 — 관리자 '실시간 현황'이 역할(이용자/기사/파트너)별 접속자를
   // 집계하는 데 쓴다. 25초 주기로 보내고 화면이 숨겨진 동안은 보내지 않아
@@ -9686,6 +9698,8 @@ export default function HomeScreen() {
     recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(7)} Pi · ${place}`)
     setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated, paymentId: proof.paymentId, txid: proof.txid })
     emitLedgerChange()
+    // 정산 직후 서버 장부 잔액(spendable)을 즉시 다시 읽어 상단 잔액을 동기화한다.
+    window.dispatchEvent(new Event('taxitago:wallet-resync'))
     if (!label.includes('취소')) {
       const from = origin.address.trim() || '현재 위치'
       const tripDest = (destPlace?.address || destPlace?.label || destination).trim()
@@ -9703,6 +9717,7 @@ export default function HomeScreen() {
       saveRecentUse(next)
       setRecentUse(next)
     }
+    emitWalletResync()
   }
   // 기사가 먼저 정산했거나 앱을 다시 연 뒤 완료가 확인된 운행도 홈 '최근 이용'과
   // 활동 기록/지갑 내역에 동기화한다. 수동 결제 경로와 rideId 중복 방지를 공유한다.
@@ -9733,6 +9748,8 @@ export default function HomeScreen() {
     saveRecentUse(next)
     setRecentUse(next)
     emitLedgerChange()
+    // 기사 측 정산 등 외부 완료 경로에서도 서버 장부 잔액을 즉시 재동기화한다.
+    emitWalletResync()
   }
   // 앱 첫 진입부터 오디오 잠금 해제 리스너를 걸어, 이후 어떤 알림음도
   // 자동재생 정책에 막혀 누락되지 않게 한다.
@@ -9828,6 +9845,13 @@ export default function HomeScreen() {
     return { txid }
   }
   const rewardReview = (key?: string) => {
+    // 리뷰 보상 Pi 지급 일시 중단 — REVIEW_REWARD_ENABLED가 false인 동안
+    // 지갑 적립·서버 리워드 장부 기록을 모두 건너뛰고 감사 안내만 띄운다.
+    // 재개할 때는 REVIEW_REWARD_ENABLED를 true로 되돌린다.
+    if (!REVIEW_REWARD_ENABLED) {
+      showNotice(t('toast.reviewDone'))
+      return
+    }
     // 테스트넷 전용 임의 적립 — 메인넷에서는 잔액을 만들지 않고 기록만 남긴다.
     if (PI_SANDBOX) {
       const amount = 0.1
@@ -9876,9 +9900,12 @@ export default function HomeScreen() {
       )
     void scan()
     const timer = window.setInterval(scan, 10_000)
+    // 정산 직후에는 10초 주기를 기다리지 않고 즉시 서버 잔액을 다시 읽는다.
+    window.addEventListener('taxitago:wallet-resync', scan)
     return () => {
       stopped = true
       window.clearInterval(timer)
+      window.removeEventListener('taxitago:wallet-resync', scan)
     }
     // depositWallet/showNotice는 매 렌더 새로 만들어지지만 스캔 루프는 마운트 시 한 번이면 충분하다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
