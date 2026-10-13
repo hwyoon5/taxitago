@@ -22,6 +22,7 @@ export type AdminUserRow = {
   lockedAt?: string
   lockedBy?: string
   lockReason?: string
+  lockedUntil?: string
   withdrawnAt?: string
   spendable?: number
   creditTotal?: number
@@ -339,7 +340,7 @@ export default function AdminUsers() {
                   </dl>
                   {user.locked ? (
                     <p className="rounded-lg bg-[#FEF2F2] px-2.5 py-1.5 text-[10px] font-bold text-[#B91C1C]">
-                      정지됨 · {user.lockedBy || '관리자'} · {fmtDate(user.lockedAt)}{user.lockReason ? ` · 사유: ${user.lockReason}` : ''}
+                      정지됨 · {user.lockedBy || '관리자'} · {fmtDate(user.lockedAt)} · {user.lockedUntil ? `${fmtDate(user.lockedUntil)}까지` : '영구'}{user.lockReason ? ` · 사유: ${user.lockReason}` : ''}
                     </p>
                   ) : null}
 

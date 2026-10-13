@@ -31,6 +31,8 @@ export type RegistryUser = {
   lockedAt?: string
   lockedBy?: string
   lockReason?: string
+  /** 정지 만기 시각 — 없으면 영구 정지, 지났으면 차단 게이트가 자동 해제로 취급한다. */
+  lockedUntil?: string
   /** 회원탈퇴 시각 — 찍히면 프로필 필드는 비워지고 uid·지갑·가입일만 감사용으로 남는다. */
   withdrawnAt?: string
 }
@@ -147,6 +149,7 @@ export async function upsertRegistryUser(input: {
     lockedAt: prev?.lockedAt,
     lockedBy: prev?.lockedBy,
     lockReason: prev?.lockReason,
+    lockedUntil: prev?.lockedUntil,
     // 재가입(재연동)이면 이전 탈퇴 마킹을 해제한다 — 복귀 이용자는 정상 계정이다.
     withdrawnAt: undefined,
   }
@@ -178,6 +181,7 @@ export async function markRegistryUserWithdrawn(uid: string): Promise<RegistryUs
     lockedAt: user.lockedAt,
     lockedBy: user.lockedBy,
     lockReason: user.lockReason,
+    lockedUntil: user.lockedUntil,
     withdrawnAt: new Date().toISOString(),
   }
   users[user.uid] = next
@@ -190,11 +194,18 @@ export async function listRegistryUsers(): Promise<RegistryUser[]> {
   return Object.values(users).sort((a, b) => b.linkedAt.localeCompare(a.linkedAt))
 }
 
-/** 이용 정지 토글 — 대상 uid의 레코드에만 플래그를 쓴다. */
+/** 정지가 지금 유효한지 — lockedUntil이 없으면 영구, 지났으면 기간 만료로 해제 취급한다. */
+export function lockActive(user: Pick<RegistryUser, 'lockedAt' | 'lockedUntil'>): boolean {
+  if (!user.lockedAt) return false
+  if (!user.lockedUntil) return true
+  return user.lockedUntil > new Date().toISOString()
+}
+
+/** 이용 정지 토글 — 대상 uid의 레코드에만 플래그를 쓴다. until 생략 시 영구 정지. */
 export async function setUserLock(
   uid: string,
   locked: boolean,
-  meta: { by?: string; reason?: string } = {},
+  meta: { by?: string; reason?: string; until?: string } = {},
 ): Promise<RegistryUser | null> {
   const users = await readUsers()
   const user = users[uid.trim()]
@@ -203,23 +214,26 @@ export async function setUserLock(
     user.lockedAt = new Date().toISOString()
     user.lockedBy = (meta.by || '').slice(0, 60)
     user.lockReason = (meta.reason || '').slice(0, 120)
+    if (meta.until) user.lockedUntil = meta.until
+    else delete user.lockedUntil
   } else {
     delete user.lockedAt
     delete user.lockedBy
     delete user.lockReason
+    delete user.lockedUntil
   }
   user.updatedAt = new Date().toISOString()
   await writeUsers(users)
   return user
 }
 
-/** uid 또는 지갑 주소로 정지 여부 조회 — 로그인·호출·결제·출금 차단 게이트. */
+/** uid 또는 지갑 주소로 정지 여부 조회 — 로그인·호출·결제·출금 차단 게이트. 기간 만료는 자동 해제다. */
 export async function findLockedUser(uid: string, wallet?: string): Promise<RegistryUser | null> {
   const users = await readUsers()
   const u = uid.trim()
   const w = (wallet || '').trim()
   for (const user of Object.values(users)) {
-    if (!user.lockedAt) continue
+    if (!lockActive(user)) continue
     if (u && user.uid === u) return user
     if (w && user.wallet === w) return user
   }
@@ -249,7 +263,7 @@ export function registryStats(users: RegistryUser[]) {
     const bucket = buckets.get(month)
     if (bucket) bucket.count += 1
     if (user.role === '기사' || user.role === '파트너') drivers += 1
-    if (user.lockedAt) locked += 1
+    if (lockActive(user)) locked += 1
   }
   return { total: users.length, joinedThisMonth, drivers, locked, monthly }
 }

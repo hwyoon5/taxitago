@@ -6,6 +6,7 @@ import { piRound } from '@/lib/pi-format'
 import {
   getRegistryUser,
   listRegistryUsers,
+  lockActive,
   matchUserQuery,
   registryStats,
   setUserLock,
@@ -35,7 +36,7 @@ async function mergedUsers(): Promise<RegistryUser[]> {
     if (existing) {
       // 인메모리 링크가 더 최신이면 표시 필드만 보강 — 잠금 상태는 레지스트리 유지.
       if (link.updatedAt > existing.updatedAt) {
-        merged.set(link.uid, { ...existing, ...pickLinkFields(link), lockedAt: existing.lockedAt, lockedBy: existing.lockedBy, lockReason: existing.lockReason })
+        merged.set(link.uid, { ...existing, ...pickLinkFields(link), lockedAt: existing.lockedAt, lockedBy: existing.lockedBy, lockReason: existing.lockReason, lockedUntil: existing.lockedUntil })
       }
       continue
     }
@@ -100,7 +101,7 @@ export async function GET(request: Request) {
       ])
       return {
         ...user,
-        locked: Boolean(user.lockedAt),
+        locked: lockActive(user),
         spendable,
         creditTotal: credits.total,
         spendTotal: spends.total,
@@ -119,6 +120,7 @@ export async function PATCH(request: Request) {
     reason?: unknown
     name?: unknown
     phone?: unknown
+    until?: unknown
     baseUpdatedAt?: unknown
   } | null
   const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
@@ -137,6 +139,13 @@ export async function PATCH(request: Request) {
 
   if (body?.action === 'lock' || body?.action === 'unlock') {
     const locked = body.action === 'lock'
+    // 기간제 정지 — 'permanent'/누락은 영구, ISO 시각은 만기로 저장한다.
+    const untilRaw = typeof body?.until === 'string' ? body.until.trim() : ''
+    let lockedUntil: string | undefined
+    if (locked && untilRaw && untilRaw !== 'permanent') {
+      const ts = Date.parse(untilRaw)
+      if (Number.isFinite(ts)) lockedUntil = new Date(ts).toISOString()
+    }
     // 인메모리 링크만 있는 사용자도 레지스트리에 레코드를 만들어 잠긴다.
     if (!(await getRegistryUser(uid))) {
       const link = listPartnerLinks().find((row) => row.uid === uid)
@@ -147,16 +156,18 @@ export async function PATCH(request: Request) {
     const user = await setUserLock(uid, locked, {
       by: `${actor.staffName || actor.staffId}${actor.position ? `(${actor.position})` : ''}`,
       reason,
+      until: lockedUntil,
     })
     if (!user) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const period = locked ? ` · 기간 ${lockedUntil ? `${lockedUntil.slice(0, 16).replace('T', ' ')}까지` : '영구'}` : ''
     await recordAudit({
       kind: 'user',
       actor: actor.staffId,
       actorName: actor.staffName,
       refId: uid,
       reason: reason || (locked ? '계정 이용 정지' : '이용 정지 해제'),
-      detail: `${locked ? '계정 Lock' : 'Lock 해제'} ${user.name || user.username}(${uid})${reason ? ` · 사유: ${reason}` : ''}`,
-      after: { uid, locked: Boolean(user.lockedAt), lockReason: user.lockReason },
+      detail: `${locked ? '계정 Lock' : 'Lock 해제'} ${user.name || user.username}(${uid})${period}${reason ? ` · 사유: ${reason}` : ''}`,
+      after: { uid, locked: lockActive(user), lockReason: user.lockReason, lockedUntil: user.lockedUntil },
     }).catch(() => undefined)
     return NextResponse.json({ ok: true, user })
   }

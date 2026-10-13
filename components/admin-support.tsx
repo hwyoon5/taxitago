@@ -16,6 +16,7 @@ import AdminPresence from '@/components/admin-presence'
 import AdminShiftBoard from '@/components/admin-shift-board'
 import AdminAuditLog from '@/components/admin-audit-log'
 import AdminDevices from '@/components/admin-devices'
+import AdminBlacklist from '@/components/admin-blacklist'
 import AdminLiveDashboard from '@/components/admin-live'
 import AttachmentGallery from '@/components/photo-gallery'
 import { positionDisplayLabel } from '@/lib/staff-positions'
@@ -47,7 +48,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'payouts', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
+const ADMIN_VIEWS = ['live', 'inbox', 'users', 'partners', 'devices', 'fare', 'ledger', 'payouts', 'notice', 'staff', 'audit', 'memo', 'shift', 'sanction'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 /** URL 해시(#ledger) 또는 ?view= 쿼리에서 탭을 복원 — 리마운트·새로고침 시에도 마지막 메뉴를 유지한다. */
@@ -526,7 +527,9 @@ export default function AdminSupportDesk() {
                         ? '메모장'
                         : tab === 'shift'
                           ? '인수인계'
-                          : '업무 기록'}
+                          : tab === 'sanction'
+                            ? '제재 관리'
+                            : '업무 기록'}
           </button>
         ))}
       </div>
@@ -556,6 +559,8 @@ export default function AdminSupportDesk() {
         <AdminNotepad />
       ) : view === 'shift' ? (
         <AdminShiftBoard />
+      ) : view === 'sanction' ? (
+        <AdminBlacklist />
       ) : (
       <>
       {storage === 'file' ? (
