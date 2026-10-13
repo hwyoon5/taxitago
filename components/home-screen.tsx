@@ -4370,6 +4370,49 @@ function ServiceSheet({
   )
 }
 
+/**
+ * 택시 홈 카드와 동일한 경로 행 — 탭하면 DestinationSearchModal
+ * (검색·즐겨찾기·최근·지도 핀)으로 이어진다. 대리·택배 호출 시트가
+ * 공용으로 쓰는 출발지/경유지/도착지 행이다.
+ */
+function RouteSelectRow({
+  tone,
+  label,
+  value,
+  placeholder,
+  onClick,
+  ariaLabel,
+}: {
+  tone: 'pickup' | 'waypoint' | 'dest'
+  label: string
+  value: string
+  placeholder: string
+  onClick: () => void
+  ariaLabel?: string
+}) {
+  const Icon = tone === 'pickup' ? LocateFixed : tone === 'waypoint' ? MapPin : Search
+  const iconCls = tone === 'pickup' ? 'bg-[#EEF2FF] text-[#4C1FB8]' : tone === 'waypoint' ? 'bg-[#FFF7ED] text-[#EA580C]' : 'bg-[#EDE5FF] text-[#6D28D9]'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel || `${label} ${value || placeholder}`}
+      className="flex w-full items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 text-left shadow-[0_3px_8px_rgba(15,23,42,0.05)]"
+    >
+      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${iconCls}`}>
+        <Icon className="h-3.5 w-3.5" />
+      </span>
+      <span className="min-w-0 flex-1 py-0.5">
+        <span className="block text-[10px] font-bold leading-3 text-[#64748B]">{label}</span>
+        <span className={`mt-0.5 block truncate text-[13px] font-black leading-4 ${value ? 'text-[#0F172A]' : 'font-bold text-[#94A3B8]'}`}>
+          {value || placeholder}
+        </span>
+      </span>
+      <Search className="h-3.5 w-3.5 shrink-0 text-[#94A3B8]" />
+    </button>
+  )
+}
+
 function DaeriCallSetupSheet({
   destination,
   originLat,
@@ -4407,6 +4450,11 @@ function DaeriCallSetupSheet({
   const [pickupPoint, setPickupPoint] = useState<RideCoords>({ lat: originLat, lng: originLng })
   const [longDist, setLongDist] = useState<{ point: RideCoords; destName: string; km: number; regionExit: boolean; destRegion: string } | null>(null)
   const [dest, setDest] = useState(destination.trim() || '')
+  // 택시와 동일한 선택 모달 — 출발지/도착지 모두 검색·즐겨찾기·지도 핀으로 고른다.
+  const [pickupSearchOpen, setPickupSearchOpen] = useState(false)
+  const [destSearchOpen, setDestSearchOpen] = useState(false)
+  /** 목적지 검색·지도에서 고른 좌표 — 호출 시 재지오코딩 없이 그대로 쓴다. */
+  const [destPoint, setDestPoint] = useState<RideCoords | null>(null)
   const [plan, setPlan] = useState<'착한요금' | '빠른배정'>('착한요금')
   const [mapPicker, setMapPicker] = useState(false)
   const [pickerMapSession, setPickerMapSession] = useState(0)
@@ -4570,19 +4618,20 @@ function DaeriCallSetupSheet({
             <span className="mt-2 text-[11px] font-bold text-[#94A3B8]">{sheetOpen ? t('daeri.dragDown') : t('daeri.dragUp')}</span>
           </button>
           <p className="text-xs font-black text-[#4C1FB8]">{t('daeri.prepare')}</p>
-          <label className="mt-3 block">
+          <div className="mt-3 block">
             <span className="text-[10px] font-black text-[#8b8495]">{t('daeri.pickupLbl')}</span>
-            <div className="mt-2 flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3">
-              <LocateFixed className="h-4 w-4 shrink-0 text-[#4C1FB8]" />
-              <input
+            <div className="mt-2">
+              <RouteSelectRow
+                tone="pickup"
+                label={t('daeri.pickupLbl')}
                 value={pickup}
-                onChange={(event) => setPickup(event.target.value)}
                 placeholder={t('daeri.pickupPh')}
-                aria-label={t('daeri.pickupAria')}
-                className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"
+                ariaLabel={t('daeri.pickupAria')}
+                onClick={() => setPickupSearchOpen(true)}
               />
             </div>
-          </label>
+            <p className="mt-1.5 text-[10px] font-bold text-[#8b8495]">{t('home.pickOnMap')}</p>
+          </div>
           <div className="mt-3 block">
             <span className="text-[10px] font-black text-[#8b8495]">{t('daeri.waypointLbl', { max: String(MAX_WAYPOINTS) })}</span>
             {waypoints.map((waypoint, index) => (
@@ -4624,18 +4673,19 @@ function DaeriCallSetupSheet({
               </button>
             ) : null}
           </div>
-          <label className="mt-3 block">
+          <div className="mt-3 block">
             <span className="text-[10px] font-black text-[#8b8495]">{t('daeri.destLbl')}</span>
-            <div className="mt-2 flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3">
-              <MapPin className="h-4 w-4 text-[#4C1FB8]" />
-              <input
+            <div className="mt-2">
+              <RouteSelectRow
+                tone="dest"
+                label={t('daeri.destLbl')}
                 value={dest}
-                onChange={(event) => setDest(event.target.value)}
                 placeholder={t('home.destPlaceholder')}
-                className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"
+                ariaLabel={t('home.destSearch')}
+                onClick={() => setDestSearchOpen(true)}
               />
             </div>
-          </label>
+          </div>
           <p className="mt-4 text-xs font-black text-[#334155]">{t('daeri.fareLbl')}</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
             {plans.map((item) => (
@@ -4661,6 +4711,7 @@ function DaeriCallSetupSheet({
                 return
               }
               const known =
+                destPoint ??
                 coordsFromPlaceQuery(destName) ??
                 (Number.isFinite(destLat) && Number.isFinite(destLng)
                   ? { lat: destLat as number, lng: destLng as number }
