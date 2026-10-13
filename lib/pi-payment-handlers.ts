@@ -114,7 +114,15 @@ export async function handlePiApprove(request: Request) {
     // 샌드박스 폴백 없음 — 승인 실패를 ok로 위장해도 Pi Platform이 승인하지
     // 않은 결제는 지갑에서 어차피 만료되며, 진짜 오류만 로그에서 가려진다.
     const message = error instanceof Error ? error.message : 'approve failed'
-    console.error('[Pi] /api/pi/approve error', { paymentId, kind, message, ...describeError(error) })
+    const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
+    console.error('[Pi] /api/pi/approve error', { paymentId, kind, message, effectiveSandbox, ...describeError(error) })
+    if (status === 401 || status === 403) {
+      console.error(
+        '[Pi] /api/pi/approve auth rejected on every key candidate — ' +
+          `PI_API_KEY_${effectiveSandbox ? 'TESTNET' : 'MAINNET'}가 이 Pi 앱의 ${effectiveSandbox ? '테스트넷' : '메인넷'} 키인지 확인해 주세요. ` +
+          '포털의 다른 앱 키나 만료 키면 모든 승인이 401로 만료됩니다.',
+      )
+    }
     return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
   }
 }

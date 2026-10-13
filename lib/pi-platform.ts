@@ -257,6 +257,12 @@ function piApproveAttempt(paymentId: string, timeoutMs: number, sandboxHint?: bo
   const keys = resolvePiApiKeys(sandboxHint)
   const apiBase = piPaymentsApiBase(sandboxHint)
   console.log('[Pi] approve key candidates', { count: keys.length, sources: keys.map((k) => k.source), apiBase })
+  if (keys.length === 1 && keys[0].source === 'forced-testnet') {
+    console.warn(
+      '[Pi] approve has only the built-in testnet fallback key — set PI_API_KEY_TESTNET ' +
+        '(개발자 포털 > 해당 앱의 테스트넷 키). 내장 키가 다른 앱 소유거나 폐기됐으면 모든 승인이 401로 만료됩니다.',
+    )
+  }
   if (keys.length === 1) {
     const only = keys[0]
     return piPaymentsRequest(paymentId, 'POST', '/approve', undefined, timeoutMs, only.key, only.source, apiBase)
@@ -264,13 +270,18 @@ function piApproveAttempt(paymentId: string, timeoutMs: number, sandboxHint?: bo
   return new Promise((resolve, reject) => {
     let pending = keys.length
     let lastError: unknown
+    let authError: unknown
     for (const { key, source } of keys) {
       piPaymentsRequest(paymentId, 'POST', '/approve', undefined, timeoutMs, key, source, apiBase)
         .then(resolve)
         .catch((error) => {
           lastError = error
+          // 401/403은 '키-앱 불일치'라는 설정 오류의 증거 — 전부 실패했을 때
+          // 타임아웃보다 인증 거절을 우선 리포트해 원인이 로그에 남게 한다.
+          const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
+          if (!authError && (status === 401 || status === 403)) authError = error
           pending -= 1
-          if (pending === 0) reject(lastError)
+          if (pending === 0) reject(authError ?? lastError)
         })
     }
   })
@@ -289,7 +300,24 @@ export async function approvePiPayment(paymentId: string, sandboxHint?: boolean 
     } catch (error) {
       lastError = error
       const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
-      if (typeof status === 'number' && status < 500) break
+      if (typeof status === 'number' && status < 500) {
+        // approve는 멱등이어야 하지만 Pi가 중복 호출을 4xx로 돌릴 수 있다 —
+        // beacon+fetch 경합이나 '느린 첫 시도 뒤 재시도'에서 두 번째 approve가
+        // 첫 번째의 성공 뒤에 도착하면 '이미 승인됨' 오류로 겉보기 실패한다.
+        // 실패 표면화 전에 GET으로 현재 상태를 확인해 developer_approved면
+        // 승인 성공으로 수렴한다(지갑은 Pi 기록의 승인 여부를 보고 진행한다).
+        const existing = (await getPiPayment(paymentId, sandboxHint).catch(() => null)) as {
+          status?: Record<string, unknown>
+        } | null
+        if (existing?.status?.developer_approved === true) {
+          console.log('[Pi] approve 4xx but payment already approved — treating as ok', {
+            paymentId,
+            rejectedStatus: status,
+          })
+          return existing
+        }
+        break
+      }
       // A retry only helps if the first attempt failed fast — once most of the
       // wallet's approval window is gone, a second 8s attempt lands post-expiry.
       if (attempt + 1 < PI_APPROVE_ATTEMPTS && Date.now() - attemptStart < 4_000) {
