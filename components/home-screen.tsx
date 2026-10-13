@@ -3177,6 +3177,10 @@ function ServiceSheet({
   const [packageSize, setPackageSize] = useState<PackageSizeId>('document')
   const [senderPhone, setSenderPhone] = useState('')
   const [recipientPhone, setRecipientPhone] = useState('')
+  // 택배 경로 입력은 시트 안에서 출발지 → 도착지 순으로 받는다 —
+  // 호출 버튼까지 눌러야 목적지 검색이 뜨던 흐름을 없앤다.
+  const [deliveryPickup, setDeliveryPickup] = useState(pickupAddress)
+  const [deliveryDest, setDeliveryDest] = useState(destAddress ?? '')
   const [phoneError, setPhoneError] = useState('')
   const [selectedItem, setSelectedItem] = useState('')
   const [mapFocusId, setMapFocusId] = useState('')
@@ -3332,7 +3336,9 @@ function ServiceSheet({
   }
   const startService = async (scanned?: boolean, consented?: boolean) => {
     if (service === '택배' || ride) {
-      const gap = routeGap(daeriTrip?.pickup || pickupAddress, daeriTrip?.dest || destAddress)
+      const gap = service === '택배'
+        ? routeGap(deliveryPickup, deliveryDest)
+        : routeGap(daeriTrip?.pickup || pickupAddress, daeriTrip?.dest || destAddress)
       if (gap) {
         onRequireRoute?.(gap)
         return
@@ -3349,8 +3355,8 @@ function ServiceSheet({
         packageSize,
         packageLabel: packageOption.label,
         fare: deliveryFare,
-        pickupAddress: pickupAddress.trim(),
-        destAddress: (destAddress || '').trim(),
+        pickupAddress: deliveryPickup.trim(),
+        destAddress: deliveryDest.trim(),
         senderPhone,
         recipientPhone,
         status: 'requested',
@@ -4143,6 +4149,30 @@ function ServiceSheet({
         )}
         {phase === 'idle' && service === '택배' && (
           <div className="mt-5 space-y-4">
+            <div>
+              <p className="mb-2 text-sm font-black">{t('daeri.pickupLbl')}</p>
+              <div className="flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3">
+                <LocateFixed className="h-4 w-4 shrink-0 text-[#4C1FB8]" />
+                <input
+                  value={deliveryPickup}
+                  onChange={(event) => setDeliveryPickup(event.target.value)}
+                  placeholder={t('daeri.pickupPh')}
+                  aria-label={t('daeri.pickupAria')}
+                  className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"
+                />
+              </div>
+              <p className="mb-2 mt-3 text-sm font-black">{t('daeri.destLbl')}</p>
+              <div className="flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3">
+                <MapPin className="h-4 w-4 shrink-0 text-[#4C1FB8]" />
+                <input
+                  value={deliveryDest}
+                  onChange={(event) => setDeliveryDest(event.target.value)}
+                  placeholder={t('home.destPh')}
+                  aria-label={t('home.destSearchOpen')}
+                  className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"
+                />
+              </div>
+            </div>
             <div>
               <p className="mb-2 text-sm font-black">{t('svc.vehiclePick')}</p>
               <div className="grid grid-cols-3 gap-2">
@@ -8762,6 +8792,9 @@ export default function HomeScreen() {
   const [daeriTrip, setDaeriTrip] = useState<DaeriTrip | null>(null)
   const [deliveryJob, setDeliveryJob] = useState<DeliveryJob | null>(null)
   const [routeAlert, setRouteAlert] = useState<RouteGap | null>(null)
+  // 경로 모달 → 출발지 지도 → 목적지 검색 순서를 잇는 체인 플래그.
+  // 출발지가 먼저 확정돼야 목적지 검색이 열린다.
+  const destSearchAfterPickupRef = useRef(false)
   const [destSearchTick, setDestSearchTick] = useState(0)
   const [longDistCall, setLongDistCall] = useState<{ km: number; regionExit: boolean; destRegion: string } | null>(null)
   const [notice, setNotice] = useState('')
@@ -9189,12 +9222,9 @@ export default function HomeScreen() {
     setMoreOpen(false)
     if (value === '대리운전') {
       if (!requirePiForCall()) return
-      const gap = routeGap(origin.address, destination)
-      if (gap) {
-        setRouteAlert(gap)
-        setTab('홈')
-        return
-      }
+      // 경로 게이트를 진입 전에 열지 않는다 — 대리 설정 시트가 출발지
+      // 필드부터 보여주므로 목적지 검색이 먼저 뜨는 일이 없다. 경로 검증은
+      // 시트 안의 호출 버튼(routeGap → onRequireRoute)이 담당한다.
       setDaeriSetupOpen(true)
       setTab('홈')
       return
@@ -9575,6 +9605,11 @@ export default function HomeScreen() {
               pickingMapRef.current = false
               setPickupMapOpen(false)
               showNotice(t('toast.pickupSet'))
+              // 출발지 확정 → 목적지 검색으로 자연스럽게 이어진다.
+              if (destSearchAfterPickupRef.current) {
+                destSearchAfterPickupRef.current = false
+                setDestSearchTick((value) => value + 1)
+              }
             }}
           />
         ) : null}
@@ -9774,8 +9809,11 @@ export default function HomeScreen() {
               setSelectedService(null)
               setDaeriSetupOpen(false)
               setTab('홈')
-              if (kind === 'pickup' || kind === 'both') openPickupMap()
-              else setDestSearchTick((value) => value + 1)
+              if (kind === 'pickup' || kind === 'both') {
+                // 출발지 설정이 끝난 뒤 목적지 검색으로 이어진다.
+                destSearchAfterPickupRef.current = kind === 'both'
+                openPickupMap()
+              } else setDestSearchTick((value) => value + 1)
             }}
           />
         ) : null}
