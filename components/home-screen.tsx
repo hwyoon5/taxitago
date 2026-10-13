@@ -5,6 +5,7 @@ import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, Chev
 import { useLocale } from '@/components/locale-provider'
 import { localizedText, translateDeviceStatus, translateService, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
+import type { BroadcastEntry } from '@/lib/broadcast-store'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
 import { FaresView, NoticeDetailView, NoticeListView, SettingsView, SupportView } from '@/components/more/more-pages'
 import { TermsDetailView, TermsListView } from '@/components/more/terms-pages'
@@ -45,6 +46,7 @@ import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
 import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } from '@/lib/member-profile'
 import PhoneVerifyForm from '@/components/phone-verify-form'
 import LiveStatusLight from '@/components/live-status-light'
+import BroadcastBanner from '@/components/broadcast-banner'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
@@ -5330,6 +5332,7 @@ function Home({
           {t('home.qrPay')}
           <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black">{t('home.qrPayBadge')}</span>
         </button>
+        <BroadcastBanner audience="passenger" />
         <section className="mt-4">
           <div className="flex items-end justify-between px-0.5">
             <h2 className="text-sm font-black tracking-tight text-[#0F172A]">{t('home.whatToUse')}</h2>
@@ -5698,8 +5701,37 @@ function ActivityInbox({
   const [typeFilter, setTypeFilter] = useState<InboxTypeFilter>('all')
   const [history, setHistory] = useState<PublicRide[]>([])
   const [historyReady, setHistoryReady] = useState(false)
-  const unreadCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
+  const [broadcasts, setBroadcasts] = useState<BroadcastEntry[]>([])
   const identitiesKey = JSON.stringify(identities)
+
+  // 관리자 방송 공지를 정적 공지 목록 앞에 합쳐 실시간 반영한다.
+  useEffect(() => {
+    let stopped = false
+    const load = async () => {
+      const res = await fetch('/api/broadcasts?audience=passenger', { cache: 'no-store' }).catch(() => null)
+      const data = (await res?.json().catch(() => null)) as { broadcasts?: BroadcastEntry[] } | null
+      if (!stopped && data?.broadcasts) setBroadcasts(data.broadcasts)
+    }
+    void load()
+    const timer = window.setInterval(load, 30_000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  const allNotices: Notice[] = [
+    ...broadcasts.map((entry) => ({
+      id: `bc-${entry.id}`,
+      kind: '공지' as const,
+      date: entry.createdAt.slice(0, 10).replace(/-/g, '.'),
+      title: { ko: entry.title },
+      summary: { ko: entry.body.length > 80 ? `${entry.body.slice(0, 80)}…` : entry.body },
+      body: { ko: entry.body },
+    })),
+    ...notices,
+  ]
+  const unreadCount = allNotices.filter((item) => !readNoticeIds.includes(item.id)).length
 
   useEffect(() => {
     const ids = JSON.parse(identitiesKey) as InboxIdentity[]
@@ -5888,7 +5920,7 @@ function ActivityInbox({
         </div>
       ) : (
         <div className="mt-3 space-y-3">
-          {notices.map((item) => {
+          {allNotices.map((item) => {
             const unread = !readNoticeIds.includes(item.id)
             return (
               <button
@@ -8956,6 +8988,7 @@ function DriverDashboard({
           </div>
         </section>
       ) : null}
+      <BroadcastBanner audience="staff" />
       <section className="mt-2 grid grid-cols-3 gap-2">
         <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-xl border border-[#CBD5E1] bg-white px-2.5 py-2 text-left shadow-sm transition active:scale-[0.98]">
           <p className="text-[10px] font-semibold text-[#64748B]">오늘의 수익</p>

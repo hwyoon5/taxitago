@@ -72,6 +72,11 @@ export function saveDriverPushSubscription(driverId: string, subscription: unkno
   return true
 }
 
+/** 푸시 구독이 등록된 기사 id 목록 — 관리자 방송 알림의 발송 대상 열거용. */
+export function subscribedDriverIds(): string[] {
+  return [...db().subscriptions.keys()]
+}
+
 export function removeDriverPushSubscription(driverId: string, endpoint?: string) {
   const id = driverId.trim()
   const store = db()
