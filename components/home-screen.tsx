@@ -6172,8 +6172,10 @@ function PartnerSignupModal({
   onRegistered: (role: '기사' | '파트너', session: PiSession) => void
   onPiLinked: (session: PiSession) => void
 }) {
-  const [step, setStep] = useState<'pi' | 'profile'>('pi')
-  const [session, setSession] = useState<PiSession | null>(null)
+  // 이미 Pi 연동이 끝난 계정은 로그인 단계를 건너뛰고 프로필 입력부터 시작한다 —
+  // 기사 모드 → 등록 진입 시 로그인 시트가 또 뜨는 UX를 없앤다.
+  const [session, setSession] = useState<PiSession | null>(() => loadPiIdentity())
+  const [step, setStep] = useState<'pi' | 'profile'>(() => (loadPiIdentity() ? 'profile' : 'pi'))
   const [signing, setSigning] = useState(false)
   const [signError, setSignError] = useState('')
   const [role, setRole] = useState<'기사' | '파트너'>('기사')
@@ -7190,17 +7192,17 @@ function DriverNeedSignupModal({ onClose, onSignup }: { onClose: () => void; onS
     <div className="fixed inset-0 z-[94] flex items-end bg-[#1e1033]/50 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <section className="mx-auto w-full max-w-md rounded-t-[32px] bg-white p-5 shadow-2xl sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-        <p className="text-xs font-bold text-[#4A82B8]">Pi Sign-in 필요</p>
-        <h2 className="mt-1 text-2xl font-bold text-[#0F172A]">파이 계정으로 파트너를 시작하세요</h2>
+        <p className="text-xs font-bold text-[#4A82B8]">기사 등록 필요</p>
+        <h2 className="mt-1 text-2xl font-bold text-[#0F172A]">기사 등록이 먼저 필요합니다</h2>
         <p className="mt-2 text-sm font-medium leading-6 text-[#475569]">
-          기사/파트너는 Pi Network 로그인이 먼저입니다. UID와 지갑이 정산 계정에 연결됩니다.
+          기사 모드는 기사 등록을 완료한 계정만 사용할 수 있어요. 등록은 Pi 계정 인증과 차량 정보 입력으로 1분 안에 끝납니다.
         </p>
         <button
           type="button"
           onClick={onSignup}
           className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 text-base font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
         >
-          파이 계정으로 로그인
+          기사 등록하기
         </button>
         <button type="button" onClick={onClose} className="mt-2 w-full rounded-2xl py-3 text-sm font-bold text-[#64748B]">
           나중에
@@ -9359,6 +9361,13 @@ export default function HomeScreen() {
     }
     if (isDriverRegistered) {
       enterDriverMode()
+      return
+    }
+    // 파트너 전용 계정은 역할 상호배타라 기사 등록으로 유도하면 안 된다 —
+    // 기사 등록 안내 대신 파트너 화면을 연다.
+    if (isPartnerRegistered) {
+      setPartnerTabRole('partner')
+      setTab('기사/파트너')
       return
     }
     setDriverGateOpen(true)
