@@ -44,7 +44,12 @@ export async function handleServicePaymentComplete(input: {
   if (metadata.kind !== 'service-pay') return null
   const service = serviceFromMetadata(metadata)
   if (!service) return null
-  const gross = Number(input.amount)
+  // 쿠폰 할인은 플랫폼 부담 — 실결제액이 아니라 쿠폰 적용 전 요금(grossAmount)을
+  // 정산 기준으로 쓰도록 클라이언트가 메타데이터로 전달한다. 없으면 결제액.
+  const metaGross = typeof metadata.grossAmount === 'number' ? metadata.grossAmount : 0
+  const gross = Number(input.amount) > 0 && metaGross > 0 && metaGross > Number(input.amount)
+    ? metaGross
+    : Number(input.amount)
   if (!Number.isFinite(gross) || gross <= 0) return null
   const place = typeof metadata.place === 'string' ? metadata.place.trim() : ''
   const label = typeof metadata.label === 'string' ? metadata.label.trim() : ''

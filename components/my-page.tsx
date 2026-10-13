@@ -20,8 +20,6 @@ const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
 const PI_ACCOUNT_KEY = 'taxitago-pi-account-linked'
 
-const DEFAULT_BALANCE = 11.3
-
 type InnerTab = 'profile' | 'history' | 'center'
 
 function readFlag(key: string) {
@@ -43,7 +41,6 @@ function writeFlag(key: string, value: boolean) {
 
 export type MyPageProps = {
   username?: string
-  balance?: number
   embedded?: boolean
   driverMode?: boolean
   isDriverRegistered?: boolean
@@ -143,7 +140,6 @@ function mergedHistory(activities: ActivityRow[], transactions: TxRow[]): Histor
 
 export default function MyPage({
   username = 'taxitago',
-  balance,
   embedded = false,
   driverMode,
   isDriverRegistered,
@@ -163,7 +159,6 @@ export default function MyPage({
   const [localPartner, setLocalPartner] = useState(false)
   const [localMode, setLocalMode] = useState(false)
   const [localPi, setLocalPi] = useState(true)
-  const [localBalance, setLocalBalance] = useState(DEFAULT_BALANCE)
   const [partnerPending, setPartnerPending] = useState(false)
   const [toast, setToast] = useState('')
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
@@ -210,7 +205,6 @@ export default function MyPage({
     setLocalDriver(readFlag(DRIVER_REG_KEY))
     setLocalPartner(readFlag(PARTNER_REG_KEY))
     setLocalPi(readFlag(PI_ACCOUNT_KEY) || true)
-    setLocalBalance(DEFAULT_BALANCE)
     setInviteCode(getOrCreateInviteCode(username))
     setPartnerProfile(loadPartnerProfile())
     setPiUid(loadPiIdentity()?.uid?.trim() || '')
@@ -228,7 +222,6 @@ export default function MyPage({
   const partnerOk = (isPartnerRegistered ?? localPartner) || partnerProfile?.role === '파트너'
   const modeOn = driverMode ?? localMode
   const linked = piLinked ?? localPi
-  const piBalance = balance ?? localBalance
   // 권한 플래그는 마운트 후 localStorage에서 읽히므로, prop이 없으면 마운트
   // 전까지 '비파트너'로 잘못 렌더되는 플래시를 막는다.
   const rolesReady = mounted || isDriverRegistered !== undefined || isPartnerRegistered !== undefined
@@ -388,8 +381,7 @@ export default function MyPage({
             </span>
           </button>
           <div className="mt-5 rounded-2xl bg-white/10 p-4 ring-1 ring-white/15">
-            <p className="text-[11px] font-bold text-white/70">{linked ? t('mypage.balance') : t('mypage.needLink')}</p>
-            <p className="mt-1 text-3xl font-black tracking-tight">{piBalance.toFixed(7)} <span className="text-lg font-black text-[#FDE68A]">Pi</span></p>
+            <p className="text-[11px] font-bold text-white/70">{linked ? t('wallet.directPayNote') : t('mypage.needLink')}</p>
             <button
               type="button"
               onClick={(event) => {
@@ -398,7 +390,7 @@ export default function MyPage({
               }}
               className="mt-4 w-full rounded-2xl bg-white py-3 text-sm font-black text-[#4C1FB8] shadow-[0_8px_16px_rgba(15,23,42,0.18)]"
             >
-              {t('wallet.manage')}
+              {t('wallet.payHistory')}
             </button>
           </div>
         </section>
@@ -730,15 +722,11 @@ export default function MyPage({
         ? createPortal(
             <div className="fixed inset-0 z-[120] flex items-end justify-center bg-[#1e1033]/45 p-0 sm:items-center sm:p-4" onClick={() => setWalletSheet(false)}>
               <section className="w-full max-w-md rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px]" onClick={(event) => event.stopPropagation()}>
-                <p className="text-xs font-black text-[#4C1FB8]">PI WALLET</p>
-                <h3 className="mt-1 text-xl font-black text-[#0F172A]">{t('mypage.walletTitle')}</h3>
+                <p className="text-xs font-black text-[#4A82B8]">PI DIRECT PAY</p>
+                <h3 className="mt-1 text-xl font-black text-[#0F172A]">{t('wallet.payHistory')}</h3>
                 <p className="mt-3 text-sm font-bold leading-6 text-[#64748B]">
-                  {linked ? t('mypage.walletLinkedDesc', { username }) : t('mypage.walletUnlinkedDesc')}
+                  {linked ? t('wallet.directPayNote') : t('mypage.walletUnlinkedDesc')}
                 </p>
-                <div className="mt-4 rounded-2xl bg-[#F8F5FF] p-4">
-                  <p className="text-[11px] font-black text-[#64748B]">{t('mypage.balance')}</p>
-                  <p className="mt-1 text-2xl font-black text-[#4C1FB8]">{piBalance.toFixed(7)} Pi</p>
-                </div>
                 <button
                   type="button"
                   onClick={() => {

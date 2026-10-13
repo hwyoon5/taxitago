@@ -254,7 +254,6 @@ export function QrScanModal({
 export function PaymentHandler({
   service,
   amount,
-  balance,
   place,
   qrScanned,
   parkingOption,
@@ -265,13 +264,11 @@ export function PaymentHandler({
   onParkingOption,
   onRequestQr,
   onPay,
-  onNeedCharge,
   onContinue,
   onPrepaidSettled,
 }: {
   service: string
   amount: number
-  balance: number
   place: string
   qrScanned: boolean
   parkingOption: ParkingPaymentOption
@@ -282,21 +279,17 @@ export function PaymentHandler({
   onParkingOption: (value: ParkingPaymentOption) => void
   onRequestQr: () => void
   onPay: (amount: number, place: string, label: string) => boolean | Promise<boolean>
-  onNeedCharge: () => void
   onContinue: () => void
   onPrepaidSettled: () => void
 }) {
   const policy = getPaymentPolicy(service)
   if (!policy) return null
   const timing = activeTiming(service, parkingOption)
-  const enough = balance >= amount
   const needsQr = policy.requiresQr && !qrScanned
   const needsPrepaid = timing === 'prepaid' && !prepaidSettled
+  // 사전 충전 폐지 — 결제는 항상 Pi SDK 결제창에서 승객 지갑이 직접 낸다.
+  // 잔액 부족은 지갑 안에서 사용자가 확인하므로 여기서 선제 차단하지 않는다.
   const payNow = async () => {
-    if (!enough) {
-      onNeedCharge()
-      return
-    }
     const ok = await onPay(amount, place, `${policy.title} 선결제`)
     if (ok) onPrepaidSettled()
   }
@@ -312,7 +305,7 @@ export function PaymentHandler({
     }
     onContinue()
   }
-  const primaryLabel = needsQr ? 'QR 스캔하기' : needsPrepaid ? (enough ? `선결제 ${amount.toFixed(7)} Pi` : '잔액 충전하기') : continueLabel
+  const primaryLabel = needsQr ? 'QR 스캔하기' : needsPrepaid ? `Pi로 선결제 ${amount.toFixed(7)} Pi` : continueLabel
 
   return (
     <div className="space-y-3">
@@ -359,13 +352,12 @@ export function PaymentHandler({
           <p className="text-xs font-bold text-[#4A82B8]">Pi 결제</p>
         </div>
         <div className="mt-2 flex items-end justify-between">
-          <p className="text-xs font-medium text-[#64748B]">보유 {balance.toFixed(7)} Pi</p>
+          <p className="text-xs font-medium text-[#64748B]">Pi 지갑에서 결제</p>
           <p className="text-lg font-bold text-[#0F172A]">{amount.toFixed(7)} Pi</p>
         </div>
         {timing === 'qr_auto' ? <p className="mt-2 text-xs font-semibold text-[#334155]">반납·이용 종료 후 자동결제됩니다.</p> : null}
         {timing === 'postpaid' ? <p className="mt-2 text-xs font-semibold text-[#334155]">도착·출차 후 후결제됩니다.</p> : null}
         {prepaidSettled ? <p className="mt-2 text-xs font-semibold text-[#047857]">선결제가 완료되었습니다.</p> : null}
-        {!enough && needsPrepaid ? <p className="mt-2 text-xs font-bold text-[#BE123C]">잔액이 부족합니다. 충전 후 결제해 주세요.</p> : null}
       </div>
 
       {mode === 'setup' ? (

@@ -57,37 +57,6 @@ type PiPaymentInfo = {
 } | null
 
 /**
- * wallet-charge 결제는 검증 완료 직후 이용자 크레딧까지 서버에서 마감한다.
- * 보낸 주소·금액은 온체인 payment op가 권위이고, 귀속 uid는 Pi 결제 객체의
- * user_uid가 권위 — 클라이언트 body의 값은 쓰지 않는다. Horizon op 조회가
- * 실패해도 Pi 응답의 from_address/amount로 폴백해 크레딧을 놓치지 않는다.
- */
-async function creditWalletChargeDeposit(paymentId: string, txid: string, info: PiPaymentInfo, sandboxHint?: boolean | null) {
-  try {
-    const infoUid = typeof info?.user_uid === 'string' ? info.user_uid.trim() : ''
-    const metaUid =
-      info?.metadata && typeof info.metadata.uid === 'string' ? (info.metadata.uid as string).trim() : ''
-    const { creditInboundDeposit } = await import('@/lib/deposit-scan')
-    const deposit = await creditInboundDeposit({
-      txid,
-      uid: infoUid || metaUid,
-      fromAddress: typeof info?.from_address === 'string' ? info.from_address : '',
-      amount: typeof info?.amount === 'number' ? info.amount : undefined,
-      source: 'scan',
-      sandboxHint,
-    })
-    if (!deposit) {
-      console.warn('[Pi] /api/pi/complete wallet-charge credit deferred', { paymentId, txid })
-      return
-    }
-    console.log('[Pi] /api/pi/complete wallet-charge credited', { paymentId, txid, from: deposit.fromWallet, amount: deposit.amount, uid: deposit.fromUid })
-  } catch (error) {
-    // 크레딧 기록 실패는 결제 완료 자체를 되돌리지 않는다 — 폴러 스캔이 복구한다.
-    console.error('[Pi] /api/pi/complete wallet-charge credit failed', { paymentId, txid, error })
-  }
-}
-
-/**
  * 요청 body에서 결제 kind를 읽는다. body 값은 클라이언트가 자유롭게 쓸 수
  * 있으므로 '입금 아님' 분류와 로깅에만 쓰고, 크레딧을 만드는 판정에는
  * 서버가 조회한 결제 메타데이터(info.metadata.kind)를 쓴다.
@@ -233,37 +202,37 @@ export async function handlePiComplete(request: Request) {
     console.log('[Pi] /api/pi/complete verified', { paymentId, txid })
     // kind는 Pi Platform이 보관하는 결제 메타데이터(서버가 조회한 원본)가 권위.
     // 서버 조회가 실패(info null)하거나 원본에 kind가 없으면 클라이언트 주장을
-    // '입금 아님' 방향으로만 받아들인다 — 서비스 결제로 분류하는 표시는 크레딧을
-    // 막기만 하지만, wallet-charge 주장은 크레딧을 만들므로 미검증이면 기록하지
-    // 않는다. 크레딧 없이 남은 진짜 입금은 입금 스캐너가 뒤늦게 처리한다.
+    // '입금 아님' 방향으로만 받아들인다 — 입금 계열 주장은 미검증이면 기록하지
+    // 않는다. (사전 충전은 폐지되어 어떤 kind도 잔액 크레딧을 만들지 않는다.)
     const infoKind =
       info?.metadata && typeof info.metadata.kind === 'string' && info.metadata.kind.trim()
         ? info.metadata.kind.trim()
         : ''
     const { markPaymentKind, isDepositPaymentKind } = await import('@/lib/payment-kind-store')
-    const metaKind = infoKind || (isDepositPaymentKind(kind) ? '' : kind)
+    const metaKind = infoKind === 'wallet-charge' ? 'service-pay' : infoKind || (isDepositPaymentKind(kind) ? '' : kind)
     if (!infoKind && isDepositPaymentKind(kind) && kind) {
-      console.warn('[Pi] /api/pi/complete deposit-kind claim unverified; skipping mark+credit', {
+      console.warn('[Pi] /api/pi/complete deposit-kind claim unverified; skipping mark', {
         paymentId,
         txid,
         claimedKind: kind,
       })
     }
+    if (infoKind === 'wallet-charge') {
+      console.warn('[Pi] /api/pi/complete legacy wallet-charge payment; recording as service payment (no credit)', { paymentId, txid })
+    }
     await markPaymentKind(txid, metaKind).catch(() => undefined)
-    // 검증은 응답 전에 끝내고, 무거운 후속 작업(충전 크레딧·에스크로·정산 기록)은
+    // 검증은 응답 전에 끝내고, 무거운 후속 작업(에스크로·정산 기록·쿠폰 소비)은
     // 응답 이후 백그라운드로 — maxDuration 초과로 함수가 kill돼 응답이 유실되거나
     // 장부가 반만 기록되는 사태를 막는다. 각 단계는 멱등이라 폴러가 복구도 한다.
     after(async () => {
       console.log('[Pi] /api/pi/complete background work start', { paymentId, txid, metaKind })
-      if (metaKind === 'wallet-charge') {
-        await creditWalletChargeDeposit(paymentId, txid, info, effectiveSandbox)
-      }
-      await lockRideEscrowFromPayment(paymentId, txid, info?.metadata ?? fallbackMetadata).catch((lockError) => {
+      const settledMetadata = info?.metadata ?? fallbackMetadata
+      await lockRideEscrowFromPayment(paymentId, txid, settledMetadata).catch((lockError) => {
         console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
       })
-      // 요금 계열 결제는 이용자 크레딧 장부에서 결제액만큼 차감을 같은 완료
-      // 흐름에서 기록한다 — 서버 조회값(uid·from_address·amount)만 쓰고,
-      // txid 멱등이라 콜백 재시도가 이중 차감하지 않는다.
+      // 요금 계열 결제는 이용자 결제 장부에 결제액을 같은 완료 흐름에서 기록한다 —
+      // 서버 조회값(uid·from_address·amount)만 쓰고, txid 멱등이라 콜백 재시도가
+      // 이중 기록하지 않는다. 사전 충전 잔액 차감이 아니라 직결제 영수증 기록이다.
       const FARE_KINDS = new Set(['service-pay', 'manual-settle', 'escrow-lock'])
       if (metaKind && FARE_KINDS.has(metaKind)) {
         const { recordUserSpend } = await import('@/lib/user-credit-store')
@@ -276,6 +245,25 @@ export async function handlePiComplete(request: Request) {
         }).catch((spendError) => {
           console.error('[Pi] /api/pi/complete user spend record failed', { paymentId, spendError })
         })
+        // 쿠폰이 메타데이터에 있으면 완료 시점에 소비를 확정한다 — 할인액은
+        // 플랫폼 부담이며 txid 멱등이라 콜백 재시도가 이중 소진하지 않는다.
+        const couponCode =
+          settledMetadata && typeof settledMetadata.couponCode === 'string' ? settledMetadata.couponCode.trim() : ''
+        if (couponCode) {
+          const uid = typeof info?.user_uid === 'string' ? info.user_uid : ''
+          const gross =
+            settledMetadata && typeof settledMetadata.grossAmount === 'number' && settledMetadata.grossAmount > 0
+              ? settledMetadata.grossAmount
+              : typeof info?.amount === 'number'
+                ? info.amount
+                : (fallbackAmount ?? 0)
+          if (uid && gross > 0) {
+            const { redeemCoupon } = await import('@/lib/coupon-store')
+            await redeemCoupon(couponCode, uid, gross, txid).catch((couponError) => {
+              console.error('[Pi] /api/pi/complete coupon redeem failed', { paymentId, couponCode, couponError })
+            })
+          }
+        }
       }
       await recordServiceSettlement({
         paymentId,

@@ -2,7 +2,7 @@ import { Horizon } from '@stellar/stellar-sdk'
 import { getAdminWallet } from '@/lib/admin-wallet'
 import { isPiWalletAddress } from '@/lib/pi-wallet'
 import { recordDeposit } from '@/lib/deposit-store'
-import { creditUserDeposit, uidForWallet } from '@/lib/user-credit-store'
+import { uidForWallet } from '@/lib/user-credit-store'
 import { knownServiceTxids } from '@/lib/payment-kind-store'
 import { recordWalletTx } from '@/lib/wallet-history'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
@@ -123,14 +123,8 @@ export async function scanInboundDeposits(
         status: 'confirmed',
         network: record.network ?? (isPiSandboxEnv() ? 'testnet' : 'mainnet'),
       }).catch((error) => console.error('[Deposit] scan wallet-history write failed', { txid: deposit.txid, error }))
-      // 이용자 잔액 귀속 — 장부 기록과 같은 지점에서 반드시 남긴다(txid 멱등).
-      await creditUserDeposit({
-        txid: deposit.txid,
-        wallet: deposit.fromWallet,
-        uid: deposit.fromUid || knownUid,
-        amount: deposit.amount,
-        source: 'scan',
-      }).catch((error) => console.error('[Deposit] scan user-credit write failed', { txid: deposit.txid, error }))
+      // 사전 충전 폐지 — 입금은 감사 장부에만 기록하고 이용자 잔액 크레딧은
+      // 더 이상 부여하지 않는다. 서비스 요금은 종료 시점 Pi 직결제로 정산된다.
     }
   }
   return { configured: true, scanned: inbound.length, scanError: allFailed || undefined, adminWallet }
@@ -184,25 +178,17 @@ export async function creditInboundDeposit(input: {
     return null
   })
   if (!deposit) return null
-  await Promise.all([
-    creditUserDeposit({
-      txid,
-      wallet: deposit.fromWallet,
-      uid: deposit.fromUid || uid,
-      amount: deposit.amount,
-      source: input.source ?? 'scan',
-    }).catch((error) => console.error('[Deposit] user credit write failed', { txid, error })),
-    recordWalletTx({
-      kind: 'deposit',
-      txid: deposit.txid,
-      fromWallet: deposit.fromWallet,
-      toWallet: deposit.toWallet,
-      amount: deposit.amount,
-      memo: deposit.memo,
-      status: 'confirmed',
-      network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
-    }).catch((error) => console.error('[Deposit] wallet history write failed', { txid, error })),
-  ])
+  // 사전 충전 폐지 — 입금 내역만 장부에 남기고 이용자 잔액 크레딧은 부여하지 않는다.
+  await recordWalletTx({
+    kind: 'deposit',
+    txid: deposit.txid,
+    fromWallet: deposit.fromWallet,
+    toWallet: deposit.toWallet,
+    amount: deposit.amount,
+    memo: deposit.memo,
+    status: 'confirmed',
+    network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
+  }).catch((error) => console.error('[Deposit] wallet history write failed', { txid, error }))
   console.log('[Deposit] inbound credited', { txid, from, amount, uid: deposit.fromUid || uid || '(none)' })
   return deposit
 }

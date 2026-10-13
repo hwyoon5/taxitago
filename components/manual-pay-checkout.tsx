@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
-import { payFromBalance } from '@/lib/balance-pay'
+import { describePiUserMessage, startPiCheckout } from '@/components/pi-checkout'
 import { loadPiIdentity } from '@/lib/partner-account'
 import { CouponCodeField, type AppliedCoupon } from '@/components/coupon-field'
 
@@ -49,11 +49,17 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
     if (!record || view !== 'ready') return
     setView('paying')
     setError('')
-    // 앱 잔액에서 즉시 차감 — 금액은 서버의 결제 요청 레코드가 권위다.
-    void payFromBalance({ purpose: 'manual', manualId: record.id, label: '현장 수동 결제', couponCode: coupon?.code })
+    // 승객 Pi 지갑에서 SDK로 직접 결제 — 서버가 완료 검증 후 수수료 공제·기사 정산을 기록한다.
+    // 총액은 서버의 결제 요청 레코드가 권위다.
+    const payable = coupon ? coupon.payable : record.amount
+    void startPiCheckout({
+      amount: payable,
+      memo: `현장 결제 ${payable} Pi`,
+      metadata: { kind: 'manual-settle', manualId: record.id, grossAmount: record.amount, couponCode: coupon?.code },
+    })
       .then(() => setView('done'))
       .catch((payError) => {
-        setError(payError instanceof Error ? payError.message : '결제를 처리하지 못했습니다.')
+        setError(describePiUserMessage(payError))
         setView('ready')
       })
   }
@@ -110,10 +116,10 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
             onClick={pay}
             className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 text-sm font-black text-white disabled:opacity-60"
           >
-            {view === 'paying' ? '잔액 결제 처리 중…' : '앱 잔액으로 결제하기'}
+            {view === 'paying' ? 'Pi 결제 처리 중…' : `Pi 지갑으로 ${(coupon ? coupon.payable : record.amount).toFixed(7)} Pi 결제하기`}
           </button>
           <p className="mt-2 text-center text-[11px] font-bold leading-5 text-[#94A3B8]">
-            앱 내 충전 잔액에서 즉시 차감됩니다. 잔액이 부족하면 앱 지갑에서 Pi를 먼저 충전해 주세요.
+            Pi 지갑 결제창에서 직접 결제됩니다. 플랫폼 수수료는 자동 정산됩니다.
           </p>
         </>
       ) : null}

@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 /**
  * 쿠폰 미리보기 — 결제 화면이 코드 유효성과 할인액을 조회한다.
- * 실제 사용 기록은 결제 차감 시점(/api/wallet/spend)에만 남는다.
+ * 실제 사용 기록은 Pi SDK 결제 완료(/api/pi/complete의 couponCode 처리)에만 남는다.
  * GET /api/coupons?code=…&uid=…&amount=…
  */
 export async function GET(request: Request) {

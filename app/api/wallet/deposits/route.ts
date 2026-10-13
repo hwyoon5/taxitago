@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { listDeposits } from '@/lib/deposit-store'
-import { creditInboundDeposit, scanInboundDeposits } from '@/lib/deposit-scan'
-import { creditUserDeposit, listUserCredits, userCreditTotals, userSpendableBalance, walletsForUid, withdrawnDepositTxids } from '@/lib/user-credit-store'
+import { scanInboundDeposits } from '@/lib/deposit-scan'
+import { userCreditTotals, userSpendableBalance, walletsForUid, withdrawnDepositTxids } from '@/lib/user-credit-store'
 import { knownServiceTxids } from '@/lib/payment-kind-store'
-import { getPiPayment } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
@@ -13,6 +12,9 @@ export const dynamic = 'force-dynamic'
  * 플랫폼 입금 지갑으로 들어온 Pi 결제를 Horizon에서 스캔해 장부에 기록하고,
  * 호출한 이용자(지갑 주소 또는 Pi uid)에게 귀속되는 confirmed 입금만 반환한다.
  * ?from={wallet} — 해당 지갑이 보낸 입금. &uid={pi_uid} — uid로 귀속 기록된 입금.
+ *
+ * 사전 충전 폐지 이후: 입금은 감사·이력 용도로만 기록되며 이용자 잔액 크레딧을
+ * 부여하지 않는다. 서비스 요금은 종료 시점 Pi SDK 직결제로 정산된다.
  */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams
@@ -59,85 +61,19 @@ export async function GET(request: Request) {
     )
   })
   console.log('[Deposit] GET matched', { total: entries.length, matched: matched.length, uid, linkedWallets: linkedWallets.size })
-  // 반환되는 입금은 이용자 크레딧 귀속도 함께 보장한다 — 장부에 있는데
-  // 크레딧이 빠진 과거 건도 여기서 복구된다(txid 멱등).
-  const credits = await listUserCredits()
-  const creditedTxids = new Set(credits.map((credit) => credit.txid))
-  for (const entry of matched) {
-    if (!entry.txid || creditedTxids.has(entry.txid)) continue
-    const credited = await creditUserDeposit({
-      txid: entry.txid,
-      wallet: entry.fromWallet,
-      uid: entry.fromUid || uid,
-      amount: entry.amount,
-      source: 'scan',
-    }).catch(() => null)
-    if (credited) creditedTxids.add(entry.txid)
-  }
-  const deposits = matched.map((entry) => ({ ...entry, userCredited: creditedTxids.has(entry.txid) }))
   const creditsTotal = await userCreditTotals(from, uid)
   const spendable = await userSpendableBalance(from, uid)
   // balance — 누적 입금 크레딧(지출 전), spendable — 지출 차감 후 사용 가능 잔액.
-  return NextResponse.json({ ok: true, configured: true, deposits, creditsTotal, balance: creditsTotal.total, spendable })
+  return NextResponse.json({ ok: true, configured: true, deposits: matched, creditsTotal, balance: creditsTotal.total, spendable })
 }
 
 /**
- * 이용자 셀프 클레임 — 충전 결제의 paymentId를 소유권 증명으로 써서 완료된
- * 결제의 온체인 입금을 본인 uid에 귀속시킨다. 서버 after() 크레딧이 실패하거나
- * 스캐너가 놓친 경우의 복구 경로. Pi 결제 객체의 user_uid가 호출자 uid와
- * 일치해야만 크레딧된다 — 남의 paymentId로는 user_uid가 달라 거절된다.
+ * 사전 충전 폐지 — 이용자 셀프 입금 클레임(잔액 크레딧 귀속)은 종료되었다.
+ * 서비스 요금은 이용 종료 시점에 Pi SDK 결제로 직접 정산한다.
  */
-export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as {
-    paymentId?: unknown
-    txid?: unknown
-    uid?: unknown
-    sandbox?: unknown
-  } | null
-  const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
-  const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
-  const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
-  const sandboxHint = typeof body?.sandbox === 'boolean' ? body.sandbox : null
-  const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
-  console.log('[Deposit] POST claim', { paymentId: paymentId || '(empty)', txid: txid || '(empty)', uid: uid || '(empty)', effectiveSandbox })
-  if (!paymentId || !uid) {
-    return NextResponse.json({ error: 'paymentId and uid required' }, { status: 400 })
-  }
-
-  const info = (await getPiPayment(paymentId, effectiveSandbox).catch((error) => {
-    console.error('[Deposit] claim: payment lookup failed', { paymentId, error })
-    return null
-  })) as Record<string, unknown> | null
-  if (!info) return NextResponse.json({ error: 'payment lookup failed' }, { status: 502 })
-
-  const transaction = info.transaction && typeof info.transaction === 'object' ? (info.transaction as Record<string, unknown>) : null
-  const status = info.status && typeof info.status === 'object' ? (info.status as Record<string, unknown>) : null
-  const payUid = typeof info.user_uid === 'string' ? info.user_uid.trim() : ''
-  const payTxid = typeof transaction?.txid === 'string' ? transaction.txid.trim() : ''
-  const completed = status?.developer_completed === true || transaction?.verified === true
-
-  if (!payUid || payUid !== uid) {
-    console.warn('[Deposit] claim denied: uid mismatch', { paymentId, uid, payUid: payUid || '(none)' })
-    return NextResponse.json({ error: 'ownership not verifiable' }, { status: 403 })
-  }
-  if (!completed) {
-    return NextResponse.json({ error: 'payment not completed' }, { status: 409 })
-  }
-  const resolvedTxid = txid || payTxid
-  if (!resolvedTxid) return NextResponse.json({ error: 'txid unavailable' }, { status: 400 })
-  if (payTxid && txid && payTxid !== txid) {
-    console.warn('[Deposit] claim denied: txid mismatch', { paymentId, txid, payTxid })
-    return NextResponse.json({ error: 'txid mismatch' }, { status: 400 })
-  }
-
-  const deposit = await creditInboundDeposit({
-    txid: resolvedTxid,
-    uid: payUid,
-    fromAddress: typeof info.from_address === 'string' ? info.from_address : '',
-    amount: typeof info.amount === 'number' ? info.amount : undefined,
-    source: 'manual',
-    sandboxHint: effectiveSandbox,
-  })
-  if (!deposit) return NextResponse.json({ error: 'deposit could not be credited' }, { status: 502 })
-  return NextResponse.json({ ok: true, deposit })
+export async function POST() {
+  return NextResponse.json(
+    { ok: false, error: '사전 충전은 지원되지 않습니다. 서비스 이용 종료 시점에 Pi 결제로 바로 정산해 주세요.' },
+    { status: 410 },
+  )
 }

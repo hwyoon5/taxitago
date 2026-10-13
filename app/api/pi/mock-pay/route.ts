@@ -38,6 +38,13 @@ export async function POST(request: Request) {
   await handleServicePaymentComplete({ paymentId, txid, amount, metadata }).catch((error) => {
     console.error('[Pi] mock-pay settlement record failed', { paymentId, error })
   })
+  // 수동 결제(manual-settle)도 실제 완료 콜백과 동일하게 기사 요청 건을 마감한다.
+  if (metadata?.kind === 'manual-settle') {
+    const { handleManualPayComplete } = await import('@/lib/manual-pay-store')
+    await handleManualPayComplete({ paymentId, txid, metadata }).catch((error) => {
+      console.error('[Pi] mock-pay manual-pay settle failed', { paymentId, error })
+    })
+  }
 
   return NextResponse.json({ ok: true, sandbox: true, amount, paymentId, txid })
 }

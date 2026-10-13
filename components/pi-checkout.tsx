@@ -3,8 +3,6 @@
 import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { apiFetch } from '@/lib/app-origin'
 import { resolvePiSandbox } from '@/lib/pi-sandbox'
-import { payFromBalance } from '@/lib/balance-pay'
-import { loadPiIdentity } from '@/lib/partner-account'
 
 type IncompletePiPayment = {
   identifier?: string
@@ -664,89 +662,12 @@ function requirePiSdk() {
   return pi
 }
 
-function isCancelError(error: unknown) {
-  return /cancel|취소/i.test(errorText(error))
-}
-
-/** 결제가 Pi 측에 실제로 생성된 이후 발생한 실패 — 모의 충전 폴백으로 넘기면 안 된다. */
+/** 결제가 Pi 측에 실제로 생성된 이후 발생한 실패 — 무상 폴백으로 넘기면 안 된다. */
 type PiCheckoutError = Error & { piInitiated?: boolean }
-
-function markPiInitiated(error: unknown): boolean {
-  return Boolean((error as PiCheckoutError | null)?.piInitiated)
-}
 
 function checkoutKind(metadata?: Record<string, unknown>) {
   const kind = metadata?.kind
   return typeof kind === 'string' ? kind.trim() : ''
-}
-
-async function postSandboxCharge(amount: number, memo: string) {
-  logPi('log', '/api/pi/charge request', { amount, memo })
-  // 서버 장부 크레딧 귀속용 식별자 — 없으면 모의 충전이 앱 잔액에 반영되지 않는다.
-  const identity = typeof window === 'undefined' ? null : loadPiIdentity()
-  const response = await apiFetch('/api/pi/charge', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      amount,
-      memo,
-      metadata: { kind: 'wallet-charge' },
-      uid: identity?.uid || undefined,
-      wallet: identity?.wallet || undefined,
-    }),
-  })
-  const payload = (await response.json().catch(() => null)) as {
-    ok?: unknown
-    error?: unknown
-    paymentId?: unknown
-    txid?: unknown
-  } | null
-  if (!response.ok || payload?.ok !== true) {
-    const message = typeof payload?.error === 'string' ? payload.error : `/api/pi/charge failed (${response.status})`
-    logPi('error', '/api/pi/charge failed', { status: response.status, payload })
-    throw new Error(message)
-  }
-  const paymentId = typeof payload.paymentId === 'string' ? payload.paymentId : `sandbox-charge-${Date.now()}`
-  const txid = typeof payload.txid === 'string' ? payload.txid : `demo-txid-${Date.now()}`
-  logPi('log', '/api/pi/charge ok', { paymentId, txid, amount })
-  return { paymentId, txid }
-}
-
-/** Wallet top-up: sandbox credits test balance; mainnet requires createPayment. */
-export const PI_CHARGE_MAX_PI = 50
-export async function chargePiWallet(amount: number) {
-  const value = Math.round(amount * 1_000_000) / 1_000_000
-  if (!(value > 0)) throw new Error('충전 금액이 올바르지 않습니다.')
-  if (value > PI_CHARGE_MAX_PI) throw new Error(`충전은 한 번에 최대 ${PI_CHARGE_MAX_PI} Pi까지 가능합니다.`)
-  const memo = `TaxiTago ${value} Pi 충전`.slice(0, 25)
-
-  if (PI_SANDBOX) {
-    const pi = typeof window !== 'undefined' ? window.Pi : undefined
-    if (isPiBrowser() && typeof pi?.createPayment === 'function') {
-      try {
-        return await startPiCheckout({
-          amount: value,
-          memo,
-          metadata: { kind: 'wallet-charge' },
-          strictCompletion: true,
-        })
-      } catch (error) {
-        // 실제 결제가 생성된 뒤 승인/완료가 실패·만료된 경우 — 무상 충전으로 대체하지 않는다.
-        if (isCancelError(error) || markPiInitiated(error)) throw error
-        logPi('warn', 'sandbox createPayment failed; crediting test balance', error)
-      }
-    } else {
-      logPi('warn', 'sandbox charge via /api/pi/charge')
-    }
-    return postSandboxCharge(value, memo)
-  }
-
-  return startPiCheckout({
-    amount: value,
-    memo,
-    metadata: { kind: 'wallet-charge' },
-    strictCompletion: true,
-  })
 }
 
 function txidFromPiPayload(payload: unknown) {
@@ -1067,6 +988,7 @@ export function PiCheckoutButton({
   children,
   onPaid,
   onFailed,
+  advanceOnApproval = true,
   className,
   disabled,
   ...buttonProps
@@ -1077,6 +999,9 @@ export function PiCheckoutButton({
   children: ReactNode
   onPaid?: (result: PiCheckoutResult) => void
   onFailed?: (error: Error) => void
+  /** true면 서버 승인 직후 버튼을 '결제 완료'로 놓는다 — 이용 종료 정산처럼
+   *  완료(txid) 확정이 선행돼야 하는 흐름에서는 false로 넘긴다. */
+  advanceOnApproval?: boolean
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'type'>) {
   const lockRef = useRef(false)
   const [busy, setBusy] = useState(false)
@@ -1108,7 +1033,7 @@ export function PiCheckoutButton({
       setBusy(false)
     }
     try {
-      void startPiCheckout({ amount, memo, metadata, advanceOnApproval: true, onSettled: deliver })
+      void startPiCheckout({ amount, memo, metadata, advanceOnApproval, onSettled: deliver })
         .then((result) => deliver(result))
         .catch((error) => {
           if (!delivered) fail(error)
@@ -1130,88 +1055,6 @@ export function PiCheckoutButton({
       className={`${className ?? ''} disabled:cursor-not-allowed disabled:opacity-60`}
     >
       {busy ? 'Pi 결제 진행 중…' : paid ? '결제 완료' : children}
-    </button>
-  )
-}
-
-/**
- * 앱 잔액 결제 버튼 — PiCheckoutButton과 같은 props를 받지만 Pi SDK 시트 대신
- * 서버 잔액 장부(/api/wallet/spend)에서 즉시 차감한다. 잔액 부족 시 서버가
- * 400을 돌려주고 onFailed로 안내 문구가 전달된다.
- * metadata.kind 매핑: escrow-lock → ride(rideId 필요), manual-settle → manual
- * (manualId 필요), 나머지 → service 정산.
- */
-export function BalanceCheckoutButton({
-  amount,
-  memo,
-  metadata,
-  children,
-  onPaid,
-  onFailed,
-  className,
-  disabled,
-  ...buttonProps
-}: {
-  amount: number
-  memo: string
-  metadata?: Record<string, unknown>
-  children: ReactNode
-  onPaid?: (result: PiCheckoutResult) => void
-  onFailed?: (error: Error) => void
-} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'type'>) {
-  const lockRef = useRef(false)
-  const [busy, setBusy] = useState(false)
-  const [paid, setPaid] = useState(false)
-
-  const fail = (error: unknown) => {
-    const next = error instanceof Error ? error : new Error(String(error))
-    logPi('error', 'balance pay failed', next)
-    onFailed?.(next)
-    if (!onFailed) window.alert(next.message || '결제를 처리하지 못했습니다.')
-  }
-
-  const handleClick = () => {
-    if (lockRef.current || disabled) return
-    lockRef.current = true
-    setBusy(true)
-    const kind = checkoutKind(metadata)
-    const purpose =
-      kind === 'escrow-lock' ? 'ride' : kind === 'manual-settle' ? 'manual' : 'service'
-    const meta = metadata ?? {}
-    void payFromBalance({
-      purpose,
-      amount,
-      rideId: typeof meta.rideId === 'string' ? meta.rideId : undefined,
-      manualId: typeof meta.manualId === 'string' ? meta.manualId : undefined,
-      label: typeof meta.label === 'string' ? meta.label : memo,
-      place: typeof meta.place === 'string' ? meta.place : undefined,
-      service: typeof meta.service === 'string' ? meta.service : undefined,
-      partnerId: typeof meta.partnerId === 'string' ? meta.partnerId : undefined,
-      partnerName: typeof meta.partnerName === 'string' ? meta.partnerName : undefined,
-      deviceId: typeof meta.deviceId === 'string' ? meta.deviceId : undefined,
-    })
-      .then((result) => {
-        setPaid(true)
-        setBusy(false)
-        onPaid?.(result)
-      })
-      .catch((error) => {
-        lockRef.current = false
-        setBusy(false)
-        fail(error)
-      })
-  }
-
-  return (
-    <button
-      type="button"
-      {...buttonProps}
-      disabled={busy || paid || disabled}
-      aria-busy={busy}
-      onClick={handleClick}
-      className={`${className ?? ''} disabled:cursor-not-allowed disabled:opacity-60`}
-    >
-      {busy ? '잔액 결제 처리 중…' : paid ? '결제 완료' : children}
     </button>
   )
 }

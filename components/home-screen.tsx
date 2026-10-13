@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, Copy, FileSpreadsheet, Gift, House, LayoutGrid, LoaderCircle, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, WalletCards, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, FileSpreadsheet, Gift, House, LayoutGrid, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { localizedText, translateDeviceStatus, translateService, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -37,9 +37,7 @@ import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-servic
 import { facilityTypeToDeviceKind, type DeviceSpec } from '@/lib/device-types'
 import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
-import { piCompact } from '@/lib/pi-format'
-import { DEFAULT_FARE_CONFIG, fetchDepositWallet, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
-import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
+import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
@@ -68,7 +66,6 @@ import {
   rideFromPushedOffer,
   subscribeDriverLive,
   fetchRideRequest,
-  lockRideEscrow,
   respondToRideOffer,
   acceptRideOnDevice,
   sendDriverPresence,
@@ -81,8 +78,7 @@ import DriverLostWatcher from '@/components/driver-lost-watcher'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import type { DriverPenaltyInfo, PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
-import { BalanceCheckoutButton, describePiUserMessage, chargePiWallet, PI_SANDBOX, PI_CHARGE_MAX_PI, signInWithPi, autoVerifyPiAppStudio, type PiSession } from '@/components/pi-checkout'
-import { payFromBalance } from '@/lib/balance-pay'
+import { PiCheckoutButton, describePiUserMessage, PI_SANDBOX, signInWithPi, autoVerifyPiAppStudio, startPiCheckout, type PiSession } from '@/components/pi-checkout'
 import MyPage from '@/components/my-page'
 import ManualPayModal from '@/components/manual-pay-modal'
 import QrPayScanModal from '@/components/qr-pay-scan'
@@ -733,39 +729,6 @@ function LocationMapModal({
 
 const FAVORITES_KEY = 'taxitago-favorite-places'
 const WALLET_KEY = 'taxitago-pi-wallet'
-const DEPOSIT_ADDRESS_KEY = 'taxitago-pi-deposit-address'
-/** 이용자가 지정한 출금 주소 — {uid, address} 형태로 uid 범위로 저장한다. */
-const WITHDRAW_ADDRESS_KEY = 'taxitago-pi-withdraw-address'
-const DEPOSIT_CREDITED_KEY = 'taxitago-pi-deposit-credited'
-
-/** txid 단위 멱등 — 지갑 모달과 앱 레벨 폴러가 같은 입금을 두 번 충전하지 못하게 공유한다. */
-let piDepositCreditedCache: Set<string> | null = null
-function piDepositCreditedSet() {
-  if (!piDepositCreditedCache) {
-    piDepositCreditedCache = new Set()
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(DEPOSIT_CREDITED_KEY) || '[]') as unknown
-      if (Array.isArray(stored)) piDepositCreditedCache = new Set(stored.map(String))
-    } catch {
-      undefined
-    }
-  }
-  return piDepositCreditedCache
-}
-function markPiDepositCredited(txid: string) {
-  const value = txid.trim()
-  if (!value) return
-  piDepositCreditedSet().add(value)
-  try {
-    window.localStorage.setItem(DEPOSIT_CREDITED_KEY, JSON.stringify([...piDepositCreditedSet()].slice(-300)))
-  } catch {
-    undefined
-  }
-}
-function isPiDepositCredited(txid: string) {
-  const value = txid.trim()
-  return Boolean(value) && piDepositCreditedSet().has(value)
-}
 const SETTLED_RIDES_KEY = 'taxitago-settled-rides'
 const SETTLED_PAYMENTS_KEY = 'taxitago-settled-payments'
 
@@ -816,48 +779,6 @@ function isSettledPayment(id: string | undefined) {
   return settledPaymentIdCache.has(value)
 }
 
-/**
- * 서버(/api/wallet/deposits)가 Horizon 스캔+장부 기록까지 처리한 뒤
- * 이 이용자에게 귀속되는 confirmed 입금을 돌려준다 — 각 건은 txid 멱등으로
- * 정확히 한 번만 onCredit 된다.
- */
-async function scanPiDeposits(
-  wallet: string,
-  uid: string,
-  onCredit: (amount: number, txid: string, at?: number) => void,
-  onBalance?: (spendable: number) => void,
-) {
-  try {
-    const uidParam = uid ? `&uid=${encodeURIComponent(uid)}` : ''
-    const res = await fetch(
-      `/api/wallet/deposits?from=${encodeURIComponent(wallet)}${uidParam}&sandbox=${PI_SANDBOX}`,
-      { cache: 'no-store' },
-    )
-    const data = (await res.json().catch(() => null)) as {
-      deposits?: { txid: string; amount: number; createdAt?: string }[]
-      spendable?: number
-      creditsTotal?: { total?: number }
-    } | null
-    if (!res.ok || !data?.deposits) return
-    for (const deposit of data.deposits) {
-      if (!deposit.txid || isPiDepositCredited(deposit.txid) || !(deposit.amount > 0)) continue
-      markPiDepositCredited(deposit.txid)
-      // 서버 장부의 실제 입금 시각을 넘긴다 — 재동기화된 과거 입금이 "오늘 충전"
-      // 으로 오인돼 24시간 한도를 깎아먹지 않게 한다.
-      const at = typeof deposit.createdAt === 'string' ? Date.parse(deposit.createdAt) : NaN
-      onCredit(deposit.amount, deposit.txid, Number.isFinite(at) ? at : undefined)
-    }
-    // 서버 장부가 권위 — 크레딧이 실제로 기록된 이용자는 spendable로 로컬 잔액을
-    // 교정한다(새로고침 중복 차감 등으로 깨진 표시 자가치유). 메인넷에서는 로컬
-    // 시드가 없으므로 장부가 비어 있어도(=실제 잔액 0) 항상 서버 값으로 교정한다.
-    const spendable = Number(data.spendable)
-    const creditsTotal = Number(data.creditsTotal?.total)
-    if (onBalance && Number.isFinite(spendable) && spendable >= 0 && (creditsTotal > 0 || !PI_SANDBOX)) onBalance(spendable)
-  } catch {
-    undefined
-  }
-}
-const DEFAULT_DEPOSIT_ADDRESS = PLATFORM_DEPOSIT_WALLET
 const DRIVER_REG_KEY = 'taxitago-is-driver-registered'
 const PARTNER_REG_KEY = 'taxitago-is-partner-registered'
 const PI_ACCOUNT_KEY = 'taxitago-pi-account-linked'
@@ -1011,30 +932,19 @@ function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
   }
 }
 
-const DEFAULT_PI_TX: PiTransaction[] = [
-  { label: '택시 이용', amount: -3.2, detail: '어제 18:40', place: '서울시청 → 강남역', at: '어제 18:40' },
-  { label: 'Pi 충전', amount: 10, detail: '어제 12:00', place: 'Pi 월렛', at: '어제 12:00' },
-]
+const DEFAULT_PI_TX: PiTransaction[] = []
 
 /**
- * 신규 가입 지갑 시드 — 테스트넷 전용 가상 잔액.
- * 메인넷(NEXT_PUBLIC_NETWORK_MODE=mainnet 또는 NEXT_PUBLIC_PI_SANDBOX=false)에서는
- * 절대 지급되지 않고 0 Pi로 시작한다 — 실제 잔액은 /api/wallet/balance가
- * 온체인(Horizon)에서 읽어온다.
+ * 사전 충전 폐지 — 앱은 더 이상 가상 잔액·시드 잔액을 만들지 않는다.
+ * 과거 빌드가 localStorage에 남긴 잔액/시드 내역도 무시하고 결제 내역만 읽는다.
+ * 실제 결제는 이용 종료 시점 Pi SDK 직결제로, 금액·정산은 서버가 검증한다.
  */
-const SIGNUP_WALLET_SEED_TESTNET = 18.4
-const SIGNUP_WALLET_SEED = PI_SANDBOX ? SIGNUP_WALLET_SEED_TESTNET : 0
 /**
  * 리뷰 이벤트 Pi 보상 지급 스위치 — false인 동안 rewardReview의 잔액 적립과
  * /api/rewards/review 서버 장부 기록이 모두 실행되지 않는다(UI·안내는 유지).
  * 이벤트 재개 시 true로 되돌린다.
  */
 const REVIEW_REWARD_ENABLED = false
-// 시드 잔액에는 가짜 이용 내역을 섞지 않는다 — '테스트 지급' 한 건만 명시해
-// 장부 합계가 맞고, 재가입/메인넷에서 '서울시청 → 강남역' 같은 더미가 안 뜬다.
-const SIGNUP_WALLET_TX: PiTransaction[] = PI_SANDBOX
-  ? [{ label: '테스트 지급', amount: SIGNUP_WALLET_SEED, detail: '테스트넷 가입 시드', place: 'Pi 월렛 (테스트)', at: '가입 시 자동 지급', ts: 0 }]
-  : []
 
 function formatPiTime() {
   const now = new Date()
@@ -1045,44 +955,20 @@ function formatPiTime() {
   return `${month}월 ${day}일 ${hours}:${minutes}`
 }
 
-function readPiWallet(): { balance: number; transactions: PiTransaction[] } {
-  // 테스트넷이 아니면(메인넷) 저장본이 없을 때 가상 시드를 지급하지 않는다.
+function readPiTransactions(): PiTransaction[] {
   try {
     const raw = window.localStorage.getItem(WALLET_KEY)
-    if (!raw) return { balance: SIGNUP_WALLET_SEED, transactions: SIGNUP_WALLET_TX }
-    const parsed = JSON.parse(raw) as { balance?: number; transactions?: PiTransaction[] }
-    if (!PI_SANDBOX && typeof parsed.balance === 'number' && parsed.balance === SIGNUP_WALLET_SEED_TESTNET) {
-      // 메인넷: 예전 테스트넷 빌드가 남긴 시드 서명(18.4 + 샘플 내역)이 그대로면
-      // 가상 잔액을 제거하고 0으로 시작한다 — 실수로 저장된 진짜 기록은 보존한다.
-      const untouchedSeed =
-        Array.isArray(parsed.transactions) && JSON.stringify(parsed.transactions) === JSON.stringify(DEFAULT_PI_TX)
-      if (untouchedSeed) return { balance: 0, transactions: [] }
-    }
-    return {
-      balance: typeof parsed.balance === 'number' ? parsed.balance : SIGNUP_WALLET_SEED,
-      transactions: Array.isArray(parsed.transactions) ? parsed.transactions : SIGNUP_WALLET_TX,
-    }
+    if (!raw) return DEFAULT_PI_TX
+    const parsed = JSON.parse(raw) as { transactions?: PiTransaction[] }
+    return Array.isArray(parsed.transactions) ? parsed.transactions : DEFAULT_PI_TX
   } catch {
-    return { balance: SIGNUP_WALLET_SEED, transactions: SIGNUP_WALLET_TX }
+    return DEFAULT_PI_TX
   }
 }
 
-function writePiWallet(balance: number, transactions: PiTransaction[]) {
-  window.localStorage.setItem(WALLET_KEY, JSON.stringify({ balance, transactions }))
-}
-
-function loadDepositAddress() {
-  try {
-    const raw = window.localStorage.getItem(DEPOSIT_ADDRESS_KEY)
-    if (typeof raw === 'string' && raw.trim()) return raw.trim()
-  } catch {
-    /* private mode */
-  }
-  return DEFAULT_DEPOSIT_ADDRESS
-}
-
-function saveDepositAddress(value: string) {
-  window.localStorage.setItem(DEPOSIT_ADDRESS_KEY, value.trim())
+function writePiTransactions(transactions: PiTransaction[]) {
+  // balance 필드는 구버전 저장본과의 호환용으로 0으로 고정해 쓴다.
+  window.localStorage.setItem(WALLET_KEY, JSON.stringify({ balance: 0, transactions }))
 }
 
 function loadIsDriverRegistered() {
@@ -1749,44 +1635,35 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
 
 function PiPayPanel({
   amount,
-  balance,
   onPay,
 }: {
   amount: number
-  balance: number
   onPay: () => void
 }) {
   const { t } = useLocale()
-  const enough = balance >= amount
   return (
     <div className="space-y-3">
-      <div className="rounded-[22px] border-2 border-[#4C1FB8] bg-[#EDE5FF] p-4">
-        <p className="text-xs font-black text-[#4C1FB8]">{t('pay.method')}</p>
+      <div className="rounded-[22px] border-2 border-[#BFDBFE] bg-[#E8F1FA] p-4">
+        <p className="text-xs font-black text-[#4A82B8]">{t('pay.method')}</p>
         <div className="mt-2 flex items-center justify-between">
           <span className="text-sm font-black text-[#0F172A]">{t('pay.piCoin')}</span>
-          <span className="rounded-full bg-[#4C1FB8] px-2.5 py-1 text-[10px] font-black text-white">{t('pay.selected')}</span>
+          <span className="rounded-full bg-[#4A82B8] px-2.5 py-1 text-[10px] font-black text-white">{t('pay.selected')}</span>
         </div>
         <div className="mt-3 flex items-end justify-between">
-          <p className="text-xs font-bold text-[#475569]">{t('pay.balanceLine', { v: balance.toFixed(7) })}</p>
-          <p className="text-lg font-black text-[#4C1FB8]">{amount.toFixed(7)} Pi</p>
+          <p className="text-xs font-bold text-[#475569]">{t('paydone.amount')}</p>
+          <p className="text-lg font-black text-[#4A82B8]">{amount.toFixed(7)} Pi</p>
         </div>
-        {!enough ? <p className="mt-2 text-xs font-black text-[#BE123C]">{t('pay.insufficient')}</p> : null}
       </div>
-      {enough ? (
-        <BalanceCheckoutButton
-          amount={amount}
-          memo={`TaxiTago ${amount} Pi 결제`}
-          metadata={{ kind: 'service-pay', label: '서비스 결제' }}
-          className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
-          onPaid={() => onPay()}
-        >
-          {t('pay.checkout', { v: amount.toFixed(7) })}
-        </BalanceCheckoutButton>
-      ) : (
-        <button type="button" onClick={onPay} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]">
-          {t('pay.chargeBtn')}
-        </button>
-      )}
+      <PiCheckoutButton
+        amount={amount}
+        memo={`TaxiTago ${amount} Pi 결제`}
+        metadata={{ kind: 'service-pay', label: '서비스 결제' }}
+        advanceOnApproval={false}
+        className="w-full rounded-2xl bg-[#4A82B8] py-4 font-black text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
+        onPaid={() => onPay()}
+      >
+        {t('pay.checkout', { v: amount.toFixed(7) })}
+      </PiCheckoutButton>
     </div>
   )
 }
@@ -1868,35 +1745,14 @@ function RideCompleteCancelBar({
   )
 }
 
-function InsufficientBalanceModal({ onConfirm }: { onConfirm: () => void }) {
-  const { t } = useLocale()
-  return (
-    <div className="fixed inset-0 z-[96] flex items-end bg-[#1e293b]/50 sm:items-center sm:p-4">
-      <section className="mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
-        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#FEF2F2] text-[#BE123C]">
-          <WalletCards className="h-7 w-7" />
-        </div>
-        <h2 className="mt-4 text-2xl font-bold text-[#0F172A]">{t('insuff.title')}</h2>
-        <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">{t('insuff.desc')}</p>
-        <button type="button" onClick={onConfirm} className="mt-6 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white">
-          {t('common.ok')}
-        </button>
-      </section>
-    </div>
-  )
-}
-
 function PaymentDoneModal({
   amount,
   place,
-  remaining,
   estimated,
   onClose,
 }: {
   amount: number
   place: string
-  remaining: number
   estimated?: number
   onClose: () => void
 }) {
@@ -1941,10 +1797,6 @@ function PaymentDoneModal({
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs font-medium text-[#64748B]">{t('pay.method')}</span>
             <span className="text-sm font-bold text-[#0F172A]">Pi Network</span>
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-[#64748B]">{t('paydone.remaining')}</span>
-            <span className="text-sm font-bold text-[#334155]">{remaining.toFixed(7)} Pi</span>
           </div>
         </div>
         <button type="button" onClick={onClose} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white">
@@ -2066,19 +1918,13 @@ function DestinationSheet({
   destination,
   onClose,
   onNotice,
-  balance,
-  onPay,
   onSettle,
-  onNeedCharge,
   onAskReview,
 }: {
   destination: string
   onClose: () => void
   onNotice: (message: string) => void
-  balance: number
-  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
   onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string) => void
-  onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
   const { t } = useLocale()
@@ -2191,10 +2037,11 @@ function DestinationSheet({
                 {t('match.chat')}
               </button>
             </div>
-            <BalanceCheckoutButton
+            <PiCheckoutButton
               amount={billed.actual}
               memo={`${selectedService} ${billed.actual} Pi`}
               metadata={{ kind: 'service-pay', place, label: selectedService }}
+              advanceOnApproval={false}
               className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
               onPaid={(result) => {
                 if (!result.paymentId || !result.txid) return
@@ -2209,7 +2056,7 @@ function DestinationSheet({
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
               {t('match.complete')}
-            </BalanceCheckoutButton>
+            </PiCheckoutButton>
             <p className="text-center text-[11px] font-bold text-[#8b8495]">{t('match.completeHint')}</p>
             <button onClick={cancelMatching} className="w-full rounded-2xl border border-[#d8d1e5] bg-white py-3.5 font-black text-[#5f566d]">
               {t('match.cancel')}
@@ -2392,10 +2239,7 @@ function TaxiMatchingSheet({
   pickupAddress,
   onClose,
   onNotice,
-  balance,
-  onPay,
   onSettle,
-  onNeedCharge,
   onAskReview,
   onReceipt,
   onActivity,
@@ -2413,10 +2257,7 @@ function TaxiMatchingSheet({
   pickupAddress: string
   onClose: () => void
   onNotice: (message: string) => void
-  balance: number
-  onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
   onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string) => void
-  onNeedCharge: () => void
   onAskReview: (target: RideReviewTarget) => void
   onReceipt: (ride: RideReceipt) => void
   onActivity?: (label: string, detail: string) => void
@@ -2849,19 +2690,13 @@ function TaxiMatchingSheet({
     void (async () => {
       let proof: { paymentId: string; txid: string } | undefined
       if (ride.escrow?.status !== 'held' && ride.escrow?.status !== 'released') {
-        // 앱 잔액에서 즉시 차감 — Pi SDK는 충전/출금에서만 쓰고 운행 요금은
-        // 서버 잔액 장부가 권위다. 차감이 성공하면 서버가 에스크로를 잠근다.
-        try {
-          proof = await payFromBalance({ purpose: 'ride', rideId: ride.id, amount, label: '택시' })
-        } catch (error) {
-          if (!PI_SANDBOX) throw error
-          // 테스트넷에서는 잔액이 없어도 완료 흐름을 검증할 수 있게 기존 모의 잠금을 유지한다.
-          await lockRideEscrow({
-            rideId: ride.id,
-            passengerId: ride.passengerId,
-            sandbox: true,
-          }).catch(() => undefined)
-        }
+        // 이용 종료 시점 Pi SDK 직결제 — 승객 지갑에서 플랫폼 에스크로로 결제되고,
+        // 서버가 완료 검증 후 수수료 공제·기사 정산을 기록한다.
+        proof = await startPiCheckout({
+          amount,
+          memo: `택시 요금 ${amount} Pi`.slice(0, 25),
+          metadata: { kind: 'escrow-lock', rideId: ride.id, label: '택시 이용' },
+        })
       }
       const result = await completeRideTrip(
         ride.id,
@@ -3081,7 +2916,6 @@ function TaxiMatchingSheet({
               <PaymentHandler
                 service="택시"
                 amount={phase === 'moving' ? billed.actual : fare}
-                balance={balance}
                 place={route}
                 qrScanned={false}
                 parkingOption="postpaid"
@@ -3089,8 +2923,7 @@ function TaxiMatchingSheet({
                 mode="notice"
                 onParkingOption={() => undefined}
                 onRequestQr={() => undefined}
-                onPay={onPay}
-                onNeedCharge={onNeedCharge}
+                onPay={async () => true}
                 onContinue={() => undefined}
                 onPrepaidSettled={() => undefined}
               />
@@ -3293,10 +3126,8 @@ function ServiceSheet({
   destAddress,
   onClose,
   onNotice,
-  balance,
   onPay,
   onSettle,
-  onNeedCharge,
   onAskReview,
   initialPhase = 'idle',
   daeriTrip,
@@ -3315,10 +3146,8 @@ function ServiceSheet({
   destAddress?: string
   onClose: () => void
   onNotice: (message: string) => void
-  balance: number
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
   onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string) => void
-  onNeedCharge: () => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
   daeriTrip?: DaeriTrip | null
@@ -3905,7 +3734,6 @@ function ServiceSheet({
             <PaymentHandler
               service={service}
               amount={fare}
-              balance={balance}
               place={place}
               qrScanned={qrScannedBound}
               parkingOption={parkingOption}
@@ -3914,11 +3742,10 @@ function ServiceSheet({
               onParkingOption={setParkingOption}
               onRequestQr={() => setQrOpen(true)}
               onPay={onPay}
-              onNeedCharge={onNeedCharge}
               onContinue={() => undefined}
               onPrepaidSettled={() => setPrepaidSettled(true)}
             />
-            <BalanceCheckoutButton
+            <PiCheckoutButton
               amount={chargeAmount}
               memo={`${service} ${chargeAmount} Pi`}
               metadata={{
@@ -3930,6 +3757,7 @@ function ServiceSheet({
                 partnerName: selectedDevice?.ownerName || undefined,
                 deviceId: selectedDevice?.serial || undefined,
               }}
+              advanceOnApproval={false}
               className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)]"
               onPaid={(result) => {
                 if (!result.paymentId || !result.txid) return
@@ -3939,7 +3767,7 @@ function ServiceSheet({
               onFailed={(error) => onNotice(describePiUserMessage(error))}
             >
               {vehicle ? t('svc.doneReturn') : settleTiming === 'qr_auto' ? t('svc.doneAuto') : settleTiming === 'postpaid' ? t('svc.donePost') : t('match.complete')}
-            </BalanceCheckoutButton>
+            </PiCheckoutButton>
             <p className="text-center text-[11px] font-bold text-[#64748B]">{t('svc.doneHint')}</p>
           </div>
         )}
@@ -4082,7 +3910,7 @@ function ServiceSheet({
                     : t('svc.hintCancelFee')
                 }
               >
-                <BalanceCheckoutButton
+                <PiCheckoutButton
                   amount={rideStage === 'moving' ? billed.actual : fare}
                   memo={`${service} ${(rideStage === 'moving' ? billed.actual : fare)} Pi`}
                   metadata={{
@@ -4091,6 +3919,7 @@ function ServiceSheet({
                     place,
                     label: `${service} 이용`,
                   }}
+                  advanceOnApproval={false}
                   disabled={!dispatchRide?.readyToSettleAt}
                   className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
                   onPaid={(result) => {
@@ -4142,15 +3971,16 @@ function ServiceSheet({
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
                 >
                   {t('match.complete')}
-                </BalanceCheckoutButton>
+                </PiCheckoutButton>
               </RideCompleteCancelBar>
               )
             ) : (
               <>
-                <BalanceCheckoutButton
+                <PiCheckoutButton
                   amount={fare}
                   memo={`${service} ${fare} Pi`}
                   metadata={{ kind: 'service-pay', place, label: `${service} 이용` }}
+                  advanceOnApproval={false}
                   className="w-full rounded-2xl bg-[#4C1FB8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.4)]"
                   onPaid={(result) => {
                     if (!result.paymentId || !result.txid) return
@@ -4159,7 +3989,7 @@ function ServiceSheet({
                   onFailed={(error) => onNotice(describePiUserMessage(error))}
                 >
                   {t('match.complete')}
-                </BalanceCheckoutButton>
+                </PiCheckoutButton>
                 <p className="text-center text-[11px] font-bold text-[#8b8495]">{t('svc.doneHint2')}</p>
               </>
             )}
@@ -4283,7 +4113,6 @@ function ServiceSheet({
             <PaymentHandler
               service={service}
               amount={fare}
-              balance={balance}
               place={place}
               qrScanned={qrScannedBound}
               parkingOption={parkingOption}
@@ -4299,7 +4128,6 @@ function ServiceSheet({
                 setQrOpen(true)
               }}
               onPay={onPay}
-              onNeedCharge={onNeedCharge}
               onContinue={() => startService(vehicle)}
               onPrepaidSettled={() => {
                 setPrepaidSettled(true)
@@ -5642,7 +5470,7 @@ const INBOX_QUICK_FILTERS: { id: string; labelKey: MessageKey; time: InboxTimeFi
   { id: 'today', labelKey: 'inbox.today', time: 'today', type: 'all' },
   { id: 'week', labelKey: 'inbox.week', time: 'week', type: 'all' },
   { id: 'taxi', labelKey: 'service.taxi', time: 'all', type: 'ride' },
-  { id: 'charge', labelKey: 'wallet.charge', time: 'all', type: 'payment' },
+  { id: 'pay', labelKey: 'inbox.typePay', time: 'all', type: 'payment' },
 ]
 
 const INBOX_RIDE_STATUS: Record<string, MessageKey> = {
@@ -5954,7 +5782,6 @@ function ActivityInbox({
 function TabContent({
   tab,
   onService,
-  balance,
   onWallet,
   onReceipt,
   readNoticeIds,
@@ -5978,7 +5805,6 @@ function TabContent({
   onDestination: (value: string) => void
   onService: (value: string) => void
   onNotice: (message: string) => void
-  balance: number
   onWallet: () => void
   onReceipt: (ride: RideReceipt) => void
   readNoticeIds: string[]
@@ -6040,7 +5866,6 @@ function TabContent({
     <MyPage
       embedded
       username={username}
-      balance={balance}
       driverMode={driverMode}
       isDriverRegistered={isDriverRegistered}
       isPartnerRegistered={isPartnerRegistered}
@@ -6057,233 +5882,18 @@ function TabContent({
   )
 }
 
+// 사전 충전 폐지 — 지갑 관리 모달을 Pi SDK 직결제 완료 내역·영수증 확인 화면으로 교체한다.
 function WalletModal({
-  balance,
   onClose,
-  onDeposit,
-  onWithdraw,
   transactions,
-  onNotice,
   onReceipt,
 }: {
-  balance: number
   onClose: () => void
-  onDeposit: (amount: number, ts?: number) => void
-  onWithdraw: (amount: number, address: string) => Promise<{ txid?: string } | void>
   transactions: PiTransaction[]
-  onNotice: (message: string) => void
   onReceipt: (ride: RideReceipt) => void
 }) {
   const { t } = useLocale()
-  const [tab, setTab] = useState<'charge' | 'refund' | 'history'>('charge')
-  const [chargeValue, setChargeValue] = useState<number | ''>(10)
-  // 메인넷: 임의 잔액 대신 Pi 공식 블록체인 API가 읽어온 실제 온체인 잔액을 표시한다.
-  const [onchainPi, setOnchainPi] = useState<number | null>(null)
-  // 출금 주소 — Pi 연동 지갑으로 자동 채워지고, 이용자가 수정해 저장할 수 있다.
-  const [address, setAddress] = useState('')
-  const [addressDraft, setAddressDraft] = useState('')
-  const [editingAddress, setEditingAddress] = useState(false)
-  // 출금 대상 주소 — 기본은 '내 출금 주소'이지만 타 계정 송금·현장 QR 결제 등으로
-  // 다른 목적지를 직접 입력해 보낼 수 있다. 신청 시점 값이 process.dest에 고정된다.
-  const [destInput, setDestInput] = useState('')
-  const [amount, setAmount] = useState('')
-  const [depositAddress, setDepositAddress] = useState(DEFAULT_DEPOSIT_ADDRESS)
-  const [process, setProcess] = useState<{ kind: 'charge' | 'withdraw'; phase: 'pending' | 'done'; amount: number; txid?: string; dest?: string } | null>(null)
   const [historyRange, setHistoryRange] = useState<'all' | 'week' | 'month' | 'year'>('all')
-  const [historyType, setHistoryType] = useState<'all' | 'charge' | 'refund' | 'ride' | 'etc'>('all')
-  const chargeUnits = [5, 10, 25, 50]
-  // 최근 24시간 충전 누적 — 한도는 최대 50 Pi로 고정(지갑 내역은 localStorage에 보존됨).
-  const chargeNow = Date.now()
-  const charged24h = transactions
-    .filter((tx) => tx.label === 'Pi 충전' && typeof tx.ts === 'number' && chargeNow - tx.ts >= 0 && chargeNow - tx.ts < 24 * 60 * 60 * 1000)
-    .reduce((sum, tx) => sum + Math.max(0, tx.amount), 0)
-  const chargeCapRemaining = Math.max(0, Math.round((PI_CHARGE_MAX_PI - charged24h) * 1_000_000) / 1_000_000)
-  const chargeAmount = typeof chargeValue === 'number' ? chargeValue : Number.NaN
-  const chargeOverCap = Number.isFinite(chargeAmount) && chargeAmount > chargeCapRemaining + 1e-9
-  const chargeValid = Number.isFinite(chargeAmount) && chargeAmount > 0 && !chargeOverCap
-  const withdrawValue = Number(amount)
-
-  const applyChargeAmount = (value: number) => {
-    setChargeValue(Math.round(value * 100) / 100)
-  }
-
-  useEffect(() => {
-    const saved = loadDepositAddress()
-    setDepositAddress(saved)
-    // 플랫폼 공식 수신 지갑을 서버에서 가져와 저장된 임시/구형 주소를 갱신한다.
-    // 모달이 열려 있는 동안 주기적으로 다시 확인해 관리자 변경이 즉시 반영되게 한다.
-    let stopped = false
-    const sync = async () => {
-      const official = await fetchDepositWallet()
-      if (stopped || !isPiWalletAddress(official)) return
-      setDepositAddress((prev) => {
-        if (prev === official) return prev
-        saveDepositAddress(official)
-        return official
-      })
-    }
-    void sync()
-    const timer = window.setInterval(sync, 10_000)
-    return () => {
-      stopped = true
-      window.clearInterval(timer)
-    }
-  }, [])
-
-  // 메인넷: 앱이 임의로 잔액을 만들지 않으므로, 연동 지갑의 실제 온체인 잔액을
-  // /api/wallet/balance(Pi 공식 Horizon API)로 조회해 참고용으로 표시한다.
-  useEffect(() => {
-    if (PI_SANDBOX) return
-    const wallet = loadPiIdentity()?.wallet?.trim() || ''
-    if (!isPiWalletAddress(wallet)) return
-    let stopped = false
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/wallet/balance?wallet=${encodeURIComponent(wallet)}&sandbox=${PI_SANDBOX}`, { cache: 'no-store' })
-        const data = (await res.json().catch(() => null)) as { onchain?: { balancePi?: number } } | null
-        const value = data?.onchain?.balancePi
-        if (!stopped) setOnchainPi(typeof value === 'number' ? value : null)
-      } catch {
-        /* 온체인 조회 실패는 표시만 생략한다 — 잔액을 지어내지 않는다 */
-      }
-    }
-    void load()
-    const timer = window.setInterval(load, 30_000)
-    return () => {
-      stopped = true
-      window.clearInterval(timer)
-    }
-  }, [])
-
-  const depositAddressValid = isPiWalletAddress(depositAddress)
-
-  // 출금 주소 초기화 — 저장된 지정 주소를 우선 쓰되, 다른 uid의 저장값은
-  // 재사용하지 않는다(계정 전환 시 타인 주소가 남는 사고 방지). 없으면
-  // Pi 연동으로 확인된 본인 지갑 주소를 자동 기입한다.
-  useEffect(() => {
-    const identity = loadPiIdentity()
-    const uid = identity?.uid?.trim() || ''
-    const linked = identity?.wallet?.trim() || ''
-    let saved = ''
-    try {
-      const parsed = JSON.parse(localStorage.getItem(WITHDRAW_ADDRESS_KEY) || 'null') as { uid?: string; address?: string } | null
-      if (parsed?.address && (!parsed.uid || parsed.uid === uid)) saved = parsed.address.trim()
-    } catch {
-      /* ignore malformed cache */
-    }
-    setAddress(saved || linked)
-    setAddressDraft(saved || linked)
-    setDestInput(saved || linked)
-  }, [])
-
-  const saveWithdrawAddress = () => {
-    const next = addressDraft.trim()
-    if (!isPiWalletAddress(next)) {
-      onNotice(t('wallet.errAddrFmt'))
-      return
-    }
-    try {
-      localStorage.setItem(WITHDRAW_ADDRESS_KEY, JSON.stringify({ uid: loadPiIdentity()?.uid || '', address: next }))
-    } catch {
-      /* storage may be unavailable */
-    }
-    setAddress(next)
-    setDestInput(next)
-    setEditingAddress(false)
-    onNotice(t('wallet.savedAddr'))
-  }
-
-  const copyWithdrawAddress = async () => {
-    try {
-      await navigator.clipboard.writeText(address)
-    } catch {
-      /* clipboard may be unavailable in some browsers */
-    }
-    onNotice(t('wallet.copiedAddr'))
-  }
-
-  // 자동 입금 감지 — 연동된 내 Pi 지갑에서 플랫폼 수신지로 들어온 온체인 결제를
-  // 서버가 Horizon으로 스캔해 장부화하고, 여기서 잔액에 즉시 반영한다.
-  useEffect(() => {
-    const identity = loadPiIdentity()
-    const wallet = identity?.wallet?.trim() || ''
-    const uid = identity?.uid?.trim() || ''
-    // uid만 있어도 폴러가 돌아야 한다 — 지갑 주소가 유사주소·미설정이면 서버가
-    // uid 귀속(fromUid·지갑↔uid 매핑)으로 입금을 찾아준다.
-    if (!uid && !isPiWalletAddress(wallet)) return
-    let stopped = false
-    const scan = () =>
-      scanPiDeposits(isPiWalletAddress(wallet) ? wallet : '', uid, (amount, _txid, ts) => {
-        if (stopped) return
-        onDeposit(amount, ts)
-        setProcess((prev) => (prev?.phase === 'pending' ? prev : { kind: 'charge', phase: 'done', amount }))
-      })
-    void scan()
-    const timer = window.setInterval(scan, 8000)
-    return () => {
-      stopped = true
-      window.clearInterval(timer)
-    }
-    // onDeposit은 매 렌더 새로 만들어지지만 스캔 루프는 마운트 시 한 번이면 충분하다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    if (process?.phase !== 'pending' || process.kind !== 'withdraw') return
-    const value = process.amount
-    const dest = (process.dest || address).trim()
-    let cancelled = false
-    // 서버 A2U 송금이 실제로 성공해야만 완료 처리 — 실패 시 차감 없이 에러 안내.
-    void Promise.resolve(onWithdraw(value, dest))
-      .then((result) => {
-        if (!cancelled) setProcess({ kind: 'withdraw', phase: 'done', amount: value, txid: result?.txid })
-      })
-      .catch((error) => {
-        if (cancelled) return
-        setProcess(null)
-        onNotice(error instanceof Error ? error.message : t('wallet.errSend'))
-      })
-    return () => {
-      cancelled = true
-    }
-    // Callbacks are recreated each parent render; only restart when a new pending request starts.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [process?.phase, process?.kind, process?.amount])
-
-  const copyAddress = async () => {
-    try {
-      await navigator.clipboard.writeText(depositAddress)
-    } catch {
-      /* clipboard may be unavailable in some browsers */
-    }
-    onNotice(t('wallet.copied'))
-  }
-
-  const setQuickAmount = (ratio: number) => {
-    const value = Math.round(balance * ratio * 100) / 100
-    setAmount(value > 0 ? value.toFixed(7) : '0')
-  }
-
-  const requestWithdraw = () => {
-    if (process) return
-    const dest = destInput.trim()
-    if (dest && !isPiWalletAddress(dest)) {
-      onNotice(t('wallet.errDest'))
-      return
-    }
-    if (!(dest || loadPiIdentity()?.uid) || !withdrawValue || withdrawValue <= 0 || withdrawValue > balance) {
-      onNotice(t('wallet.errAmt'))
-      return
-    }
-    setProcess({ kind: 'withdraw', phase: 'pending', amount: withdrawValue, dest })
-  }
-
-  const tabs = [
-    { id: 'charge' as const, labelKey: 'wallet.kindCharge' as const },
-    { id: 'refund' as const, labelKey: 'wallet.refundTab' as const },
-    { id: 'history' as const, labelKey: 'inbox.tabHistory' as const },
-  ]
-
   const historyRanges = [
     { id: 'all' as const, labelKey: 'wallet.rAll' as const },
     { id: 'week' as const, labelKey: 'wallet.rWeek' as const },
@@ -6299,36 +5909,17 @@ function WalletModal({
         : historyRange === 'year'
           ? new Date(historyNow.getFullYear(), 0, 1).getTime()
           : 0
-  const historyTypeOf = (tx: (typeof transactions)[number]): Exclude<typeof historyType, 'all'> => {
-    if (tx.label === 'Pi 충전' && tx.amount > 0) return 'charge'
-    if ((tx.label === 'Pi 환불' || tx.label === 'Pi 출금') && tx.amount < 0) return 'refund'
-    if (tx.amount < 0 && /택시|대리/.test(tx.label)) return 'ride'
-    return 'etc'
-  }
   const historyTransactions = transactions.filter((tx) => {
-    if (historyType !== 'all' && historyTypeOf(tx) !== historyType) return false
     if (historyRange === 'all') return true
     const ts = typeof tx.ts === 'number' ? tx.ts : 0
     return ts >= historyStart
   })
   const historySum = (match: (tx: (typeof transactions)[number]) => boolean) =>
     historyTransactions.filter(match).reduce((total, tx) => total + Math.abs(tx.amount), 0)
-  const historyCategorized = (tx: (typeof transactions)[number]) =>
-    (tx.label === 'Pi 충전' && tx.amount > 0) ||
-    ((tx.label === 'Pi 환불' || tx.label === 'Pi 출금') && tx.amount < 0) ||
-    (tx.label === '리뷰 적립' && tx.amount > 0) ||
-    (tx.amount < 0 && /택시|대리/.test(tx.label))
   const historyStats = [
-    { labelKey: 'wallet.sumCharge' as const, value: historySum((tx) => tx.label === 'Pi 충전' && tx.amount > 0), tone: 'text-[#059669]' },
-    { labelKey: 'wallet.sumRefund' as const, value: historySum((tx) => (tx.label === 'Pi 환불' || tx.label === 'Pi 출금') && tx.amount < 0), tone: 'text-[#DC2626]' },
-    { labelKey: 'wallet.sumReview' as const, value: historySum((tx) => tx.label === '리뷰 적립' && tx.amount > 0), tone: 'text-[#D97706]' },
-    { labelKey: 'wallet.sumRide' as const, value: historySum((tx) => tx.amount < 0 && /택시|대리/.test(tx.label)), tone: 'text-[#2563EB]' },
+    { labelKey: 'wallet.sumPaid' as const, value: historySum((tx) => tx.amount < 0), tone: 'text-[#2563EB]' },
+    { labelKey: 'wallet.sumCredit' as const, value: historySum((tx) => tx.amount > 0), tone: 'text-[#059669]' },
   ]
-  // 분류되지 않는 나머지(택배·자전거·킥보드·EV·주차·취소 수수료 등)도 합계에 포함해
-  // 기초 잔액 + 전체 기간 순변동이 '사용 가능 잔액'과 정확히 일치하도록 한다.
-  const historyOtherNet = historyTransactions.filter((tx) => !historyCategorized(tx)).reduce((total, tx) => total + tx.amount, 0)
-  const historyNet = historyTransactions.reduce((total, tx) => total + tx.amount, 0)
-  const historyOpening = Math.round((balance - transactions.reduce((total, tx) => total + tx.amount, 0)) * 1_000_000) / 1_000_000
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end bg-[#241d35]/45 p-0 sm:p-4">
@@ -6336,419 +5927,70 @@ function WalletModal({
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d9d3e4]" />
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-black text-[#4C1FB8]">PI WALLET</p>
-            <h2 className="mt-1 text-2xl font-black text-[#0F172A]">{t('wallet.title')}</h2>
+            <p className="text-xs font-black text-[#4A82B8]">PI DIRECT PAY</p>
+            <h2 className="mt-1 text-2xl font-black text-[#0F172A]">{t('wallet.payHistory')}</h2>
           </div>
           <button onClick={onClose} className="rounded-full bg-white p-2 text-[#5f566d]" aria-label={t('wallet.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
-        <section className="mt-5 rounded-[26px] bg-[#4C1FB8] p-5 text-white shadow-[0_16px_32px_rgba(76,31,184,0.35)]">
-          <p className="text-xs font-bold text-[#E8DCFF]">{t('wallet.avail')}</p>
-          <p className="mt-2 text-3xl font-black">
-            {balance.toFixed(7)} <span className="text-lg text-[#E8DCFF]">Pi</span>
-          </p>
-          <p className="mt-2 text-xs font-bold text-[#E8DCFF]">
-            {PI_SANDBOX ? t('wallet.sandboxNote') : t('wallet.mainnetNote')}
-          </p>
-          {!PI_SANDBOX && onchainPi !== null ? (
-            <p className="mt-1 text-[10px] font-bold text-[#E8DCFF]/80">{t('wallet.onchain', { v: onchainPi.toFixed(7) })}</p>
-          ) : null}
-        </section>
-        <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-          {tabs.map((item) => (
+        <p className="mt-3 rounded-2xl bg-[#E8F1FA] px-4 py-3 text-xs font-black leading-5 text-[#3F74A8]">
+          {t('wallet.directPayNote')}
+        </p>
+        <div className="mt-4 flex gap-1.5 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+          {historyRanges.map((item) => (
             <button
               key={item.id}
               type="button"
-              onClick={() => setTab(item.id)}
-              className={`rounded-xl py-2.5 text-xs font-black transition ${tab === item.id ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
+              onClick={() => setHistoryRange(item.id)}
+              className={`flex-1 rounded-xl py-2 text-xs font-black transition ${historyRange === item.id ? 'bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]' : 'text-[#64748B]'}`}
             >
               {t(item.labelKey)}
             </button>
           ))}
         </div>
-        {tab === 'charge' && (
-          <div className="mt-4 flex flex-col gap-3">
-            <section className="order-3 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
-              <div className="flex items-center justify-between">
-                <p className="font-black">{t('wallet.depositAddr')}</p>
-                <span className="rounded-full bg-[#EDE5FF] px-2 py-1 text-[10px] font-black text-[#4C1FB8]">{t('wallet.depositOnly')}</span>
+        <section className="mt-3 rounded-2xl border border-[#E2E8F0] bg-white p-3.5 shadow-[0_8px_18px_rgba(15,23,42,0.06)]">
+          <p className="text-[11px] font-black text-[#64748B]">{t('wallet.sumTitle')}</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {historyStats.map((stat) => (
+              <div key={stat.labelKey} className="rounded-xl bg-[#F8FAFC] px-3 py-2.5">
+                <p className="text-[10px] font-bold text-[#64748B]">{t(stat.labelKey)}</p>
+                <p className={`mt-0.5 text-sm font-black tabular-nums ${stat.tone}`}>{stat.value.toFixed(7)} Pi</p>
               </div>
-              <p className="mt-2 text-xs font-bold text-[#8b8495]">{t('wallet.depositDesc')}</p>
-              {!depositAddressValid ? (
-                <p className="mt-2 rounded-xl bg-[#FFFBEB] px-3 py-2 text-[11px] font-black leading-4 text-[#B45309]">
-                  {t('wallet.depositPending')}
-                </p>
-              ) : null}
-              <div className="mt-3 flex items-center gap-2 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-3">
-                <p className="min-w-0 flex-1 break-all font-mono text-xs font-bold text-[#3B16A8]">{depositAddress}</p>
-                <button type="button" disabled={!depositAddressValid} onClick={copyAddress} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#4C1FB8] px-3 py-2 text-[11px] font-black text-white disabled:opacity-40">
-                  <Copy className="h-3.5 w-3.5" />
-                  {t('common.copy')}
-                </button>
-              </div>
-            </section>
-            <p className="order-2 rounded-2xl border border-[#F2DCB8] bg-[#FFFBEB] px-4 py-2.5 text-center text-xs font-black text-[#B45309]">
-              {t('wallet.manualHint')}
-            </p>
-            <section className="order-1 rounded-3xl border-2 border-[#E0D4FF] bg-white p-3.5">
-              <p className="font-black">{t('wallet.chargeUnit')}</p>
-              <p className="mt-1 text-xs font-bold text-[#8b8495]">{t('wallet.chargeHint', { max: String(PI_CHARGE_MAX_PI) })}</p>
-              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#F1EBFF] px-3 py-1.5 text-[11px] font-black text-[#4C1FB8]">
-                <WalletCards className="h-3.5 w-3.5" />
-                {t('wallet.linkedNote')}
-              </p>
-              <p className={`mt-1.5 text-xs font-black ${chargeCapRemaining > 0 ? 'text-[#4C1FB8]' : 'text-[#DC2626]'}`}>
-                {chargeCapRemaining > 0 ? t('wallet.capLeft', { v: chargeCapRemaining.toFixed(7) }) : t('wallet.capUsed')}
-              </p>
-              <div className="mt-2.5 grid grid-cols-4 gap-1.5">
-                {chargeUnits.map((unit) => (
-                  <button
-                    key={unit}
-                    type="button"
-                    disabled={unit > chargeCapRemaining}
-                    onClick={() => applyChargeAmount(unit)}
-                    className={`rounded-xl py-2.5 text-sm font-black disabled:opacity-40 ${chargeValid && chargeAmount === unit ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'bg-[#F1EBFF] text-[#4C1FB8]'}`}
-                  >
-                    {unit}
-                  </button>
-                ))}
-              </div>
-              <label className="mt-3 block" htmlFor="pi-charge-amount">
-                <span className="text-xs font-black text-[#334155]">{t('wallet.customAmt')}</span>
-                <div className="mt-1.5 flex items-center gap-2 rounded-xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-3 py-2 focus-within:border-[#4C1FB8]">
-                  <input
-                    id="pi-charge-amount"
-                    name="chargeAmount"
-                    type="number"
-                    min={0.01}
-                    max={PI_CHARGE_MAX_PI}
-                    step="any"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={chargeValue}
-                    onChange={(event) => {
-                      const raw = event.target.value
-                      if (raw === '') {
-                        setChargeValue('')
-                        return
-                      }
-                      const next = event.target.valueAsNumber
-                      setChargeValue(Number.isFinite(next) ? next : '')
-                    }}
-                    placeholder={t('wallet.amtPh')}
-                    aria-label={t('wallet.amtAria')}
-                    className="min-w-0 flex-1 bg-transparent text-base font-black tabular-nums text-[#0F172A] outline-none [appearance:auto]"
-                  />
-                  <span className="shrink-0 text-sm font-black text-[#4C1FB8]">Pi</span>
-                </div>
-              </label>
-              {chargeOverCap ? (
-                <p className="mt-2 rounded-xl bg-[#FEF2F2] px-3 py-2 text-[11px] font-black text-[#DC2626]">
-                  {t('wallet.capOver', { max: String(PI_CHARGE_MAX_PI) })} {chargeCapRemaining > 0 ? t('wallet.capLeftIs', { v: chargeCapRemaining.toFixed(7) }) : t('wallet.capAllUsed')}
-                </p>
-              ) : null}
-              <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F8F5FF] px-3.5 py-2.5">
-                <span className="text-xs font-bold text-[#64748B]">{t('wallet.reqAmt')}</span>
-                <strong className="text-base font-black text-[#4C1FB8]">{chargeValid ? `${chargeAmount.toFixed(7)} Pi` : '—'}</strong>
-              </div>
-              <button
-                type="button"
-                disabled={Boolean(process) || !chargeValid}
-                className="mt-3 w-full rounded-xl bg-[#4C1FB8] py-3 text-sm font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)] disabled:opacity-60"
-                onClick={() => {
-                  if (process || !chargeValid) {
-                    if (chargeOverCap) onNotice(t('wallet.capOver', { max: String(PI_CHARGE_MAX_PI) }))
-                    return
-                  }
-                  const amount = Math.min(Math.round(chargeAmount * 100) / 100, chargeCapRemaining)
-                  if (!(amount > 0)) {
-                    onNotice(t('wallet.errCap'))
-                    return
-                  }
-                  setProcess({ kind: 'charge', phase: 'pending', amount })
-                  void chargePiWallet(amount)
-                    .then((result) => {
-                      const txid = typeof result?.txid === 'string' ? result.txid : ''
-                      // 서버 크레딧 보증 — after() 크레딧이나 스캐너가 놓쳐도 paymentId
-                      // 소유권 증명으로 입금을 내 uid에 귀속시킨다(txid 멱등).
-                      const claimUid = loadPiIdentity()?.uid?.trim() || ''
-                      const claimPaymentId = typeof result?.paymentId === 'string' ? result.paymentId : ''
-                      if (claimUid && claimPaymentId) {
-                        void fetch('/api/wallet/deposits', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ paymentId: claimPaymentId, txid, uid: claimUid, sandbox: PI_SANDBOX }),
-                        }).catch(() => undefined)
-                      }
-                      // 이미 Horizon 폴러가 온체인 입금으로 충전한 건이면 중복 반영하지 않는다.
-                      if (!isPiDepositCredited(txid)) {
-                        markPiDepositCredited(txid)
-                        onDeposit(amount)
-                      }
-                      setProcess({ kind: 'charge', phase: 'done', amount })
-                    })
-                    .catch((error) => {
-                      setProcess(null)
-                      onNotice(describePiUserMessage(error))
-                    })
-                }}
-              >
-                {chargeValid ? t('wallet.chargeBtnAmt', { v: chargeAmount.toFixed(7) }) : t('wallet.chargeBtn')}
-              </button>
-            </section>
-          </div>
-        )}
-        {tab === 'refund' && (
-          <section className="mt-4 rounded-3xl border-2 border-[#E0D4FF] bg-white p-4">
-            <p className="font-black">{t('wallet.refundTab')}</p>
-            <p className="mt-1 text-xs font-bold text-[#8b8495]">{t('wallet.wdDesc')}</p>
-            <div className="mt-4 rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] p-3.5">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-black text-[#334155]">{t('wallet.myAddr')}</p>
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={copyWithdrawAddress}
-                    disabled={!address}
-                    className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-[#4C1FB8] disabled:opacity-50"
-                  >
-                    {t('common.copy')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddressDraft(address)
-                      setEditingAddress((value) => !value)
-                    }}
-                    className="rounded-full bg-[#EDE5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8]"
-                  >
-                    {editingAddress ? t('common.cancel') : t('common.edit')}
-                  </button>
-                </div>
-              </div>
-              {editingAddress ? (
-                <>
-                  <input
-                    value={addressDraft}
-                    onChange={(event) => setAddressDraft(event.target.value)}
-                    placeholder={t('wallet.addrPh')}
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="mt-2 w-full rounded-xl border-2 border-[#D8CCF5] bg-white px-3 py-2 font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
-                  />
-                  {addressDraft.trim() && !isPiWalletAddress(addressDraft) ? (
-                    <p className="mt-1 text-[10px] font-black text-[#DC2626]">
-                      ⚠ {piWalletError(addressDraft) ?? t('wallet.addrBad')}
-                    </p>
-                  ) : null}
-                  <button
-                    type="button"
-                    disabled={!isPiWalletAddress(addressDraft)}
-                    onClick={saveWithdrawAddress}
-                    className="mt-2 w-full rounded-xl bg-[#4C1FB8] py-2 text-xs font-black text-white disabled:opacity-50"
-                  >
-                    {t('common.save')}
-                  </button>
-                </>
-              ) : (
-                <p className="mt-1.5 break-all font-mono text-[11px] font-bold leading-4 text-[#0F172A]">
-                  {address || t('wallet.linkedWallet')}
-                </p>
-              )}
-              <p className="mt-1.5 text-[10px] font-bold text-[#8b8495]">
-                {isPiWalletAddress(address) ? t('wallet.addrUsed') : t('wallet.addrFallback')}
-              </p>
-            </div>
-            <div className="mt-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-black text-[#334155]">{t('wallet.destAddr')}</p>
-                <button
-                  type="button"
-                  onClick={() => setDestInput(address)}
-                  disabled={!isPiWalletAddress(address)}
-                  className="rounded-full bg-[#EDE5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8] disabled:opacity-50"
-                >
-                  {t('wallet.myAddrBtn')}
-                </button>
-              </div>
-              <input
-                value={destInput}
-                onChange={(event) => setDestInput(event.target.value)}
-                placeholder={t('wallet.addrPh')}
-                spellCheck={false}
-                autoComplete="off"
-                className="mt-2 w-full rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-4 py-3 font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
-              />
-              {destInput.trim() && !isPiWalletAddress(destInput) ? (
-                <p className="mt-1 text-[10px] font-black text-[#DC2626]">
-                  ⚠ {piWalletError(destInput) ?? t('wallet.addrBad')}
-                </p>
-              ) : destInput.trim() && isPiWalletAddress(destInput) && destInput.trim() !== address ? (
-                <p className="mt-1 text-[10px] font-black text-[#B45309]">
-                  ⚠ {t('wallet.destDiff')}
-                </p>
-              ) : (
-                <p className="mt-1 text-[10px] font-bold text-[#8b8495]">
-                  {t('wallet.destHint')}
-                </p>
-              )}
-            </div>
-            <div className="mt-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-black text-[#334155]">{t('wallet.wdAmt')}</p>
-                <div className="flex gap-1.5">
-                  <button type="button" onClick={() => setQuickAmount(0.5)} className="rounded-full bg-[#EDE5FF] px-2.5 py-1 text-[10px] font-black text-[#4C1FB8]">
-                    50%
-                  </button>
-                  <button type="button" onClick={() => setQuickAmount(1)} className="rounded-full bg-[#4C1FB8] px-2.5 py-1 text-[10px] font-black text-white">
-                    {t('wallet.max')}
-                  </button>
-                </div>
-              </div>
-              <input
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-                inputMode="decimal"
-                placeholder={t('wallet.wdPh')}
-                className="mt-2 w-full rounded-2xl border-2 border-[#D8CCF5] bg-[#F8F5FF] px-4 py-3 text-sm font-bold text-[#0F172A] outline-none focus:border-[#4C1FB8]"
-              />
-            </div>
-            <button type="button" onClick={requestWithdraw} className="mt-4 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(76,31,184,0.35)]">
-              {t('wallet.wdBtn')}
-            </button>
-          </section>
-        )}
-        {tab === 'history' && (
-          <section className="mt-4 space-y-2">
-            <div className="flex gap-1.5 rounded-2xl bg-white p-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-              {historyRanges.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setHistoryRange(item.id)}
-                  className={`flex-1 rounded-xl py-2 text-xs font-black transition ${historyRange === item.id ? 'bg-[#4C1FB8] text-white shadow-[0_8px_16px_rgba(76,31,184,0.28)]' : 'text-[#64748B]'}`}
-                >
-                  {t(item.labelKey)}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {([
-                { id: 'all' as const, labelKey: 'wallet.fAll' as const },
-                { id: 'charge' as const, labelKey: 'wallet.fCharge' as const },
-                { id: 'refund' as const, labelKey: 'wallet.fRefund' as const },
-                { id: 'ride' as const, labelKey: 'wallet.fRide' as const },
-                { id: 'etc' as const, labelKey: 'wallet.fEtc' as const },
-              ]).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setHistoryType(item.id)}
-                  aria-pressed={historyType === item.id}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black transition active:scale-95 ${historyType === item.id ? 'bg-[#4C1FB8] text-white shadow-[0_4px_10px_rgba(76,31,184,0.28)]' : 'bg-white text-[#64748B] ring-1 ring-[#E2E8F0]'}`}
-                >
-                  {t(item.labelKey)}
-                </button>
-              ))}
-            </div>
-            <section className="rounded-2xl border border-[#E2E8F0] bg-white p-3.5 shadow-[0_8px_18px_rgba(15,23,42,0.06)]">
-              <p className="text-[11px] font-black text-[#64748B]">{t('wallet.sumTitle')}</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {historyStats.map((stat) => (
-                  <div key={stat.labelKey} className="rounded-xl bg-[#F8FAFC] px-3 py-2.5">
-                    <p className="text-[10px] font-bold text-[#64748B]">{t(stat.labelKey)}</p>
-                    <p className={`mt-0.5 text-sm font-black tabular-nums ${stat.tone}`}>{stat.value.toFixed(7)} Pi</p>
-                  </div>
-                ))}
-                <div className="col-span-2 rounded-xl bg-[#F8FAFC] px-3 py-2.5">
-                  <p className="text-[10px] font-bold text-[#64748B]">{t('wallet.sumOther')}</p>
-                  <p className="mt-0.5 text-sm font-black tabular-nums text-[#475569]">
-                    {historyOtherNet >= 0 ? '+' : ''}{historyOtherNet.toFixed(7)} Pi
-                  </p>
-                </div>
-              </div>
-              {historyRange === 'all' ? (
-                <p className="mt-2.5 rounded-xl bg-[#F1F5F9] px-3 py-2 text-[11px] font-black leading-4 text-[#334155]">
-                  {t('wallet.sumAll', { open: historyOpening.toFixed(7), net: `${historyNet >= 0 ? '+' : ''}${historyNet.toFixed(7)}`, bal: balance.toFixed(7) })}
-                </p>
-              ) : (
-                <p className="mt-2.5 rounded-xl bg-[#F1F5F9] px-3 py-2 text-[11px] font-black text-[#334155]">
-                  {t('wallet.sumNet', { net: `${historyNet >= 0 ? '+' : ''}${historyNet.toFixed(7)}` })}
-                </p>
-              )}
-            </section>
-            {historyTransactions.length === 0 && (
-              <p className="rounded-2xl border-2 border-dashed border-[#D8CCF5] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
-                {t('wallet.emptyHist')}
-              </p>
-            )}
-            {historyTransactions.map((transaction, index) => (
-              <button
-                key={`${transaction.label}-${transaction.at}-${index}`}
-                type="button"
-                onClick={() => onReceipt(receiptFromTransaction(transaction, index))}
-                className="w-full rounded-2xl border border-[#E0D4FF] bg-white p-4 text-left transition hover:border-[#4C1FB8] active:scale-[0.99]"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1 overflow-hidden pr-1">
-                    <p className="truncate font-black">{transaction.label}</p>
-                    <p className="mt-1 break-all text-xs font-bold leading-5 text-[#4C1FB8] [overflow-wrap:anywhere] line-clamp-2" title={transaction.place}>
-                      {transaction.place}
-                    </p>
-                    <p className="mt-1 truncate text-xs font-bold text-[#8b8495]">{transaction.at}</p>
-                  </div>
-                  <strong className={`shrink-0 whitespace-nowrap tabular-nums ${transaction.amount > 0 ? 'text-[#2d9a5e]' : 'text-[#4C1FB8]'}`}>
-                    {transaction.amount > 0 ? '+' : ''}
-                    {transaction.amount.toFixed(7)} Pi
-                  </strong>
-                </div>
-                <p className="mt-3 text-xs font-black text-[#4C1FB8]">{t('wallet.viewReceipt')}</p>
-              </button>
             ))}
-          </section>
-        )}
-      </div>
-      {process?.phase === 'pending' && (
-        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-[#1e1033]/55 p-6">
-          <section className="w-full max-w-sm rounded-[28px] bg-white p-6 text-center shadow-2xl">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#EDE5FF] text-[#4C1FB8]">
-              <LoaderCircle className="h-7 w-7 animate-spin" />
-            </div>
-            <h3 className="mt-4 text-xl font-black text-[#0F172A]">{t('wallet.pending')}</h3>
-            <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">
-              {t('wallet.pendingDesc', { kind: t(process.kind === 'charge' ? 'wallet.kindCharge' : 'wallet.kindWd'), v: process.amount.toFixed(7) })}
+          </div>
+        </section>
+        <section className="mt-3 space-y-2">
+          {historyTransactions.length === 0 && (
+            <p className="rounded-2xl border-2 border-dashed border-[#D8CCF5] bg-white p-5 text-center text-sm font-bold text-[#64748B]">
+              {t('wallet.emptyHist')}
             </p>
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#EDE5FF]">
-              <div className="h-full w-2/3 animate-pulse rounded-full bg-[#4C1FB8]" />
-            </div>
-          </section>
-        </div>
-      )}
-      {process?.phase === 'done' && (
-        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-[#1e1033]/55 p-6">
-          <section className="w-full max-w-sm rounded-[28px] bg-white p-6 text-center shadow-2xl">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#4C1FB8] text-white">
-              <Check className="h-7 w-7" strokeWidth={3} />
-            </div>
-            <h3 className="mt-4 text-xl font-black text-[#0F172A]">{process.kind === 'charge' ? t('wallet.doneCharge') : t('wallet.doneWd')}</h3>
-            <p className="mt-2 text-sm font-bold text-[#64748B]">
-              {t('wallet.doneDesc', { kind: t(process.kind === 'charge' ? 'wallet.kindCharge' : 'wallet.kindWd'), v: process.amount.toFixed(7) })}
-            </p>
-            {process.txid ? (
-              <p className="mt-2 break-all rounded-xl bg-[#F8F5FF] px-3 py-2 text-[11px] font-black text-[#4C1FB8]">
-                {t('wallet.txid', { tx: process.txid.slice(0, 20) })}
-              </p>
-            ) : null}
-            {process.kind === 'charge' ? (
-              <p className="mt-2 rounded-xl bg-[#F8F5FF] px-3 py-2 text-sm font-black text-[#4C1FB8]">{t('wallet.curBal', { v: balance.toFixed(7) })}</p>
-            ) : null}
-            <button type="button" onClick={() => setProcess(null)} className="mt-5 w-full rounded-2xl bg-[#4C1FB8] py-3.5 font-black text-white">
-              {t('common.ok')}
+          )}
+          {historyTransactions.map((transaction, index) => (
+            <button
+              key={`${transaction.label}-${transaction.at}-${index}`}
+              type="button"
+              onClick={() => onReceipt(receiptFromTransaction(transaction, index))}
+              className="w-full rounded-2xl border border-[#C7DCF0] bg-white p-4 text-left transition hover:border-[#4A82B8] active:scale-[0.99]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 overflow-hidden pr-1">
+                  <p className="truncate font-black">{transaction.label}</p>
+                  <p className="mt-1 break-all text-xs font-bold leading-5 text-[#4A82B8] [overflow-wrap:anywhere] line-clamp-2" title={transaction.place}>
+                    {transaction.place}
+                  </p>
+                  <p className="mt-1 truncate text-xs font-bold text-[#8b8495]">{transaction.at}</p>
+                </div>
+                <strong className={`shrink-0 whitespace-nowrap tabular-nums ${transaction.amount > 0 ? 'text-[#2d9a5e]' : 'text-[#3F74A8]'}`}>
+                  {transaction.amount > 0 ? '+' : ''}
+                  {transaction.amount.toFixed(7)} Pi
+                </strong>
+              </div>
+              <p className="mt-3 text-xs font-black text-[#4A82B8]">{t('wallet.viewReceipt')}</p>
             </button>
-          </section>
-        </div>
-      )}
+          ))}
+        </section>
+      </div>
     </div>
   )
 }
@@ -9516,7 +8758,6 @@ export default function HomeScreen() {
   const [destSearchTick, setDestSearchTick] = useState(0)
   const [longDistCall, setLongDistCall] = useState<{ km: number; regionExit: boolean; destRegion: string } | null>(null)
   const [notice, setNotice] = useState('')
-  const [walletBalance, setWalletBalance] = useState(SIGNUP_WALLET_SEED)
   const [walletOpen, setWalletOpen] = useState(false)
   const [pickupMapOpen, setPickupMapOpen] = useState(false)
   const [pickupMapKey, setPickupMapKey] = useState(0)
@@ -9530,7 +8771,6 @@ export default function HomeScreen() {
     lat: BUSAN_CITY_HALL.lat,
     lng: BUSAN_CITY_HALL.lng,
   })
-  const [chargePromptOpen, setChargePromptOpen] = useState(false)
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'account' | null>(null)
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
@@ -9544,7 +8784,7 @@ export default function HomeScreen() {
   const [receiptRide, setReceiptRide] = useState<RideReceipt | null>(null)
   const [inboxItem, setInboxItem] = useState<Notice | null>(null)
   const [readNoticeIds, setReadNoticeIds] = useState<string[]>([])
-  const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; remaining: number; estimated?: number; paymentId: string; txid: string } | null>(null)
+  const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; estimated?: number; paymentId: string; txid: string } | null>(null)
   // 결제·운행 멱등 키는 모듈 레벨 영속 세트(markSettledPayment/markSettledRide,
   // localStorage)로 관리한다 — useRef는 새로고침마다 비워져 완료 폴러가 과거
   // 운행을 다시 차감하는 중복 결제 버그가 있었다.
@@ -9574,15 +8814,10 @@ export default function HomeScreen() {
     emitLedgerChange()
   }
 
-  // 잔액·거래·이용 기록이 바뀔 때마다 브로드캐스트 — 열려 있는 다른 탭/패널이
+  // 거래·이용 기록이 바뀔 때마다 브로드캐스트 — 열려 있는 다른 탭/패널이
   // 다음 폴링을 기다리지 않고 즉시 다시 읽을 수 있게 한다.
   const emitLedgerChange = () => {
     window.dispatchEvent(new Event('taxitago:ledger-changed'))
-  }
-  // 결제·정산 직후 서버 장부 잔액을 즉시 다시 읽어오라는 신호 — 입금 폴러의
-  // 다음 10초 주기를 기다리지 않고 상단 잔액이 정산액으로 곧바로 맞춰진다.
-  const emitWalletResync = () => {
-    window.dispatchEvent(new Event('taxitago:wallet-resync'))
   }
 
   // 앱 접속 하트비트 — 관리자 '실시간 현황'이 역할(이용자/기사/파트너)별 접속자를
@@ -9684,9 +8919,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let cancelled = false
-    const stored = readPiWallet()
-    setWalletBalance(stored.balance)
-    setTransactions(stored.transactions)
+    setTransactions(readPiTransactions())
     setReadNoticeIds(loadReadNoticeIds())
     setIsDriverRegistered(loadIsDriverRegistered())
     // 플래그가 빠진 상태로 저장된 파트너 프로필도 파트너로 인정한다 —
@@ -9715,8 +8948,8 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!walletReady) return
-    writePiWallet(walletBalance, transactions)
-  }, [walletReady, walletBalance, transactions])
+    writePiTransactions(transactions)
+  }, [walletReady, transactions])
 
   useEffect(() => {
     setDeliveryJob(loadDeliveryJob())
@@ -9741,11 +8974,6 @@ export default function HomeScreen() {
   }, [origin.lat, origin.lng, origin.address, destPlace])
   const unreadNoticeCount = notices.filter((item) => !readNoticeIds.includes(item.id)).length
   const openWallet = () => setWalletOpen(true)
-  const showChargePrompt = () => setChargePromptOpen(true)
-  const confirmChargePrompt = () => {
-    setChargePromptOpen(false)
-    setWalletOpen(true)
-  }
   const openInbox = (item: Notice) => {
     setInboxItem(item)
     setReadNoticeIds((ids) => {
@@ -9772,16 +9000,12 @@ export default function HomeScreen() {
     markSettledPayment(proof.paymentId)
     markSettledPayment(proof.txid)
     if (rideId) markSettledRide(rideId)
-    const remaining = Math.round((walletBalance - amount) * 100) / 100
     const at = formatPiTime()
     const ts = Date.now()
-    setWalletBalance(Math.max(0, remaining))
     setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated, txid: proof.txid }, ...items])
     recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(7)} Pi · ${place}`)
-    setPaymentDone({ amount, place, remaining: Math.max(0, remaining), estimated, paymentId: proof.paymentId, txid: proof.txid })
+    setPaymentDone({ amount, place, estimated, paymentId: proof.paymentId, txid: proof.txid })
     emitLedgerChange()
-    // 정산 직후 서버 장부 잔액(spendable)을 즉시 다시 읽어 상단 잔액을 동기화한다.
-    window.dispatchEvent(new Event('taxitago:wallet-resync'))
     if (!label.includes('취소')) {
       const from = origin.address.trim() || '현재 위치'
       const tripDest = (destPlace?.address || destPlace?.label || destination).trim()
@@ -9799,7 +9023,6 @@ export default function HomeScreen() {
       saveRecentUse(next)
       setRecentUse(next)
     }
-    emitWalletResync()
   }
   // 기사가 먼저 정산했거나 앱을 다시 연 뒤 완료가 확인된 운행도 홈 '최근 이용'과
   // 활동 기록/지갑 내역에 동기화한다. 수동 결제 경로와 rideId 중복 방지를 공유한다.
@@ -9816,7 +9039,6 @@ export default function HomeScreen() {
     const at = formatPiTime()
     const ts = Date.now()
     const place = receipt.route
-    setWalletBalance((balance) => Math.max(0, Math.round((balance - amount) * 100) / 100))
     setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated: receipt.estimatedFare, txid: receipt.payoutTxid || receipt.lockTxid }, ...items])
     recordActivity('운행 완료', `${place} · ${amount.toFixed(7)} Pi · 정산 완료`)
     const next: RecentUse = {
@@ -9830,8 +9052,6 @@ export default function HomeScreen() {
     saveRecentUse(next)
     setRecentUse(next)
     emitLedgerChange()
-    // 기사 측 정산 등 외부 완료 경로에서도 서버 장부 잔액을 즉시 재동기화한다.
-    emitWalletResync()
   }
   // 앱 첫 진입부터 오디오 잠금 해제 리스너를 걸어, 이후 어떤 알림음도
   // 자동재생 정책에 막혀 누락되지 않게 한다.
@@ -9874,8 +9094,13 @@ export default function HomeScreen() {
   }
   const payWithPi = async (amount: number, place: string, label: string, estimated?: number) => {
     try {
-      // 앱 잔액 즉시 차감 — Pi SDK는 충전/출금 전용이다.
-      const proof = await payFromBalance({ purpose: 'service', amount, label, place })
+      // 이용 시점 Pi SDK 직결제 — 승객 지갑이 서비스 요금을 직접 지불하고
+      // 서버가 완료 검증 후 수수료 공제·정산을 기록한다.
+      const proof = await startPiCheckout({
+        amount,
+        memo: `${label} ${amount} Pi`.slice(0, 25),
+        metadata: { kind: 'service-pay', label, place },
+      })
       settlePiLedger(amount, place, label, estimated, proof)
       return true
     } catch (error) {
@@ -9883,62 +9108,18 @@ export default function HomeScreen() {
       return false
     }
   }
-  const depositWallet = (amount: number, ts?: number) => {
-    const at = formatPiTime()
-    setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
-    // ts가 없으면 이용자가 직접 누른 충전 — 지금 시각. 스캐너 감지분은 서버의
-    // 실제 입금 시각을 받아 일일 한도 계산에서 제대로 날짜가 찍히게 한다.
-    const chargedAt = typeof ts === 'number' && Number.isFinite(ts) ? ts : Date.now()
-    setTransactions((items) => [{ label: 'Pi 충전', amount, detail: `Pi 월렛 · ${at}`, place: 'Pi 월렛', at, ts: chargedAt }, ...items])
-    recordActivity('Pi 충전 완료', `+${amount.toFixed(7)} Pi`)
-    emitLedgerChange()
-  }
-  const withdrawWallet = async (amount: number, dest: string): Promise<{ txid: string }> => {
-    const identity = loadPiIdentity()
-    const uid = identity?.uid?.trim() || ''
-    if (!uid) throw new Error('Pi 계정 연동 후 출금할 수 있습니다.')
-    // 서버가 실제 A2U 송금을 수행하고 txid를 돌려준다 — 성공이 확인되기 전엔
-    // 로컬 장부도 건드리지 않는다.
-    const res = await fetch('/api/wallet/withdraw/', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(identity?.accessToken ? { 'x-pi-access-token': identity.accessToken } : {}),
-      },
-      body: JSON.stringify({
-        uid,
-        wallet: identity?.wallet || '',
-        address: isPiWalletAddress(dest) ? dest : undefined,
-        amount,
-        requestId: crypto.randomUUID(),
-        accessToken: identity?.accessToken || undefined,
-        sandbox: PI_SANDBOX,
-      }),
-    })
-    const data = (await res.json().catch(() => null)) as { ok?: boolean; txid?: string; error?: string } | null
-    if (!res.ok || !data?.ok) throw new Error(data?.error || '출금 전송에 실패했어요.')
-    const txid = data.txid || ''
-    const shortTx = txid ? `tx ${txid.slice(0, 8)}…` : 'tx 확인 중'
-    const at = formatPiTime()
-    setWalletBalance((balance) => Math.max(0, Math.round((balance - amount) * 100) / 100))
-    setTransactions((items) => [{ label: 'Pi 출금', amount: -amount, detail: `${(dest || 'Pi 월렛').slice(0, 10)}… · ${shortTx} · ${at}`, place: dest || 'Pi 월렛', at, ts: Date.now(), txid }, ...items])
-    recordActivity('Pi 출금', `-${amount.toFixed(7)} Pi · ${shortTx}`)
-    emitLedgerChange()
-    return { txid }
-  }
   const rewardReview = (key?: string) => {
     // 리뷰 보상 Pi 지급 일시 중단 — REVIEW_REWARD_ENABLED가 false인 동안
-    // 지갑 적립·서버 리워드 장부 기록을 모두 건너뛰고 감사 안내만 띄운다.
+    // 리워드 장부 기록을 건너뛰고 감사 안내만 띄운다.
     // 재개할 때는 REVIEW_REWARD_ENABLED를 true로 되돌린다.
     if (!REVIEW_REWARD_ENABLED) {
       showNotice(t('toast.reviewDone'))
       return
     }
-    // 테스트넷 전용 임의 적립 — 메인넷에서는 잔액을 만들지 않고 기록만 남긴다.
+    // 사전 충전 폐지 — 리워드 적립은 결제 내역 기록으로만 남긴다.
     if (PI_SANDBOX) {
       const amount = 0.1
       const at = formatPiTime()
-      setWalletBalance((balance) => Math.round((balance + amount) * 100) / 100)
       setTransactions((items) => [{ label: '리뷰 적립', amount, detail: `기사 평가 · ${at}`, place: '리뷰 감사 포인트', at, ts: Date.now() }, ...items])
       showNotice(t('toast.reviewPi'))
     } else {
@@ -9950,47 +9131,6 @@ export default function HomeScreen() {
   // 없이 authenticate를 자동 실행하고 토큰을 App Studio 로그인으로 즉시 전달.
   useEffect(() => {
     void autoVerifyPiAppStudio()
-  }, [])
-  // 앱이 열려 있는 동안에는 지갑 모달을 열지 않아도 온체인 입금이 감지되면
-  // 즉시 잔액에 반영한다(수동 동기화로 기록된 입금 포함, txid 멱등).
-  useEffect(() => {
-    const identity = loadPiIdentity()
-    const wallet = identity?.wallet?.trim() || ''
-    const uid = identity?.uid?.trim() || ''
-    // uid만 있어도 폴러가 돌아야 한다 — 서버가 uid 귀속으로 입금을 찾아준다.
-    if (!uid && !isPiWalletAddress(wallet)) return
-    let stopped = false
-    const scan = () =>
-      scanPiDeposits(
-        isPiWalletAddress(wallet) ? wallet : '',
-        uid,
-        (amount, _txid, ts) => {
-          if (stopped) return
-          depositWallet(amount, ts)
-          showNotice(t('toast.deposit', { v: amount.toFixed(2) }))
-        },
-        (spendable) => {
-          if (stopped) return
-          // 서버 장부(권위)와 다른 로컬 잔액은 교정한다 — 새로고침 중복 차감 등으로
-          // 깨진 값을 자가치유. 입금 직후 onCredit 반영분도 서버 spendable에 포함된다.
-          setWalletBalance((balance) => {
-            if (Math.abs(balance - spendable) < 0.000001) return balance
-            console.log('[Wallet] balance reconciled to server ledger', { local: balance, spendable })
-            return Math.round(spendable * 100) / 100
-          })
-        },
-      )
-    void scan()
-    const timer = window.setInterval(scan, 10_000)
-    // 정산 직후에는 10초 주기를 기다리지 않고 즉시 서버 잔액을 다시 읽는다.
-    window.addEventListener('taxitago:wallet-resync', scan)
-    return () => {
-      stopped = true
-      window.clearInterval(timer)
-      window.removeEventListener('taxitago:wallet-resync', scan)
-    }
-    // depositWallet/showNotice는 매 렌더 새로 만들어지지만 스캔 루프는 마운트 시 한 번이면 충분하다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   // 서버/기사 측에서 먼저 정산된 내 운행을 주기적으로 동기화한다 — 결제 시트를
   // 닫았거나 폴러를 놓친 경우에도 잔액 차감·활동·최근 이용·영수증이 늦지 않게
@@ -10285,7 +9425,7 @@ export default function HomeScreen() {
             <div className="flex shrink-0 items-center gap-2">
               <LanguageQuickSwitcher />
               <button onClick={openWallet} className="rounded-full bg-[#E8F1FA] px-2.5 py-1.5 text-[11px] font-black text-[#4A82B8]">
-                {piCompact(walletBalance)} Pi
+                {t('wallet.history')}
               </button>
               <button onClick={() => setHeaderModal('account')} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4A82B8] text-white" aria-label={t('home.piAccount')}>
                 <UserRound className="h-4 w-4" />
@@ -10367,7 +9507,7 @@ export default function HomeScreen() {
               <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <SafeBoundary label="화면을 불러오는 중 문제가 발생했어요.">
-                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} transactions={transactions} broadcastRegion={broadcastRegionForCoord(gps.lat, gps.lng) || undefined} />
+                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} transactions={transactions} broadcastRegion={broadcastRegionForCoord(gps.lat, gps.lng) || undefined} />
                 </SafeBoundary>
               </div>
             </div>
@@ -10474,7 +9614,7 @@ export default function HomeScreen() {
             }}
           />
         ) : null}
-        {walletOpen && <WalletModal balance={walletBalance} onClose={() => setWalletOpen(false)} onDeposit={depositWallet} onWithdraw={withdrawWallet} transactions={transactions} onNotice={showNotice} onReceipt={setReceiptRide} />}
+        {walletOpen && <WalletModal onClose={() => setWalletOpen(false)} transactions={transactions} onReceipt={setReceiptRide} />}
         {daeriSetupOpen ? (
           <DaeriCallSetupSheet
             destination={destination}
@@ -10535,10 +9675,7 @@ export default function HomeScreen() {
               setTab('홈')
             }}
             onNotice={showNotice}
-            balance={walletBalance}
-            onPay={payWithPi}
             onSettle={settlePiLedger}
-            onNeedCharge={showChargePrompt}
             onAskReview={setRideReview}
             onReceipt={setReceiptRide}
             onActivity={recordActivity}
@@ -10561,10 +9698,8 @@ export default function HomeScreen() {
               setTab('홈')
             }}
             onNotice={showNotice}
-            balance={walletBalance}
             onPay={payWithPi}
             onSettle={settlePiLedger}
-            onNeedCharge={showChargePrompt}
             onAskReview={setDriverReview}
             onSelectService={openService}
             initialPhase={selectedService === '대리운전' && daeriTrip ? 'matching' : 'idle'}
@@ -10604,7 +9739,6 @@ export default function HomeScreen() {
           <PaymentDoneModal
             amount={paymentDone.amount}
             place={paymentDone.place}
-            remaining={paymentDone.remaining}
             estimated={paymentDone.estimated}
             onClose={resetToHomeAfterReceipt}
           />
@@ -10618,7 +9752,6 @@ export default function HomeScreen() {
             }}
           />
         ) : null}
-        {chargePromptOpen ? <InsufficientBalanceModal onConfirm={confirmChargePrompt} /> : null}
         {routeAlert ? (
           <RouteRequiredModal
             onConfirm={() => {

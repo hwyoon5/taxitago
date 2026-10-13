@@ -6,7 +6,8 @@ import { getRegistryUser } from '@/lib/user-registry'
 
 /**
  * 승객 할인 쿠폰 장부 — 관리자가 코드·할인 조건·기한·대상을 등록하고,
- * 승객은 잔액 결제(/api/wallet/spend) 시 코드를 적용해 차감액을 줄인다.
+ * 승객은 Pi SDK 직결제 시 코드를 적용해 결제액을 줄이고, 사용 기록은
+ * /api/pi/complete의 couponCode 메타데이터 처리에서 확정된다.
  * 할인분은 플랫폼 부담(기사 정산액은 운행 요금 기준 그대로)이다.
  * KV 우선 + 파일/메모리 폴백 — 다른 장부 스토어와 같은 저장 계약.
  */

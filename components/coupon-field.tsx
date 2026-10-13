@@ -19,7 +19,7 @@ const REJECT_KEYS: Record<string, MessageKey> = {
 
 /**
  * 결제 화면 공용 쿠폰 입력 — 코드 검증(/api/coupons) 후 적용 정보를 부모에 올린다.
- * 실제 차감·사용 기록은 payFromBalance(couponCode) → /api/wallet/spend에서 일어난다.
+ * 실제 할인 반영·사용 기록은 Pi SDK 결제 완료 시점(/api/pi/complete, couponCode 메타데이터)에 일어난다.
  */
 export function CouponCodeField({
   uid,

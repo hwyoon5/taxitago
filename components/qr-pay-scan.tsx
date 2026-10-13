@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link2, QrCode, ScanLine, X } from 'lucide-react'
 import { apiFetch } from '@/lib/app-origin'
-import { payFromBalance } from '@/lib/balance-pay'
+import { describePiUserMessage, startPiCheckout } from '@/components/pi-checkout'
 import { loadPiIdentity } from '@/lib/partner-account'
 import { CouponCodeField, type AppliedCoupon } from '@/components/coupon-field'
 import { useLocale } from '@/components/locale-provider'
@@ -177,14 +177,19 @@ export default function QrPayScanModal({
     if (!record || stage !== 'confirm') return
     setStage('paying')
     setError('')
-    // 앱 잔액에서 즉시 차감 — 금액은 서버의 결제 요청 레코드가 권위다.
-    void payFromBalance({ purpose: 'manual', manualId: record.id, label: '현장 수동 결제', couponCode: coupon?.code })
+    // 승객 Pi 지갑에서 SDK로 직접 결제 — 서버가 완료 검증 후 수수료 공제·기사 정산을 기록한다.
+    const payable = coupon ? coupon.payable : record.amount
+    void startPiCheckout({
+      amount: payable,
+      memo: `현장 결제 ${payable} Pi`,
+      metadata: { kind: 'manual-settle', manualId: record.id, grossAmount: record.amount, couponCode: coupon?.code },
+    })
       .then((proof) => {
         onPaid?.(record, proof)
         setStage('done')
       })
       .catch((payError) => {
-        setError(payError instanceof Error ? payError.message : t('qrpay.payFail'))
+        setError(describePiUserMessage(payError) || t('qrpay.payFail'))
         setStage('confirm')
       })
   }
