@@ -642,7 +642,7 @@
   "wallet.kindWd": "Withdraw·Refund",
   "common.copy": "Copy",
   "wd.title": "Really delete your account?",
-  "wd.desc": "Approving unlinks your account and signs you out. You cannot withdraw while a balance remains.",
+  "wd.desc": "Approving unlinks your account and signs you out. Ride and settlement records are kept for audit.",
   "wd.back": "Go back",
   "wd.busy": "Processing…",
   "wd.confirm": "Delete account",

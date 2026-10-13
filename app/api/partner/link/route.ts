@@ -115,39 +115,16 @@ export async function DELETE(request: Request) {
       )
     }
   }
-  // 2. 보유 파이 잔액이 남아 있으면 탈퇴를 원천 차단 — 잔액 출금·소진 후에만
-  // 계정 해제를 진행한다. 잔액은 서버 장부의 uid/지갑 귀속 크레딧 롤업이 권위.
+  // 2. 잔액은 탈퇴를 막지 않는다 — 사전 충전 폐지로 앱 잔액은 결제 수단이
+  // 아니며, 남은 크레딧은 아래 archiveUserCredits가 withdrawnAt으로 파기한다.
+  // 잔액 조회는 감사 로그의 '최종 잔액' 기록용으로만 쓰는 비차단 조회다.
   const wallet =
     (typeof body?.wallet === 'string' ? body.wallet.trim() : '') ||
     getPartnerLink(uid)?.wallet?.trim() ||
     ''
   const { userSpendableBalance } = await import('@/lib/user-credit-store')
-  // 잔액을 확인할 수 없으면 탈퇴 자체를 중단한다(fail-closed) — 조회 오류를
-  // 우회 수단으로 쓸 수 없게 하고, 인프라 장애 시엔 재시도를 요청한다.
-  let remaining = 0
-  try {
-    // 사용 가능 잔액 = 입금 크레딧 − 결제 지출 — 쓴 만큼은 차감된 값이 권위다.
-    remaining = Number(await userSpendableBalance(wallet, uid)) || 0
-  } catch (error) {
-    console.error('[Withdraw] balance lookup failed; withdrawal blocked', { uid, error })
-    return NextResponse.json(
-      { success: false, error: '보유 잔액을 확인하지 못해 탈퇴를 진행할 수 없습니다. 잠시 후 다시 시도해 주세요.' },
-      { status: 500 },
-    )
-  }
-  // 먼지 잔액(부동소수점 오차·소수점 7자리 이하 미세 잔여)은 탈퇴를 막지 않는다.
-  console.log('[Withdraw] balance check', { uid, wallet: wallet || '(none)', remaining })
-  const BALANCE_EPSILON = 0.000001
-  if (remaining > BALANCE_EPSILON) {
-    console.warn('[Withdraw] blocked: remaining balance', { uid, total: remaining })
-    return NextResponse.json(
-      {
-        success: false,
-        error: `잔액이 남아있는 상태에서는 탈퇴할 수 없습니다. 잔액을 모두 소진하거나 정산한 후 다시 시도해 주세요. (잔액: ${piRound(remaining)} Pi)`,
-      },
-      { status: 400 },
-    )
-  }
+  const remaining = await userSpendableBalance(wallet, uid).catch(() => 0)
+  console.log('[Withdraw] proceeding (final balance for audit)', { uid, wallet: wallet || '(none)', remaining })
 
   // 3. 개인 장부 파기 — 크레딧·지출 엔트리에 withdrawnAt을 찍어 잔액을 0으로
   // 초기화하고 지갑↔uid 매핑을 끊는다. 엔트리 자체는 감사용으로 보존된다.
