@@ -74,6 +74,8 @@ export default function AdminBlacklist() {
   const [duration, setDuration] = useState<string>('7')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualQuery, setManualQuery] = useState('')
 
   const load = useCallback(async () => {
     const res = await fetch('/api/admin/users', { headers: adminHeaders(), cache: 'no-store' }).catch(() => null)
@@ -149,6 +151,22 @@ export default function AdminBlacklist() {
   const shown = query.trim() ? results.slice(0, 30) : []
   const permanent = lockedRows.filter((row) => !row.lockedUntil).length
 
+  // 직접 등록 모달 — UID/아이디 정확 일치를 우선하고, 부분 일치 후보도 함께 보여준다.
+  const manualQ = manualQuery.trim().toLowerCase()
+  const manualExact = manualQ ? users.filter((row) => row.uid.toLowerCase() === manualQ || row.username.toLowerCase() === manualQ) : []
+  const manualCandidates = manualQ
+    ? [...manualExact, ...users.filter((row) => !manualExact.includes(row) && matchQuery(row, manualQuery))].slice(0, 8)
+    : []
+
+  const openSanction = (row: SanctionRow) => {
+    setTarget(row)
+    setReason('')
+    setDuration('7')
+    setError('')
+    setManualOpen(false)
+    setManualQuery('')
+  }
+
   return (
     <div className="mt-4 space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -158,9 +176,21 @@ export default function AdminBlacklist() {
             악성·노쇼·약관 위반 이용자를 검색해 기간/영구 정지를 부여합니다. 정지 즉시 로그인·호출·결제·출금·기사 영업이 차단됩니다.
           </p>
         </div>
-        <button type="button" onClick={() => void load()} className="rounded-full bg-[#4A82B8] px-3 py-2 text-xs font-black text-white shadow-[0_6px_14px_rgba(74,130,184,0.28)]">
-          새로고침
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setManualOpen(true)
+              setManualQuery('')
+            }}
+            className="rounded-full border-2 border-[#DC2626] bg-[#FEF2F2] px-3 py-2 text-xs font-black text-[#DC2626]"
+          >
+            + 직접 등록
+          </button>
+          <button type="button" onClick={() => void load()} className="rounded-full bg-[#4A82B8] px-3 py-2 text-xs font-black text-white shadow-[0_6px_14px_rgba(74,130,184,0.28)]">
+            새로고침
+          </button>
+        </div>
       </div>
 
       {error ? <p className="rounded-2xl border-2 border-[#FCA5A5] bg-[#FEF2F2] px-4 py-3 text-xs font-bold text-[#B91C1C]">{error}</p> : null}
@@ -262,12 +292,7 @@ export default function AdminBlacklist() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setTarget(row)
-                      setReason('')
-                      setDuration('7')
-                      setError('')
-                    }}
+                    onClick={() => openSanction(row)}
                     className="shrink-0 rounded-xl bg-[#DC2626] px-3 py-2 text-[10px] font-black text-white"
                   >
                     이용 정지
@@ -281,6 +306,73 @@ export default function AdminBlacklist() {
           ) : null}
         </div>
       </section>
+
+      {manualOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => setManualOpen(false)}>
+          <section className="w-full max-w-md rounded-[24px] bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <p className="text-sm font-black text-[#0F172A]">수동 제재 추가</p>
+            <p className="mt-1 text-[11px] font-bold leading-5 text-[#64748B]">
+              UID 또는 아이디(사용자명)를 입력해 대상을 조회한 뒤 정지 기간과 사유를 지정합니다.
+            </p>
+            <input
+              type="text"
+              value={manualQuery}
+              onChange={(event) => setManualQuery(event.target.value)}
+              placeholder="UID 또는 아이디 입력 (이름·연락처도 검색 가능)"
+              spellCheck={false}
+              autoComplete="off"
+              autoFocus
+              className="mt-3 w-full rounded-xl border-2 border-[#E2E8F0] px-3 py-2.5 font-mono text-sm font-bold outline-none focus:border-[#DC2626]"
+            />
+            <div className="mt-3 max-h-64 space-y-1.5 overflow-y-auto">
+              {!manualQ ? (
+                <p className="rounded-xl bg-[#F8FAFC] px-3 py-4 text-center text-[11px] font-bold text-[#94A3B8]">
+                  대상 식별자를 입력하면 아래에 후보가 표시됩니다.
+                </p>
+              ) : !manualCandidates.length ? (
+                <p className="rounded-xl bg-[#F8FAFC] px-3 py-4 text-center text-[11px] font-bold text-[#94A3B8]">
+                  일치하는 이용자가 없습니다. 가입자 레지스트리에 등록된 계정만 정지할 수 있습니다.
+                </p>
+              ) : (
+                manualCandidates.map((row) => {
+                  const meta = roleMeta(row.role)
+                  const exact = manualExact.includes(row)
+                  return (
+                    <button
+                      key={row.uid}
+                      type="button"
+                      onClick={() => openSanction(row)}
+                      className={`flex w-full items-center justify-between gap-2 rounded-xl border-2 px-3 py-2.5 text-left ${
+                        exact ? 'border-[#DC2626] bg-[#FEF2F2]' : 'border-[#E2E8F0] bg-white'
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-1.5">
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${meta.cls}`}>{meta.label}</span>
+                          <span className="truncate text-xs font-black text-[#0F172A]">{row.name || row.username}</span>
+                          {row.locked ? <span className="rounded-full bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-black text-white">정지 중</span> : null}
+                          {exact ? <span className="rounded-full bg-[#0F172A] px-1.5 py-0.5 text-[9px] font-black text-white">정확 일치</span> : null}
+                        </span>
+                        <span className="mt-0.5 block truncate font-mono text-[10px] font-bold text-[#64748B]">
+                          {row.username} · UID {row.uid}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[10px] font-black text-[#DC2626]">선택 ›</span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setManualOpen(false)}
+              className="mt-3 w-full rounded-xl bg-[#F1F5F9] py-2.5 text-xs font-black text-[#475569]"
+            >
+              닫기
+            </button>
+          </section>
+        </div>
+      ) : null}
 
       {target ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => setTarget(null)}>
