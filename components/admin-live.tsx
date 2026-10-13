@@ -132,6 +132,21 @@ const regionLabel = (key: RegionKey) => REGIONS.find((r) => r.key === key)?.labe
 const inRegionBounds = (lat: number | null | undefined, lng: number | null | undefined, b: RegionBounds | null) =>
   !b ? true : lat != null && lng != null && lat >= b.minLat && lat <= b.maxLat && lng >= b.minLng && lng <= b.maxLng
 
+/** 역지오코딩 캐시 키 — 3자리 반올림으로 약 100m 그리드 안 이동은 같은 주소로 재사용한다. */
+const coordKey = (lat: number, lng: number) => `${lat.toFixed(3)},${lng.toFixed(3)}`
+
+/** 전체 주소를 시/도 · 시/군/구 · 동/읍/면(또는 도로명) 수준으로 축약 — 번지·건물번호 등 숫자 토큰부터 자른다. */
+function shortenAddress(address: string) {
+  const tokens = address.trim().split(/\s+/).filter(Boolean)
+  const out: string[] = []
+  for (const token of tokens) {
+    if (out.length && /\d/.test(token)) break
+    out.push(token)
+    if (out.length >= 3) break
+  }
+  return out.join(' ')
+}
+
 /** 기사·승객 좌표를 스캐터 플롯으로 그리는 간단 관제 맵 — 지도 SDK 로드 실패 시 폴백. */
 function TrackingScatter({ drivers, users }: { drivers: TrackedDriver[]; users: TrackedUser[] }) {
   const W = 600
@@ -267,11 +282,13 @@ function TrackingMap({
   users,
   region,
   onRegionChange,
+  areaOf,
 }: {
   drivers: TrackedDriver[]
   users: TrackedUser[]
   region: RegionKey
   onRegionChange: (key: RegionKey) => void
+  areaOf: (lat: number | null | undefined, lng: number | null | undefined) => string
 }) {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<NaverMapInstance | null>(null)
@@ -400,6 +417,11 @@ function TrackingMap({
 
   const selectedDriver = selected?.kind === 'driver' ? drivers.find((d) => d.id === selected.id) : null
   const selectedUser = selected?.kind === 'user' ? users.find((u) => `${u.role}-${u.id}` === selected.id) : null
+  const selectedArea = selectedDriver
+    ? areaOf(selectedDriver.lat, selectedDriver.lng)
+    : selectedUser
+      ? areaOf(selectedUser.lat, selectedUser.lng)
+      : ''
 
   return (
     <div>
@@ -436,6 +458,7 @@ function TrackingMap({
               </button>
             </div>
             <p className="mt-1 text-[10px] font-bold text-[#64748B]">
+              {selectedArea ? `${selectedArea} · ` : ''}
               {selectedDriver
                 ? `${selectedDriver.vehicle || '차량 미등록'}${selectedDriver.plate ? ` · ${selectedDriver.plate}` : ''} · ${
                     selectedDriver.rideStatus === 'offered' ? '호출 제안 중' : (DRIVER_STATUS[selectedDriver.duty] ?? DRIVER_STATUS.offline).label
@@ -501,6 +524,56 @@ export default function AdminLiveDashboard() {
   const rb = regionBounds(region)
   const trackDrivers = (snap?.tracking?.drivers ?? []).filter((d) => inRegionBounds(d.lat, d.lng, rb))
   const trackUsers = (snap?.tracking?.users ?? []).filter((u) => inRegionBounds(u.lat, u.lng, rb))
+
+  // 역지오코딩 주소 캐시 — 좌표를 100m 그리드로 묶어 중복 조회를 막는다.
+  const [areas, setAreas] = useState<Record<string, string>>({})
+  const areaPendingRef = useRef<Set<string>>(new Set())
+  const trackingPoints = [
+    ...(snap?.tracking?.drivers ?? []).map((d) => ({ lat: d.lat, lng: d.lng })),
+    ...(snap?.tracking?.users ?? [])
+      .filter((u) => u.lat != null && u.lng != null)
+      .map((u) => ({ lat: u.lat as number, lng: u.lng as number })),
+  ]
+  const trackingPointsKey = trackingPoints.map((p) => coordKey(p.lat, p.lng)).join('|')
+  const trackingPointsRef = useRef<{ lat: number; lng: number }[]>([])
+  trackingPointsRef.current = trackingPoints
+
+  useEffect(() => {
+    const missing = new Map<string, { lat: number; lng: number }>()
+    for (const p of trackingPointsRef.current) {
+      const key = coordKey(p.lat, p.lng)
+      if (!(key in areas) && !areaPendingRef.current.has(key)) missing.set(key, p)
+    }
+    if (!missing.size) return
+    let alive = true
+    const queue = [...missing.entries()]
+    const worker = async () => {
+      for (;;) {
+        const next = queue.shift()
+        if (!next || !alive) return
+        const [key, p] = next
+        areaPendingRef.current.add(key)
+        try {
+          const res = await fetch(`/api/geocode?lat=${p.lat}&lng=${p.lng}`, { cache: 'no-store' })
+          const data = (await res.json().catch(() => null)) as { address?: string } | null
+          const label = data?.address && !/찾을 수 없습니다/.test(data.address) ? shortenAddress(data.address) : ''
+          setAreas((prev) => (key in prev ? prev : { ...prev, [key]: label }))
+        } catch {
+          setAreas((prev) => (key in prev ? prev : { ...prev, [key]: '' }))
+        } finally {
+          areaPendingRef.current.delete(key)
+        }
+      }
+    }
+    void Promise.all([worker(), worker(), worker()])
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackingPointsKey])
+
+  const areaLabel = (lat: number | null | undefined, lng: number | null | undefined) =>
+    lat == null || lng == null ? '' : areas[coordKey(lat, lng)] || ''
 
   return (
     <div className="mt-4 space-y-4">
@@ -615,7 +688,7 @@ export default function AdminLiveDashboard() {
               </span>
             </div>
             <div className="mt-2">
-              <TrackingMap drivers={trackDrivers} users={trackUsers} region={region} onRegionChange={setRegion} />
+              <TrackingMap drivers={trackDrivers} users={trackUsers} region={region} onRegionChange={setRegion} areaOf={areaLabel} />
             </div>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               <div className="space-y-2">
@@ -636,6 +709,10 @@ export default function AdminLiveDashboard() {
                         </div>
                         <p className="mt-1 text-[10px] font-bold text-[#64748B]">
                           {driver.vehicle ? `${driver.vehicle} · ` : ''}
+                          {(() => {
+                            const area = areaLabel(driver.lat, driver.lng)
+                            return area ? `${area} · ` : ''
+                          })()}
                           {driver.lat.toFixed(4)}, {driver.lng.toFixed(4)} · {fmtAgo(driver.lastSeenAt)}
                           {driver.rideStatus === 'assigned' ? ` · ${driver.rideKind === 'daeri' ? '대리운전' : '택시'} 운행` : ''}
                         </p>
@@ -666,7 +743,10 @@ export default function AdminLiveDashboard() {
                           </span>
                         </div>
                         <p className="mt-1 text-[10px] font-bold text-[#64748B]">
-                          {user.lat != null && user.lng != null ? `${user.lat.toFixed(4)}, ${user.lng.toFixed(4)}` : '위치 미보고'} · {fmtAgo(user.lastSeenAt)}
+                          {user.lat != null && user.lng != null
+                            ? `${areaLabel(user.lat, user.lng) ? `${areaLabel(user.lat, user.lng)} · ` : ''}${user.lat.toFixed(4)}, ${user.lng.toFixed(4)}`
+                            : '위치 미보고'}{' '}
+                          · {fmtAgo(user.lastSeenAt)}
                           {user.rideKind ? ` · ${user.rideKind === 'daeri' ? '대리운전' : '택시'}` : ''}
                         </p>
                       </div>
