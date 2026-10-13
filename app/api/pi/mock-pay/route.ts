@@ -32,6 +32,12 @@ export async function POST(request: Request) {
   const txid = `demo-txid-${Math.random().toString(36).slice(2, 12)}`
   console.log('[Pi] /api/pi/mock-pay sandbox payment', { amount, paymentId, txid, memo: body?.memo })
 
+  // 모의 결제도 서버가 '검증한' 결제로 기록해 둬야 에스크로 잠금이 인정된다.
+  const metaKind = typeof metadata?.kind === 'string' ? metadata.kind.trim() : ''
+  if (metaKind) {
+    const { markPaymentKind } = await import('@/lib/payment-kind-store')
+    await markPaymentKind(txid, metaKind).catch(() => undefined)
+  }
   await lockRideEscrowFromPayment(paymentId, txid, metadata).catch((error) => {
     console.error('[Pi] mock-pay escrow lock failed', { paymentId, error })
   })

@@ -139,7 +139,13 @@ async function onIncompletePaymentFound(payment: IncompletePiPayment): Promise<v
  * 영원히 pending으로 남지 않도록 강제 상한 — 초과 시 authPromise를 리셋해
  * 다음 시도가 새 authenticate를 시작할 수 있게 한다.
  */
-const PI_AUTH_RESPONSE_TIMEOUT_MS = 20_000
+/**
+ * authenticate는 지갑 로그인 시트에서 사용자 승인을 기다리는 상호작용이라
+ * 응답이 느릴 수 있다 — 20초는 현장 승인을 자르기에 짧아 여유를 둔다.
+ * 이 상한은 SDK가 시트도 못 띄우고 프라미스가 영원히 pending인 경우를
+ * 막는 워치독이지, 사용자 승인 속도를 재촉하는 제한이 아니다.
+ */
+const PI_AUTH_RESPONSE_TIMEOUT_MS = 90_000
 
 function authenticatePi(pi: PiSdk) {
   initPi(pi)
@@ -339,9 +345,9 @@ async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
 }
 
 const PI_CALL_TIMEOUT_MS = 8000
-/** 로그인 시트는 사용자 상호작용이 필요 — 8초 제한은 테스트넷에서 세션
- *  만료 오류로 오인될 만큼 짧아 별도 여유를 둔다. */
-const PI_AUTH_TIMEOUT_MS = 30_000
+/** 로그인 시트는 사용자 상호작용이 필요 — 지갑에서 승인할 시간을 충분히
+ *  준다(짧게 자르면 정상 승인이 '세션 만료'로 오인된다). */
+const PI_AUTH_TIMEOUT_MS = 90_000
 /**
  * 승인은 지갑 만료 창 안에서 끝나야 하지만, 느린 네트워크/콜드 스타트에서의
  * 정상 승인까지 자르지 않도록 여유를 둔다(서버는 시도당 8초·최대 2회로 제한).
@@ -764,7 +770,7 @@ export async function startPiCheckout(options: {
   }
   pi ??= requirePiSdk()
   try {
-    await withTimeout(authenticatePi(pi), 20_000, 'Pi.authenticate')
+    await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate')
   } catch (error) {
     // 캐시된 세션 토큰이 만료됐을 수 있다 — 리셋 후 재인증을 한 번 시도해
     // "세션 끊김"이 곧바로 결제 실패로 번지지 않게 한다.

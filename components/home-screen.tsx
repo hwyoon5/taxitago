@@ -2686,7 +2686,10 @@ function TaxiMatchingSheet({
       return
     }
     const abort = new AbortController()
-    const timeout = window.setTimeout(() => abort.abort(), 60000)
+    // 서버 완료 경로(에스크로 검증 + 정산 기록 + 기사 A2U 송금)가 네트워크
+    // 지연 시 60초를 넘길 수 있다 — 너무 일찍 끊으면 결제는 됐는데 '정산
+    // 실패'만 표시된다. 서버는 멱등이라 재시도해도 안전하다.
+    const timeout = window.setTimeout(() => abort.abort(), 90_000)
     void (async () => {
       let proof: { paymentId: string; txid: string } | undefined
       if (ride.escrow?.status !== 'held' && ride.escrow?.status !== 'released') {
@@ -3944,7 +3947,9 @@ function ServiceSheet({
                           }
                         : undefined
                       const abort = new AbortController()
-                      const timeout = window.setTimeout(() => abort.abort(), 25000)
+                      // 정산 API(서버 검증·에스크로 해제·A2U)가 느릴 수 있어
+                      // 재시도 3회가 함께 쓸 시간을 넉넉히 둔다.
+                      const timeout = window.setTimeout(() => abort.abort(), 60_000)
                       const attempt = (): Promise<{ ride?: PublicRide }> =>
                         completeRideTrip(rideId, driverId, proof, { signal: abort.signal })
                       const retry = (left: number): Promise<{ ride?: PublicRide }> =>

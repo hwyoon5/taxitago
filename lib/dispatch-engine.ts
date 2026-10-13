@@ -1,7 +1,6 @@
 import { etaMinutesFromKm, haversineKm, headingDegrees, stepToward } from '@/lib/dispatch-geo'
 import { getEscrowByRide, syncEscrowFromDisk } from '@/lib/escrow-store'
-import { openEscrowForRide, lockEscrow, refundEscrow, toPublicEscrow } from '@/lib/escrow-engine'
-import { isPiSandboxEnv } from '@/lib/pi-sandbox'
+import { openEscrowForRide, refundEscrow, toPublicEscrow } from '@/lib/escrow-engine'
 import { archiveRideComms, openRideComms } from '@/lib/comms-engine'
 import {
   driverPenaltyInfo,
@@ -531,8 +530,10 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   publishDriverLive(driverId)
   recordZoneOutcome(ride.dest, 'accept')
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
+  // 에스크로는 'pending'으로만 연다 — 잠금은 승객의 Pi SDK 결제가 서버
+  // 검증(/api/pi/complete)을 통과했을 때만 일어난다. 결제 없이 잠기면
+  // 이용 종료 시점의 결제 창이 건너뛰어진다.
   openEscrowForRide(ride.id)
-  if (isPiSandboxEnv()) lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })
   void openRideComms(ride.id)
   startLiveDriverTracking(ride.id)
   return { ok: true as const, ride }
@@ -621,9 +622,9 @@ export function confirmMatchOnDevice(
   stamp(ride)
   publishDriverLive(driver.id)
   saveDriver({ ...driver, status: 'busy', lastSeenAt: nowIso() })
+  // 결제 없는 자동 잠금 금지 — 실제 잠금은 검증된 Pi 결제 완료 시 발생한다.
   openEscrowForRide(ride.id)
   void openRideComms(ride.id)
-  lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })
   startLiveDriverTracking(ride.id)
   return { ok: true as const, ride: getRide(ride.id) ?? ride }
 }
@@ -691,7 +692,6 @@ export function ensureRideForCompletion(
     updatedAt: createdAt,
   })
   openEscrowForRide(ride.id)
-  lockEscrow({ rideId: ride.id, passengerId: ride.passengerId, sandbox: true })
   return getRide(ride.id) ?? ride
 }
 

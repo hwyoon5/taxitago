@@ -33,7 +33,7 @@ export async function lockRideEscrowFromPayment(
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv()])
   const ride = getRide(rideId)
   if (!ride?.assignedDriverId) return
-  ensureSettlementEscrow(rideId, ride.assignedDriverId, {
+  await ensureSettlementEscrow(rideId, ride.assignedDriverId, {
     status: 'held',
     lockTxid: txid,
     lockPaymentId: paymentId,

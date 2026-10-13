@@ -90,7 +90,6 @@ export function lockEscrow(input: {
   passengerId: string
   paymentId?: string
   txid?: string
-  sandbox?: boolean
 }) {
   const ride = getRide(input.rideId)
   if (!ride) return { ok: false as const, error: 'not_found', escrow: null }
@@ -101,9 +100,11 @@ export function lockEscrow(input: {
   if (escrow.status === 'held' || escrow.status === 'released') return { ok: true as const, escrow }
   if (escrow.status === 'refunded') return { ok: false as const, error: 'refunded', escrow }
 
-  const sandbox = Boolean(input.sandbox) || isPiSandboxEnv()
-  const paymentId = input.paymentId?.trim() || (sandbox ? `escrow-${escrow.id}` : '')
-  const txid = input.txid?.trim() || (sandbox ? `lock-${escrow.id.slice(0, 8)}` : '')
+  // 결제 증거 없는 잠금은 어떤 네트워크에서도 허용하지 않는다 — 과거에는
+  // 샌드박스에서 escrow-*/lock-* 가짜 ID를 만들어 '결제 없는 잠금'이 생겨
+  // 이용 종료 시점의 Pi SDK 결제 창이 건너뛰어졌다.
+  const paymentId = input.paymentId?.trim() || ''
+  const txid = input.txid?.trim() || ''
   if (!paymentId || !txid) return { ok: false as const, error: 'payment_required', escrow }
 
   escrow.status = 'held'
@@ -168,8 +169,14 @@ async function settleRideSpend(
 }
 
 
-/** Passenger arrival is the settlement gate. Recover a lock saved in another process, or a sandbox lock that never landed on this one. */
-export function ensureSettlementEscrow(
+/**
+ * Passenger arrival is the settlement gate. Recover a lock saved in another
+ * process, or promote a client-supplied proof — but only when the txid is one
+ * the server itself verified through /api/pi/complete (or testnet mock-pay)
+ * and recorded in the payment-kind registry. A client can send any lockTxid
+ * string, so unverified proofs must never produce a 'held' escrow.
+ */
+export async function ensureSettlementEscrow(
   rideId: string,
   driverId: string,
   proof?: { status?: string | null; lockTxid?: string | null; lockPaymentId?: string | null },
@@ -185,13 +192,18 @@ export function ensureSettlementEscrow(
   }
   const txid = proof?.lockTxid?.trim() || ''
   const paymentId = proof?.lockPaymentId?.trim() || txid
-  if (!isPiSandboxEnv() && !txid) return current
+  if (!txid) return current
+  const { paymentKindOf } = await import('@/lib/payment-kind-store')
+  const verifiedKind = await paymentKindOf(txid).catch(() => '')
+  if (!verifiedKind) {
+    console.warn('[escrow] lock rejected: proof txid not a server-verified payment', { rideId })
+    return current
+  }
   const locked = lockEscrow({
     rideId,
     passengerId: ride.passengerId,
     paymentId: paymentId || undefined,
-    txid: txid || undefined,
-    sandbox: isPiSandboxEnv(),
+    txid,
   })
   return locked.escrow
 }
@@ -223,7 +235,7 @@ export async function releaseEscrow(
   }
   if (ride.status !== 'assigned') return { ok: false as const, error: ride.status, escrow, receipt: null }
   if (!ride.readyToSettleAt) return { ok: false as const, error: 'passenger_not_ready', escrow, receipt: null }
-  escrow = ensureSettlementEscrow(rideId, driverId, proof)
+  escrow = await ensureSettlementEscrow(rideId, driverId, proof)
   if (escrow?.status === 'released') return { ok: true as const, escrow, receipt: getReceipt(rideId) }
   if (!escrow || escrow.status !== 'held') {
     return { ok: false as const, error: 'escrow_not_held', escrow, receipt: null }
