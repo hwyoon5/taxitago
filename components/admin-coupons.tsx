@@ -146,7 +146,7 @@ export default function AdminCoupons() {
         <div>
           <h2 className="text-sm font-black text-[#0F172A]">쿠폰 발행 · 현황</h2>
           <p className="mt-0.5 text-[11px] font-bold text-[#94A3B8]">
-            승객 잔액 결제 시 코드를 입력하면 할인이 적용됩니다 · 할인분은 플랫폼 부담
+            승객 Pi 결제 시 코드를 입력하면 할인이 적용됩니다 · 할인분은 플랫폼 부담
             {stats ? ` · 총 ${stats.total}개 / 사용 ${stats.redeemed}건 / 할인 ${stats.discounted.toFixed(7)} Pi` : ''}
           </p>
         </div>

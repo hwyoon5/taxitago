@@ -1,10 +1,8 @@
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 
-const PI_API_BASE = 'https://api.minepi.com/v2/payments'
-
 /**
  * Pi 개발자 포털 도메인 인증 충돌 우회용 임시 테스트넷 키.
- * 샌드박스/테스트넷 모드에서는 PI_API_KEY 설정과 무관하게 이 키를 강제로 사용한다.
+ * 샌드박스/테스트넷 모드에서 env 키가 없을 때 마지막 후보로만 사용한다.
  * 메인넷(NEXT_PUBLIC_PI_SANDBOX=false/0/mainnet)에서는 절대 사용되지 않는다.
  * TODO: 포털 도메인 인증이 정리되면 제거하고 PI_API_KEY로 되돌린다.
  */
@@ -38,7 +36,7 @@ function readEnvKeys(names: readonly string[]): string[] {
  * 클라이언트가 보낸 sandbox 힌트를 서버 env보다 우선한다.
  *
  * 네트워크 분리는 엄격하다 — 결정된 네트워크의 키만 시도한다:
- *   testnet → 강제 테스트넷 키 + PI_API_KEY_TESTNET계 env
+ *   testnet → PI_API_KEY_TESTNET계 env → 강제 테스트넷 키(마지막 폴백)
  *   mainnet → PI_API_KEY_MAINNET계 env (테스트넷 키는 절대 시도 안 함)
  * 공용 키(PI_NETWORK_API_KEY/PI_API_KEY)는 스코프 접두사가 없을 때만 해당
  * 네트워크 후보로 쓰인다 — sk_live_ 키가 테스트넷 호출에 새지 않는다.
@@ -48,7 +46,6 @@ function resolvePiApiKeys(sandboxHint?: boolean | null): PiKeyChoice[] {
   const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
   const network: PiNetwork = sandbox ? 'testnet' : 'mainnet'
   const choices: PiKeyChoice[] = []
-  if (sandbox) choices.push({ key: PI_TESTNET_API_KEY, source: 'forced-testnet' })
   // 네트워크 전용 env — 이름으로 스코프가 고정되므로 자기 네트워크에서만 읽는다.
   const scopedNames = sandbox
     ? (['PI_API_KEY_TESTNET', 'PI_TESTNET_API_KEY', 'PI_SANDBOX_API_KEY'] as const)
@@ -70,6 +67,9 @@ function resolvePiApiKeys(sandboxHint?: boolean | null): PiKeyChoice[] {
     }
     choices.push({ key, source: 'env' })
   }
+  // 포털 등록 키보다 임시 강제 키가 먼저 거절돼 401 노이즈를 만들지 않도록
+  // 하드코드된 테스트넷 키는 env 후보가 모두 실패한 마지막 순번에 둔다.
+  if (sandbox) choices.push({ key: PI_TESTNET_API_KEY, source: 'forced-testnet' })
   if (!choices.length) {
     throw new Error(
       `PI_API_KEY is not configured for ${network} — set PI_API_KEY_${sandbox ? 'TESTNET' : 'MAINNET'} or a shared PI_API_KEY/PI_NETWORK_API_KEY`,
@@ -78,8 +78,24 @@ function resolvePiApiKeys(sandboxHint?: boolean | null): PiKeyChoice[] {
   return choices
 }
 
-function piPaymentUrl(paymentId: string, pathSuffix = '') {
-  return `${PI_API_BASE}/${encodeURIComponent(paymentId)}${pathSuffix}`
+/**
+ * Payments Platform API base — 네트워크별로 분기한다. 테스트넷 결제를
+ * api.minepi.com(메인넷 호스트)에 승인/완료 요청하면 테스트넷 키가 해당
+ * 앱으로 인증되지 않아 401이 난다 — /v2/me 검증부(piPlatformApiBase)와
+ * 같은 규칙으로 결제 네트워크의 호스트를 고른다.
+ * PI_PAYMENTS_API_URL로 전체 경로를, PI_PLATFORM_API_URL로 호스트를 강제 지정 가능.
+ */
+function piPaymentsApiBase(sandboxHint?: boolean | null) {
+  const override = (process.env.PI_PAYMENTS_API_URL || '').trim()
+  if (override) return override.replace(/\/+$/, '')
+  const platform = (process.env.PI_PLATFORM_API_URL || '').trim()
+  if (platform) return `${platform.replace(/\/+$/, '')}/v2/payments`
+  const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  return sandbox ? 'https://api.testnet.minepi.com/v2/payments' : 'https://api.minepi.com/v2/payments'
+}
+
+function piPaymentUrl(paymentId: string, base: string, pathSuffix = '') {
+  return `${base}/${encodeURIComponent(paymentId)}${pathSuffix}`
 }
 
 /** GET/complete calls — not on the wallet expiry path, so they can afford a wider budget. */
@@ -129,8 +145,9 @@ async function piPaymentsRequest(
   timeoutMs: number,
   apiKey: string,
   keySource: string,
+  apiBase: string,
 ) {
-  const url = piPaymentUrl(paymentId, pathSuffix)
+  const url = piPaymentUrl(paymentId, apiBase, pathSuffix)
   const startedAt = Date.now()
   console.log(`[Pi] ${method} ${url} start`, { apiKey: keySource, timeoutMs })
 
@@ -203,10 +220,11 @@ async function piPaymentsRequestAuthed(
   sandboxHint?: boolean | null,
 ) {
   const keys = resolvePiApiKeys(sandboxHint)
+  const apiBase = piPaymentsApiBase(sandboxHint)
   let lastError: unknown
   for (const { key, source } of keys) {
     try {
-      return await piPaymentsRequest(paymentId, method, pathSuffix, body, timeoutMs, key, source)
+      return await piPaymentsRequest(paymentId, method, pathSuffix, body, timeoutMs, key, source, apiBase)
     } catch (error) {
       lastError = error
       const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
@@ -415,8 +433,12 @@ export async function verifyPiTxidOnChain(txid: string, sandboxHint?: boolean | 
   }
 }
 
-async function a2uPost(input: { amount: number; memo: string; uid: string; metadata?: Record<string, unknown> }, apiKey: string) {
-  const url = 'https://api.minepi.com/v2/payments'
+async function a2uPost(
+  input: { amount: number; memo: string; uid: string; metadata?: Record<string, unknown> },
+  apiKey: string,
+  apiBase: string,
+) {
+  const url = apiBase
   const startedAt = Date.now()
   let response: Response
   try {
@@ -469,11 +491,12 @@ export async function createA2UPayment(
   sandboxHint?: boolean | null,
 ) {
   const keys = resolvePiApiKeys(sandboxHint)
+  const apiBase = piPaymentsApiBase(sandboxHint)
   let lastError: unknown
   for (const { key, source } of keys) {
     try {
-      console.log('[Pi] POST A2U start', { apiKey: source })
-      return await a2uPost(input, key)
+      console.log('[Pi] POST A2U start', { apiKey: source, apiBase })
+      return await a2uPost(input, key, apiBase)
     } catch (error) {
       lastError = error
       const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
