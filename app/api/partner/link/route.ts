@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { deletePartnerLink, getPartnerLink, upsertPartnerLink } from '@/lib/partner-ledger-server'
 import { findLockedUser, getRegistryUser, upsertRegistryUser } from '@/lib/user-registry'
 import { piRound } from '@/lib/pi-format'
@@ -82,91 +82,104 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const body = (await request.json().catch(() => null)) as {
-    uid?: unknown
-    wallet?: unknown
-    accessToken?: unknown
-  } | null
-  const fromBody = typeof body?.uid === 'string' ? body.uid.trim() : ''
-  const uid = fromBody || new URL(request.url).searchParams.get('uid')?.trim() || ''
-  if (!uid) return NextResponse.json({ success: false, error: 'uid required' }, { status: 400 })
-  // 1. 인증 — 탈퇴 요청자가 해당 Pi uid 소유자인지 확인한다. 토큰 없는 호출로
-  // 잔액 0인 타인 계정을 해제할 수 없게 막는다. /api/rides와 같은 정책:
-  // 메인넷은 fail-closed, 테스트넷은 /v2/me 판정 불가(unreachable)만 통과.
-  const sandbox = isPiSandboxRequest(request)
-  const sandboxSession = sandbox && uid === 'sandbox-uid-taxitago'
-  if (!sandboxSession) {
-    const token =
-      request.headers.get('x-pi-access-token')?.trim() ||
-      (typeof body?.accessToken === 'string' ? body.accessToken.trim() : '')
-    if (!token) {
-      return NextResponse.json(
-        { success: false, error: 'Pi 계정 인증이 필요합니다. 다시 로그인해 주세요.' },
-        { status: 401 },
-      )
-    }
-    const inspection = await inspectPiAccessToken(token, sandbox)
-    const verifiedUid = inspection.status === 'ok' ? inspection.uid : null
-    const allowed = verifiedUid === uid || (sandbox && inspection.status === 'unreachable')
-    if (!allowed) {
-      return NextResponse.json(
-        { success: false, error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' },
-        { status: 401 },
-      )
-    }
-  }
-  // 2. 잔액은 탈퇴를 막지 않는다 — 사전 충전 폐지로 앱 잔액은 결제 수단이
-  // 아니며, 남은 크레딧은 아래 archiveUserCredits가 withdrawnAt으로 파기한다.
-  // 잔액 조회는 감사 로그의 '최종 잔액' 기록용으로만 쓰는 비차단 조회다.
-  const wallet =
-    (typeof body?.wallet === 'string' ? body.wallet.trim() : '') ||
-    getPartnerLink(uid)?.wallet?.trim() ||
-    ''
-  const { userSpendableBalance } = await import('@/lib/user-credit-store')
-  const remaining = await userSpendableBalance(wallet, uid).catch(() => 0)
-  console.log('[Withdraw] proceeding (final balance for audit)', { uid, wallet: wallet || '(none)', remaining })
-
-  // 3. 개인 장부 파기 — 크레딧·지출 엔트리에 withdrawnAt을 찍어 잔액을 0으로
-  // 초기화하고 지갑↔uid 매핑을 끊는다. 엔트리 자체는 감사용으로 보존된다.
-  const { archiveUserCredits } = await import('@/lib/user-credit-store')
-  await archiveUserCredits({ uid, wallet }).catch((error) => {
-    console.error('[Withdraw] credit archive failed', { uid, error })
-  })
-  // 가입자 레지스트리도 탈퇴 처리 — 프로필·서비스 필드를 지워 재가입 시
-  // 옛 정보(역할·차량·보험 등)가 되살아나지 않게 하고 withdrawnAt만 남긴다.
-  const { markRegistryUserWithdrawn } = await import('@/lib/user-registry')
-  await markRegistryUserWithdrawn(uid).catch((error) => {
-    console.error('[Withdraw] registry withdraw mark failed', { uid, error })
-  })
-
-  // 4. 기사 활성 상태 정리 — 탈퇴한 기사가 온라인으로 남아 콜을 받지 않게
-  // 오프라인 처리하고 콜 알림용 푸시 구독을 해제한다.
   try {
-    const { getDriver, nowIso, saveDriver } = await import('@/lib/dispatch-store')
-    const driver = getDriver(uid)
-    if (driver && driver.status !== 'offline' && !driver.virtual) {
-      saveDriver({ ...driver, status: 'offline', lastSeenAt: nowIso() })
+    const body = (await request.json().catch(() => null)) as {
+      uid?: unknown
+      wallet?: unknown
+      accessToken?: unknown
+    } | null
+    const fromBody = typeof body?.uid === 'string' ? body.uid.trim() : ''
+    const uid = fromBody || new URL(request.url).searchParams.get('uid')?.trim() || ''
+    if (!uid) return NextResponse.json({ success: false, error: 'uid required' }, { status: 400 })
+    // 1. 인증 — 탈퇴 요청자가 해당 Pi uid 소유자인지 확인한다. 토큰 없는 호출로
+    // 타인 계정을 해제할 수 없게 막는다. /api/rides와 같은 정책:
+    // 메인넷은 fail-closed, 테스트넷은 /v2/me 판정 불가(unreachable)만 통과.
+    const sandbox = isPiSandboxRequest(request)
+    const sandboxSession = sandbox && uid === 'sandbox-uid-taxitago'
+    if (!sandboxSession) {
+      const token =
+        request.headers.get('x-pi-access-token')?.trim() ||
+        (typeof body?.accessToken === 'string' ? body.accessToken.trim() : '')
+      if (!token) {
+        return NextResponse.json(
+          { success: false, error: 'Pi 계정 인증이 필요합니다. 다시 로그인해 주세요.' },
+          { status: 401 },
+        )
+      }
+      const inspection = await inspectPiAccessToken(token, sandbox)
+      const verifiedUid = inspection.status === 'ok' ? inspection.uid : null
+      const allowed = verifiedUid === uid || (sandbox && inspection.status === 'unreachable')
+      if (!allowed) {
+        return NextResponse.json(
+          { success: false, error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' },
+          { status: 401 },
+        )
+      }
     }
-    removeDriverPushSubscription(uid)
+    const wallet =
+      (typeof body?.wallet === 'string' ? body.wallet.trim() : '') ||
+      getPartnerLink(uid)?.wallet?.trim() ||
+      ''
+
+    // 2. 계정 연동 해제가 응답의 유일한 전제 조건 — 메모리 Map 삭제라 즉시 끝난다.
+    const link = getPartnerLink(uid)
+    deletePartnerLink(uid)
+    console.log('[Withdraw] account unlinked', { uid, wallet: wallet || '(none)' })
+
+    // 3. 느린 정리 작업(크레딧 파기·레지스트리·기사 상태·감사 로그)은 응답 이후
+    // 백그라운드로 — KV 장애·지연이 탈퇴 응답을 붙잡아 클라이언트가 '처리 중'에
+    // 멈추는 것을 막는다. 각 단계는 실패해도 로그만 남기고 넘어간다.
+    after(async () => {
+      // 잔액은 탈퇴를 막지 않는다 — 사전 충전 폐지로 앱 잔액은 결제 수단이
+      // 아니며, 남은 크레딧은 archiveUserCredits가 withdrawnAt으로 파기한다.
+      // 잔액 조회는 감사 로그의 '최종 잔액' 기록용으로만 쓰는 비차단 조회다.
+      const { userSpendableBalance, archiveUserCredits } = await import('@/lib/user-credit-store')
+      const remaining = await userSpendableBalance(wallet, uid).catch(() => 0)
+      await archiveUserCredits({ uid, wallet }).catch((error) => {
+        console.error('[Withdraw] credit archive failed', { uid, error })
+      })
+      // 가입자 레지스트리도 탈퇴 처리 — 프로필·서비스 필드를 지워 재가입 시
+      // 옛 정보(역할·차량·보험 등)가 되살아나지 않게 하고 withdrawnAt만 남긴다.
+      const { markRegistryUserWithdrawn } = await import('@/lib/user-registry')
+      await markRegistryUserWithdrawn(uid).catch((error) => {
+        console.error('[Withdraw] registry withdraw mark failed', { uid, error })
+      })
+      // 기사 활성 상태 정리 — 탈퇴한 기사가 온라인으로 남아 콜을 받지 않게
+      // 오프라인 처리하고 콜 알림용 푸시 구독을 해제한다.
+      try {
+        const { getDriver, nowIso, saveDriver } = await import('@/lib/dispatch-store')
+        const driver = getDriver(uid)
+        if (driver && driver.status !== 'offline' && !driver.virtual) {
+          saveDriver({ ...driver, status: 'offline', lastSeenAt: nowIso() })
+        }
+        removeDriverPushSubscription(uid)
+      } catch (error) {
+        console.error('[Withdraw] driver state cleanup failed', { uid, error })
+      }
+      // 탈퇴 감사 로그 — 정산 장부·운행 이력은 그대로 남기고, 어뷰징 추적용
+      // 최소 식별 이력(uid·지갑·탈퇴 시점)을 관리자 감사에 기록한다.
+      await recordAudit({
+        kind: 'partner',
+        actor: uid,
+        actorName: link?.name || link?.username,
+        refId: uid,
+        reason: '회원 탈퇴',
+        detail: `wallet ${wallet || '(없음)'} · 최종 잔액 ${piRound(remaining)} Pi`,
+        after: { uid, wallet, role: link?.role },
+      }).catch((error) => console.error('[Withdraw] audit log failed', { uid, error }))
+      console.log('[Withdraw] cleanup done', { uid })
+    })
+
+    return NextResponse.json({ ok: true, success: true })
   } catch (error) {
-    console.error('[Withdraw] driver state cleanup failed', { uid, error })
+    // 어떤 예외도 JSON 응답으로 변환한다 — Next 기본 에러 페이지(HTML)가
+    // 내려가면 클라이언트 json() 파싱이 실패해 '처리 중'이 풀리지 않는다.
+    console.error('[Withdraw] unhandled error', { error })
+    return NextResponse.json(
+      { success: false, error: '회원 탈퇴 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' },
+      { status: 500 },
+    )
   }
-
-  // 5. 탈퇴 감사 로그 — 정산 장부·운행 이력은 그대로 남기고, 어뷰징 추적용
-  // 최소 식별 이력(uid·지갑·탈퇴 시점)을 관리자 감사에 기록한다.
-  const link = getPartnerLink(uid)
-  await recordAudit({
-    kind: 'partner',
-    actor: uid,
-    actorName: link?.name || link?.username,
-    refId: uid,
-    reason: '회원 탈퇴',
-    detail: `wallet ${wallet || '(없음)'} · 최종 잔액 ${piRound(remaining)} Pi`,
-    after: { uid, wallet, role: link?.role },
-  }).catch((error) => console.error('[Withdraw] audit log failed', { uid, error }))
-
-  deletePartnerLink(uid)
-  return NextResponse.json({ ok: true, success: true })
 }
 
 export async function GET(request: Request) {

@@ -237,21 +237,35 @@ export async function requestAccountWithdrawal(uid?: string) {
   // (400 uid required)하게 두고, 로컬만으로 탈퇴를 완료하지 않는다.
   // 서버는 탈퇴 요청자가 해당 uid의 소유자인지 accessToken으로 검증한다 —
   // 헤더와 body 양쪽에 실어 프록시·rewrite에서의 헤더 손실에 대비한다.
-  const res = await apiFetch('/api/partner/link/', {
-    method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(identity?.accessToken ? { 'x-pi-access-token': identity.accessToken } : {}),
-    },
-    body: JSON.stringify({
-      uid: id,
-      wallet: identity?.wallet || loadPartnerProfile()?.wallet || '',
-      accessToken: identity?.accessToken || undefined,
-    }),
-  })
+  // apiFetch엔 기본 타임아웃이 없다 — 서버 장애·네트워크 단절이면 '처리 중'
+  // 스피너가 영원히 돌아간다. 서버는 인증(최대 ~8s)과 링크 삭제만 응답 전에
+  // 하므로 20초면 충분하고, 초과 시 명확한 오류로 정리해 재시도를 허용한다.
+  let res: Response
+  try {
+    res = await apiFetch('/api/partner/link/', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(identity?.accessToken ? { 'x-pi-access-token': identity.accessToken } : {}),
+      },
+      body: JSON.stringify({
+        uid: id,
+        wallet: identity?.wallet || loadPartnerProfile()?.wallet || '',
+        accessToken: identity?.accessToken || undefined,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    })
+  } catch (error) {
+    const timedOut = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+    throw new Error(
+      timedOut
+        ? '서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
+        : '네트워크 오류로 탈퇴 요청을 보내지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.',
+    )
+  }
   const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
   if (!res.ok || data?.ok !== true) {
-    // 서버가 돌려준 사유(잔액 잔존 등)를 그대로 이용자에게 보인다.
+    // 서버가 돌려준 사유(인증 실패 등)를 그대로 이용자에게 보인다.
     const serverError = typeof data?.error === 'string' ? data.error : ''
     throw new Error(
       serverError === 'uid required'
