@@ -210,9 +210,11 @@ export async function handlePiComplete(request: Request) {
     body?.metadata && typeof body.metadata === 'object' ? (body.metadata as Record<string, unknown>) : null
 
   try {
-    const { payment, info } = await completePiPayment(paymentId, txid, effectiveSandbox)
+    const { payment, info, network } = await completePiPayment(paymentId, txid, effectiveSandbox)
     assertPiPaymentCompleted(payment, paymentId, txid)
-    await verifyPiTxidOnChain(txid, effectiveSandbox)
+    // Horizon 교차 검증은 결제가 실제 완료된 네트워크에서 한다 — 결제가 반대
+    // 네트워크에 생성됐으면 해석된 sandbox로 조회하면 404로 정상 건을 거부한다.
+    await verifyPiTxidOnChain(txid, network === 'testnet')
     console.log('[Pi] /api/pi/complete verified', { paymentId, txid })
     // kind는 Pi Platform이 보관하는 결제 메타데이터(서버가 조회한 원본)가 권위.
     // 서버 조회가 실패(info null)하거나 원본에 kind가 없으면 클라이언트 주장을

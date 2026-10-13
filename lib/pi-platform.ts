@@ -288,15 +288,42 @@ function piApproveAttempt(paymentId: string, timeoutMs: number, sandboxHint?: bo
 }
 
 /**
+ * Pi API 404 = 조회한 네트워크에 그 paymentId가 없다는 뜻 — 결제 네임스페이스는
+ * 네트워크별로 분리된다. 클라이언트 힌트·호스트·env 해석이 SDK가 실제 결제를
+ * 만든 네트워크와 어긋나면 반대 네트워크를 두드려 404가 떨어진다. 404면
+ * 반대 네트워크에서 결제 존재를 확인하고, 있으면 그쪽으로 작업을 이어간다.
+ */
+async function withNetworkFallback<T>(paymentId: string, sandbox: boolean, op: (sandbox: boolean) => Promise<T>) {
+  try {
+    return { value: await op(sandbox), sandbox }
+  } catch (error) {
+    if ((error as { piHttpStatus?: number } | null)?.piHttpStatus !== 404) throw error
+    const found = (await getPiPayment(paymentId, !sandbox).catch(() => null)) as Record<string, unknown> | null
+    if (!found) throw error
+    console.warn('[Pi] payment exists on the other network; retrying there', {
+      paymentId,
+      resolvedSandbox: sandbox,
+      actualSandbox: !sandbox,
+    })
+    return { value: await op(!sandbox), sandbox: !sandbox }
+  }
+}
+
+/**
  * Approve must answer inside the wallet expiry window. Retry once on network
  * stalls and 5xx; 4xx (already approved/cancelled/expired) is final.
  */
 export async function approvePiPayment(paymentId: string, sandboxHint?: boolean | null) {
+  const primary = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  return (await withNetworkFallback(paymentId, primary, (sandbox) => approvePiPaymentOn(paymentId, sandbox))).value
+}
+
+async function approvePiPaymentOn(paymentId: string, sandbox: boolean) {
   let lastError: unknown
   for (let attempt = 0; attempt < PI_APPROVE_ATTEMPTS; attempt += 1) {
     const attemptStart = Date.now()
     try {
-      return await piApproveAttempt(paymentId, PI_APPROVE_TIMEOUT_MS, sandboxHint)
+      return await piApproveAttempt(paymentId, PI_APPROVE_TIMEOUT_MS, sandbox)
     } catch (error) {
       lastError = error
       const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
@@ -306,7 +333,7 @@ export async function approvePiPayment(paymentId: string, sandboxHint?: boolean 
         // 첫 번째의 성공 뒤에 도착하면 '이미 승인됨' 오류로 겉보기 실패한다.
         // 실패 표면화 전에 GET으로 현재 상태를 확인해 developer_approved면
         // 승인 성공으로 수렴한다(지갑은 Pi 기록의 승인 여부를 보고 진행한다).
-        const existing = (await getPiPayment(paymentId, sandboxHint).catch(() => null)) as {
+        const existing = (await getPiPayment(paymentId, sandbox).catch(() => null)) as {
           status?: Record<string, unknown>
         } | null
         if (existing?.status?.developer_approved === true) {
@@ -336,23 +363,34 @@ export async function approvePiPayment(paymentId: string, sandboxHint?: boolean 
  * Pi Platform의 cancel로 종료해 다음 결제의 승인 락을 푼다.
  */
 export async function cancelPiPayment(paymentId: string, sandboxHint?: boolean | null) {
-  return piPaymentsRequestAuthed(paymentId, 'POST', '/cancel', undefined, PI_FETCH_TIMEOUT_MS, sandboxHint)
+  const primary = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  return (
+    await withNetworkFallback(paymentId, primary, (sandbox) =>
+      piPaymentsRequestAuthed(paymentId, 'POST', '/cancel', undefined, PI_FETCH_TIMEOUT_MS, sandbox),
+    )
+  ).value
 }
 
 export async function completePiPayment(paymentId: string, txid: string, sandboxHint?: boolean | null) {
-  const infoPromise = getPiPayment(paymentId, sandboxHint).catch(() => null)
-  const payment = await piPaymentsRequestAuthed(
-    paymentId,
-    'POST',
-    '/complete',
-    { txid },
-    PI_FETCH_TIMEOUT_MS,
-    sandboxHint,
-  )
-  // info는 결제 kind의 권위 있는 출처 — 1차 GET이 실패하면 한 번 더 조회해
-  // 클라이언트 주장 kind에 의존해야 하는 경우를 줄인다.
-  const info = (await infoPromise) ?? (await getPiPayment(paymentId, sandboxHint).catch(() => null))
-  return { payment, info }
+  const primary = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  const { value, sandbox: actualSandbox } = await withNetworkFallback(paymentId, primary, async (sandbox) => {
+    const infoPromise = getPiPayment(paymentId, sandbox).catch(() => null)
+    const payment = await piPaymentsRequestAuthed(
+      paymentId,
+      'POST',
+      '/complete',
+      { txid },
+      PI_FETCH_TIMEOUT_MS,
+      sandbox,
+    )
+    // info는 결제 kind의 권위 있는 출처 — 1차 GET이 실패하면 한 번 더 조회해
+    // 클라이언트 주장 kind에 의존해야 하는 경우를 줄인다.
+    const info = (await infoPromise) ?? (await getPiPayment(paymentId, sandbox).catch(() => null))
+    return { payment, info }
+  })
+  // 후속 검증(Horizon txid·정산)도 실제 완료된 네트워크 기준으로 이어가야
+  // 반대 네트워크에서 조회하다 404로 정상 완료 건을 거부하는 일이 없다.
+  return { ...value, network: actualSandbox ? 'testnet' : 'mainnet' }
 }
 
 /**

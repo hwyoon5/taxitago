@@ -84,9 +84,10 @@ function queueIncompleteRecovery(paymentId: string, txid: string) {
       if (knownIncomplete.get(paymentId) === txid) knownIncomplete.delete(paymentId)
     })
     .catch((error) => {
-      // 이미 최종 상태(완료·취소·만료)라 Pi가 거절한 건은 더 이상 락을 잡지
+      // 이미 최종 상태(완료·취소·만료·미존재)라 Pi가 거절한 건은 더 이상 락을 잡지
       // 않으므로 추적에서 제외한다 — 매 결제마다 재시도되는 좀비 건 방지.
-      if (/already|final|complet|cancel|expir|not.?found|만료/i.test(errorText(error))) {
+      // 'Pi API 404'처럼 메시지 없는 본문 404도 '결제 없음'으로 수렴한다.
+      if (/already|final|complet|cancel|expir|not.?found|\b404\b|만료/i.test(errorText(error))) {
         knownIncomplete.delete(paymentId)
       }
       logPi('warn', 'incomplete payment recovery failed', { paymentId, txid, error: errorText(error) })
