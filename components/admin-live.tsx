@@ -2,6 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
+import { BUSAN_CITY_HALL } from '@/lib/user-location'
+import {
+  createNaverLatLng,
+  loadNaverMaps,
+  type NaverMapInstance,
+  type NaverMapsSdk,
+  type NaverMarker,
+} from '@/lib/naver-maps'
 
 type Presence = { passenger: number; driver: number; partner: number }
 
@@ -106,8 +114,8 @@ const USER_ROLE: Record<TrackedUser['role'], { label: string; cls: string }> = {
   partner: { label: '파트너', cls: 'bg-[#FEF3E2] text-[#D97706]' },
 }
 
-/** 기사·승객 좌표를 스캐터 플롯으로 그리는 간단 관제 맵 — 외부 지도 API 없이 구현. */
-function TrackingMap({ drivers, users }: { drivers: TrackedDriver[]; users: TrackedUser[] }) {
+/** 기사·승객 좌표를 스캐터 플롯으로 그리는 간단 관제 맵 — 지도 SDK 로드 실패 시 폴백. */
+function TrackingScatter({ drivers, users }: { drivers: TrackedDriver[]; users: TrackedUser[] }) {
   const W = 600
   const H = 260
   const PAD = 26
@@ -205,6 +213,190 @@ function PresenceChart({ history }: { history: Sample[] }) {
           ))}
         </div>
         <span>{history.length >= 2 ? '← 최근 약 6분 · 지금 →' : '표본 수집 중…'}</span>
+      </div>
+    </div>
+  )
+}
+
+type SelectedPin = { kind: 'driver' | 'user'; id: string }
+
+const PIN_STYLE: Record<string, { dot: string; ring: string }> = {
+  driverIdle: { dot: '#0D9488', ring: 'rgba(13,148,136,0.25)' },
+  driverBusy: { dot: '#15803D', ring: 'rgba(21,128,61,0.25)' },
+  passenger: { dot: '#4A82B8', ring: 'rgba(74,130,184,0.25)' },
+  partner: { dot: '#D97706', ring: 'rgba(217,119,6,0.25)' },
+}
+
+function pinElement(style: { dot: string; ring: string }, label?: string) {
+  const el = document.createElement('div')
+  el.style.cssText = 'display:flex;flex-direction:column;align-items:center;pointer-events:auto;cursor:pointer'
+  const dot = document.createElement('div')
+  dot.style.cssText = `width:16px;height:16px;border-radius:9999px;background:${style.dot};border:2.5px solid #fff;box-shadow:0 0 0 5px ${style.ring},0 2px 6px rgba(15,23,42,0.35)`
+  el.appendChild(dot)
+  if (label) {
+    const tag = document.createElement('div')
+    tag.style.cssText =
+      'margin-top:2px;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:rgba(15,23,42,0.85);color:#fff;padding:1px 6px;font-size:9px;font-weight:800;line-height:14px'
+    tag.textContent = label
+    el.appendChild(tag)
+  }
+  return el
+}
+
+/** 실제 지도 기반 실시간 관제 — Naver Maps 위에 기사·승객 마커를 폴링 갱신한다. */
+function TrackingMap({ drivers, users }: { drivers: TrackedDriver[]; users: TrackedUser[] }) {
+  const canvasRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<NaverMapInstance | null>(null)
+  const sdkRef = useRef<NaverMapsSdk | null>(null)
+  const markersRef = useRef<Map<string, { marker: NaverMarker; el: HTMLElement }>>(new Map())
+  const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [selected, setSelected] = useState<SelectedPin | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const sdk = await loadNaverMaps()
+      if (!alive) return
+      if (!sdk || !canvasRef.current) {
+        setFailed(true)
+        return
+      }
+      sdkRef.current = sdk
+      const center = createNaverLatLng(sdk, BUSAN_CITY_HALL.lat, BUSAN_CITY_HALL.lng)
+      mapRef.current = new sdk.Map(canvasRef.current, {
+        center,
+        zoom: 12,
+        minZoom: 5,
+        maxZoom: 19,
+        scaleControl: false,
+        mapDataControl: false,
+        logoControlOptions: { position: 3 },
+      })
+      setReady(true)
+    })()
+    return () => {
+      alive = false
+      for (const { marker } of markersRef.current.values()) marker.setMap(null)
+      markersRef.current.clear()
+      mapRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const sdk = sdkRef.current
+    const map = mapRef.current
+    if (!sdk || !map || !ready) return
+    const markers = markersRef.current
+    const seen = new Set<string>()
+    const upsert = (key: string, lat: number, lng: number, kind: keyof typeof PIN_STYLE, label: string, sel: SelectedPin) => {
+      seen.add(key)
+      const position = createNaverLatLng(sdk, lat, lng)
+      if (!position) return
+      const existing = markers.get(key)
+      if (existing) {
+        existing.marker.setPosition(position)
+        const dot = existing.el.firstElementChild as HTMLElement | null
+        if (dot) {
+          dot.style.background = PIN_STYLE[kind].dot
+          dot.style.boxShadow = `0 0 0 5px ${PIN_STYLE[kind].ring},0 2px 6px rgba(15,23,42,0.35)`
+        }
+        return
+      }
+      const el = pinElement(PIN_STYLE[kind], label)
+      const marker = new sdk.Marker({
+        map,
+        position,
+        clickable: true,
+        icon: { content: el },
+        title: label,
+      })
+      sdk.Event.addListener(marker, 'click', () => setSelected(sel))
+      markers.set(key, { marker, el })
+    }
+    for (const driver of drivers) {
+      upsert(`d-${driver.id}`, driver.lat, driver.lng, driver.duty === 'busy' ? 'driverBusy' : 'driverIdle', driver.name, { kind: 'driver', id: driver.id })
+    }
+    for (const user of users) {
+      if (user.lat == null || user.lng == null) continue
+      upsert(`u-${user.role}-${user.id}`, user.lat, user.lng, user.role === 'partner' ? 'partner' : 'passenger', '', { kind: 'user', id: `${user.role}-${user.id}` })
+    }
+    for (const [key, item] of markers) {
+      if (!seen.has(key)) {
+        item.marker.setMap(null)
+        markers.delete(key)
+      }
+    }
+  }, [drivers, users, ready])
+
+  const fitAll = () => {
+    const sdk = sdkRef.current
+    const map = mapRef.current
+    if (!sdk || !map) return
+    const pts = [
+      ...drivers.map((d) => ({ lat: d.lat, lng: d.lng })),
+      ...users.filter((u) => u.lat != null && u.lng != null).map((u) => ({ lat: u.lat as number, lng: u.lng as number })),
+    ]
+    if (!pts.length) return
+    const sw = createNaverLatLng(sdk, Math.min(...pts.map((p) => p.lat)), Math.min(...pts.map((p) => p.lng)))
+    const ne = createNaverLatLng(sdk, Math.max(...pts.map((p) => p.lat)), Math.max(...pts.map((p) => p.lng)))
+    if (sw && ne && typeof sdk.LatLngBounds === 'function' && map.fitBounds) {
+      map.fitBounds(new sdk.LatLngBounds(sw, ne), { top: 50, right: 50, bottom: 50, left: 50 })
+      return
+    }
+    const center = createNaverLatLng(sdk, pts[0].lat, pts[0].lng)
+    if (center) map.setCenter(center)
+  }
+
+  if (failed) return <TrackingScatter drivers={drivers} users={users} />
+
+  const selectedDriver = selected?.kind === 'driver' ? drivers.find((d) => d.id === selected.id) : null
+  const selectedUser = selected?.kind === 'user' ? users.find((u) => `${u.role}-${u.id}` === selected.id) : null
+
+  return (
+    <div>
+      <div className="relative overflow-hidden rounded-xl border border-[#E2E8F0]">
+        <div ref={canvasRef} className="h-72 w-full bg-[#F8FAFC]" />
+        {!ready ? (
+          <p className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-[#94A3B8]">지도를 불러오는 중…</p>
+        ) : null}
+        <button
+          type="button"
+          onClick={fitAll}
+          className="absolute right-2 top-2 rounded-full bg-white/95 px-3 py-1.5 text-[10px] font-black text-[#4A82B8] shadow-md"
+        >
+          전체 보기
+        </button>
+        {selectedDriver || selectedUser ? (
+          <div className="absolute bottom-2 left-2 right-2 rounded-xl bg-white/95 p-3 shadow-lg sm:right-auto sm:min-w-[240px]">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs font-black text-[#0F172A]">
+                {selectedDriver ? `${selectedDriver.name} · 기사` : `${selectedUser?.role === 'partner' ? '파트너' : '승객'} ${selectedUser?.id}`}
+              </p>
+              <button type="button" onClick={() => setSelected(null)} className="rounded-full bg-[#F1F5F9] px-2 py-0.5 text-[10px] font-black text-[#64748B]">
+                닫기
+              </button>
+            </div>
+            <p className="mt-1 text-[10px] font-bold text-[#64748B]">
+              {selectedDriver
+                ? `${selectedDriver.vehicle || '차량 미등록'}${selectedDriver.plate ? ` · ${selectedDriver.plate}` : ''} · ${
+                    selectedDriver.rideStatus === 'offered' ? '호출 제안 중' : (DRIVER_STATUS[selectedDriver.duty] ?? DRIVER_STATUS.offline).label
+                  } · ${selectedDriver.lat.toFixed(4)}, ${selectedDriver.lng.toFixed(4)} · ${fmtAgo(selectedDriver.lastSeenAt)}`
+                : selectedUser
+                  ? `${(selectedUser.rideStatus ? USER_STATUS[selectedUser.rideStatus]?.label : null) ?? '접속 중'} · ${
+                      selectedUser.lat != null ? `${selectedUser.lat.toFixed(4)}, ${selectedUser.lng?.toFixed(4)}` : '위치 미보고'
+                    } · ${fmtAgo(selectedUser.lastSeenAt)}`
+                  : ''}
+            </p>
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-1 flex items-center gap-3 text-[10px] font-bold text-[#94A3B8]">
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#0D9488]" />기사 대기</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#15803D]" />기사 운행</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#4A82B8]" />승객</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#D97706]" />파트너</span>
+        <span className="ml-auto">지도 드래그·줌으로 이동/확대 · 마커 클릭 시 상세</span>
       </div>
     </div>
   )
