@@ -84,8 +84,10 @@ export async function handlePiApprove(request: Request) {
     kind?: unknown
     metadata?: unknown
     sandbox?: unknown
+    uid?: unknown
   } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
+  const claimedUid = typeof body?.uid === 'string' ? body.uid.trim() : ''
   const kind = requestKind(body)
   const sandboxHint = requestSandboxHint(body)
   // 힌트(결제 생성 네트워크) → 요청 host(테스트 전용 도메인 강제) → env 순으로
@@ -94,6 +96,7 @@ export async function handlePiApprove(request: Request) {
   console.log('[Pi] /api/pi/approve incoming', {
     paymentId: paymentId || '(empty)',
     kind,
+    uid: claimedUid || '(unknown)',
     sandboxHint,
     effectiveSandbox,
     envSandbox: isPiSandboxEnv(),
@@ -173,9 +176,11 @@ export async function handlePiComplete(request: Request) {
     kind?: unknown
     metadata?: unknown
     sandbox?: unknown
+    uid?: unknown
   } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
+  const claimedUid = typeof body?.uid === 'string' ? body.uid.trim() : ''
   const kind = requestKind(body)
   const sandboxHint = requestSandboxHint(body)
   const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
@@ -183,6 +188,7 @@ export async function handlePiComplete(request: Request) {
     paymentId: paymentId || '(empty)',
     txid: txid || '(empty)',
     kind,
+    uid: claimedUid || '(unknown)',
     sandboxHint,
     effectiveSandbox,
     envSandbox: isPiSandboxEnv(),

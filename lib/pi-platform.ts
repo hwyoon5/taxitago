@@ -247,6 +247,36 @@ export async function getPiPayment(paymentId: string, sandboxHint?: boolean | nu
 }
 
 /**
+ * 승인 한 번의 시도 — 키 후보를 전부 동시에 보내 가장 먼저 성공한 응답을 채택한다.
+ * 지갑의 서버 승인 마감(~수십 초) 안에서 401 스테일 키를 순차 폴백하다 보면
+ * 유효 키가 뒤에 있어도 만료에 걸린다. approve는 paymentId 멱등 POST라 같은
+ * 네트워크 키들의 중복 승인은 Pi가 안전하게 처리한다(이미 승인된 건은 4xx로
+ * 빠르게 반환되며, 먼저 성공한 응답이 채택된 뒤 도착한 실패는 무시된다).
+ */
+function piApproveAttempt(paymentId: string, timeoutMs: number, sandboxHint?: boolean | null) {
+  const keys = resolvePiApiKeys(sandboxHint)
+  const apiBase = piPaymentsApiBase(sandboxHint)
+  console.log('[Pi] approve key candidates', { count: keys.length, sources: keys.map((k) => k.source), apiBase })
+  if (keys.length === 1) {
+    const only = keys[0]
+    return piPaymentsRequest(paymentId, 'POST', '/approve', undefined, timeoutMs, only.key, only.source, apiBase)
+  }
+  return new Promise((resolve, reject) => {
+    let pending = keys.length
+    let lastError: unknown
+    for (const { key, source } of keys) {
+      piPaymentsRequest(paymentId, 'POST', '/approve', undefined, timeoutMs, key, source, apiBase)
+        .then(resolve)
+        .catch((error) => {
+          lastError = error
+          pending -= 1
+          if (pending === 0) reject(lastError)
+        })
+    }
+  })
+}
+
+/**
  * Approve must answer inside the wallet expiry window. Retry once on network
  * stalls and 5xx; 4xx (already approved/cancelled/expired) is final.
  */
@@ -255,7 +285,7 @@ export async function approvePiPayment(paymentId: string, sandboxHint?: boolean 
   for (let attempt = 0; attempt < PI_APPROVE_ATTEMPTS; attempt += 1) {
     const attemptStart = Date.now()
     try {
-      return await piPaymentsRequestAuthed(paymentId, 'POST', '/approve', undefined, PI_APPROVE_TIMEOUT_MS, sandboxHint)
+      return await piApproveAttempt(paymentId, PI_APPROVE_TIMEOUT_MS, sandboxHint)
     } catch (error) {
       lastError = error
       const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus

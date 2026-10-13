@@ -322,6 +322,30 @@ function beaconPiApi(path: PiApiPath, body: Record<string, unknown>) {
   }
 }
 
+/**
+ * 결제창이 열린 뒤 첫 승인 요청이 라우트 컴파일(dev)이나 서버리스 콜드
+ * 스타트를 겪으면 지갑의 승인 마감(수십 초)이 응답 도착 전에 끝나
+ * '결제 준비 중'에서 만료된다 — 결제 흐름 시작 시점에 빈 요청으로
+ * approve/complete 라우트를 미리 깨워둔다(400 응답이면 정상 — 서버에
+ * 도달해 라우트가 초기화된 것 자체가 목적).
+ */
+let piApiWarmed = false
+function warmPiPaymentApi() {
+  if (piApiWarmed || typeof window === 'undefined') return
+  piApiWarmed = true
+  for (const path of ['/api/pi/approve', '/api/pi/complete'] as const) {
+    void apiFetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      keepalive: true,
+      signal: AbortSignal.timeout(10_000),
+    })
+      .then((res) => logPi('log', `${path} warm`, { status: res.status }))
+      .catch((error) => logPi('warn', `${path} warm failed`, error))
+  }
+}
+
 async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
   logPi('log', `${path} request`, body)
   const response = await apiFetch(path, {
@@ -511,6 +535,7 @@ export async function preparePiSdk() {
     await withTimeout(loadPiSdkScript(), PI_CALL_TIMEOUT_MS, 'Pi SDK script')
     const pi = await waitForPi(PI_CALL_TIMEOUT_MS)
     initPi(pi)
+    warmPiPaymentApi()
     return pi
   } catch (error) {
     logPi('warn', 'Pi SDK init skipped', error)
@@ -759,6 +784,7 @@ export async function startPiCheckout(options: {
   const amount = Math.round(options.amount * 1_000_000) / 1_000_000
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
+  warmPiPaymentApi()
   let pi = await preparePiSdk()
   // SDK 스크립트는 일반 브라우저에서도 로드되지만 authenticate는 Pi Browser
   // 안에서만 동작한다 — 테스트넷에서는 SDK가 있어도 Pi Browser 밖이면
@@ -769,15 +795,22 @@ export async function startPiCheckout(options: {
     return mocked
   }
   pi ??= requirePiSdk()
+  // 결제는 반드시 인증된 지갑 세션 위에서 생성한다 — 세션 UID를 메타데이터와
+  // 서버 승인/완료 요청에 함께 실어 Pi가 결제를 만든 계정과 서버 기록이
+  // 같은 사용자로 대조된다(서버 검증은 Pi가 반환한 user_uid가 권위이며,
+  // 이 값은 로그 상관관계와 분쟁 추적용이다).
+  let sessionUid = ''
   try {
-    await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate')
+    const auth = await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate')
+    sessionUid = parsePiAuthResult(auth)?.uid ?? ''
   } catch (error) {
     // 캐시된 세션 토큰이 만료됐을 수 있다 — 리셋 후 재인증을 한 번 시도해
     // "세션 끊김"이 곧바로 결제 실패로 번지지 않게 한다.
     if (!isSessionError(error)) throw error
     logPi('warn', 'stale session; re-authenticating', error)
     resetPiSession()
-    await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate retry')
+    const auth = await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate retry')
+    sessionUid = parsePiAuthResult(auth)?.uid ?? ''
   }
 
   const label = checkoutLabel(options.metadata)
@@ -793,13 +826,17 @@ export async function startPiCheckout(options: {
   const payment = {
     amount,
     memo: options.memo.slice(0, 25),
-    metadata: options.metadata ?? {},
+    metadata: { ...(options.metadata ?? {}), ...(sessionUid ? { piUid: sessionUid } : {}) },
   }
   logPi('log', 'window.Pi.createPayment', payment)
 
   // 이전 결제가 미완료로 남아 있으면 새 결제의 승인이 막혀 지갑이 만료된다 —
-  // createPayment 전에 미완료 건을 complete/cancel로 반드시 정리한다.
-  await drainIncompletePayments()
+  // createPayment 전에 미완료 건을 complete/cancel로 반드시 정리한다. 다만
+  // 좀비 건의 복구가 지연돼도 새 결제 시작 자체가 멈추지 않게 상한을 둔다.
+  await Promise.race([
+    drainIncompletePayments(),
+    new Promise((resolve) => window.setTimeout(resolve, 8_000)),
+  ])
 
   // 승인 타임아웃·만료 류 실패이고 아직 paymentId가 생성되지 않았다면
   // (체인 청구가 물리적으로 불가능한 단계) 세션 리셋 + 미완료 정리 후 1회 재시도.
@@ -807,7 +844,7 @@ export async function startPiCheckout(options: {
   for (let attemptIndex = 0; attemptIndex < 2; attemptIndex += 1) {
     const attempt: { paymentId: string; txid: string } = { paymentId: '', txid: '' }
     try {
-      return await runCreatePayment(pi, payment, options, attempt)
+      return await runCreatePayment(pi, payment, options, attempt, sessionUid)
     } catch (error) {
       lastError = error
       if (attemptIndex === 0 && !attempt.paymentId && isExpiryLikeError(error)) {
@@ -846,6 +883,7 @@ function runCreatePayment(
     onSettled?: (result: PiCheckoutResult) => void
   },
   attempt: PaymentAttemptState,
+  sessionUid = '',
 ) {
   return new Promise<PiCheckoutResult>((resolve, reject) => {
     let settled = false
@@ -891,9 +929,10 @@ function runCreatePayment(
             return Promise.resolve()
           }
           // 지갑 시트가 뜨는 동안 페이지 fetch가 멈출 수 있어 beacon을 먼저 실어둔다.
-          beaconPiApi('/api/pi/approve', { paymentId, kind: checkoutKind(payment.metadata), sandbox: PI_SANDBOX })
+          const approveBody = { paymentId, kind: checkoutKind(payment.metadata), sandbox: PI_SANDBOX, uid: sessionUid }
+          beaconPiApi('/api/pi/approve', approveBody)
           if (options.advanceOnApproval && approvedTxid) succeed({ paymentId, txid: approvedTxid })
-          return postPiApiRetry('/api/pi/approve', { paymentId, kind: checkoutKind(payment.metadata), sandbox: PI_SANDBOX })
+          return postPiApiRetry('/api/pi/approve', approveBody)
             .then((payload) => {
               if (options.advanceOnApproval) {
                 succeed({ paymentId, txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}` })
@@ -924,22 +963,17 @@ function runCreatePayment(
             return Promise.resolve()
           }
           if (!txid) return Promise.resolve()
-          beaconPiApi('/api/pi/complete', {
+          const completeBody = {
             paymentId,
             txid,
             amount: payment.amount,
             metadata: payment.metadata,
             kind: checkoutKind(payment.metadata),
             sandbox: PI_SANDBOX,
-          })
-          return postPiApiRetry('/api/pi/complete', {
-            paymentId,
-            txid,
-            amount: payment.amount,
-            metadata: payment.metadata,
-            kind: checkoutKind(payment.metadata),
-            sandbox: PI_SANDBOX,
-          })
+            uid: sessionUid,
+          }
+          beaconPiApi('/api/pi/complete', completeBody)
+          return postPiApiRetry('/api/pi/complete', completeBody)
             .then(() => {
               succeed({ paymentId, txid })
             })
