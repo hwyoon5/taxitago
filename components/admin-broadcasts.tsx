@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import type { BroadcastEntry, BroadcastTarget } from '@/lib/broadcast-store'
+import { BROADCAST_REGIONS, broadcastRegionLabel, type BroadcastRegion } from '@/lib/broadcast-regions'
 
 const TARGET_META: Record<BroadcastTarget, { label: string; cls: string }> = {
   all: { label: '전체', cls: 'bg-[#E8F1FA] text-[#4A82B8]' },
   passenger: { label: '승객 전용', cls: 'bg-[#DCFCE7] text-[#15803D]' },
+  driver: { label: '기사 전용', cls: 'bg-[#E6F7F4] text-[#0D9488]' },
+  partner: { label: '파트너 전용', cls: 'bg-[#FEF3E2] text-[#D97706]' },
   staff: { label: '기사·파트너 전용', cls: 'bg-[#FEF3E2] text-[#D97706]' },
 }
 
@@ -15,8 +18,8 @@ const fmtDate = (iso: string) => {
   return Number.isFinite(d.getTime()) ? d.toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
 }
 
-type FormState = { title: string; body: string; target: BroadcastTarget; banner: boolean }
-const emptyForm: FormState = { title: '', body: '', target: 'all', banner: true }
+type FormState = { title: string; body: string; target: BroadcastTarget; region: BroadcastRegion; banner: boolean }
+const emptyForm: FormState = { title: '', body: '', target: 'all', region: 'nation', banner: true }
 
 /** 관리자 공지 방송 — 대상 그룹별 공지 등록·수정·삭제 + 앱 배너 노출 제어. */
 export default function AdminBroadcasts() {
@@ -158,7 +161,20 @@ export default function AdminBroadcasts() {
             >
               <option value="all">전체 사용자</option>
               <option value="passenger">승객 전용</option>
-              <option value="staff">기사·파트너 전용</option>
+              <option value="driver">기사 전용</option>
+              <option value="partner">파트너 전용</option>
+            </select>
+            <select
+              value={form.region}
+              onChange={(event) => setForm((prev) => ({ ...prev, region: event.target.value as BroadcastRegion }))}
+              className="rounded-xl border-2 border-[#E2E8F0] bg-white px-3 py-2.5 text-xs font-black outline-none focus:border-[#4A82B8]"
+              aria-label="지역 선택"
+            >
+              {BROADCAST_REGIONS.map((region) => (
+                <option key={region.key} value={region.key}>
+                  {region.key === 'nation' ? `지역 · ${region.label}` : region.label}
+                </option>
+              ))}
             </select>
             <label className="flex cursor-pointer items-center gap-1.5 rounded-xl bg-[#F1F5F9] px-3 py-2.5 text-xs font-black text-[#475569]">
               <input
@@ -208,6 +224,9 @@ export default function AdminBroadcasts() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${meta.cls}`}>{meta.label}</span>
+                    {(entry.region ?? 'nation') !== 'nation' ? (
+                      <span className="rounded-full bg-[#EDE9FE] px-2 py-0.5 text-[10px] font-black text-[#6D28D9]">{broadcastRegionLabel(entry.region)}</span>
+                    ) : null}
                     {entry.banner ? <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#92400E]">배너 노출</span> : null}
                   </div>
                   <span className="text-[10px] font-bold text-[#94A3B8]">
@@ -221,7 +240,7 @@ export default function AdminBroadcasts() {
                     type="button"
                     onClick={() => {
                       setEditing(entry)
-                      setForm({ title: entry.title, body: entry.body, target: entry.target, banner: entry.banner })
+                      setForm({ title: entry.title, body: entry.body, target: entry.target, region: entry.region ?? 'nation', banner: entry.banner })
                     }}
                     className="rounded-xl border-2 border-[#BFDBFE] bg-white px-4 py-2 text-xs font-black text-[#4A82B8]"
                   >

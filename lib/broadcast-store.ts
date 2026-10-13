@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
+import { BROADCAST_REGION_KEYS, type BroadcastRegion } from '@/lib/broadcast-regions'
 
 /**
  * 관리자 방송 공지 장부.
@@ -7,13 +8,16 @@ import path from 'path'
  * 사용자/기사 앱은 /api/broadcasts?audience=… 로 대상별 목록을 폴링한다.
  */
 
-export type BroadcastTarget = 'all' | 'passenger' | 'staff'
+/** 'staff'는 대상 분리 전 레거시 저장값 — 읽기 경로에서 기사·파트너 양쪽에 매칭된다. */
+export type BroadcastTarget = 'all' | 'passenger' | 'driver' | 'partner' | 'staff'
 
 export type BroadcastEntry = {
   id: string
   title: string
   body: string
   target: BroadcastTarget
+  /** 지역 타겟 — 생략(레거시)은 'nation'(전국)과 동일하게 취급 */
+  region?: BroadcastRegion
   /** true면 앱 상단 배너로 즉시 노출 */
   banner: boolean
   createdBy: string
@@ -93,10 +97,25 @@ export async function listBroadcasts(limit = 100): Promise<BroadcastEntry[]> {
   return [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit)
 }
 
-/** 앱 대상 그룹 기준 노출 목록 — driver/partner는 'staff' 대상을 받는다. */
-export async function broadcastsForAudience(audience: 'passenger' | 'staff', limit = 20): Promise<BroadcastEntry[]> {
+/**
+ * 앱 대상 그룹 기준 노출 목록.
+ * - 'all'은 전원, 레거시 'staff'는 기사·파트너 양쪽에 노출.
+ * - 지역 타겟 공지는 요청 지역과 일치할 때만, 'nation'은 항상 노출.
+ */
+export async function broadcastsForAudience(
+  audience: 'passenger' | 'driver' | 'partner',
+  region?: BroadcastRegion | '',
+  limit = 20,
+): Promise<BroadcastEntry[]> {
   const entries = await listBroadcasts(200)
-  return entries.filter((entry) => entry.target === 'all' || (audience === 'passenger' ? entry.target === 'passenger' : entry.target === 'staff')).slice(0, limit)
+  return entries
+    .filter((entry) => {
+      const targetHit = entry.target === 'all' || entry.target === audience || ((audience === 'driver' || audience === 'partner') && entry.target === 'staff')
+      if (!targetHit) return false
+      const entryRegion = entry.region ?? 'nation'
+      return entryRegion === 'nation' || (region != null && region !== '' && entryRegion === region)
+    })
+    .slice(0, limit)
 }
 
 export async function getBroadcast(id: string): Promise<BroadcastEntry | null> {
@@ -108,12 +127,13 @@ export async function createBroadcast(input: {
   title: string
   body: string
   target: BroadcastTarget
+  region?: BroadcastRegion
   banner: boolean
   createdBy: string
   createdByName: string
 }): Promise<BroadcastEntry> {
   const now = new Date().toISOString()
-  const entry: BroadcastEntry = { id: crypto.randomUUID(), ...input, createdAt: now, updatedAt: now }
+  const entry: BroadcastEntry = { id: crypto.randomUUID(), ...input, region: input.region ?? 'nation', createdAt: now, updatedAt: now }
   const entries = await readEntries()
   entries.push(entry)
   await writeEntries(entries)
@@ -123,7 +143,7 @@ export async function createBroadcast(input: {
 /** 수정 — baseUpdatedAt이 주어지면 조회 이후 변경이 없을 때만 저장한다(OCC). */
 export async function updateBroadcast(
   id: string,
-  patch: { title?: string; body?: string; target?: BroadcastTarget; banner?: boolean },
+  patch: { title?: string; body?: string; target?: BroadcastTarget; region?: BroadcastRegion; banner?: boolean },
   baseUpdatedAt?: string,
 ): Promise<{ entry: BroadcastEntry; conflict: boolean } | null> {
   const entries = await readEntries()
@@ -132,7 +152,8 @@ export async function updateBroadcast(
   if (baseUpdatedAt && entry.updatedAt !== baseUpdatedAt) return { entry, conflict: true }
   if (typeof patch.title === 'string') entry.title = patch.title.trim().slice(0, 80)
   if (typeof patch.body === 'string') entry.body = patch.body.trim().slice(0, 2000)
-  if (patch.target === 'all' || patch.target === 'passenger' || patch.target === 'staff') entry.target = patch.target
+  if (patch.target === 'all' || patch.target === 'passenger' || patch.target === 'driver' || patch.target === 'partner' || patch.target === 'staff') entry.target = patch.target
+  if (patch.region && BROADCAST_REGION_KEYS.includes(patch.region)) entry.region = patch.region
   if (typeof patch.banner === 'boolean') entry.banner = patch.banner
   entry.updatedAt = new Date().toISOString()
   await writeEntries(entries)

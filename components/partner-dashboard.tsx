@@ -19,6 +19,7 @@ import { useLocale } from '@/components/locale-provider'
 import { localizeDynamic, translateDeviceKind, translateDeviceStatus } from '@/lib/i18n'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import PayoutRequestSheet from '@/components/payout-request-sheet'
+import BroadcastBanner from '@/components/broadcast-banner'
 import { loadPartnerProfile, loadPiIdentity, type PartnerProfile, type PiIdentity } from '@/lib/partner-account'
 
 const statusTone = (status: MobilityDeviceStatus) =>
@@ -185,6 +186,8 @@ export function PartnerDashboard({
           </button>
         ) : null}
       </article>
+
+      <BroadcastBanner audience="partner" />
 
       {/* 기기 현황 요약 */}
       <article className="rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4">

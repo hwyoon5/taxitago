@@ -47,6 +47,7 @@ import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } f
 import PhoneVerifyForm from '@/components/phone-verify-form'
 import LiveStatusLight from '@/components/live-status-light'
 import BroadcastBanner from '@/components/broadcast-banner'
+import { broadcastRegionForCoord } from '@/lib/broadcast-regions'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
 import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
@@ -5332,7 +5333,7 @@ function Home({
           {t('home.qrPay')}
           <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black">{t('home.qrPayBadge')}</span>
         </button>
-        <BroadcastBanner audience="passenger" />
+        <BroadcastBanner audience="passenger" region={broadcastRegionForCoord(pickupLat, pickupLng) || undefined} />
         <section className="mt-4">
           <div className="flex items-end justify-between px-0.5">
             <h2 className="text-sm font-black tracking-tight text-[#0F172A]">{t('home.whatToUse')}</h2>
@@ -5687,6 +5688,7 @@ function ActivityInbox({
   identities,
   activities,
   transactions,
+  broadcastRegion = '',
 }: {
   tabRides: (ride: RideReceipt) => void
   readNoticeIds: string[]
@@ -5694,6 +5696,7 @@ function ActivityInbox({
   identities: InboxIdentity[]
   activities: ActivityEntry[]
   transactions: PiTransaction[]
+  broadcastRegion?: string
 }) {
   const { t, locale } = useLocale()
   const [view, setView] = useState<'rides' | 'inbox' | 'activity'>('rides')
@@ -5708,7 +5711,7 @@ function ActivityInbox({
   useEffect(() => {
     let stopped = false
     const load = async () => {
-      const res = await fetch('/api/broadcasts?audience=passenger', { cache: 'no-store' }).catch(() => null)
+      const res = await fetch(`/api/broadcasts?audience=passenger${broadcastRegion ? `&region=${broadcastRegion}` : ''}`, { cache: 'no-store' }).catch(() => null)
       const data = (await res?.json().catch(() => null)) as { broadcasts?: BroadcastEntry[] } | null
       if (!stopped && data?.broadcasts) setBroadcasts(data.broadcasts)
     }
@@ -5718,7 +5721,7 @@ function ActivityInbox({
       stopped = true
       window.clearInterval(timer)
     }
-  }, [])
+  }, [broadcastRegion])
 
   const allNotices: Notice[] = [
     ...broadcasts.map((entry) => ({
@@ -5968,6 +5971,7 @@ function TabContent({
   inboxIdentities,
   activities,
   transactions,
+  broadcastRegion = '',
 }: {
   tab: string
   destination: string
@@ -5990,6 +5994,7 @@ function TabContent({
   inboxIdentities: InboxIdentity[]
   activities: ActivityEntry[]
   transactions: PiTransaction[]
+  broadcastRegion?: string
 }) {
   const { t } = useLocale()
   const [preparingOpen, setPreparingOpen] = useState(false)
@@ -6028,7 +6033,7 @@ function TabContent({
     )
   }
   if (tab === '이용/알림') {
-    return <ActivityInbox tabRides={onReceipt} readNoticeIds={readNoticeIds} onOpenInbox={onOpenInbox} identities={inboxIdentities} activities={activities} transactions={transactions} />
+    return <ActivityInbox tabRides={onReceipt} readNoticeIds={readNoticeIds} onOpenInbox={onOpenInbox} identities={inboxIdentities} activities={activities} transactions={transactions} broadcastRegion={broadcastRegion} />
   }
   return (
     <div className="h-full min-h-0">
@@ -8988,7 +8993,7 @@ function DriverDashboard({
           </div>
         </section>
       ) : null}
-      <BroadcastBanner audience="staff" />
+      <BroadcastBanner audience="driver" region={broadcastRegionForCoord(lat, lng) || undefined} />
       <section className="mt-2 grid grid-cols-3 gap-2">
         <button type="button" onClick={() => setStatSheet('revenue')} className="rounded-xl border border-[#CBD5E1] bg-white px-2.5 py-2 text-left shadow-sm transition active:scale-[0.98]">
           <p className="text-[10px] font-semibold text-[#64748B]">오늘의 수익</p>
@@ -10362,7 +10367,7 @@ export default function HomeScreen() {
               <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <SafeBoundary label="화면을 불러오는 중 문제가 발생했어요.">
-                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} transactions={transactions} />
+                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} balance={walletBalance} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} transactions={transactions} broadcastRegion={broadcastRegionForCoord(gps.lat, gps.lng) || undefined} />
                 </SafeBoundary>
               </div>
             </div>

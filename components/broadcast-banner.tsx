@@ -19,12 +19,12 @@ function loadDismissed(): string[] {
  * 관리자 방송 배너 — banner=true로 등록된 최신 공지를 앱 상단에 노출.
  * 30초 폴링으로 새 방송이 등록되면 새로고침 없이 뜨고, 닫으면 해당 공지는 다시 안 보인다.
  */
-export default function BroadcastBanner({ audience = 'passenger' }: { audience?: 'passenger' | 'staff' }) {
+export default function BroadcastBanner({ audience = 'passenger', region = '' }: { audience?: 'passenger' | 'driver' | 'partner' | 'staff'; region?: string }) {
   const [entry, setEntry] = useState<BroadcastEntry | null>(null)
   const [expanded, setExpanded] = useState(false)
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/broadcasts?audience=${audience}`, { cache: 'no-store' }).catch(() => null)
+    const res = await fetch(`/api/broadcasts?audience=${audience}${region ? `&region=${region}` : ''}`, { cache: 'no-store' }).catch(() => null)
     const data = (await res?.json().catch(() => null)) as { broadcasts?: BroadcastEntry[] } | null
     const banner = (data?.broadcasts ?? []).find((item) => item.banner)
     if (!banner || loadDismissed().includes(banner.id)) {
@@ -32,7 +32,7 @@ export default function BroadcastBanner({ audience = 'passenger' }: { audience?:
       return
     }
     setEntry(banner)
-  }, [audience])
+  }, [audience, region])
 
   useEffect(() => {
     void load()
