@@ -10,7 +10,7 @@ export type WalletTxKind = 'deposit' | 'withdraw' | 'reward'
  */
 export type WalletTxPurpose = 'fee' | 'user'
 
-/** 리뷰 감사 포인트 1회 지급액 — 서버 라우트들이 공유한다. */
+/** 리뷰 감사 마일리지 1회 지급액 — 서버 라우트들이 공유한다. */
 export const REVIEW_REWARD_PI = 0.1
 export type WalletTxStatus = 'confirmed' | 'pending' | 'failed'
 

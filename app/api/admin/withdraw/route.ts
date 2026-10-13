@@ -26,7 +26,7 @@ export const dynamic = 'force-dynamic'
 
 const MAX_WITHDRAW_PI = 10_000
 
-/** 정산 가능 수수료 잔액 — 누적 수수료에서 출금·수수료·리뷰 보상 지출을 차감한 값. */
+/** 정산 가능 수수료 잔액 — 누적 수수료에서 출금·수수료·리뷰 마일리지 지출을 차감한 값. */
 async function availableFeeBalance(): Promise<number> {
   const [entries, totals] = await Promise.all([listSettlements(), walletTxTotals()])
   const commission = entries.reduce((sum, entry) => sum + entry.commission, 0)

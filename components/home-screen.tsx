@@ -940,7 +940,7 @@ const DEFAULT_PI_TX: PiTransaction[] = []
  * 실제 결제는 이용 종료 시점 Pi SDK 직결제로, 금액·정산은 서버가 검증한다.
  */
 /**
- * 리뷰 이벤트 Pi 보상 지급 스위치 — false인 동안 rewardReview의 잔액 적립과
+ * 리뷰 이벤트 마일리지 지급 스위치 — false인 동안 rewardReview의 적립과
  * /api/rewards/review 서버 장부 기록이 모두 실행되지 않는다(UI·안내는 유지).
  * 이벤트 재개 시 true로 되돌린다.
  */
@@ -9116,18 +9116,18 @@ export default function HomeScreen() {
     }
   }
   const rewardReview = (key?: string) => {
-    // 리뷰 보상 Pi 지급 일시 중단 — REVIEW_REWARD_ENABLED가 false인 동안
-    // 리워드 장부 기록을 건너뛰고 감사 안내만 띄운다.
+    // 리뷰 감사 마일리지 지급 일시 중단 — REVIEW_REWARD_ENABLED가 false인 동안
+    // 마일리지 장부 기록을 건너뛰고 감사 안내만 띄운다.
     // 재개할 때는 REVIEW_REWARD_ENABLED를 true로 되돌린다.
     if (!REVIEW_REWARD_ENABLED) {
       showNotice(t('toast.reviewDone'))
       return
     }
-    // 사전 충전 폐지 — 리워드 적립은 결제 내역 기록으로만 남긴다.
+    // 사전 충전 폐지 — 마일리지 적립은 결제 내역 기록으로만 남긴다.
     if (PI_SANDBOX) {
       const amount = 0.1
       const at = formatPiTime()
-      setTransactions((items) => [{ label: '리뷰 적립', amount, detail: `기사 평가 · ${at}`, place: '리뷰 감사 포인트', at, ts: Date.now() }, ...items])
+      setTransactions((items) => [{ label: '리뷰 마일리지', amount, detail: `기사 평가 · ${at}`, place: '리뷰 감사 마일리지', at, ts: Date.now() }, ...items])
       showNotice(t('toast.reviewPi'))
     } else {
       showNotice(t('toast.reviewDone'))
