@@ -746,5 +746,18 @@
   "acct.phoneDone": "已验证号码",
   "signup.phoneLabel": "联系方式 (需实名认证)",
   "match.safeCall": "安全号码通话",
-  "home.liveStatus": "实时状态"
+  "home.liveStatus": "实时状态",
+  "coupon.placeholder": "折扣券代码",
+  "coupon.apply": "使用",
+  "coupon.checking": "检查中…",
+  "coupon.remove": "移除",
+  "coupon.payable": "实付 {v} Pi",
+  "coupon.discount": "优惠券 -{v} Pi",
+  "coupon.errGeneric": "无法验证优惠券。",
+  "coupon.errNotFound": "此优惠码无效。",
+  "coupon.errInactive": "此优惠券已停用。",
+  "coupon.errExpired": "此优惠券已过期。",
+  "coupon.errMinSpend": "未达到最低消费金额。",
+  "coupon.errAudience": "您不符合此优惠券的使用条件。",
+  "coupon.errLimit": "已达使用上限。"
 }

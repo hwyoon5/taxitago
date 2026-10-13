@@ -746,5 +746,18 @@
   "acct.phoneDone": "認証済み番号",
   "signup.phoneLabel": "連絡先 (本人認証必須)",
   "match.safeCall": "安心番号通話",
-  "home.liveStatus": "リアルタイム状況"
+  "home.liveStatus": "リアルタイム状況",
+  "coupon.placeholder": "割引クーポンコード",
+  "coupon.apply": "適用",
+  "coupon.checking": "確認中…",
+  "coupon.remove": "解除",
+  "coupon.payable": "支払額 {v} Pi",
+  "coupon.discount": "クーポン -{v} Pi",
+  "coupon.errGeneric": "クーポンを確認できませんでした。",
+  "coupon.errNotFound": "このクーポンコードは使用できません。",
+  "coupon.errInactive": "このクーポンは無効化されています。",
+  "coupon.errExpired": "このクーポンは期限切れです。",
+  "coupon.errMinSpend": "最低利用金額に達していません。",
+  "coupon.errAudience": "このクーポンの対象ではありません。",
+  "coupon.errLimit": "利用上限に達しました。"
 }

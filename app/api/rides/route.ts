@@ -7,6 +7,7 @@ import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { avoidSurchargePi, avoidZoneScore, hydrateAvoidFromKv } from '@/lib/avoid-zone-store'
 import { isUsableCoord } from '@/lib/ride-session'
 import { getFareConfig } from '@/lib/fare-config-server'
+import { timeSurchargeRate } from '@/lib/fare-config'
 import { piRound } from '@/lib/pi-format'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
@@ -101,10 +102,13 @@ export async function POST(request: Request) {
   // 우회 경유지는 추가되는 거리·시간에 비례해 surcharge를 붙인다.
   const fareQuote = waypointRouteQuote(pickup, dest, waypoints)
   const config = await getFareConfig()
-  const quoted =
+  const baseQuoted =
     typeof body?.estimatedFare === 'number' && Number.isFinite(body.estimatedFare)
       ? piRound(Math.max(0, body.estimatedFare) + waypointSurchargePi(fareQuote.chargeableDetourKm, config, kind))
       : estimateTaxiFarePi(fareQuote.chargeableKm, config, kind)
+  // 시간대별 할증 — 관리자 설정(기본 심야 0~4시 +20%)을 호출 견적에 반영한다.
+  const nightRate = timeSurchargeRate(config)
+  const quoted = nightRate > 0 ? piRound(baseQuoted * (1 + nightRate)) : baseQuoted
   // 기본 예상 소요 시간(분): 길찾기 API duration 우선, 실패 시 거리 기반 ETA.
   // 정체 추가 요금은 정산 시 실제 운행 시간과 이 기준치를 비교해 산정한다.
   const routeSummary = await Promise.race([

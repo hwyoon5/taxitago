@@ -746,5 +746,18 @@
   "acct.phoneDone": "인증된 번호",
   "signup.phoneLabel": "연락처 (본인인증 필수)",
   "match.safeCall": "안심번호 통화",
-  "home.liveStatus": "실시간 현황"
+  "home.liveStatus": "실시간 현황",
+  "coupon.placeholder": "할인 쿠폰 코드",
+  "coupon.apply": "적용",
+  "coupon.checking": "확인 중…",
+  "coupon.remove": "해제",
+  "coupon.payable": "결제 예정 {v} Pi",
+  "coupon.discount": "쿠폰 -{v} Pi",
+  "coupon.errGeneric": "쿠폰을 확인하지 못했습니다.",
+  "coupon.errNotFound": "사용할 수 없는 쿠폰 코드입니다.",
+  "coupon.errInactive": "비활성화된 쿠폰입니다.",
+  "coupon.errExpired": "사용 기한이 지난 쿠폰입니다.",
+  "coupon.errMinSpend": "최소 결제 금액에 미달합니다.",
+  "coupon.errAudience": "이 쿠폰의 발급 대상이 아닙니다.",
+  "coupon.errLimit": "사용 한도를 모두 사용했습니다."
 }

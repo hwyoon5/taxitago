@@ -440,6 +440,67 @@ export default function AdminFareSettings() {
             </div>
           </label>
         </div>
+        <div className="mt-2 rounded-xl border-2 border-[#BFDBFE] bg-[#E8F1FA] p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-black text-[#1D4ED8]">시간대별 할증 (심야 할증)</span>
+            <span className="text-[10px] font-bold text-[#4A82B8]">0%면 미적용 · 자정 넘김 구간 지원</span>
+          </div>
+          <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+            <label className="block">
+              <span className="text-[10px] font-bold text-[#3F74A8]">할증률</span>
+              <div className="mt-0.5 flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  disabled={!canEdit}
+                  value={fareDraft.night?.rate ?? 0}
+                  onChange={(event) => setFareDraft((prev) => ({ ...prev, night: { ...(prev.night ?? DEFAULT_FARE_CONFIG.night), rate: Number(event.target.value) } }))}
+                  className="w-full rounded-lg border border-[#BFDBFE] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#4A82B8]"
+                />
+                <span className="text-xs font-black text-[#3F74A8]">%</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold text-[#3F74A8]">시작 시각</span>
+              <div className="mt-0.5 flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  step={1}
+                  disabled={!canEdit}
+                  value={fareDraft.night?.startHour ?? 0}
+                  onChange={(event) => setFareDraft((prev) => ({ ...prev, night: { ...(prev.night ?? DEFAULT_FARE_CONFIG.night), startHour: Number(event.target.value) } }))}
+                  className="w-full rounded-lg border border-[#BFDBFE] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#4A82B8]"
+                />
+                <span className="text-xs font-black text-[#3F74A8]">시</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold text-[#3F74A8]">종료 시각</span>
+              <div className="mt-0.5 flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  max={24}
+                  step={1}
+                  disabled={!canEdit}
+                  value={fareDraft.night?.endHour ?? 0}
+                  onChange={(event) => setFareDraft((prev) => ({ ...prev, night: { ...(prev.night ?? DEFAULT_FARE_CONFIG.night), endHour: Number(event.target.value) } }))}
+                  className="w-full rounded-lg border border-[#BFDBFE] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#4A82B8]"
+                />
+                <span className="text-xs font-black text-[#3F74A8]">시</span>
+              </div>
+            </label>
+          </div>
+          <p className="mt-1.5 text-[10px] font-bold leading-4 text-[#3F74A8]">
+            {fareDraft.night && fareDraft.night.rate > 0
+              ? `${String(fareDraft.night.startHour).padStart(2, '0')}:00 ~ ${String(fareDraft.night.endHour).padStart(2, '0')}:00 호출·정산 요금에 +${fareDraft.night.rate}% 적용`
+              : '현재 시간대별 할증이 꺼져 있습니다.'}
+          </p>
+        </div>
         <button
           type="button"
           disabled={!canEdit || busy || !fareDirty}

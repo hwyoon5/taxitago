@@ -26,6 +26,8 @@ export async function payFromBalance(input: {
   deviceId?: string
   /** 클라이언트 멱등키 — 생략 시 생성. 같은 결제의 재시도는 같은 키를 써야 한다. */
   requestId?: string
+  /** 할인 쿠폰 코드 — 유효하면 차감액이 할인만큼 줄어든다(서버가 재검증). */
+  couponCode?: string
 }): Promise<BalancePayResult> {
   const identity = loadPiIdentity()
   const uid = identity?.uid?.trim() || ''
@@ -51,6 +53,7 @@ export async function payFromBalance(input: {
       partnerId: input.partnerId,
       partnerName: input.partnerName,
       deviceId: input.deviceId,
+      couponCode: input.couponCode,
       accessToken: identity?.accessToken || undefined,
       sandbox: PI_SANDBOX,
     }),

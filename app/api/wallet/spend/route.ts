@@ -8,6 +8,7 @@ import { getRide, hydrateDispatchFromKv, syncDispatchFromDisk } from '@/lib/disp
 import { lockEscrow } from '@/lib/escrow-engine'
 import { handleServicePaymentComplete } from '@/lib/service-settlement'
 import { recordAudit } from '@/lib/audit-store'
+import { previewCoupon, redeemCoupon, voidCouponRedemption } from '@/lib/coupon-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
     purpose?: unknown
     rideId?: unknown
     manualId?: unknown
+    couponCode?: unknown
     label?: unknown
     place?: unknown
     service?: unknown
@@ -142,6 +144,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: '결제 금액을 확인해 주세요.' }, { status: 400 })
   }
 
+  // 2.5 쿠폰 — 유효 코드면 할인액만큼 차감을 줄인다. 할인분은 플랫폼 부담이라
+  // 기사 정산·에스크로 잠금액은 요금 기준 그대로 유지된다.
+  const couponCode = typeof body?.couponCode === 'string' ? body.couponCode.trim() : ''
+  let couponPreview: { code: string; discount: number } | null = null
+  if (couponCode) {
+    const preview = await previewCoupon(couponCode, uid, amount).catch(() => null)
+    if (!preview || !preview.ok) {
+      return NextResponse.json(
+        { ok: false, error: '쿠폰을 적용할 수 없습니다.', couponError: preview && !preview.ok ? preview.error : 'not_found' },
+        { status: 400 },
+      )
+    }
+    couponPreview = { code: preview.coupon.code, discount: preview.discount }
+  }
+  const payable = piRound(amount - (couponPreview?.discount ?? 0))
+
   const txid = spendTxid(dedupeKey)
 
   // 3. 잔액 — 서버 장부가 권위. 부족하면 차감·정산을 모두 진행하지 않는다.
@@ -152,7 +170,7 @@ export async function POST(request: Request) {
     console.error('[Spend] balance lookup failed', { uid, error })
     return NextResponse.json({ ok: false, error: '잔액을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 500 })
   }
-  if (amount > spendable + 0.000001) {
+  if (payable > spendable + 0.000001) {
     return NextResponse.json(
       { ok: false, error: `앱 잔액이 부족합니다. 지갑에서 Pi를 충전한 뒤 다시 결제해 주세요. (잔액: ${piRound(spendable)} Pi)` },
       { status: 400 },
@@ -168,12 +186,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: '결제가 처리 중입니다. 잠시 후 다시 시도해 주세요.' }, { status: 409 })
   }
 
+  // 4.5 쿠폰 소비 — 차감 전에 사용 기록을 잠근다. 차감 실패 시 되돌린다.
+  if (couponPreview) {
+    const redeemed = await redeemCoupon(couponPreview.code, uid, amount, txid).catch(() => null)
+    if (!redeemed || !redeemed.ok) {
+      return NextResponse.json(
+        { ok: false, error: '쿠폰을 적용할 수 없습니다.', couponError: redeemed && !redeemed.ok ? redeemed.error : 'not_found' },
+        { status: 400 },
+      )
+    }
+    couponPreview.discount = redeemed.discount
+  }
+  const debitAmount = piRound(amount - (couponPreview?.discount ?? 0))
+
   // 5. 차감 — txid 멱등키라 재실행이 겹쳐도 한 번만 기록된다.
-  const spend = await recordUserSpend({ txid, wallet, uid, amount, label: label || (purpose === 'ride' ? '운행 요금' : purpose === 'manual' ? '현장 결제' : '서비스 결제') }).catch((error) => {
-    console.error('[Spend] debit failed', { uid, txid, amount, error })
+  const spendLabel = (label || (purpose === 'ride' ? '운행 요금' : purpose === 'manual' ? '현장 결제' : '서비스 결제')) + (couponPreview ? ` · 쿠폰 ${couponPreview.code}` : '')
+  const spend = await recordUserSpend({ txid, wallet, uid, amount: debitAmount, label: spendLabel }).catch((error) => {
+    console.error('[Spend] debit failed', { uid, txid, amount: debitAmount, error })
     return null
   })
   if (!spend) {
+    if (couponPreview) await voidCouponRedemption(couponPreview.code, uid, txid).catch(() => undefined)
     return NextResponse.json({ ok: false, error: '잔액 차감에 실패했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 500 })
   }
 
@@ -198,7 +231,7 @@ export async function POST(request: Request) {
       await handleServicePaymentComplete({
         paymentId: txid,
         txid,
-        amount,
+        amount: debitAmount,
         metadata: {
           kind: 'service-pay',
           service: service || undefined,
@@ -220,8 +253,8 @@ export async function POST(request: Request) {
     actor: uid,
     refId: dedupeKey,
     reason: '앱 잔액 결제',
-    detail: `${piRound(amount)} Pi · ${purpose}${rideId ? ` · ride:${rideId}` : ''}${manualId ? ` · manual:${manualId}` : ''} · ${txid}`,
+    detail: `${piRound(debitAmount)} Pi · ${purpose}${rideId ? ` · ride:${rideId}` : ''}${manualId ? ` · manual:${manualId}` : ''} · ${txid}${couponPreview ? ` · 쿠폰 ${couponPreview.code} -${couponPreview.discount}Pi(총 ${piRound(amount)})` : ''}`,
   }).catch(() => undefined)
 
-  return NextResponse.json({ ok: true, txid, paymentId: txid, amount })
+  return NextResponse.json({ ok: true, txid, paymentId: txid, amount: debitAmount })
 }

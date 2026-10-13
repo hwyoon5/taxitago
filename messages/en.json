@@ -746,5 +746,18 @@
   "acct.phoneDone": "Verified number",
   "signup.phoneLabel": "Phone (verification required)",
   "match.safeCall": "Safe-number call",
-  "home.liveStatus": "Live status"
+  "home.liveStatus": "Live status",
+  "coupon.placeholder": "Discount coupon code",
+  "coupon.apply": "Apply",
+  "coupon.checking": "Checking…",
+  "coupon.remove": "Remove",
+  "coupon.payable": "You'll pay {v} Pi",
+  "coupon.discount": "Coupon -{v} Pi",
+  "coupon.errGeneric": "Couldn't verify the coupon.",
+  "coupon.errNotFound": "This coupon code isn't valid.",
+  "coupon.errInactive": "This coupon is disabled.",
+  "coupon.errExpired": "This coupon has expired.",
+  "coupon.errMinSpend": "Below the minimum spend.",
+  "coupon.errAudience": "You're not eligible for this coupon.",
+  "coupon.errLimit": "Usage limit reached."
 }

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link2, QrCode, ScanLine, X } from 'lucide-react'
 import { apiFetch } from '@/lib/app-origin'
 import { payFromBalance } from '@/lib/balance-pay'
+import { loadPiIdentity } from '@/lib/partner-account'
+import { CouponCodeField, type AppliedCoupon } from '@/components/coupon-field'
 import { useLocale } from '@/components/locale-provider'
 import type { MessageKey } from '@/lib/i18n'
 
@@ -65,6 +67,7 @@ export default function QrPayScanModal({
   const [record, setRecord] = useState<ManualPayPublic | null>(null)
   const [error, setError] = useState('')
   const [pasteValue, setPasteValue] = useState('')
+  const [coupon, setCoupon] = useState<AppliedCoupon | null>(null)
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -83,6 +86,7 @@ export default function QrPayScanModal({
         return
       }
       setRecord(data.record)
+      setCoupon(null)
       setStage(
         data.record.status === 'pending'
           ? 'confirm'
@@ -174,7 +178,7 @@ export default function QrPayScanModal({
     setStage('paying')
     setError('')
     // 앱 잔액에서 즉시 차감 — 금액은 서버의 결제 요청 레코드가 권위다.
-    void payFromBalance({ purpose: 'manual', manualId: record.id, label: '현장 수동 결제' })
+    void payFromBalance({ purpose: 'manual', manualId: record.id, label: '현장 수동 결제', couponCode: coupon?.code })
       .then((proof) => {
         onPaid?.(record, proof)
         setStage('done')
@@ -188,6 +192,7 @@ export default function QrPayScanModal({
   const reset = () => {
     doneRef.current = false
     setRecord(null)
+    setCoupon(null)
     setError('')
     setStage('scan')
     void startCamera()
@@ -269,7 +274,18 @@ export default function QrPayScanModal({
             <div className="mt-4 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] p-5 text-center">
               <p className="text-sm font-black text-[#0F172A]">{t('qrpay.payTo', { name: record.driverName || t('qrpay.driver') })}</p>
               {record.memo ? <p className="mt-1 text-xs font-bold text-[#64748B]">{record.memo}</p> : null}
-              <p className="mt-3 text-3xl font-black text-[#4C1FB8]">{record.amount.toFixed(7)} Pi</p>
+              {coupon ? (
+                <>
+                  <p className="mt-3 text-sm font-bold text-[#94A3B8] line-through">{record.amount.toFixed(7)} Pi</p>
+                  <p className="text-3xl font-black text-[#4C1FB8]">{coupon.payable.toFixed(7)} Pi</p>
+                  <p className="mt-0.5 text-[11px] font-black text-[#047857]">{t('coupon.discount', { v: coupon.discount.toFixed(7) })}</p>
+                </>
+              ) : (
+                <p className="mt-3 text-3xl font-black text-[#4C1FB8]">{record.amount.toFixed(7)} Pi</p>
+              )}
+            </div>
+            <div className="mt-3">
+              <CouponCodeField uid={loadPiIdentity()?.uid?.trim() || ''} gross={record.amount} onApplied={setCoupon} />
             </div>
             {error ? <p className="mt-2 text-center text-xs font-black text-[#DC2626]">{error}</p> : null}
             <button

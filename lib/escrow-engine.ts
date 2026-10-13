@@ -2,6 +2,7 @@ import { getDriver, getRide, listRides, nowIso, saveDriver, syncDispatchFromDisk
 import { estimateTaxiFarePi, etaMinutesFromKm, trafficDelayMinutes, trafficDelaySurchargePi, waypointRouteQuote } from '@/lib/dispatch-geo'
 import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { getFareConfig } from '@/lib/fare-config-server'
+import { timeSurchargeRate } from '@/lib/fare-config'
 import { piRound } from '@/lib/pi-format'
 import { getPartnerLink } from '@/lib/partner-ledger-server'
 import { getCommissionRates, listSettlements, markSettlementSettled, recordSettlement } from '@/lib/settlement-store'
@@ -255,7 +256,13 @@ export async function releaseEscrow(
       : 0
   const delayMin = trafficDelayMinutes(actualMin, expectedMin)
   const trafficSurcharge = trafficDelaySurchargePi(delayMin, fareConfig, ride.kind)
-  const baseAmount = validMeasured != null ? estimateTaxiFarePi(validMeasured, fareConfig, ride.kind) : escrow.amount
+  // 시간대별 할증 — 실측 거리로 재산정할 때도 승차 시각 기준 할증률을 곱한다.
+  // 실측이 없어 예상 요금을 그대로 쓰는 경우에는 견적 산정 시 이미 반영돼 있다.
+  const nightRate = timeSurchargeRate(fareConfig, ride.boardedAt ? new Date(ride.boardedAt) : new Date())
+  const baseAmount =
+    validMeasured != null
+      ? piRound(estimateTaxiFarePi(validMeasured, fareConfig, ride.kind) * (1 + nightRate))
+      : escrow.amount
   const settleAmount = piRound(baseAmount + trafficSurcharge)
 
   // 플랫폼 수수료 분리 — 기사에게는 수수료 공제 후 net만 송금하고,

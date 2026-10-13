@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
 import { payFromBalance } from '@/lib/balance-pay'
+import { loadPiIdentity } from '@/lib/partner-account'
+import { CouponCodeField, type AppliedCoupon } from '@/components/coupon-field'
 
 type ManualPayPublic = {
   id: string
@@ -20,6 +22,7 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
   const [record, setRecord] = useState<ManualPayPublic | null>(null)
   const [view, setView] = useState<ViewState>('loading')
   const [error, setError] = useState('')
+  const [coupon, setCoupon] = useState<AppliedCoupon | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -47,7 +50,7 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
     setView('paying')
     setError('')
     // 앱 잔액에서 즉시 차감 — 금액은 서버의 결제 요청 레코드가 권위다.
-    void payFromBalance({ purpose: 'manual', manualId: record.id, label: '현장 수동 결제' })
+    void payFromBalance({ purpose: 'manual', manualId: record.id, label: '현장 수동 결제', couponCode: coupon?.code })
       .then(() => setView('done'))
       .catch((payError) => {
         setError(payError instanceof Error ? payError.message : '결제를 처리하지 못했습니다.')
@@ -87,7 +90,18 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
           {record.memo ? <p className="mt-1 text-sm font-bold text-[#64748B]">{record.memo}</p> : null}
           <div className="mt-4 rounded-2xl border-2 border-[#E0D4FF] bg-white p-5 text-center shadow-sm">
             <p className="text-xs font-black text-[#64748B]">결제 금액</p>
-            <p className="mt-1 text-3xl font-black text-[#4C1FB8]">{record.amount.toFixed(7)} Pi</p>
+            {coupon ? (
+              <>
+                <p className="mt-1 text-sm font-bold text-[#94A3B8] line-through">{record.amount.toFixed(7)} Pi</p>
+                <p className="text-3xl font-black text-[#4C1FB8]">{coupon.payable.toFixed(7)} Pi</p>
+                <p className="mt-0.5 text-[11px] font-black text-[#047857]">쿠폰 -{coupon.discount.toFixed(7)} Pi</p>
+              </>
+            ) : (
+              <p className="mt-1 text-3xl font-black text-[#4C1FB8]">{record.amount.toFixed(7)} Pi</p>
+            )}
+          </div>
+          <div className="mt-3">
+            <CouponCodeField uid={loadPiIdentity()?.uid?.trim() || ''} gross={record.amount} onApplied={setCoupon} />
           </div>
           {error ? <p className="mt-2 text-xs font-black text-[#DC2626]">{error}</p> : null}
           <button
