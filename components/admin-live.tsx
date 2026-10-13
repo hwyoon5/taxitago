@@ -114,6 +114,24 @@ const USER_ROLE: Record<TrackedUser['role'], { label: string; cls: string }> = {
   partner: { label: '파트너', cls: 'bg-[#FEF3E2] text-[#D97706]' },
 }
 
+type RegionKey = 'all' | 'metro' | 'gangwon' | 'chungcheong' | 'jeolla' | 'gyeongbuk' | 'gyeongnam' | 'jeju'
+type RegionBounds = { minLat: number; maxLat: number; minLng: number; maxLng: number }
+const REGIONS: { key: RegionKey; label: string; bounds?: RegionBounds }[] = [
+  { key: 'all', label: '전체 보기' },
+  { key: 'metro', label: '수도권', bounds: { minLat: 36.8, maxLat: 38.3, minLng: 126.3, maxLng: 127.9 } },
+  { key: 'gangwon', label: '강원', bounds: { minLat: 37.0, maxLat: 38.7, minLng: 127.7, maxLng: 129.6 } },
+  { key: 'chungcheong', label: '충청', bounds: { minLat: 35.9, maxLat: 37.1, minLng: 126.9, maxLng: 128.5 } },
+  { key: 'jeolla', label: '전라', bounds: { minLat: 34.3, maxLat: 36.1, minLng: 125.9, maxLng: 128.0 } },
+  { key: 'gyeongbuk', label: '대구·경북', bounds: { minLat: 35.5, maxLat: 37.6, minLng: 128.0, maxLng: 129.6 } },
+  { key: 'gyeongnam', label: '부산·경남', bounds: { minLat: 34.5, maxLat: 35.9, minLng: 127.6, maxLng: 129.4 } },
+  { key: 'jeju', label: '제주', bounds: { minLat: 33.0, maxLat: 33.6, minLng: 126.1, maxLng: 127.0 } },
+]
+const regionBounds = (key: RegionKey) => REGIONS.find((r) => r.key === key)?.bounds ?? null
+const regionLabel = (key: RegionKey) => REGIONS.find((r) => r.key === key)?.label ?? ''
+/** 권역 필터 — '전체 보기'는 전원 표시, 특정 권역은 경계 상자 안 좌표만(좌표 미보고자는 제외). */
+const inRegionBounds = (lat: number | null | undefined, lng: number | null | undefined, b: RegionBounds | null) =>
+  !b ? true : lat != null && lng != null && lat >= b.minLat && lat <= b.maxLat && lng >= b.minLng && lng <= b.maxLng
+
 /** 기사·승객 좌표를 스캐터 플롯으로 그리는 간단 관제 맵 — 지도 SDK 로드 실패 시 폴백. */
 function TrackingScatter({ drivers, users }: { drivers: TrackedDriver[]; users: TrackedUser[] }) {
   const W = 600
@@ -244,7 +262,17 @@ function pinElement(style: { dot: string; ring: string }, label?: string) {
 }
 
 /** 실제 지도 기반 실시간 관제 — Naver Maps 위에 기사·승객 마커를 폴링 갱신한다. */
-function TrackingMap({ drivers, users }: { drivers: TrackedDriver[]; users: TrackedUser[] }) {
+function TrackingMap({
+  drivers,
+  users,
+  region,
+  onRegionChange,
+}: {
+  drivers: TrackedDriver[]
+  users: TrackedUser[]
+  region: RegionKey
+  onRegionChange: (key: RegionKey) => void
+}) {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<NaverMapInstance | null>(null)
   const sdkRef = useRef<NaverMapsSdk | null>(null)
@@ -348,6 +376,26 @@ function TrackingMap({ drivers, users }: { drivers: TrackedDriver[]; users: Trac
     if (center) map.setCenter(center)
   }
 
+  /** 권역 칩 클릭 — 해당 경계 상자로 fitBounds, '전체 보기'는 활성 마커 전체를 포함. */
+  const panToRegion = (key: RegionKey) => {
+    const sdk = sdkRef.current
+    const map = mapRef.current
+    if (!sdk || !map) return
+    const b = regionBounds(key)
+    if (!b) {
+      fitAll()
+      return
+    }
+    const sw = createNaverLatLng(sdk, b.minLat, b.minLng)
+    const ne = createNaverLatLng(sdk, b.maxLat, b.maxLng)
+    if (sw && ne && typeof sdk.LatLngBounds === 'function' && map.fitBounds) {
+      map.fitBounds(new sdk.LatLngBounds(sw, ne), { top: 64, right: 30, bottom: 30, left: 30 })
+      return
+    }
+    const center = createNaverLatLng(sdk, (b.minLat + b.maxLat) / 2, (b.minLng + b.maxLng) / 2)
+    if (center) map.setCenter(center)
+  }
+
   if (failed) return <TrackingScatter drivers={drivers} users={users} />
 
   const selectedDriver = selected?.kind === 'driver' ? drivers.find((d) => d.id === selected.id) : null
@@ -360,13 +408,23 @@ function TrackingMap({ drivers, users }: { drivers: TrackedDriver[]; users: Trac
         {!ready ? (
           <p className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-[#94A3B8]">지도를 불러오는 중…</p>
         ) : null}
-        <button
-          type="button"
-          onClick={fitAll}
-          className="absolute right-2 top-2 rounded-full bg-white/95 px-3 py-1.5 text-[10px] font-black text-[#4A82B8] shadow-md"
-        >
-          전체 보기
-        </button>
+        <div className="absolute left-2 right-2 top-2 flex gap-1.5 overflow-x-auto pb-1">
+          {REGIONS.map((r) => (
+            <button
+              key={r.key}
+              type="button"
+              onClick={() => {
+                panToRegion(r.key)
+                onRegionChange(r.key)
+              }}
+              className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black shadow-md ${
+                region === r.key ? 'bg-[#4A82B8] text-white' : 'bg-white/95 text-[#334155] hover:bg-white'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
         {selectedDriver || selectedUser ? (
           <div className="absolute bottom-2 left-2 right-2 rounded-xl bg-white/95 p-3 shadow-lg sm:right-auto sm:min-w-[240px]">
             <div className="flex items-start justify-between gap-2">
@@ -438,6 +496,11 @@ export default function AdminLiveDashboard() {
   const presence = snap?.presence ?? { passenger: 0, driver: 0, partner: 0 }
   const total = presence.passenger + presence.driver + presence.partner
   const matching = snap?.matching
+
+  const [region, setRegion] = useState<RegionKey>('all')
+  const rb = regionBounds(region)
+  const trackDrivers = (snap?.tracking?.drivers ?? []).filter((d) => inRegionBounds(d.lat, d.lng, rb))
+  const trackUsers = (snap?.tracking?.users ?? []).filter((u) => inRegionBounds(u.lat, u.lng, rb))
 
   return (
     <div className="mt-4 space-y-4">
@@ -548,17 +611,17 @@ export default function AdminLiveDashboard() {
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black text-[#334155]">실시간 위치 관제</h3>
               <span className="text-[10px] font-bold text-[#94A3B8]">
-                기사 {snap?.tracking?.drivers.length ?? 0}명 · 승객/파트너 {snap?.tracking?.users.length ?? 0}명
+                {rb ? `${regionLabel(region)} · ` : ''}기사 {trackDrivers.length}명 · 승객/파트너 {trackUsers.length}명
               </span>
             </div>
             <div className="mt-2">
-              <TrackingMap drivers={snap?.tracking?.drivers ?? []} users={snap?.tracking?.users ?? []} />
+              <TrackingMap drivers={trackDrivers} users={trackUsers} region={region} onRegionChange={setRegion} />
             </div>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               <div className="space-y-2">
                 <p className="text-[11px] font-black text-[#0D9488]">접속 중인 기사</p>
-                {snap?.tracking?.drivers.length ? (
-                  snap.tracking?.drivers.map((driver) => {
+                {trackDrivers.length ? (
+                  trackDrivers.map((driver) => {
                     const status = DRIVER_STATUS[driver.duty] ?? DRIVER_STATUS.offline
                     return (
                       <div key={driver.id} className="rounded-xl border border-[#E2E8F0] px-3 py-2.5">
@@ -580,13 +643,15 @@ export default function AdminLiveDashboard() {
                     )
                   })
                 ) : (
-                  <p className="rounded-xl bg-[#F8FAFC] px-3 py-4 text-center text-[11px] font-bold text-[#94A3B8]">접속 중인 기사가 없습니다.</p>
+                  <p className="rounded-xl bg-[#F8FAFC] px-3 py-4 text-center text-[11px] font-bold text-[#94A3B8]">
+                    {rb ? '이 권역에 접속 중인 기사가 없습니다.' : '접속 중인 기사가 없습니다.'}
+                  </p>
                 )}
               </div>
               <div className="space-y-2">
                 <p className="text-[11px] font-black text-[#4A82B8]">접속 중인 승객 · 파트너</p>
-                {snap?.tracking?.users.length ? (
-                  snap.tracking?.users.map((user) => {
+                {trackUsers.length ? (
+                  trackUsers.map((user) => {
                     const status = user.rideStatus ? USER_STATUS[user.rideStatus] : null
                     const role = USER_ROLE[user.role]
                     return (
@@ -608,7 +673,9 @@ export default function AdminLiveDashboard() {
                     )
                   })
                 ) : (
-                  <p className="rounded-xl bg-[#F8FAFC] px-3 py-4 text-center text-[11px] font-bold text-[#94A3B8]">접속 중인 승객·파트너가 없습니다.</p>
+                  <p className="rounded-xl bg-[#F8FAFC] px-3 py-4 text-center text-[11px] font-bold text-[#94A3B8]">
+                    {rb ? '이 권역에 접속 중인 승객·파트너가 없습니다.' : '접속 중인 승객·파트너가 없습니다.'}
+                  </p>
                 )}
               </div>
             </div>
