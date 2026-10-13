@@ -89,7 +89,9 @@ export function loadPiIdentity(): PiIdentity | null {
   const uid = textOf(session?.uid).trim()
   const wallet = textOf(session?.wallet).trim()
   if (uid && wallet) {
-    const accessToken = textOf(session?.accessToken)
+    // 세션 토큰이 비어 있으면(과거 버전이 토큰 없이 덮어쓴 저장본) 프로필에
+    // 남은 토큰으로 보강한다 — 그래야 탈퇴 등 서버 인증 호출이 401로 끊기지 않는다.
+    const accessToken = textOf(session?.accessToken) || textOf(loadPartnerProfile()?.accessToken)
     return { uid, username: textOf(session?.username), wallet, ...(accessToken ? { accessToken } : {}) }
   }
   const profile = loadPartnerProfile()
@@ -144,7 +146,14 @@ export function loadPartnerProfile(): PartnerProfile | null {
 
 export function savePartnerProfile(profile: PartnerProfile) {
   window.localStorage.setItem(PROFILE_KEY, JSON.stringify(profile))
-  savePiIdentity({ uid: profile.uid, username: profile.username, wallet: profile.wallet })
+  // accessToken을 빼고 세션을 덮어쓰면 탈퇴·인증 호출이 401로 거절된다 —
+  // 프로필에 실린 토큰을 그대로 세션에도 보존한다.
+  savePiIdentity({
+    uid: profile.uid,
+    username: profile.username,
+    wallet: profile.wallet,
+    ...(profile.accessToken ? { accessToken: profile.accessToken } : {}),
+  })
   upsertSettlementLedger(profile.uid, profile.wallet)
 }
 
@@ -232,7 +241,11 @@ export function purgeLocalUserData() {
 
 export async function requestAccountWithdrawal(uid?: string) {
   const identity = loadPiIdentity()
-  const id = uid?.trim() || identity?.uid || loadPartnerProfile()?.uid || ''
+  const profile = loadPartnerProfile()
+  const id = uid?.trim() || identity?.uid || profile?.uid || ''
+  // 토큰 출처를 세션→프로필 순으로 넓힌다 — 기사/파트너 등록이 끝난 계정은
+  // 세션에 토큰이 없고 프로필에만 남는 저장본이 있을 수 있다.
+  const accessToken = identity?.accessToken || profile?.accessToken || ''
   // uid가 없어도 호출해 서버가 거절
   // (400 uid required)하게 두고, 로컬만으로 탈퇴를 완료하지 않는다.
   // 서버는 탈퇴 요청자가 해당 uid의 소유자인지 accessToken으로 검증한다 —
@@ -242,7 +255,7 @@ export async function requestAccountWithdrawal(uid?: string) {
   // 하므로 20초면 충분하고, 초과 시 명확한 오류로 정리해 재시도를 허용한다.
   // 같은 오리진이어도 credentials를 명시해 인앱 브라우저별 쿠키 정책 차이를 없앤다.
   const startedAt = Date.now()
-  console.info('[Withdraw] request start', { uid: id || '(missing)', hasToken: Boolean(identity?.accessToken) })
+  console.info('[Withdraw] request start', { uid: id || '(missing)', hasToken: Boolean(accessToken) })
   let res: Response
   try {
     res = await apiFetch('/api/partner/link/', {
@@ -250,12 +263,12 @@ export async function requestAccountWithdrawal(uid?: string) {
       credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
-        ...(identity?.accessToken ? { 'x-pi-access-token': identity.accessToken } : {}),
+        ...(accessToken ? { 'x-pi-access-token': accessToken } : {}),
       },
       body: JSON.stringify({
         uid: id,
-        wallet: identity?.wallet || loadPartnerProfile()?.wallet || '',
-        accessToken: identity?.accessToken || undefined,
+        wallet: identity?.wallet || profile?.wallet || '',
+        accessToken: accessToken || undefined,
       }),
       signal: AbortSignal.timeout(20_000),
     })
