@@ -240,10 +240,14 @@ export async function requestAccountWithdrawal(uid?: string) {
   // apiFetch엔 기본 타임아웃이 없다 — 서버 장애·네트워크 단절이면 '처리 중'
   // 스피너가 영원히 돌아간다. 서버는 인증(최대 ~8s)과 링크 삭제만 응답 전에
   // 하므로 20초면 충분하고, 초과 시 명확한 오류로 정리해 재시도를 허용한다.
+  // 같은 오리진이어도 credentials를 명시해 인앱 브라우저별 쿠키 정책 차이를 없앤다.
+  const startedAt = Date.now()
+  console.info('[Withdraw] request start', { uid: id || '(missing)', hasToken: Boolean(identity?.accessToken) })
   let res: Response
   try {
     res = await apiFetch('/api/partner/link/', {
       method: 'DELETE',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
         ...(identity?.accessToken ? { 'x-pi-access-token': identity.accessToken } : {}),
@@ -257,6 +261,7 @@ export async function requestAccountWithdrawal(uid?: string) {
     })
   } catch (error) {
     const timedOut = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+    console.warn('[Withdraw] request failed', { elapsedMs: Date.now() - startedAt, timedOut, error })
     throw new Error(
       timedOut
         ? '서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
@@ -264,6 +269,11 @@ export async function requestAccountWithdrawal(uid?: string) {
     )
   }
   const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
+  console.info('[Withdraw] response received', {
+    status: res.status,
+    ok: data?.ok === true,
+    elapsedMs: Date.now() - startedAt,
+  })
   if (!res.ok || data?.ok !== true) {
     // 서버가 돌려준 사유(인증 실패 등)를 그대로 이용자에게 보인다.
     const serverError = typeof data?.error === 'string' ? data.error : ''

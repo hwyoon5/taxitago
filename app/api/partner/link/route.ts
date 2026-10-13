@@ -82,6 +82,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const startedAt = Date.now()
   try {
     const body = (await request.json().catch(() => null)) as {
       uid?: unknown
@@ -90,17 +91,28 @@ export async function DELETE(request: Request) {
     } | null
     const fromBody = typeof body?.uid === 'string' ? body.uid.trim() : ''
     const uid = fromBody || new URL(request.url).searchParams.get('uid')?.trim() || ''
+    const sandbox = isPiSandboxRequest(request)
+    const headerToken = request.headers.get('x-pi-access-token')?.trim() || ''
+    const bodyToken = typeof body?.accessToken === 'string' ? body.accessToken.trim() : ''
+    // 진입 로그 — 클라이언트에서 '처리 중'에 멈춘다는 보고가 있을 때 요청이
+    // 라우트까지 도달했는지부터 확인할 수 있게 수신 파라미터를 기록한다.
+    console.log('[Withdraw] request received', {
+      uid: uid || '(missing)',
+      hasWallet: Boolean(typeof body?.wallet === 'string' && body.wallet.trim()),
+      hasHeaderToken: Boolean(headerToken),
+      hasBodyToken: Boolean(bodyToken),
+      sandbox,
+      contentType: request.headers.get('content-type') || '(none)',
+    })
     if (!uid) return NextResponse.json({ success: false, error: 'uid required' }, { status: 400 })
     // 1. 인증 — 탈퇴 요청자가 해당 Pi uid 소유자인지 확인한다. 토큰 없는 호출로
     // 타인 계정을 해제할 수 없게 막는다. /api/rides와 같은 정책:
     // 메인넷은 fail-closed, 테스트넷은 /v2/me 판정 불가(unreachable)만 통과.
-    const sandbox = isPiSandboxRequest(request)
     const sandboxSession = sandbox && uid === 'sandbox-uid-taxitago'
     if (!sandboxSession) {
-      const token =
-        request.headers.get('x-pi-access-token')?.trim() ||
-        (typeof body?.accessToken === 'string' ? body.accessToken.trim() : '')
+      const token = headerToken || bodyToken
       if (!token) {
+        console.warn('[Withdraw] rejected: no access token', { uid })
         return NextResponse.json(
           { success: false, error: 'Pi 계정 인증이 필요합니다. 다시 로그인해 주세요.' },
           { status: 401 },
@@ -109,6 +121,7 @@ export async function DELETE(request: Request) {
       const inspection = await inspectPiAccessToken(token, sandbox)
       const verifiedUid = inspection.status === 'ok' ? inspection.uid : null
       const allowed = verifiedUid === uid || (sandbox && inspection.status === 'unreachable')
+      console.log('[Withdraw] token inspection', { uid, status: inspection.status, verifiedUid, allowed })
       if (!allowed) {
         return NextResponse.json(
           { success: false, error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' },
@@ -124,7 +137,7 @@ export async function DELETE(request: Request) {
     // 2. 계정 연동 해제가 응답의 유일한 전제 조건 — 메모리 Map 삭제라 즉시 끝난다.
     const link = getPartnerLink(uid)
     deletePartnerLink(uid)
-    console.log('[Withdraw] account unlinked', { uid, wallet: wallet || '(none)' })
+    console.log('[Withdraw] account unlinked', { uid, wallet: wallet || '(none)', elapsedMs: Date.now() - startedAt })
 
     // 3. 느린 정리 작업(크레딧 파기·레지스트리·기사 상태·감사 로그)은 응답 이후
     // 백그라운드로 — KV 장애·지연이 탈퇴 응답을 붙잡아 클라이언트가 '처리 중'에
@@ -174,7 +187,12 @@ export async function DELETE(request: Request) {
   } catch (error) {
     // 어떤 예외도 JSON 응답으로 변환한다 — Next 기본 에러 페이지(HTML)가
     // 내려가면 클라이언트 json() 파싱이 실패해 '처리 중'이 풀리지 않는다.
-    console.error('[Withdraw] unhandled error', { error })
+    // 스택까지 강제 출력해 서버 로그에서 멈춤 지점을 바로 찾을 수 있게 한다.
+    console.error('[Withdraw] unhandled error', {
+      elapsedMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     return NextResponse.json(
       { success: false, error: '회원 탈퇴 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' },
       { status: 500 },

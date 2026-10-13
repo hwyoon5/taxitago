@@ -49,7 +49,7 @@ const nextConfig = {
         headers: [
           { key: 'Access-Control-Allow-Origin', value: '*' },
           { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,PATCH,DELETE,OPTIONS' },
-          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Accept' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Accept, x-pi-access-token, x-admin-key, Authorization' },
           { key: 'Cache-Control', value: 'no-store' },
         ],
       },
