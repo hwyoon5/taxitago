@@ -439,7 +439,7 @@ export default function AdminSupportDesk() {
   )
 
   return (
-    <main className="mx-auto min-h-dvh w-full max-w-3xl bg-[#F8FAFC] px-4 py-6 text-[#0F172A]">
+    <main className="mx-auto min-h-dvh w-full max-w-3xl bg-[#F8FAFC] px-4 py-6 text-[#0F172A] lg:max-w-none lg:px-8">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-black text-[#4C1FB8]">ADMIN</p>

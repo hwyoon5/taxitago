@@ -356,7 +356,7 @@ function TrackingMap({ drivers, users }: { drivers: TrackedDriver[]; users: Trac
   return (
     <div>
       <div className="relative overflow-hidden rounded-xl border border-[#E2E8F0]">
-        <div ref={canvasRef} className="h-72 w-full bg-[#F8FAFC]" />
+        <div ref={canvasRef} className="h-72 w-full bg-[#F8FAFC] lg:h-[520px]" />
         {!ready ? (
           <p className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-[#94A3B8]">지도를 불러오는 중…</p>
         ) : null}
