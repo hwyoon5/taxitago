@@ -35,3 +35,4 @@ data/support.json
 
 # Windows reserved device name (accidental shell redirects)
 nul
+public/
