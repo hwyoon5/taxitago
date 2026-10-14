@@ -796,5 +796,9 @@
   "svc.delivFareUpDone": "요금을 올려 재등록했어요",
   "svc.delivFareUpErr": "현재 요금보다 높게 입력해 주세요",
   "svc.delivPhotosN": "사진 {n}장",
-  "svc.delivQrPay": "QR 결제"
+  "svc.delivQrPay": "QR 결제",
+  "svc.delivDetail": "배송 상세",
+  "svc.delivWaiting": "기사 수락 대기",
+  "svc.delivDone": "배송 완료",
+  "svc.delivDriver": "배정 기사"
 }

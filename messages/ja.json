@@ -796,5 +796,9 @@
   "svc.delivFareUpDone": "料金を引き上げて再登録しました",
   "svc.delivFareUpErr": "現在の料金より高く入力してください",
   "svc.delivPhotosN": "写真{n}枚",
-  "svc.delivQrPay": "QR決済"
+  "svc.delivQrPay": "QR決済",
+  "svc.delivDetail": "配送の詳細",
+  "svc.delivWaiting": "ドライバー受諾待ち",
+  "svc.delivDone": "配達完了",
+  "svc.delivDriver": "配車ドライバー"
 }

@@ -179,6 +179,7 @@ export function acceptDeliveryDispatch(id: string, driver: { driverId: string; n
 
 export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
   const mine = Boolean(viewerId && job.driverId === viewerId)
+  const owner = Boolean(viewerId && job.ownerId === viewerId)
   return {
     id: job.id,
     pickupAddress: job.pickupAddress,
@@ -199,10 +200,11 @@ export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
     photoCount: job.photoCount ?? 0,
     paymentMethod: job.paymentMethod ?? null,
     paidAt: job.paidAt ?? null,
-    senderPhone: job.status === 'assigned' && mine ? job.senderPhone : '',
-    recipientPhone: job.status === 'assigned' && mine ? job.recipientPhone : '',
-    // 발신인·수신인 ↔ 기사 연락처 — 배정된 당사자(기사 또는 발신인)에게만 노출.
-    driverPhone: job.status === 'assigned' && (mine || (viewerId && job.ownerId === viewerId)) ? (job.driverPhone ?? '') : '',
+    // 발신·수신 연락처 — 배정된 기사(mine)와 등록한 발신인(owner) 본인에게만 노출.
+    senderPhone: (job.status === 'assigned' && mine) || owner ? job.senderPhone : '',
+    recipientPhone: (job.status === 'assigned' && mine) || owner ? job.recipientPhone : '',
+    // 기사 연락처 — 배정 후 당사자(기사 또는 발신인)에게만 노출.
+    driverPhone: job.status === 'assigned' && (mine || owner) ? (job.driverPhone ?? '') : '',
     createdAt: job.createdAt,
   }
 }

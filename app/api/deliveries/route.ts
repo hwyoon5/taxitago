@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   }
   // 발신인 본인 목록(전체 상태) — 기사용 오픈 목록과 분기한다.
   if (ownerId) {
-    return NextResponse.json({ ok: true, jobs: listDeliveriesByOwner(ownerId).map((job) => publicDelivery(job)) })
+    return NextResponse.json({ ok: true, jobs: listDeliveriesByOwner(ownerId).map((job) => publicDelivery(job, ownerId)) })
   }
   return NextResponse.json({ ok: true, jobs: listOpenDeliveries().map((job) => publicDelivery(job)) })
 }

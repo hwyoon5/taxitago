@@ -3244,6 +3244,9 @@ function ServiceSheet({
   // 등록 요청 중복 방지 — 연타 시 id가 다른 잡이 두 번 만들어지는 걸 막는다.
   const [deliveryPosting, setDeliveryPosting] = useState(false)
   const deliveryPostingRef = useRef(false)
+  // 목록 항목 터치 시 열리는 상세 보기 — 항목 id 기준으로 서버 전체 레코드를 다시 가져온다.
+  const [deliveryDetail, setDeliveryDetail] = useState<PublicDelivery | null>(null)
+  const [deliveryDetailPhotos, setDeliveryDetailPhotos] = useState<{ id: string; dataUrl: string; name: string }[]>([])
   // ownerId 후보 — 등록 시점의 로그인 상태와 지금이 다를 수 있어 전부 조회·시도한다.
   const deliveryOwnerIds = () => {
     const ids = [loadPiIdentity()?.uid, daeriPassengerIdRef.current, localPassengerId()]
@@ -3280,6 +3283,29 @@ function ServiceSheet({
   // 서버 응답 건을 목록에 즉시 반영 — 리프레시 응답을 기다리지 않는다.
   const upsertMyDelivery = (job: PublicDelivery) => {
     setMyDeliveries((cur) => [job, ...cur.filter((item) => item.id !== job.id)].sort((a, b) => ((a.createdAt ?? '') < (b.createdAt ?? '') ? 1 : -1)))
+  }
+  // 시트가 다시 마운트(홈 ↔ 택배 왕복)되거나 목록 모달이 열릴 때마다 서버에서
+  // 최신 목록을 가져온다 — 언마운트로 날아간 상태를 항상 복구한다.
+  useEffect(() => {
+    if (service === '택배') refreshMyDeliveries()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service])
+  useEffect(() => {
+    if (myDeliveriesOpen) refreshMyDeliveries()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myDeliveriesOpen])
+  // 항목 터치 → 목록 스냅샷을 먼저 띄우고 서버 전체 레코드로 덮어쓴다.
+  const openDeliveryDetail = (job: PublicDelivery) => {
+    setDeliveryDetail(job)
+    setDeliveryDetailPhotos([])
+    void fetchDelivery(job.id, deliveryOwnerId())
+      .then((full) => { if (full) setDeliveryDetail(full) })
+      .catch(() => undefined)
+    if (job.photoCount) {
+      void fetchAttachments(job.id)
+        .then(setDeliveryDetailPhotos)
+        .catch(() => undefined)
+    }
   }
   const loadDeliveryIntoForm = (job: PublicDelivery) => {
     setDeliveryPickup(job.pickupAddress)
@@ -4647,25 +4673,28 @@ function ServiceSheet({
               <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pb-1">
                 {myDeliveries.map((job) => (
                   <div key={job.id} className="rounded-2xl border-2 border-[#E8F1FA] p-3">
-                    <p className="text-sm font-black text-[#0F172A]">{job.pickupAddress} → {job.destAddress}</p>
-                    <p className="mt-0.5 text-[11px] font-bold text-[#64748B]">
-                      {job.packageLabel} · {job.fare.toFixed(2)} Pi
-                      {job.scheduledAt
-                        ? ` · ${t('svc.delivScheduled')} ${new Date(job.scheduledAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
-                        : ` · ${t('svc.delivNow')}`}
-                      {job.status === 'assigned' ? ` · ${t('svc.delivAssigned')}` : ''}
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      {job.photoCount ? (
-                        <span className="rounded-full bg-[#E8F1FA] px-2 py-0.5 text-[10px] font-black text-[#4A82B8]">{t('svc.delivPhotosN', { n: String(job.photoCount) })}</span>
-                      ) : null}
-                      {job.paidAt ? (
-                        <span className="rounded-full bg-[#D1FAE5] px-2 py-0.5 text-[10px] font-black text-[#047857]">{t('svc.delivPaid')}</span>
-                      ) : job.paymentMethod === 'onsite_qr' ? (
-                        <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#B45309]">{t('svc.delivPayOnsite')}</span>
-                      ) : null}
-                    </div>
-                    {job.scheduledAt && job.status === 'requested' ? <DeliveryCountdown at={job.scheduledAt} className="mt-1 text-[11px] font-black text-[#4A82B8]" /> : null}
+                    {/* 항목 상단을 누르면 해당 건 id로 상세 보기가 열린다. */}
+                    <button type="button" onClick={() => openDeliveryDetail(job)} className="block w-full text-left">
+                      <span className="block text-sm font-black text-[#0F172A]">{job.pickupAddress} → {job.destAddress}</span>
+                      <span className="mt-0.5 block text-[11px] font-bold text-[#64748B]">
+                        {job.packageLabel} · {job.fare.toFixed(2)} Pi
+                        {job.scheduledAt
+                          ? ` · ${t('svc.delivScheduled')} ${new Date(job.scheduledAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
+                          : ` · ${t('svc.delivNow')}`}
+                        {job.status === 'assigned' ? ` · ${t('svc.delivAssigned')}` : ''}
+                      </span>
+                      <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {job.photoCount ? (
+                          <span className="rounded-full bg-[#E8F1FA] px-2 py-0.5 text-[10px] font-black text-[#4A82B8]">{t('svc.delivPhotosN', { n: String(job.photoCount) })}</span>
+                        ) : null}
+                        {job.paidAt ? (
+                          <span className="rounded-full bg-[#D1FAE5] px-2 py-0.5 text-[10px] font-black text-[#047857]">{t('svc.delivPaid')}</span>
+                        ) : job.paymentMethod === 'onsite_qr' ? (
+                          <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#B45309]">{t('svc.delivPayOnsite')}</span>
+                        ) : null}
+                      </span>
+                      {job.scheduledAt && job.status === 'requested' ? <DeliveryCountdown at={job.scheduledAt} className="mt-1 text-[11px] font-black text-[#4A82B8]" /> : null}
+                    </button>
                     {job.status === 'requested' ? (
                       <div className="mt-2 space-y-2">
                         <div className="flex gap-2">
@@ -4741,6 +4770,86 @@ function ServiceSheet({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      ) : null}
+      {deliveryDetail ? (
+        <div className="fixed inset-0 z-[160] flex items-end justify-center bg-black/45" onClick={() => setDeliveryDetail(null)}>
+          <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-4" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="text-base font-black text-[#0F172A]">{t('svc.delivDetail')}</p>
+              <button type="button" onClick={() => setDeliveryDetail(null)} aria-label={t('common.close')} className="rounded-full bg-[#F1F5F9] p-1.5 text-[#64748B]">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-3 space-y-1.5 text-xs font-bold text-[#475569]">
+              <p><span className="text-[#94A3B8]">{t('home.pickup')}</span> · {deliveryDetail.pickupAddress}</p>
+              <p><span className="text-[#94A3B8]">{t('home.dest')}</span> · {deliveryDetail.destAddress}</p>
+              <p>
+                {deliveryDetail.packageLabel}
+                {deliveryDetail.vehicle ? ` · ${deliveryDetail.vehicle}` : ''} · {deliveryDetail.fare.toFixed(2)} Pi
+              </p>
+              <p>
+                {deliveryDetail.scheduledAt
+                  ? `${t('svc.delivScheduled')} ${new Date(deliveryDetail.scheduledAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                  : t('svc.delivNow')}
+                {' · '}
+                {deliveryDetail.status === 'assigned' ? t('svc.delivAssigned') : t('svc.delivWaiting')}
+              </p>
+              {deliveryDetail.senderPhone ? <p><span className="text-[#94A3B8]">{t('svc.sender')}</span> · {deliveryDetail.senderPhone}</p> : null}
+              {deliveryDetail.recipientPhone ? <p><span className="text-[#94A3B8]">{t('svc.recipient')}</span> · {deliveryDetail.recipientPhone}</p> : null}
+            </div>
+            {deliveryDetail.scheduledAt && deliveryDetail.status === 'requested' ? (
+              <DeliveryCountdown at={deliveryDetail.scheduledAt} className="mt-2 text-xs font-black text-[#4A82B8]" />
+            ) : null}
+            {deliveryDetail.status === 'assigned' && deliveryDetail.driverName ? (
+              <div className="mt-3 rounded-2xl bg-[#E8F1FA] p-3">
+                <p className="text-[10px] font-black text-[#4A82B8]">{t('svc.delivDriver')}</p>
+                <p className="mt-1 text-sm font-black text-[#0F172A]">
+                  {deliveryDetail.driverName}
+                  {deliveryDetail.driverVehicle || deliveryDetail.driverPlate
+                    ? ` · ${[deliveryDetail.driverVehicle, deliveryDetail.driverPlate].filter(Boolean).join(' ')}`
+                    : ''}
+                </p>
+                {deliveryDetail.driverPhone ? (
+                  <a href={telHref(deliveryDetail.driverPhone)} className="mt-2 block rounded-xl bg-white py-2 text-center text-xs font-black text-[#4A82B8] shadow-sm">
+                    {deliveryDetail.driverPhone}
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+            {deliveryDetailPhotos.length ? (
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {deliveryDetailPhotos.map((photo) => (
+                  <img key={photo.id} src={photo.dataUrl} alt={photo.name} className="h-20 w-full rounded-xl border border-[#E2E8F0] object-cover" />
+                ))}
+              </div>
+            ) : null}
+            <div className="mt-3">
+              {deliveryDetail.paidAt ? (
+                <span className="inline-block rounded-full bg-[#D1FAE5] px-3 py-1 text-[11px] font-black text-[#047857]">{t('svc.delivPaid')}</span>
+              ) : deliveryDetail.status === 'assigned' ? (
+                !deliveryDetail.paymentMethod ? (
+                  <button
+                    type="button"
+                    onClick={() => { setDeliveryPayJob(deliveryDetail); setDeliveryDetail(null) }}
+                    className="w-full rounded-xl bg-[#4A82B8] py-2.5 text-xs font-black text-white"
+                  >
+                    {t('svc.delivPayNeed')}
+                  </button>
+                ) : deliveryDetail.paymentMethod === 'onsite_qr' ? (
+                  <button
+                    type="button"
+                    onClick={() => { setDeliveryQrJob(deliveryDetail); setDeliveryDetail(null) }}
+                    className="w-full rounded-xl bg-[#4A82B8] py-2.5 text-xs font-black text-white"
+                  >
+                    {t('svc.delivQrPay')}
+                  </button>
+                ) : null
+              ) : (
+                <span className="inline-block rounded-full bg-[#F1F5F9] px-3 py-1 text-[11px] font-black text-[#64748B]">{t('svc.delivWaiting')}</span>
+              )}
+            </div>
           </div>
         </div>
       ) : null}
@@ -4908,9 +5017,9 @@ function DeliveryCountdown({ at, className }: { at?: string | null; className?: 
   const mm = Math.floor(total / 60)
   const ss = String(total % 60).padStart(2, '0')
   return (
-    <p className={className ?? 'text-[11px] font-black text-[#4A82B8]'}>
+    <span className={`block ${className ?? 'text-[11px] font-black text-[#4A82B8]'}`}>
       {remain <= 0 ? t('svc.delivDue') : t('svc.delivCountdown', { m: String(mm), s: ss })}
-    </p>
+    </span>
   )
 }
 

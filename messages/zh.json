@@ -796,5 +796,9 @@
   "svc.delivFareUpDone": "已上调运费并重新发布",
   "svc.delivFareUpErr": "请输入高于当前运费的金额",
   "svc.delivPhotosN": "{n}张照片",
-  "svc.delivQrPay": "扫码支付"
+  "svc.delivQrPay": "扫码支付",
+  "svc.delivDetail": "配送详情",
+  "svc.delivWaiting": "等待司机接单",
+  "svc.delivDone": "已送达",
+  "svc.delivDriver": "已派司机"
 }

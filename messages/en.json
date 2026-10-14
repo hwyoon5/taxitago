@@ -796,5 +796,9 @@
   "svc.delivFareUpDone": "Fare raised and reposted",
   "svc.delivFareUpErr": "Enter an amount above the current fare",
   "svc.delivPhotosN": "{n} photos",
-  "svc.delivQrPay": "QR pay"
+  "svc.delivQrPay": "QR pay",
+  "svc.delivDetail": "Delivery details",
+  "svc.delivWaiting": "Waiting for driver",
+  "svc.delivDone": "Delivered",
+  "svc.delivDriver": "Assigned driver"
 }
