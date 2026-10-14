@@ -3181,6 +3181,25 @@ function ServiceSheet({
   // 호출 버튼까지 눌러야 목적지 검색이 뜨던 흐름을 없앤다.
   const [deliveryPickup, setDeliveryPickup] = useState(pickupAddress)
   const [deliveryDest, setDeliveryDest] = useState(destAddress ?? '')
+  // 택시와 동일한 선택 모달 — 출발지/도착지를 검색·즐겨찾기·지도 핀으로 고른다.
+  const [deliverySearchTarget, setDeliverySearchTarget] = useState<'pickup' | 'dest' | null>(null)
+  // 출발지·도착지가 둘 다 빈 호출은 출발지 선택 → 도착지 검색 순으로 잇는다.
+  const deliveryDestAfterPickupRef = useRef(false)
+  const [deliveryFavorites, setDeliveryFavorites] = useState<FavoritePlace[]>([])
+  const [deliveryRecents, setDeliveryRecents] = useState<RecentPlace[]>([])
+  useEffect(() => {
+    setDeliveryFavorites(readFavoritePlaces())
+    setDeliveryRecents(readRecentPlaces())
+  }, [])
+  // GPS가 늦게 잡혀도 출발지가 비어 있지 않게 채운다 — 사용자가 이미 고른 값은 유지.
+  useEffect(() => {
+    if (isUsablePickupAddress(pickupAddress)) {
+      setDeliveryPickup((cur) => (usableMapAddress(cur) ? cur : pickupAddress))
+    }
+  }, [pickupAddress])
+  useEffect(() => {
+    if (destAddress) setDeliveryDest((cur) => (cur ? cur : destAddress))
+  }, [destAddress])
   const [phoneError, setPhoneError] = useState('')
   const [selectedItem, setSelectedItem] = useState('')
   const [mapFocusId, setMapFocusId] = useState('')
@@ -3336,12 +3355,21 @@ function ServiceSheet({
   }
   const startService = async (scanned?: boolean, consented?: boolean) => {
     if (service === '택배' || ride) {
-      const gap = service === '택배'
-        ? routeGap(deliveryPickup, deliveryDest)
-        : routeGap(daeriTrip?.pickup || pickupAddress, daeriTrip?.dest || destAddress)
-      if (gap) {
-        onRequireRoute?.(gap)
-        return
+      if (service === '택배') {
+        // 시트 안 검색 모달로 곧장 이어준다 — 시트를 닫고 홈 검색을 띄우면
+        // 뒤로가기 시 호출 화면이 통째로 사라진다.
+        const gap = routeGap(deliveryPickup, deliveryDest)
+        if (gap) {
+          deliveryDestAfterPickupRef.current = gap === 'both'
+          setDeliverySearchTarget(gap === 'dest' ? 'dest' : 'pickup')
+          return
+        }
+      } else {
+        const gap = routeGap(daeriTrip?.pickup || pickupAddress, daeriTrip?.dest || destAddress)
+        if (gap) {
+          onRequireRoute?.(gap)
+          return
+        }
       }
     }
     if (service === '택배') {
@@ -4151,27 +4179,23 @@ function ServiceSheet({
           <div className="mt-5 space-y-4">
             <div>
               <p className="mb-2 text-sm font-black">{t('daeri.pickupLbl')}</p>
-              <div className="flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3">
-                <LocateFixed className="h-4 w-4 shrink-0 text-[#4C1FB8]" />
-                <input
-                  value={deliveryPickup}
-                  onChange={(event) => setDeliveryPickup(event.target.value)}
-                  placeholder={t('daeri.pickupPh')}
-                  aria-label={t('daeri.pickupAria')}
-                  className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"
-                />
-              </div>
+              <RouteSelectRow
+                tone="pickup"
+                label={t('daeri.pickupLbl')}
+                value={deliveryPickup}
+                placeholder={t('daeri.pickupPh')}
+                ariaLabel={t('daeri.pickupAria')}
+                onClick={() => setDeliverySearchTarget('pickup')}
+              />
               <p className="mb-2 mt-3 text-sm font-black">{t('daeri.destLbl')}</p>
-              <div className="flex items-center gap-2 rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3">
-                <MapPin className="h-4 w-4 shrink-0 text-[#4C1FB8]" />
-                <input
-                  value={deliveryDest}
-                  onChange={(event) => setDeliveryDest(event.target.value)}
-                  placeholder={t('home.destPh')}
-                  aria-label={t('home.destSearchOpen')}
-                  className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"
-                />
-              </div>
+              <RouteSelectRow
+                tone="dest"
+                label={t('daeri.destLbl')}
+                value={deliveryDest}
+                placeholder={t('home.destPh')}
+                ariaLabel={t('home.destSearchOpen')}
+                onClick={() => setDeliverySearchTarget('dest')}
+              />
             </div>
             <div>
               <p className="mb-2 text-sm font-black">{t('svc.vehiclePick')}</p>
@@ -4357,6 +4381,42 @@ function ServiceSheet({
         onOpenChat={() => setChatOpen(true)}
         onOpenCall={() => setCallOpen(true)}
       />
+      {deliverySearchTarget ? (
+        <DestinationSearchModal
+          destination={deliverySearchTarget === 'pickup' ? deliveryPickup : deliveryDest}
+          favorites={deliveryFavorites}
+          recents={deliveryRecents}
+          originLat={pickupLat}
+          originLng={pickupLng}
+          originAddress={pickupAddress}
+          onClose={() => setDeliverySearchTarget(null)}
+          onSelect={(name, address) => {
+            const target = deliverySearchTarget
+            const text = (address || name).trim()
+            if (text) {
+              if (target === 'pickup') setDeliveryPickup(text)
+              else setDeliveryDest(text)
+              const next = [{ id: String(Date.now()), name, address: text }, ...deliveryRecents.filter((place) => place.name !== name && place.address !== text)]
+              setDeliveryRecents(next)
+              writeRecentPlaces(next)
+            }
+            const chainDest = target === 'pickup' && deliveryDestAfterPickupRef.current
+            deliveryDestAfterPickupRef.current = false
+            setDeliverySearchTarget(chainDest ? 'dest' : null)
+          }}
+          onAddFavorite={() => undefined}
+          onRemoveFavorite={(id) => {
+            const next = deliveryFavorites.filter((place) => place.id !== id)
+            setDeliveryFavorites(next)
+            writeFavoritePlaces(next)
+          }}
+          onRemoveRecent={(id) => {
+            const next = deliveryRecents.filter((place) => place.id !== id)
+            setDeliveryRecents(next)
+            writeRecentPlaces(next)
+          }}
+        />
+      ) : null}
       {deviceFormOpen && vehicle ? (
         <MobilityDeviceFormModal
           initialKind={service === '킥보드' ? '킥보드' : '자전거'}
@@ -4455,6 +4515,17 @@ function DaeriCallSetupSheet({
   const [destSearchOpen, setDestSearchOpen] = useState(false)
   /** 목적지 검색·지도에서 고른 좌표 — 호출 시 재지오코딩 없이 그대로 쓴다. */
   const [destPoint, setDestPoint] = useState<RideCoords | null>(null)
+  // 시트 위에 겹친 지도·검색 피커가 홈 경로 상태를 갱신해도 필드가 따라간다.
+  useEffect(() => {
+    if (isUsablePickupAddress(originAddress)) {
+      setPickup((cur) => (usableMapAddress(cur) ? cur : originAddress))
+    }
+    if (originLat && originLng) setPickupPoint({ lat: originLat, lng: originLng })
+  }, [originAddress, originLat, originLng])
+  useEffect(() => {
+    const label = destination.trim()
+    if (label) setDest((cur) => (cur ? cur : label))
+  }, [destination])
   const [plan, setPlan] = useState<'착한요금' | '빠른배정'>('착한요금')
   const [mapPicker, setMapPicker] = useState(false)
   const [pickerMapSession, setPickerMapSession] = useState(0)
@@ -4764,6 +4835,73 @@ function DaeriCallSetupSheet({
                 writeRecentPlaces(next)
               }
               setWaypointSearchIndex(null)
+            }}
+            onAddFavorite={() => undefined}
+            onRemoveFavorite={(id) => {
+              const next = wpFavorites.filter((place) => place.id !== id)
+              setWpFavorites(next)
+              writeFavoritePlaces(next)
+            }}
+            onRemoveRecent={(id) => {
+              const next = wpRecents.filter((place) => place.id !== id)
+              setWpRecents(next)
+              writeRecentPlaces(next)
+            }}
+          />
+        ) : null}
+        {pickupSearchOpen ? (
+          <DestinationSearchModal
+            destination={pickup}
+            favorites={wpFavorites}
+            recents={wpRecents}
+            originLat={originLat}
+            originLng={originLng}
+            originAddress={originAddress}
+            searchPlaceholder={t('daeri.pickupPh')}
+            onClose={() => setPickupSearchOpen(false)}
+            onSelect={(name, address, coords) => {
+              const text = (address || name).trim()
+              if (text) {
+                setPickup(text)
+                if (coords) setPickupPoint(coords)
+                const next = [{ id: String(Date.now()), name, address: text }, ...wpRecents.filter((place) => place.name !== name && place.address !== text)]
+                setWpRecents(next)
+                writeRecentPlaces(next)
+              }
+              setPickupSearchOpen(false)
+            }}
+            onAddFavorite={() => undefined}
+            onRemoveFavorite={(id) => {
+              const next = wpFavorites.filter((place) => place.id !== id)
+              setWpFavorites(next)
+              writeFavoritePlaces(next)
+            }}
+            onRemoveRecent={(id) => {
+              const next = wpRecents.filter((place) => place.id !== id)
+              setWpRecents(next)
+              writeRecentPlaces(next)
+            }}
+          />
+        ) : null}
+        {destSearchOpen ? (
+          <DestinationSearchModal
+            destination={dest}
+            favorites={wpFavorites}
+            recents={wpRecents}
+            originLat={pickupPoint.lat}
+            originLng={pickupPoint.lng}
+            originAddress={pickup}
+            onClose={() => setDestSearchOpen(false)}
+            onSelect={(name, address, coords) => {
+              const text = (address || name).trim()
+              if (text) {
+                setDest(text)
+                setDestPoint(coords ?? null)
+                const next = [{ id: String(Date.now()), name, address: text }, ...wpRecents.filter((place) => place.name !== name && place.address !== text)]
+                setWpRecents(next)
+                writeRecentPlaces(next)
+              }
+              setDestSearchOpen(false)
             }}
             onAddFavorite={() => undefined}
             onRemoveFavorite={(id) => {
@@ -9857,9 +9995,6 @@ export default function HomeScreen() {
             onConfirm={() => {
               const kind = routeAlert
               setRouteAlert(null)
-              setSelectedService(null)
-              setDaeriSetupOpen(false)
-              setTab('홈')
               if (kind === 'pickup' || kind === 'both') {
                 // 출발지 설정이 끝난 뒤 목적지 검색으로 이어진다.
                 destSearchAfterPickupRef.current = kind === 'both'
