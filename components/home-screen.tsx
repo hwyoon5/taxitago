@@ -7513,6 +7513,7 @@ function DriverOfferWatcher({
         wallet: partner?.wallet,
         piUid: partner?.uid,
         phone: partner?.phone || memberPhone(),
+        serviceType: partner?.serviceType,
       }).then(() => {
         delay = document.visibilityState === 'visible' ? 12000 : 20000
       }).catch(() => {
@@ -7987,6 +7988,7 @@ function DriverDashboard({
         wallet: partner?.wallet,
         piUid: partner?.uid,
         phone: partner?.phone || memberPhone(),
+        serviceType: partner?.serviceType,
       }).then(() => {
         delay = document.visibilityState === 'visible' ? 12000 : 20000
       }).catch(() => {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { acceptDeliveryDispatch, publicDelivery } from '@/lib/delivery-dispatch'
 import { recordSettlement } from '@/lib/settlement-store'
 import { driverPayoutTarget } from '@/lib/escrow-engine'
+import { getRegistryUser } from '@/lib/user-registry'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -14,6 +15,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const plate = typeof body?.plate === 'string' ? body.plate.trim() : ''
   if (!driverId || !vehicle || !plate) {
     return NextResponse.json({ error: 'driverId, vehicle, and plate required' }, { status: 400 })
+  }
+  // 등록 계정이 다른 서비스 자격(택시·대리·시설형)으로 확인되면 택배 수락을
+  // 차단한다 — 레지스트리에 기록이 없는 단말은 기존처럼 허용.
+  const registryType = await getRegistryUser(driverId).then((user) => user?.serviceType).catch(() => undefined)
+  if (registryType && registryType !== '택배') {
+    return NextResponse.json({ error: '택배 등록 기사만 수락할 수 있습니다.' }, { status: 403 })
   }
   const result = acceptDeliveryDispatch(id, {
     driverId,

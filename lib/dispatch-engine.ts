@@ -98,7 +98,15 @@ function prematchEligible(driver: DriverRecord, activeRide: RideRequestRecord) {
   return Number.isFinite(km) && km <= PREMATCH_RADIUS_KM
 }
 
+/** 콜 종류별 기사 자격 — 대리 콜은 대리 기사에게만, 택시 콜은 택시(또는
+ *  레거시 미등록) 기사에게만 간다. 시설형 파트너·택배 기사는 승객 콜 제외. */
+function driverMatchesRideKind(driver: DriverRecord, kind: RideRequestRecord['kind']) {
+  if (kind === 'daeri') return driver.serviceType === '대리운전'
+  return !driver.serviceType || driver.serviceType === '택시'
+}
+
 function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: number) {
+  if (!driverMatchesRideKind(driver, ride.kind)) return false
   if (driver.status === 'offline') return false
   // 본인 호출 원천 차단 — 등록 기사/파트너가 승객으로 부른 콜이 자기
   // 단말기(기사 id 또는 piUid가 같은 레코드)로 배정되지 않게 한다.
@@ -777,6 +785,7 @@ export function upsertDriverPresence(input: {
   piUid?: string
   phone?: string
   altDriverId?: string
+  serviceType?: string
 }) {
   syncDispatchFromDisk()
   const current = getDriver(input.id)
@@ -818,6 +827,7 @@ export function upsertDriverPresence(input: {
     wallet: input.wallet?.trim() || current?.wallet,
     piUid: input.piUid?.trim() || current?.piUid,
     phone: input.phone?.trim() || current?.phone,
+    serviceType: input.serviceType?.trim() || current?.serviceType,
   }
   return saveDriver(next)
 }

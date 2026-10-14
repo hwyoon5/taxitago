@@ -103,6 +103,9 @@ export type DriverRecord = {
   piUid?: string
   /** 등록된 연락처 — 승객 '전화하기'(tel:) 직통 연결에 사용. */
   phone?: string
+  /** 등록 서비스 자격('택시'·'대리운전'·'택배'·시설형) — 콜 kind와 비교해
+   *  자격 없는 기사에게는 오퍼를 보내지 않는다. 미설정(레거시)은 택시로 간주. */
+  serviceType?: string
 }
 
 export type PublicDriver = {

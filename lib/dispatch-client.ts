@@ -233,6 +233,7 @@ export async function sendDriverPresence(input: {
   piUid?: string
   phone?: string
   altDriverId?: string
+  serviceType?: string
 }) {
   if (!isUsableCoord(input.lat, input.lng)) return
   await apiFetch('/api/drivers/presence', {

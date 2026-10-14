@@ -272,6 +272,7 @@ const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
     lng: BUSAN_CITY_HALL.lng + 0.004,
     heading: 140,
     virtual: true,
+    serviceType: '택시',
   },
   {
     id: 'virtual-park',
@@ -283,6 +284,7 @@ const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
     lng: BUSAN_CITY_HALL.lng + 0.008,
     heading: 40,
     virtual: true,
+    serviceType: '택시',
   },
   {
     id: 'virtual-lee',
@@ -294,6 +296,7 @@ const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
     lng: BUSAN_CITY_HALL.lng - 0.007,
     heading: 220,
     virtual: true,
+    serviceType: '택시',
   },
 ]
 
