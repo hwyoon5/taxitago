@@ -103,7 +103,7 @@ export type PublicDelivery = {
   createdAt?: string
   packageLabel: string
   fare: number
-  status: 'requested' | 'assigned'
+  status: 'requested' | 'assigned' | 'in_transit' | 'completed'
   driverName: string | null
   driverVehicle: string | null
   driverPlate: string | null
@@ -132,6 +132,18 @@ export async function fetchDelivery(id: string, viewer?: string) {
   if (res.status === 404) return null
   const data = (await res.json().catch(() => null)) as { job?: PublicDelivery } | null
   return data?.job ?? null
+}
+
+/** 기사의 진행 표시 — 'pickup' 수거 완료 → in_transit, 'complete' 배송 완료 → completed. */
+export async function progressDelivery(id: string, driverId: string, action: 'pickup' | 'complete') {
+  const res = await apiFetch(`/api/deliveries/${encodeURIComponent(id)}/progress`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ driverId, action }),
+  })
+  const data = (await res.json().catch(() => null)) as { job?: PublicDelivery; error?: string } | null
+  if (!res.ok || !data?.job) throw new Error(data?.error || '진행 상태를 바꾸지 못했어요.')
+  return data.job
 }
 
 export async function fetchOpenDeliveries() {

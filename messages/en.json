@@ -800,5 +800,10 @@
   "svc.delivDetail": "Delivery details",
   "svc.delivWaiting": "Waiting for driver",
   "svc.delivDone": "Delivered",
-  "svc.delivDriver": "Assigned driver"
+  "svc.delivDriver": "Assigned driver",
+  "svc.delivDoing": "In transit",
+  "svc.delivPickupBtn": "Picked up",
+  "svc.delivCompleteBtn": "Delivered",
+  "svc.delivPickupNotice": "Picked up — now in transit",
+  "svc.delivDoneNotice": "Delivery completed"
 }

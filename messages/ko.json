@@ -800,5 +800,10 @@
   "svc.delivDetail": "배송 상세",
   "svc.delivWaiting": "기사 수락 대기",
   "svc.delivDone": "배송 완료",
-  "svc.delivDriver": "배정 기사"
+  "svc.delivDriver": "배정 기사",
+  "svc.delivDoing": "수행 중",
+  "svc.delivPickupBtn": "수거 완료",
+  "svc.delivCompleteBtn": "배송 완료",
+  "svc.delivPickupNotice": "택배 수거 완료 — 배송 중이에요",
+  "svc.delivDoneNotice": "택배 배송이 완료됐어요"
 }

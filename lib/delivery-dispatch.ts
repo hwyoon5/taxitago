@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 
-export type DeliveryDispatchStatus = 'requested' | 'assigned'
+/** 등록 → 수락 → 수행(수거 완료·배송 중) → 완료 — 관리자 현황판의 4단계와 동일 순서. */
+export type DeliveryDispatchStatus = 'requested' | 'assigned' | 'in_transit' | 'completed'
 
 export type DeliveryDispatch = {
   id: string
@@ -148,11 +149,32 @@ export function deleteDeliveryDispatch(id: string, ownerId: string) {
   return { ok: true as const }
 }
 
-/** 기사에게 배정된 건 — 기사 화면의 수락 건 복원 폴링용. */
+/** 기사에게 배정·수행 중인 건 — 기사 화면의 수락 건 복원 폴링용. */
 export function listAssignedByDriver(driverId: string) {
   return [...db().jobs.values()]
-    .filter((job) => job.status === 'assigned' && job.driverId === driverId)
+    .filter((job) => (job.status === 'assigned' || job.status === 'in_transit') && job.driverId === driverId)
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+}
+
+/** 전체 이력(상태 무관) — 관리자 택배 현황·과거 검색용, 최신순. */
+export function listAllDeliveries() {
+  return [...db().jobs.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+}
+
+const DELIVERY_STAGE_ORDER: Record<DeliveryDispatchStatus, number> = { requested: 0, assigned: 1, in_transit: 2, completed: 3 }
+
+/** 배정 기사의 진행 표시 — assigned → in_transit → completed 순방향만 허용한다. */
+export function progressDeliveryDispatch(id: string, driverId: string, next: 'in_transit' | 'completed') {
+  const job = getDeliveryDispatch(id)
+  if (!job) return { ok: false as const, error: 'not_found' as const, job: null }
+  if (!job.driverId || job.driverId !== driverId) return { ok: false as const, error: 'forbidden' as const, job }
+  if (job.status === 'requested') return { ok: false as const, error: 'invalid_transition' as const, job }
+  if (DELIVERY_STAGE_ORDER[job.status] === DELIVERY_STAGE_ORDER[next]) return { ok: true as const, job }
+  if (DELIVERY_STAGE_ORDER[next] < DELIVERY_STAGE_ORDER[job.status]) return { ok: false as const, error: 'invalid_transition' as const, job }
+  job.status = next
+  job.updatedAt = new Date().toISOString()
+  persist()
+  return { ok: true as const, job }
 }
 
 export function listOpenDeliveries() {

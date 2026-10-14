@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
+import AdminDeliveries from '@/components/admin-deliveries'
 import { BUSAN_CITY_HALL } from '@/lib/user-location'
 import {
   createNaverLatLng,
@@ -784,6 +785,8 @@ export default function AdminLiveDashboard() {
               })}
             </div>
           </section>
+
+          <AdminDeliveries />
         </>
       ) : null}
     </div>

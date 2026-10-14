@@ -800,5 +800,10 @@
   "svc.delivDetail": "配送の詳細",
   "svc.delivWaiting": "ドライバー受諾待ち",
   "svc.delivDone": "配達完了",
-  "svc.delivDriver": "配車ドライバー"
+  "svc.delivDriver": "配車ドライバー",
+  "svc.delivDoing": "配送中",
+  "svc.delivPickupBtn": "集荷完了",
+  "svc.delivCompleteBtn": "配達完了",
+  "svc.delivPickupNotice": "集荷完了 — 配送中です",
+  "svc.delivDoneNotice": "配達が完了しました"
 }

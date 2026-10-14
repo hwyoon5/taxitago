@@ -39,7 +39,7 @@ import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { DELIVERY_VEHICLES, deliveryDistanceFeePi, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
-import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
+import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, progressDelivery, publishDelivery, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
 import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } from '@/lib/member-profile'
 import PhoneVerifyForm from '@/components/phone-verify-form'
@@ -4681,7 +4681,13 @@ function ServiceSheet({
                         {job.scheduledAt
                           ? ` · ${t('svc.delivScheduled')} ${new Date(job.scheduledAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
                           : ` · ${t('svc.delivNow')}`}
-                        {job.status === 'assigned' ? ` · ${t('svc.delivAssigned')}` : ''}
+                        {job.status === 'assigned'
+                          ? ` · ${t('svc.delivAssigned')}`
+                          : job.status === 'in_transit'
+                            ? ` · ${t('svc.delivDoing')}`
+                            : job.status === 'completed'
+                              ? ` · ${t('svc.delivDone')}`
+                              : ''}
                       </span>
                       <span className="mt-1 flex flex-wrap items-center gap-1.5">
                         {job.photoCount ? (
@@ -4745,7 +4751,7 @@ function ServiceSheet({
                       </div>
                     ) : null}
                     {/* 결제는 기사 배정 이후에만 열린다 — 등록 시점엔 콜만 올라간다. */}
-                    {job.status === 'assigned' && !job.paidAt ? (
+                    {(job.status === 'assigned' || job.status === 'in_transit') && !job.paidAt ? (
                       <div className="mt-2 space-y-2">
                         {!job.paymentMethod ? (
                           <button
@@ -4794,7 +4800,13 @@ function ServiceSheet({
                   ? `${t('svc.delivScheduled')} ${new Date(deliveryDetail.scheduledAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
                   : t('svc.delivNow')}
                 {' · '}
-                {deliveryDetail.status === 'assigned' ? t('svc.delivAssigned') : t('svc.delivWaiting')}
+                {deliveryDetail.status === 'assigned'
+                  ? t('svc.delivAssigned')
+                  : deliveryDetail.status === 'in_transit'
+                    ? t('svc.delivDoing')
+                    : deliveryDetail.status === 'completed'
+                      ? t('svc.delivDone')
+                      : t('svc.delivWaiting')}
               </p>
               {deliveryDetail.senderPhone ? <p><span className="text-[#94A3B8]">{t('svc.sender')}</span> · {deliveryDetail.senderPhone}</p> : null}
               {deliveryDetail.recipientPhone ? <p><span className="text-[#94A3B8]">{t('svc.recipient')}</span> · {deliveryDetail.recipientPhone}</p> : null}
@@ -4828,7 +4840,7 @@ function ServiceSheet({
             <div className="mt-3">
               {deliveryDetail.paidAt ? (
                 <span className="inline-block rounded-full bg-[#D1FAE5] px-3 py-1 text-[11px] font-black text-[#047857]">{t('svc.delivPaid')}</span>
-              ) : deliveryDetail.status === 'assigned' ? (
+              ) : deliveryDetail.status === 'assigned' || deliveryDetail.status === 'in_transit' ? (
                 !deliveryDetail.paymentMethod ? (
                   <button
                     type="button"
@@ -8997,6 +9009,25 @@ function DriverDashboard({
       .finally(() => setBusy(false))
   }
 
+  // 배송 진행 표시 — 수거 완료(수행 중) / 배송 완료. 완료 시 카드를 닫는다.
+  const postDeliveryProgress = (job: PublicDelivery, action: 'pickup' | 'complete') => {
+    if (!driverId || busy) return
+    setBusy(true)
+    void progressDelivery(job.id, driverId, action)
+      .then((updated) => {
+        if (action === 'complete') {
+          setAcceptedDelivery(null)
+          noteActivity(`delivery-done:${job.id}`, '배송 완료', `${job.pickupAddress} → ${job.destAddress}`)
+          onNotice(t('svc.delivDoneNotice'))
+        } else {
+          setAcceptedDelivery(updated)
+          onNotice(t('svc.delivPickupNotice'))
+        }
+      })
+      .catch((error) => onNotice(error instanceof Error ? error.message : ''))
+      .finally(() => setBusy(false))
+  }
+
   useEffect(() => {
     const job = deliveryJob ?? localDelivery
     const key = job ? `${job.id}:${job.status}` : ''
@@ -9493,6 +9524,25 @@ function DriverDashboard({
               </a>
             ) : null}
           </div>
+          {acceptedDelivery.status === 'assigned' ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => postDeliveryProgress(acceptedDelivery, 'pickup')}
+              className="mt-2 w-full rounded-xl bg-[#4A82B8] py-2.5 text-xs font-black text-white disabled:opacity-60"
+            >
+              {t('svc.delivPickupBtn')}
+            </button>
+          ) : acceptedDelivery.status === 'in_transit' ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => postDeliveryProgress(acceptedDelivery, 'complete')}
+              className="mt-2 w-full rounded-xl bg-[#047857] py-2.5 text-xs font-black text-white disabled:opacity-60"
+            >
+              {t('svc.delivCompleteBtn')}
+            </button>
+          ) : null}
         </section>
       ) : null}
       {deliveryPhotoView ? (
@@ -9864,20 +9914,29 @@ export default function HomeScreen() {
   useEffect(() => {
     let stopped = false
     const pull = () => {
-      const ownerId = loadPiIdentity()?.uid || localPassengerId()
-      if (!ownerId || stopped) return
-      void fetchMyDeliveries(ownerId)
-        .then((jobs) => {
+      // 등록 시점의 식별자와 지금 로그인 상태가 다를 수 있어 후보를 모두 조회한다.
+      const ownerIds = [...new Set([loadPiIdentity()?.uid, localPassengerId()].map((value) => (value || '').trim()).filter(Boolean))]
+      if (!ownerIds.length || stopped) return
+      void Promise.all(ownerIds.map((id) => fetchMyDeliveries(id).catch(() => [] as PublicDelivery[])))
+        .then((lists) => {
           if (stopped) return
-          for (const job of jobs) {
+          const merged = new Map<string, PublicDelivery>()
+          for (const job of lists.flat()) merged.set(job.id, job)
+          for (const job of merged.values()) {
             const prev = deliveryStatusSeen.current.get(job.id)
-            if (prev === 'requested' && job.status === 'assigned') {
-              showNotice(
-                t('svc.delivMatchedNotice', {
-                  driver: job.driverName || t('match.driver'),
-                  vehicle: `${job.driverVehicle ?? ''} ${job.driverPlate ?? ''}`.trim(),
-                }),
-              )
+            if (prev && prev !== job.status) {
+              if (job.status === 'assigned') {
+                showNotice(
+                  t('svc.delivMatchedNotice', {
+                    driver: job.driverName || t('match.driver'),
+                    vehicle: `${job.driverVehicle ?? ''} ${job.driverPlate ?? ''}`.trim(),
+                  }),
+                )
+              } else if (job.status === 'in_transit') {
+                showNotice(t('svc.delivPickupNotice'))
+              } else if (job.status === 'completed') {
+                showNotice(t('svc.delivDoneNotice'))
+              }
             }
             deliveryStatusSeen.current.set(job.id, job.status)
           }

@@ -800,5 +800,10 @@
   "svc.delivDetail": "配送详情",
   "svc.delivWaiting": "等待司机接单",
   "svc.delivDone": "已送达",
-  "svc.delivDriver": "已派司机"
+  "svc.delivDriver": "已派司机",
+  "svc.delivDoing": "配送中",
+  "svc.delivPickupBtn": "已取件",
+  "svc.delivCompleteBtn": "送达完成",
+  "svc.delivPickupNotice": "已取件，配送中",
+  "svc.delivDoneNotice": "配送已完成"
 }
