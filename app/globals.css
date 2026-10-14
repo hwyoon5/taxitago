@@ -748,3 +748,7 @@ html.dark {
 .dark .bg-black\/20{background-color:rgba(0,0,0,0.35)}
 .dark .bg-black\/40{background-color:rgba(0,0,0,0.55)}
 .dark .border-white\/10{border-color:rgba(255,255,255,0.12)}
+
+/* 긴 텍스트 입력 시 커서 이동을 막는 말줄임을 모든 입력 필드에서 해제한다.
+   (truncate는 표시 전용 요소에만 사용하고 input에는 적용하지 않는다.) */
+input, textarea { text-overflow: clip; }

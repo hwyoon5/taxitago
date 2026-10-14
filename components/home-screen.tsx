@@ -1583,7 +1583,7 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
             onChange={(event) => onSelect(event.target.value)}
             placeholder={t('home.destPh')}
             aria-label={destination ? `${t('home.dest')} ${destination}` : t('home.destSearch')}
-            className="min-w-0 flex-1 truncate bg-transparent text-sm font-extrabold text-[#0F172A] outline-none placeholder:text-[#64748B]"
+            className="min-w-0 flex-1 bg-transparent pr-1 text-sm font-extrabold text-[#0F172A] outline-none placeholder:text-[#64748B]"
           />
         </span>
         <button
@@ -4893,7 +4893,7 @@ function RouteSelectRow({
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
           aria-label={ariaLabel || `${label} ${placeholder}`}
-          className="mt-0.5 block w-full truncate bg-transparent text-[13px] font-black leading-4 text-[#0F172A] outline-none placeholder:font-bold placeholder:text-[#94A3B8]"
+          className="mt-0.5 block w-full bg-transparent pr-1 text-[13px] font-black leading-4 text-[#0F172A] outline-none placeholder:font-bold placeholder:text-[#94A3B8]"
         />
       </span>
       <button
@@ -5708,7 +5708,7 @@ function Home({
                 onChange={(event) => onPickupTextChange?.(event.target.value)}
                 placeholder={t('daeri.pickupPh')}
                 aria-label={`${t('home.pickup')} ${pickup}`}
-                className="mt-0.5 block w-full truncate bg-transparent text-[13px] font-black leading-4 text-[#0F172A] outline-none placeholder:font-bold placeholder:text-[#94A3B8]"
+                className="mt-0.5 block w-full bg-transparent pr-1 text-[13px] font-black leading-4 text-[#0F172A] outline-none placeholder:font-bold placeholder:text-[#94A3B8]"
               />
               {pickupHint ? <span className="mt-0.5 block truncate text-[10px] font-bold leading-3 text-[#64748B]">{pickupHint}</span> : null}
             </span>
@@ -5733,7 +5733,7 @@ function Home({
                   onChange={(event) => onWaypointsChange?.(waypoints.map((item, i) => (i === index ? event.target.value : item)))}
                   placeholder={t('daeri.wpSearchPh')}
                   aria-label={t('daeri.waypointPh', { n: String(index + 1) })}
-                  className="mt-0.5 block w-full truncate bg-transparent text-[13px] font-black leading-4 text-[#0F172A] outline-none placeholder:font-bold placeholder:text-[#94A3B8]"
+                  className="mt-0.5 block w-full bg-transparent pr-1 text-[13px] font-black leading-4 text-[#0F172A] outline-none placeholder:font-bold placeholder:text-[#94A3B8]"
                 />
               </span>
               <button
@@ -5783,7 +5783,7 @@ function Home({
                     onChange={(event) => (onDestinationText ?? onDestination)(event.target.value)}
                     placeholder={t('home.destPlaceholder')}
                     aria-label={destination ? `${t('home.dest')} ${destination}` : t('home.destSearch')}
-                    className="min-w-0 flex-1 truncate bg-transparent text-sm font-black leading-4 text-[#0F172A] outline-none placeholder:text-[#94A3B8]"
+                    className="min-w-0 flex-1 bg-transparent pr-1 text-sm font-black leading-4 text-[#0F172A] outline-none placeholder:text-[#94A3B8]"
                   />
                 </span>
               </span>
