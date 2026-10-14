@@ -21,7 +21,7 @@ import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { searchPlacesFromApi } from '@/lib/geocode-client'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
-import { resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
+import { isUsableCoord, resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import {
   appendSettlementEntry,
   loadPartnerProfile,
@@ -38,7 +38,7 @@ import { facilityTypeToDeviceKind, type DeviceSpec } from '@/lib/device-types'
 import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
-import { DELIVERY_VEHICLES, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
+import { DELIVERY_VEHICLES, deliveryDistanceFeePi, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
 import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } from '@/lib/member-profile'
@@ -3200,6 +3200,21 @@ function ServiceSheet({
   useEffect(() => {
     if (destAddress) setDeliveryDest((cur) => (cur ? cur : destAddress))
   }, [destAddress])
+  // 수거지·배송지 좌표 — 거리 추가 요금의 기준. 검색/지도 선택 시 함께 채운다.
+  const [deliveryPickupPoint, setDeliveryPickupPoint] = useState<{ lat: number; lng: number } | null>(() =>
+    isUsableCoord(pickupLat, pickupLng) ? { lat: pickupLat, lng: pickupLng } : null)
+  const [deliveryDestPoint, setDeliveryDestPoint] = useState<{ lat: number; lng: number } | null>(() =>
+    isUsableCoord(destLat, destLng) ? { lat: Number(destLat), lng: Number(destLng) } : null)
+  useEffect(() => {
+    if (isUsableCoord(pickupLat, pickupLng)) {
+      setDeliveryPickupPoint((cur) => cur ?? { lat: pickupLat, lng: pickupLng })
+    }
+  }, [pickupLat, pickupLng])
+  useEffect(() => {
+    if (isUsableCoord(destLat, destLng)) {
+      setDeliveryDestPoint({ lat: Number(destLat), lng: Number(destLng) })
+    }
+  }, [destLat, destLng])
   const [phoneError, setPhoneError] = useState('')
   const [selectedItem, setSelectedItem] = useState('')
   const [mapFocusId, setMapFocusId] = useState('')
@@ -3290,7 +3305,10 @@ function ServiceSheet({
   })
   const selectedUsage = catalog.find((item) => item.id === selectedItem) ?? catalog[0]
   const packageOption = getPackageSize(packageSize)
-  const deliveryFare = estimateDeliveryFare(deliveryVehicle, packageSize)
+  const deliveryKm =
+    deliveryPickupPoint && deliveryDestPoint ? haversineKm(deliveryPickupPoint, deliveryDestPoint) : 0
+  const deliveryDistanceFee = deliveryDistanceFeePi(deliveryVehicle, deliveryKm)
+  const deliveryFare = estimateDeliveryFare(deliveryVehicle, packageSize, deliveryKm)
   const listedPi = Number(String(selectedUsage?.rate ?? '').match(/(\d+(?:\.\d+)?)/)?.[1])
   const [daeriFareCfg, setDaeriFareCfg] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
   useEffect(() => {
@@ -4272,6 +4290,11 @@ function ServiceSheet({
                 <span className="font-black">{t('svc.delivFare')}</span>
                 <strong className="text-xl text-[#7046dc]">{formatDeliveryFare(deliveryFare)} Pi</strong>
               </div>
+              {deliveryKm > 0 ? (
+                <p className="mt-1.5 text-[11px] font-bold text-[#4A82B8]">
+                  {t('svc.delivDist', { km: deliveryKm.toFixed(1), fee: deliveryDistanceFee.toFixed(2) })}
+                </p>
+              ) : null}
               <p className="mt-2 whitespace-normal break-keep text-xs font-bold leading-5 text-[#8b8495]">
                 {t('svc.delivSummary', { veh: t(DELIVERY_VEHICLE_KEYS[deliveryVehicle]), pkg: t(PACKAGE_SIZE_KEYS[packageSize].label), hint: t(PACKAGE_SIZE_KEYS[packageSize].hint), min: '30' })}
               </p>
@@ -4390,12 +4413,17 @@ function ServiceSheet({
           originLng={pickupLng}
           originAddress={pickupAddress}
           onClose={() => setDeliverySearchTarget(null)}
-          onSelect={(name, address) => {
+          onSelect={(name, address, coords) => {
             const target = deliverySearchTarget
             const text = (address || name).trim()
             if (text) {
-              if (target === 'pickup') setDeliveryPickup(text)
-              else setDeliveryDest(text)
+              if (target === 'pickup') {
+                setDeliveryPickup(text)
+                if (coords) setDeliveryPickupPoint(coords)
+              } else {
+                setDeliveryDest(text)
+                setDeliveryDestPoint(coords ?? null)
+              }
               const next = [{ id: String(Date.now()), name, address: text }, ...deliveryRecents.filter((place) => place.name !== name && place.address !== text)]
               setDeliveryRecents(next)
               writeRecentPlaces(next)

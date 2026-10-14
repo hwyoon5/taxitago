@@ -763,5 +763,6 @@
   "coupon.errExpired": "사용 기한이 지난 쿠폰입니다.",
   "coupon.errMinSpend": "최소 결제 금액에 미달합니다.",
   "coupon.errAudience": "이 쿠폰의 발급 대상이 아닙니다.",
-  "coupon.errLimit": "사용 한도를 모두 사용했습니다."
+  "coupon.errLimit": "사용 한도를 모두 사용했습니다.",
+  "svc.delivDist": "직선거리 약 {km}km · 거리 추가 {fee} Pi"
 }

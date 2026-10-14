@@ -763,5 +763,6 @@
   "coupon.errExpired": "このクーポンは期限切れです。",
   "coupon.errMinSpend": "最低利用金額に達していません。",
   "coupon.errAudience": "このクーポンの対象ではありません。",
-  "coupon.errLimit": "利用上限に達しました。"
+  "coupon.errLimit": "利用上限に達しました。",
+  "svc.delivDist": "直線距離 約{km}km · 距離加算 {fee} Pi"
 }

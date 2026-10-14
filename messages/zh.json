@@ -763,5 +763,6 @@
   "coupon.errExpired": "此优惠券已过期。",
   "coupon.errMinSpend": "未达到最低消费金额。",
   "coupon.errAudience": "您不符合此优惠券的使用条件。",
-  "coupon.errLimit": "已达使用上限。"
+  "coupon.errLimit": "已达使用上限。",
+  "svc.delivDist": "直线距离约 {km}km · 距离加价 {fee} Pi"
 }

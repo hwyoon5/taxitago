@@ -21,8 +21,21 @@ export function getPackageSize(id: PackageSizeId) {
   return PACKAGE_SIZES.find((item) => item.id === id) ?? PACKAGE_SIZES[0]
 }
 
-export function estimateDeliveryFare(vehicle: DeliveryVehicle, size: PackageSizeId) {
-  return DELIVERY_FARES[vehicle][size]
+/** 차종별 거리 추가 요금(Pi/km) — 수거지↔배송지 직선거리 기준. */
+const DELIVERY_PER_KM: Record<DeliveryVehicle, number> = {
+  오토바이: 0.1,
+  다마스: 0.16,
+  '1톤 트럭': 0.24,
+}
+
+export function deliveryDistanceFeePi(vehicle: DeliveryVehicle, distanceKm: number) {
+  const km = Number.isFinite(distanceKm) ? Math.max(0, distanceKm) : 0
+  return km * DELIVERY_PER_KM[vehicle]
+}
+
+/** [기본 요금(차종×상품크기)] + [거리 추가 요금] — 거리를 모르면 기본 요금만. */
+export function estimateDeliveryFare(vehicle: DeliveryVehicle, size: PackageSizeId, distanceKm = 0) {
+  return DELIVERY_FARES[vehicle][size] + deliveryDistanceFeePi(vehicle, distanceKm)
 }
 
 export function formatDeliveryFare(amount: number) {

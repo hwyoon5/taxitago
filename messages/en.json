@@ -763,5 +763,6 @@
   "coupon.errExpired": "This coupon has expired.",
   "coupon.errMinSpend": "Below the minimum spend.",
   "coupon.errAudience": "You're not eligible for this coupon.",
-  "coupon.errLimit": "Usage limit reached."
+  "coupon.errLimit": "Usage limit reached.",
+  "svc.delivDist": "approx. {km} km direct · distance fee {fee} Pi"
 }
