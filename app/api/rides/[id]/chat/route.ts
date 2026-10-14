@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { listChatMessages, postChatMessage } from '@/lib/comms-engine'
+import { isChatLang } from '@/lib/chat-translate'
 import type { CommsRole } from '@/lib/comms-types'
 
 export const runtime = 'nodejs'
@@ -15,8 +16,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const actorId = url.searchParams.get('actorId')?.trim() || ''
   const role = roleOf(url.searchParams.get('role'))
   const after = url.searchParams.get('after')?.trim() || undefined
+  const langParam = url.searchParams.get('lang')?.trim()
+  const lang = isChatLang(langParam) ? langParam : undefined
   if (!actorId || !role) return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
-  const result = await listChatMessages(id, actorId, role, after)
+  const result = await listChatMessages(id, actorId, role, after, lang)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.error === 'not_found' ? 404 : 403 })
   return NextResponse.json({ ok: true, room: result.room })
 }

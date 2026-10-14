@@ -2,12 +2,17 @@ export type CommsRole = 'passenger' | 'driver'
 
 export type ChatRoomStatus = 'open' | 'archived'
 
+// 채팅 자동 번역 지원 언어 — 앱 locale(ko/en/ja/zh)과 동일하게 유지한다.
+export type ChatLang = 'ko' | 'en' | 'ja' | 'zh'
+
 export type ChatMessage = {
   id: string
   rideId: string
   senderRole: CommsRole
   senderId: string
   text: string
+  sourceLang?: ChatLang
+  translations?: Partial<Record<ChatLang, string>>
   at: string
 }
 

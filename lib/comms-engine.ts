@@ -1,7 +1,8 @@
 import { createHash } from 'crypto'
 import { getDriver, getRide, nowIso } from '@/lib/dispatch-store'
 import { getChatRoom, getSafeCall, publishRide, saveChatRoom, saveSafeCall } from '@/lib/comms-store'
-import type { CallSignal, CallSignalKind, ChatMessage, ChatRoom, CommsRole, PublicChatRoom, PublicSafeCall, SafeCallSession } from '@/lib/comms-types'
+import { detectChatLang, translateChatAll, translateChatText } from '@/lib/chat-translate'
+import type { CallSignal, CallSignalKind, ChatLang, ChatMessage, ChatRoom, CommsRole, PublicChatRoom, PublicSafeCall, SafeCallSession } from '@/lib/comms-types'
 
 function hashSecret(value: string) {
   return createHash('sha256').update(value).digest('hex')
@@ -34,6 +35,7 @@ export async function openRideComms(rideId: string) {
   const ride = getRide(rideId)
   if (!ride?.assignedDriverId) return null
   const createdAt = nowIso()
+  const intro = await translateChatAll('안녕하세요. 배차된 기사입니다. 곧 도착할게요.')
   const room = await saveChatRoom({
     rideId,
     passengerId: ride.passengerId,
@@ -49,6 +51,8 @@ export async function openRideComms(rideId: string) {
         senderRole: 'driver',
         senderId: ride.assignedDriverId,
         text: '안녕하세요. 배차된 기사입니다. 곧 도착할게요.',
+        sourceLang: intro.sourceLang,
+        translations: intro.translations,
         at: createdAt,
       },
     ],
@@ -103,11 +107,34 @@ async function assertMember(rideId: string, actorId: string, role: CommsRole) {
   return { ok: true as const }
 }
 
-export async function listChatMessages(rideId: string, actorId: string, role: CommsRole, after?: string) {
+/**
+ * 이전에 번역이 없던 메시지(기능 도입 전 데이터 등)를 읽는 시점 언어로 지연 번역해 채운다.
+ * 번역 결과는 방에 저장되므로 같은 언어 조회는 한 번만 번역기를 호출한다.
+ */
+async function backfillTranslations(room: ChatRoom, lang: ChatLang) {
+  let changed = false
+  for (const message of room.messages) {
+    const source = message.sourceLang ?? detectChatLang(message.text)
+    if (!message.sourceLang) {
+      message.sourceLang = source
+      changed = true
+    }
+    if (source === lang || message.translations?.[lang]) continue
+    const translated = await translateChatText(message.text, source, lang)
+    if (translated) {
+      message.translations = { ...message.translations, [lang]: translated }
+      changed = true
+    }
+  }
+  if (changed) await saveChatRoom(room)
+}
+
+export async function listChatMessages(rideId: string, actorId: string, role: CommsRole, after?: string, lang?: ChatLang) {
   const gate = await assertMember(rideId, actorId, role)
   if (!gate.ok) return gate
   const room = (await getChatRoom(rideId)) ?? (await openRideComms(rideId))?.room
   if (!room) return { ok: false as const, error: 'not_found' }
+  if (lang) await backfillTranslations(room, lang)
   const messages = after ? room.messages.filter((item) => item.at > after || item.id > after) : room.messages
   return { ok: true as const, room: { ...publicRoom(room), messages } }
 }
@@ -120,12 +147,15 @@ export async function postChatMessage(input: { rideId: string; actorId: string; 
   if (room.status !== 'open') return { ok: false as const, error: 'archived', message: null }
   const text = input.text.trim().slice(0, 500)
   if (!text) return { ok: false as const, error: 'empty', message: null }
+  const { sourceLang, translations } = await translateChatAll(text)
   const message: ChatMessage = {
     id: crypto.randomUUID(),
     rideId: input.rideId,
     senderRole: input.role,
     senderId: input.actorId,
     text,
+    sourceLang,
+    translations,
     at: nowIso(),
   }
   room.messages = [...room.messages, message].slice(-200)
@@ -134,12 +164,16 @@ export async function postChatMessage(input: { rideId: string; actorId: string; 
 
   const driver = getDriver(room.driverId)
   if (input.role === 'passenger' && driver?.virtual && room.status === 'open') {
+    const replyText = autoReply(text)
+    const replyLang = await translateChatAll(replyText)
     const reply: ChatMessage = {
       id: crypto.randomUUID(),
       rideId: input.rideId,
       senderRole: 'driver',
       senderId: room.driverId,
-      text: autoReply(text),
+      text: replyText,
+      sourceLang: replyLang.sourceLang,
+      translations: replyLang.translations,
       at: nowIso(),
     }
     const latest = (await getChatRoom(input.rideId)) ?? room

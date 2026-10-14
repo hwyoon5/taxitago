@@ -49,9 +49,10 @@ export async function sendCallSignal(rideId: string, actorId: string, role: Comm
   return data.call
 }
 
-export async function fetchChatRoom(rideId: string, actorId: string, role: CommsRole) {
+export async function fetchChatRoom(rideId: string, actorId: string, role: CommsRole, lang?: string) {
+  const langQuery = lang ? `&lang=${encodeURIComponent(lang)}` : ''
   const res = await apiFetch(
-    `/api/rides/${encodeURIComponent(rideId)}/chat?actorId=${encodeURIComponent(actorId)}&role=${role}`,
+    `/api/rides/${encodeURIComponent(rideId)}/chat?actorId=${encodeURIComponent(actorId)}&role=${role}${langQuery}`,
     { cache: 'no-store' },
   )
   const data = await readJson<{ room?: PublicChatRoom; error?: string }>(res)

@@ -1,5 +1,6 @@
 import { listChatMessages } from '@/lib/comms-engine'
 import { subscribeRide } from '@/lib/comms-store'
+import { isChatLang } from '@/lib/chat-translate'
 import type { CommsRole } from '@/lib/comms-types'
 
 export const runtime = 'nodejs'
@@ -13,7 +14,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!actorId || !role) {
     return new Response('actorId and role required', { status: 400 })
   }
-  const access = await listChatMessages(id, actorId, role)
+  const langParam = url.searchParams.get('lang')?.trim()
+  const access = await listChatMessages(id, actorId, role, undefined, isChatLang(langParam) ? langParam : undefined)
   if (!access.ok) {
     return new Response(access.error, { status: access.error === 'not_found' ? 404 : 403 })
   }
