@@ -230,6 +230,7 @@ type DaeriTrip = {
   waypoints?: RideCoords[]
   destLat: number
   destLng: number
+  waitMinutes?: number
 }
 
 function coordsFromPlaceQuery(query: string): RideCoords | null {
@@ -3723,6 +3724,7 @@ function ServiceSheet({
       destAddress: daeriTrip?.dest || destAddress,
       destLabel: daeriTrip?.dest || destAddress,
       estimatedFare: daeriTrip?.fare ?? daeriFareCfg.daeri.base,
+      waitMinutes: daeriTrip?.waitMinutes,
     })
 
   useEffect(() => {
@@ -4022,6 +4024,13 @@ function ServiceSheet({
                     {t('svc.delivFareUp')}
                   </button>
                 </div>
+                {dispatchRide.waitUntil && (dispatchRide.status === 'searching' || dispatchRide.status === 'offered') ? (
+                  <p className="mt-1.5 text-[10px] font-bold text-[#94A3B8]">
+                    {t('daeri.waitLeft', {
+                      n: String(Math.max(1, Math.ceil((Date.parse(dispatchRide.waitUntil) - Date.now()) / 60000))),
+                    })}
+                  </p>
+                ) : null}
                 {rideFareBump ? (
                   <div className="mt-2 flex items-center gap-2">
                     <input
@@ -5264,6 +5273,8 @@ function DaeriCallSetupSheet({
     if (label) setDest((cur) => (cur ? cur : label))
   }, [destination])
   const [plan, setPlan] = useState<'착한요금' | '빠른배정'>('착한요금')
+  // 기사 응답 대기 시간 — 0이면 후보 소진 즉시 결과, 5/10이면 그 동안 대기열을 유지한다.
+  const [waitMinutes, setWaitMinutes] = useState<0 | 5 | 10>(5)
   const [mapPicker, setMapPicker] = useState(false)
   const [pickerMapSession, setPickerMapSession] = useState(0)
   const [pendingPick, setPendingPick] = useState<{ lat: number; lng: number; address: string } | null>(null)
@@ -5340,6 +5351,7 @@ function DaeriCallSetupSheet({
         waypoints: resolved.filter((wp): wp is NonNullable<typeof wp> => wp !== null),
         destLat: point.lat,
         destLng: point.lng,
+        waitMinutes: waitMinutes || undefined,
       })
     })
   }
@@ -5511,6 +5523,25 @@ function DaeriCallSetupSheet({
               </button>
             ))}
           </div>
+          <p className="mt-4 text-xs font-black text-[#334155]">{t('daeri.waitLbl')}</p>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {([0, 5, 10] as const).map((mins) => (
+              <button
+                key={mins}
+                type="button"
+                onClick={() => setWaitMinutes(mins)}
+                aria-pressed={waitMinutes === mins}
+                className={`rounded-2xl border-2 py-2.5 text-xs font-black transition active:scale-[0.98] ${
+                  waitMinutes === mins
+                    ? 'border-[#4A82B8] bg-[#E8F1FA] text-[#2F5D8A]'
+                    : 'border-[#E2E8F0] bg-white text-[#64748B]'
+                }`}
+              >
+                {mins === 0 ? t('daeri.waitNone') : t('daeri.waitMin', { n: String(mins) })}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[10px] font-bold leading-relaxed text-[#8b8495]">{t('daeri.waitCap')}</p>
           <button
             type="button"
             onClick={() => {

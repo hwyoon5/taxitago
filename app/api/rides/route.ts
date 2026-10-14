@@ -94,6 +94,9 @@ export async function POST(request: Request) {
   )
   if (existing) return NextResponse.json({ ok: true, ride: toPublicRide(existing), deduped: true })
   const kind = body?.kind === 'daeri' ? 'daeri' : 'taxi'
+  // 승객이 고른 기사 응답 대기 시간 — 5분/10분 선택지만 허용한다.
+  const waitMinutesRaw = Number(body?.waitMinutes)
+  const waitMinutes = waitMinutesRaw === 5 || waitMinutesRaw === 10 ? waitMinutesRaw : null
   const waypoints = (Array.isArray(body?.waypoints) ? (body.waypoints as Record<string, unknown>[]) : [])
     .slice(0, 2)
     .map((wp) => asPoint(wp?.lat, wp?.lng, { address: wp?.address, label: wp?.label }))
@@ -147,6 +150,7 @@ export async function POST(request: Request) {
     estimatedFare: piRound(quoted + avoidPi),
     avoidSurchargePi: avoidPi,
     expectedMinutes,
+    waitMinutes,
   })
   // Flush before responding so the pending offer is visible to other
   // serverless instances (the driver's offer poll) immediately.

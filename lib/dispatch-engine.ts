@@ -56,6 +56,8 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
     estimatedFare: ride.estimatedFare,
     avoidSurchargePi: ride.avoidSurchargePi ?? 0,
     expectedMinutes: ride.expectedMinutes ?? null,
+    waitMinutes: ride.waitMinutes ?? null,
+    waitUntil: ride.waitUntil ?? null,
     status: ride.status,
     offerExpiresAt: ride.currentOffer?.decision === 'pending' ? ride.currentOffer.expiresAt : null,
     pendingOffer:
@@ -250,6 +252,12 @@ export function assignNextDriver(rideId: string) {
   const queue = rankedCandidates(ride)
   const next = queue[0]
   if (!next) {
+    // 대기 시간이 남은 콜은 unmatched로 떨어뜨리지 않고 searching을 유지한다 —
+    // 기사 오퍼·조회 폴링이 refreshRideTimers를 거치며 후보를 계속 다시 스캔한다.
+    if (ride.waitUntil && Date.parse(ride.waitUntil) > Date.now()) {
+      ride.currentOffer = null
+      return stamp(ride)
+    }
     ride.status = 'unmatched'
     ride.currentOffer = null
     ride.assignedDriverId = null
@@ -275,9 +283,25 @@ export function expireCurrentOffer(rideId: string) {
 }
 
 export function refreshRideTimers(ride: RideRequestRecord) {
-  if (ride.status !== 'offered' || ride.currentOffer?.decision !== 'pending') return ride
-  if (Date.now() >= Date.parse(ride.currentOffer.expiresAt)) {
-    return expireCurrentOffer(ride.id) ?? ride
+  if (ride.status === 'offered' && ride.currentOffer?.decision === 'pending') {
+    if (Date.now() >= Date.parse(ride.currentOffer.expiresAt)) {
+      return expireCurrentOffer(ride.id) ?? ride
+    }
+    return ride
+  }
+  // 대기 중인 콜 — 마감 시각이 지났으면 unmatched로 만료 처리하고, 아니면
+  // 새로 온라인이 된 후보가 있는지 다시 스캔해 오퍼를 이어간다.
+  if (ride.status === 'searching' && ride.waitUntil) {
+    if (Date.now() >= Date.parse(ride.waitUntil)) {
+      ride.status = 'unmatched'
+      ride.currentOffer = null
+      ride.assignedDriverId = null
+      recordZoneOutcome(ride.dest, 'unmatched')
+      return stamp(ride)
+    }
+    if (!ride.currentOffer || ride.currentOffer.decision !== 'pending') {
+      return assignNextDriver(ride.id) ?? ride
+    }
   }
   return ride
 }
@@ -294,13 +318,20 @@ export function createRideAndMatch(input: {
   estimatedFare: number
   avoidSurchargePi?: number
   expectedMinutes?: number | null
+  waitMinutes?: number | null
 }) {
   const createdAt = nowIso()
+  const waitMinutes = Number(input.waitMinutes)
   const ride = saveRide({
     ...input,
     kind: input.kind === 'daeri' ? 'daeri' : 'taxi',
     avoidSurchargePi: input.avoidSurchargePi ?? 0,
     waypoints: input.waypoints ?? [],
+    waitMinutes: Number.isFinite(waitMinutes) && waitMinutes > 0 ? waitMinutes : null,
+    waitUntil:
+      Number.isFinite(waitMinutes) && waitMinutes > 0
+        ? new Date(Date.now() + waitMinutes * 60_000).toISOString()
+        : null,
     status: 'searching',
     assignedDriverId: null,
     currentOffer: null,
@@ -829,7 +860,17 @@ export function upsertDriverPresence(input: {
     phone: input.phone?.trim() || current?.phone,
     serviceType: input.serviceType?.trim() || current?.serviceType,
   }
-  return saveDriver(next)
+  const saved = saveDriver(next)
+  // 온라인으로 돌아온 기사가 대기 중인 콜의 후보가 될 수 있으니 대기열을 즉시 다시 스캔한다.
+  if (input.status !== 'offline') {
+    const now = Date.now()
+    for (const ride of listSearchingRides()) {
+      if (ride.status !== 'searching' || !ride.waitUntil || Date.parse(ride.waitUntil) <= now) continue
+      if (ride.currentOffer?.decision === 'pending') continue
+      assignNextDriver(ride.id)
+    }
+  }
+  return saved
 }
 
 export { subscribeRideLive }

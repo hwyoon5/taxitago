@@ -42,6 +42,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ride.status = 'searching'
     ride.currentOffer = null
     ride.timedOutDriverIds = []
+    // 만료된 대기 콜의 요금 상향은 재등록으로 취급해 대기 창을 새로 연다.
+    if (ride.waitMinutes) {
+      ride.waitUntil = new Date(Date.now() + ride.waitMinutes * 60_000).toISOString()
+    }
     saveRide(ride)
     assignNextDriver(ride.id)
   }

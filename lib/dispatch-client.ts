@@ -45,6 +45,7 @@ export async function createRideRequest(input: {
   destAddress?: string
   destLabel?: string
   estimatedFare?: number
+  waitMinutes?: number
 }): Promise<PublicRide> {
   const credential = piSessionCredential()
   if (!credential) throw new Error(PI_AUTH_REQUIRED_MESSAGE)

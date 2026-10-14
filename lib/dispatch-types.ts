@@ -42,6 +42,10 @@ export type RideRequestRecord = {
   currentOffer: RideOfferRecord | null
   declinedDriverIds: string[]
   timedOutDriverIds: string[]
+  /** 승객이 고른 기사 응답 대기 시간(분) — 0/없음이면 후보 소진 즉시 unmatched. */
+  waitMinutes?: number | null
+  /** 대기 마감 시각(ISO) — 이 시각까지 searching을 유지해 기사 목록에 노출된다. */
+  waitUntil?: string | null
   boardedAt?: string | null
   readyToSettleAt?: string | null
   /** 탑승 이후 실제 주행 거리(km) — 기사 presence/앱 오도미터 누적값, 정산 시 실측 요금 기준. */
@@ -150,6 +154,9 @@ export type PublicRide = {
   pendingOffer: { driverId: string; driverName: string } | null
   assignedDriver: PublicDriver | null
   escrow: PublicEscrow | null
+  /** 승객이 고른 기사 응답 대기 시간(분)과 마감 시각 — 매칭 화면 카운트다운용. */
+  waitMinutes?: number | null
+  waitUntil?: string | null
   boardedAt: string | null
   readyToSettleAt: string | null
   /** 탑승 이후 실제 주행 거리(km) — 정산 시 실측 요금 산출에 사용. */
