@@ -39,7 +39,7 @@ import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { DELIVERY_VEHICLES, deliveryDistanceFeePi, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
-import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
+import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
 import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } from '@/lib/member-profile'
 import PhoneVerifyForm from '@/components/phone-verify-form'
@@ -3229,8 +3229,6 @@ function ServiceSheet({
   // '내 택배' 목록에서 수정 진입한 건의 서버 id — 호출이 PATCH로 바뀐다.
   const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null)
   const [myDeliveriesOpen, setMyDeliveriesOpen] = useState(false)
-  // 등록 완료된 예약 시각 — 매칭 화면의 카운트다운 타이머에 표시한다.
-  const [registeredDeliveryAt, setRegisteredDeliveryAt] = useState<string | null>(null)
   const [myDeliveries, setMyDeliveries] = useState<PublicDelivery[]>([])
   const deliveryOwnerId = () => loadPiIdentity()?.uid || daeriPassengerIdRef.current || localPassengerId()
   const deliveryScheduledAt = () =>
@@ -3473,7 +3471,6 @@ function ServiceSheet({
           .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivUpdated')))
         return
       }
-      setRegisteredDeliveryAt(scheduledAt)
       const job: DeliveryJob = {
         id: `delivery-${Date.now()}`,
         ownerId,
@@ -3493,12 +3490,17 @@ function ServiceSheet({
         status: 'requested',
         createdAt: new Date().toISOString(),
       }
-      saveDeliveryJob(job)
-      onDeliveryCreated?.(job)
-      void publishDelivery(job).then((published) => {
-        deliveryServerId.current = published.id
-      }).catch(() => undefined)
       setPhoneError('')
+      // 등록만 수행 — 매칭 화면으로 넘어가지 않고 '내 택배' 목록에 저장한다.
+      // 기사가 목록에서 수락하는 순간 발신인 알림·SMS가 발송된다.
+      void publishDelivery(job)
+        .then(() => {
+          refreshMyDeliveries()
+          setMyDeliveriesOpen(true)
+          onNotice(t('svc.delivRegistered'))
+        })
+        .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivRegistered')))
+      return
     }
     const didScan = scanned ?? qrScannedBound
     if (!canStart) return
@@ -3760,9 +3762,6 @@ function ServiceSheet({
             <p className="mt-2 text-sm font-bold text-[#8b8495]">
               {ride ? place : selfServe ? t('sheet.checking', { service: serviceLabel }) : t('sheet.finding', { service: serviceLabel })}
             </p>
-            {service === '택배' && registeredDeliveryAt ? (
-              <DeliveryCountdown at={registeredDeliveryAt} className="mt-3 text-sm font-black text-[#4A82B8]" />
-            ) : null}
             {ride ? (
               <TaxiLiveMap
                 kind="daeri"
@@ -4305,17 +4304,20 @@ function ServiceSheet({
                 onSearch={() => setDeliverySearchTarget('dest')}
               />
               <p className="mb-2 mt-3 text-sm font-black">{t('svc.delivSched')}</p>
-              <div className="grid grid-cols-4 gap-2">
-                {[0, 10, 30, 60].map((min) => (
-                  <button
-                    key={min}
-                    type="button"
-                    onClick={() => setDeliverySchedule(min)}
-                    className={`rounded-xl border-2 py-2 text-[11px] font-black ${deliverySchedule === min ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
-                  >
-                    {min === 0 ? t('svc.delivNow') : t('svc.delivAfter', { min: String(min) })}
-                  </button>
-                ))}
+              <MinuteWheelPicker value={deliverySchedule} options={DELIVERY_SCHEDULE_OPTIONS} onChange={setDeliverySchedule} />
+              <div className="mt-2 flex items-center gap-2 rounded-xl border-2 border-[#BFDBFE] bg-white px-3 py-2">
+                <Clock className="h-4 w-4 shrink-0 text-[#4A82B8]" />
+                <input
+                  type="number"
+                  min={0}
+                  max={240}
+                  inputMode="numeric"
+                  value={deliverySchedule}
+                  onChange={(event) => setDeliverySchedule(Math.max(0, Math.min(240, Math.floor(Number(event.target.value) || 0))))}
+                  aria-label={t('svc.delivDirectMin')}
+                  className="w-16 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-1 text-center text-sm font-black text-[#0F172A] outline-none"
+                />
+                <span className="text-[11px] font-bold text-[#64748B]">{t('svc.delivDirectMin')}</span>
               </div>
               <button
                 type="button"
@@ -4610,6 +4612,49 @@ function ServiceSheet({
           onClose={() => setDeviceFormOpen(false)}
         />
       ) : null}
+      </div>
+    </div>
+  )
+}
+
+const DELIVERY_SCHEDULE_OPTIONS = [0, 10, 20, 30, 40, 50, 60, 90, 120]
+
+/** 발송 예정 시간 휠 피커 — 세로 스크롤 스냅으로 분 단위를 고른다. */
+function MinuteWheelPicker({ value, options, onChange }: { value: number; options: number[]; onChange: (min: number) => void }) {
+  const { t } = useLocale()
+  const boxRef = useRef<HTMLDivElement>(null)
+  const scrollTimer = useRef<number | undefined>(undefined)
+  const ITEM_H = 40
+  // 직접 입력 등 외부에서 값이 바뀌면 해당 항목으로 스크롤을 맞춘다.
+  useEffect(() => {
+    const idx = options.indexOf(value)
+    const el = boxRef.current
+    if (el && idx >= 0 && Math.abs(el.scrollTop - idx * ITEM_H) > 2) el.scrollTop = idx * ITEM_H
+  }, [value, options])
+  const onScroll = () => {
+    window.clearTimeout(scrollTimer.current)
+    scrollTimer.current = window.setTimeout(() => {
+      const el = boxRef.current
+      if (!el) return
+      const idx = Math.max(0, Math.min(options.length - 1, Math.round(el.scrollTop / ITEM_H)))
+      el.scrollTo({ top: idx * ITEM_H, behavior: 'smooth' })
+      if (options[idx] !== value) onChange(options[idx])
+    }, 120)
+  }
+  return (
+    <div className="relative">
+      <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 h-10 -translate-y-1/2 rounded-xl border-2 border-[#4A82B8] bg-[#E8F1FA]/60" />
+      <div
+        ref={boxRef}
+        onScroll={onScroll}
+        className="max-h-[120px] snap-y snap-mandatory overflow-y-auto rounded-xl bg-[#F8FAFC] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{ paddingTop: ITEM_H, paddingBottom: ITEM_H }}
+      >
+        {options.map((min) => (
+          <div key={min} className={`flex h-10 snap-center items-center justify-center text-sm font-black ${min === value ? 'text-[#2D5F8A]' : 'text-[#94A3B8]'}`}>
+            {min === 0 ? t('svc.delivNow') : t('svc.delivAfter', { min: String(min) })}
+          </div>
+        ))}
       </div>
     </div>
   )

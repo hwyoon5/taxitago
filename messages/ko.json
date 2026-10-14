@@ -508,7 +508,7 @@
   "svc.recipient": "수신인 연락처",
   "svc.delivFare": "예상 배송 요금",
   "svc.delivSummary": "{veh} · {pkg} ({hint}) · {min}분 내 배차",
-  "svc.delivBtn": "배송 요청하기",
+  "svc.delivBtn": "택배(배송) 등록하기",
   "daeri.mapClose": "지도 선택 닫기",
   "daeri.picked": "선택한 위치",
   "daeri.setPickup": "출발지로 설정",
@@ -778,5 +778,7 @@
   "svc.delivDeleted": "택배를 삭제했어요",
   "svc.delivCountdown": "수거 예정까지 {m}분 {s}초",
   "svc.delivDue": "수거 예정 시간입니다",
-  "svc.delivMatchedNotice": "택배 배차 완료 — {driver} 기사({vehicle})가 수락했어요"
+  "svc.delivMatchedNotice": "택배 배차 완료 — {driver} 기사({vehicle})가 수락했어요",
+  "svc.delivDirectMin": "직접 입력(분 후 발송)",
+  "svc.delivRegistered": "택배가 등록됐어요 — 기사가 수락하면 알림을 보내드려요"
 }

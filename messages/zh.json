@@ -508,7 +508,7 @@
   "svc.recipient": "收件人电话",
   "svc.delivFare": "预估配送费",
   "svc.delivSummary": "{veh} · {pkg}（{hint}）· {min}分钟内派单",
-  "svc.delivBtn": "申请配送",
+  "svc.delivBtn": "登记快递",
   "daeri.mapClose": "关闭地图选择",
   "daeri.picked": "所选位置",
   "daeri.setPickup": "设为上车点",
@@ -778,5 +778,7 @@
   "svc.delivDeleted": "已删除快递订单",
   "svc.delivCountdown": "取件倒计时 {m}分 {s}秒",
   "svc.delivDue": "已到取件时间",
-  "svc.delivMatchedNotice": "快递已接单 — {driver}（{vehicle}）已接受"
+  "svc.delivMatchedNotice": "快递已接单 — {driver}（{vehicle}）已接受",
+  "svc.delivDirectMin": "自定义（分钟后）",
+  "svc.delivRegistered": "快递已登记 — 司机接单后会通知您"
 }

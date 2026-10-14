@@ -508,7 +508,7 @@
   "svc.recipient": "受信者連絡先",
   "svc.delivFare": "予想配送料金",
   "svc.delivSummary": "{veh} · {pkg}（{hint}）· {min}分以内に配車",
-  "svc.delivBtn": "配送を依頼",
+  "svc.delivBtn": "配送を登録する",
   "daeri.mapClose": "地図選択を閉じる",
   "daeri.picked": "選択した位置",
   "daeri.setPickup": "乗車地に設定",
@@ -778,5 +778,7 @@
   "svc.delivDeleted": "配送を削除しました",
   "svc.delivCountdown": "集荷まで {m}分 {s}秒",
   "svc.delivDue": "集荷予定時刻です",
-  "svc.delivMatchedNotice": "配送が確定しました — {driver}（{vehicle}）が受諾しました"
+  "svc.delivMatchedNotice": "配送が確定しました — {driver}（{vehicle}）が受諾しました",
+  "svc.delivDirectMin": "直接入力（分後）",
+  "svc.delivRegistered": "配送を登録しました — ドライバーが受諾したらお知らせします"
 }

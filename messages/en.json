@@ -508,7 +508,7 @@
   "svc.recipient": "Recipient phone",
   "svc.delivFare": "Estimated delivery fee",
   "svc.delivSummary": "{veh} · {pkg} ({hint}) · dispatch within {min} min",
-  "svc.delivBtn": "Request delivery",
+  "svc.delivBtn": "Register delivery",
   "daeri.mapClose": "Close map picker",
   "daeri.picked": "Selected location",
   "daeri.setPickup": "Set as pickup",
@@ -778,5 +778,7 @@
   "svc.delivDeleted": "Delivery request removed",
   "svc.delivCountdown": "Pickup in {m}m {s}s",
   "svc.delivDue": "Pickup time reached",
-  "svc.delivMatchedNotice": "Delivery assigned — {driver} ({vehicle}) accepted"
+  "svc.delivMatchedNotice": "Delivery assigned — {driver} ({vehicle}) accepted",
+  "svc.delivDirectMin": "Custom (minutes later)",
+  "svc.delivRegistered": "Delivery registered — we will notify you when a driver accepts"
 }
