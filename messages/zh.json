@@ -780,5 +780,21 @@
   "svc.delivDue": "已到取件时间",
   "svc.delivMatchedNotice": "快递已接单 — {driver}（{vehicle}）已接受",
   "svc.delivDirectMin": "自定义（分钟后）",
-  "svc.delivRegistered": "快递已登记 — 司机接单后会通知您"
+  "svc.delivRegistered": "快递已登记 — 司机接单后会通知您",
+  "svc.delivPhoto": "物品照片",
+  "svc.delivPhotoHint": "用于防止损坏与纠纷，司机会提前查看（可选）",
+  "svc.delivPayTitle": "配送费支付方式",
+  "svc.delivPayPi": "Pi 预付",
+  "svc.delivPayQr": "现场扫码支付",
+  "svc.delivPayLater": "稍后支付",
+  "svc.delivPayNeed": "选择支付方式",
+  "svc.delivPaid": "已支付",
+  "svc.delivPayOnsite": "待现场支付",
+  "svc.delivPayDone": "支付完成",
+  "svc.delivFareUp": "提高运费",
+  "svc.delivFareUpPh": "高于当前金额",
+  "svc.delivFareUpDone": "已上调运费并重新发布",
+  "svc.delivFareUpErr": "请输入高于当前运费的金额",
+  "svc.delivPhotosN": "{n}张照片",
+  "svc.delivQrPay": "扫码支付"
 }

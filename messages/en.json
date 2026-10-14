@@ -780,5 +780,21 @@
   "svc.delivDue": "Pickup time reached",
   "svc.delivMatchedNotice": "Delivery assigned — {driver} ({vehicle}) accepted",
   "svc.delivDirectMin": "Custom (minutes later)",
-  "svc.delivRegistered": "Delivery registered — we will notify you when a driver accepts"
+  "svc.delivRegistered": "Delivery registered — we will notify you when a driver accepts",
+  "svc.delivPhoto": "Item photos",
+  "svc.delivPhotoHint": "Shown to the driver to prevent damage/disputes (optional)",
+  "svc.delivPayTitle": "Delivery payment",
+  "svc.delivPayPi": "Prepay with Pi",
+  "svc.delivPayQr": "On-site QR payment",
+  "svc.delivPayLater": "Pay later",
+  "svc.delivPayNeed": "Choose payment method",
+  "svc.delivPaid": "Paid",
+  "svc.delivPayOnsite": "Pay on-site",
+  "svc.delivPayDone": "Payment completed",
+  "svc.delivFareUp": "Raise fare",
+  "svc.delivFareUpPh": "Amount above current",
+  "svc.delivFareUpDone": "Fare raised and reposted",
+  "svc.delivFareUpErr": "Enter an amount above the current fare",
+  "svc.delivPhotosN": "{n} photos",
+  "svc.delivQrPay": "QR pay"
 }

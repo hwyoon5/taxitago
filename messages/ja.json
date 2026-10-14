@@ -780,5 +780,21 @@
   "svc.delivDue": "集荷予定時刻です",
   "svc.delivMatchedNotice": "配送が確定しました — {driver}（{vehicle}）が受諾しました",
   "svc.delivDirectMin": "直接入力（分後）",
-  "svc.delivRegistered": "配送を登録しました — ドライバーが受諾したらお知らせします"
+  "svc.delivRegistered": "配送を登録しました — ドライバーが受諾したらお知らせします",
+  "svc.delivPhoto": "荷物の写真",
+  "svc.delivPhotoHint": "破損・トラブル防止のためドライバーに事前表示（任意）",
+  "svc.delivPayTitle": "配送料の支払い",
+  "svc.delivPayPi": "Piで先払い",
+  "svc.delivPayQr": "現場QR決済",
+  "svc.delivPayLater": "後で支払う",
+  "svc.delivPayNeed": "支払い方法を選択",
+  "svc.delivPaid": "支払い済み",
+  "svc.delivPayOnsite": "現場支払い予定",
+  "svc.delivPayDone": "支払いが完了しました",
+  "svc.delivFareUp": "料金を上げる",
+  "svc.delivFareUpPh": "現在より高い金額",
+  "svc.delivFareUpDone": "料金を引き上げて再登録しました",
+  "svc.delivFareUpErr": "現在の料金より高く入力してください",
+  "svc.delivPhotosN": "写真{n}枚",
+  "svc.delivQrPay": "QR決済"
 }

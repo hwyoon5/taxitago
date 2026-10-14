@@ -23,6 +23,8 @@ export type DeliveryJob = {
   scheduledAt?: string | null
   status: DeliveryJobStatus
   createdAt: string
+  /** 물품 사진 — 리사이즈된 dataURL, 서버가 attachment-store에 보관. */
+  photos?: { name: string; mime: string; dataUrl: string }[]
 }
 
 const JOB_KEY = 'taxitago-delivery-job'
@@ -108,6 +110,9 @@ export type PublicDelivery = {
   /** 배정 후에만 당사자에게 노출되는 연락처. */
   driverPhone?: string
   senderPhone?: string
+  photoCount?: number
+  paymentMethod?: 'prepay_pi' | 'onsite_qr' | null
+  paidAt?: string | null
   recipientPhone?: string
 }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { deleteDeliveryDispatch, getDeliveryDispatch, publicDelivery, updateDeliveryDispatch } from '@/lib/delivery-dispatch'
+import { deleteDeliveryDispatch, getDeliveryDispatch, markDeliveryPayment, publicDelivery, setDeliveryPhotoCount, updateDeliveryDispatch } from '@/lib/delivery-dispatch'
+import { sanitizeAttachments, saveAttachments } from '@/lib/attachment-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,6 +21,38 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const ownerId = typeof body?.ownerId === 'string' ? body.ownerId.trim() : ''
   if (!ownerId) return NextResponse.json({ error: 'ownerId required' }, { status: 400 })
+  // 소유권을 먼저 확인 — 사진/결제 기록이 타인 건에 쓰이지 않도록 한다.
+  const existing = getDeliveryDispatch(id)
+  if (!existing) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+  if (existing.ownerId && existing.ownerId !== ownerId) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+  }
+  // 결제 수단·완료 표시 — txid는 서버가 검증한 결제만 인정한다.
+  const method = body?.paymentMethod
+  if (method === 'prepay_pi' || method === 'onsite_qr') {
+    const txid = typeof body?.paymentTxid === 'string' ? body.paymentTxid.trim() : ''
+    if (method === 'prepay_pi' && !txid) {
+      return NextResponse.json({ error: 'paymentTxid required' }, { status: 400 })
+    }
+    if (txid) {
+      const { paymentKindOf } = await import('@/lib/payment-kind-store')
+      const kind = await paymentKindOf(txid).catch(() => '')
+      if (!kind) return NextResponse.json({ error: 'payment not verified by this server' }, { status: 409 })
+    }
+    markDeliveryPayment(id, ownerId, method, txid || null)
+  }
+  // 사진 재첨부 — 전달된 경우 통째로 교체한다.
+  const photos = sanitizeAttachments(body?.photos)
+  if (photos.length) {
+    const saved = await saveAttachments(id, photos)
+    if (saved.length) setDeliveryPhotoCount(id, saved.length)
+  }
+  // 결제/사진만 갱신하는 요청은 배정 후에도 허용 — 주소·요금 등 수정은 requested만.
+  const hasEditable = EDITABLE.some((key) => key in (body ?? {}))
+  if (!hasEditable) {
+    const job = getDeliveryDispatch(id)
+    return NextResponse.json({ ok: true, job: job ? publicDelivery(job, ownerId) : null })
+  }
   const patch: Record<string, unknown> = {}
   for (const key of EDITABLE) if (key in (body ?? {})) patch[key] = body?.[key]
   const result = updateDeliveryDispatch(id, ownerId, patch)

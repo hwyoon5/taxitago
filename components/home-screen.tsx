@@ -94,7 +94,8 @@ import SupportCenter, { type LostPrefill } from '@/components/support-center'
 import LanguageQuickSwitcher from '@/components/language-quick-switcher'
 import VoiceInputModal from '@/components/voice-input-modal'
 import { fetchUserRating, recordReviewReward } from '@/lib/review-client'
-import { fetchLostInbox, fetchSosInbox } from '@/lib/support-client'
+import { fetchAttachments, fetchLostInbox, fetchSosInbox, type PhotoUpload } from '@/lib/support-client'
+import PhotoPicker from '@/components/photo-picker'
 import type { LostItem, SosAlert } from '@/lib/support-types'
 
 const LOCAL_TEST_USER = { username: 'taxitago' }
@@ -3230,6 +3231,15 @@ function ServiceSheet({
   const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null)
   const [myDeliveriesOpen, setMyDeliveriesOpen] = useState(false)
   const [myDeliveries, setMyDeliveries] = useState<PublicDelivery[]>([])
+  // 물품 첨부 사진(리사이즈된 dataURL) — 등록 시 서버 attachment-store로 간다.
+  const [deliveryPhotos, setDeliveryPhotos] = useState<PhotoUpload[]>([])
+  // 등록 직후 열리는 결제 수단 선택 시트 대상 — 선결제/현장 QR 분기의 기준 건.
+  const [deliveryPayJob, setDeliveryPayJob] = useState<PublicDelivery | null>(null)
+  const [deliveryPayBusy, setDeliveryPayBusy] = useState(false)
+  // 현장 QR 결제 스캔 대상 건 — 발신인이 기사 QR을 찍어 완료 표시한다.
+  const [deliveryQrJob, setDeliveryQrJob] = useState<PublicDelivery | null>(null)
+  // '요금 올리기' 인라인 입력 — 매칭이 안 될 때 발신인이 상향 재등록한다.
+  const [fareBump, setFareBump] = useState<{ id: string; value: string } | null>(null)
   const deliveryOwnerId = () => loadPiIdentity()?.uid || daeriPassengerIdRef.current || localPassengerId()
   const deliveryScheduledAt = () =>
     deliverySchedule > 0 ? new Date(Date.now() + deliverySchedule * 60000).toISOString() : null
@@ -3254,6 +3264,53 @@ function ServiceSheet({
     setDeliverySchedule(0)
     setEditingDeliveryId(job.id)
     setMyDeliveriesOpen(false)
+  }
+  // Pi 선결제 — SDK 체크아웃 완료 txid를 서버가 검증한 뒤 결제 완료로 기록한다.
+  const payDeliveryNow = async () => {
+    const job = deliveryPayJob
+    if (!job || deliveryPayBusy) return
+    setDeliveryPayBusy(true)
+    try {
+      const result = await startPiCheckout({
+        amount: job.fare,
+        memo: '택배 배송비 선결제',
+        metadata: { kind: 'delivery', deliveryId: job.id },
+      })
+      await updateDelivery(job.id, deliveryOwnerId(), { paymentMethod: 'prepay_pi', paymentTxid: result.txid })
+      onNotice(t('svc.delivPayDone'))
+      setDeliveryPayJob(null)
+      refreshMyDeliveries()
+    } catch (error) {
+      onNotice(error instanceof Error ? describePiUserMessage(error) : '')
+    } finally {
+      setDeliveryPayBusy(false)
+    }
+  }
+  const chooseDeliveryQr = () => {
+    const job = deliveryPayJob
+    if (!job) return
+    void updateDelivery(job.id, deliveryOwnerId(), { paymentMethod: 'onsite_qr' })
+      .then(() => {
+        refreshMyDeliveries()
+        onNotice(t('svc.delivPayOnsite'))
+      })
+      .catch((error) => onNotice(error instanceof Error ? error.message : ''))
+    setDeliveryPayJob(null)
+  }
+  const submitFareBump = (job: PublicDelivery) => {
+    const next = Number(fareBump?.value)
+    if (!Number.isFinite(next) || next <= job.fare) {
+      onNotice(t('svc.delivFareUpErr'))
+      return
+    }
+    const bump = next
+    setFareBump(null)
+    void updateDelivery(job.id, deliveryOwnerId(), { fare: bump })
+      .then(() => {
+        onNotice(t('svc.delivFareUpDone'))
+        refreshMyDeliveries()
+      })
+      .catch((error) => onNotice(error instanceof Error ? error.message : ''))
   }
   const removeMyDelivery = (job: PublicDelivery) => {
     void deleteDelivery(job.id, deliveryOwnerId())
@@ -3450,6 +3507,7 @@ function ServiceSheet({
         setEditingDeliveryId(null)
         setPhoneError('')
         void updateDelivery(editId, ownerId, {
+          ...(deliveryPhotos.length ? { photos: deliveryPhotos } : {}),
           pickupAddress: deliveryPickup.trim(),
           pickupLat: deliveryPickupPoint?.lat ?? null,
           pickupLng: deliveryPickupPoint?.lng ?? null,
@@ -3489,14 +3547,17 @@ function ServiceSheet({
         recipientPhone,
         status: 'requested',
         createdAt: new Date().toISOString(),
+        photos: deliveryPhotos,
       }
       setPhoneError('')
       // 등록만 수행 — 매칭 화면으로 넘어가지 않고 '내 택배' 목록에 저장한다.
       // 기사가 목록에서 수락하는 순간 발신인 알림·SMS가 발송된다.
       void publishDelivery(job)
-        .then(() => {
+        .then((published) => {
           refreshMyDeliveries()
           setMyDeliveriesOpen(true)
+          // 등록 직후 결제 수단 선택 — 선결제 또는 현장 QR.
+          setDeliveryPayJob(published)
           onNotice(t('svc.delivRegistered'))
         })
         .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivRegistered')))
@@ -4331,6 +4392,9 @@ function ServiceSheet({
               </button>
             </div>
             <div>
+              <p className="mb-1 mt-3 text-sm font-black">{t('svc.delivPhoto')}</p>
+              <PhotoPicker photos={deliveryPhotos} onChange={setDeliveryPhotos} />
+              <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">{t('svc.delivPhotoHint')}</p>
               <p className="mb-2 text-sm font-black">{t('svc.vehiclePick')}</p>
               <div className="grid grid-cols-3 gap-2">
                 {DELIVERY_VEHICLES.map((item) => (
@@ -4537,24 +4601,83 @@ function ServiceSheet({
                         : ` · ${t('svc.delivNow')}`}
                       {job.status === 'assigned' ? ` · ${t('svc.delivAssigned')}` : ''}
                     </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {job.photoCount ? (
+                        <span className="rounded-full bg-[#E8F1FA] px-2 py-0.5 text-[10px] font-black text-[#4A82B8]">{t('svc.delivPhotosN', { n: String(job.photoCount) })}</span>
+                      ) : null}
+                      {job.paidAt ? (
+                        <span className="rounded-full bg-[#D1FAE5] px-2 py-0.5 text-[10px] font-black text-[#047857]">{t('svc.delivPaid')}</span>
+                      ) : job.paymentMethod === 'onsite_qr' ? (
+                        <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#B45309]">{t('svc.delivPayOnsite')}</span>
+                      ) : null}
+                    </div>
                     {job.scheduledAt && job.status === 'requested' ? <DeliveryCountdown at={job.scheduledAt} className="mt-1 text-[11px] font-black text-[#4A82B8]" /> : null}
                     {job.status === 'requested' ? (
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => loadDeliveryIntoForm(job)}
-                          className="flex-1 rounded-xl bg-[#4A82B8] py-2 text-xs font-black text-white"
-                        >
-                          {t('svc.delivEdit')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeMyDelivery(job)}
-                          className="flex-1 rounded-xl border-2 border-[#FCA5A5] bg-white py-2 text-xs font-black text-[#DC2626]"
-                        >
-                          {t('svc.delivDelete')}
-                        </button>
+                      <div className="mt-2 space-y-2">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => loadDeliveryIntoForm(job)}
+                            className="flex-1 rounded-xl bg-[#4A82B8] py-2 text-xs font-black text-white"
+                          >
+                            {t('svc.delivEdit')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFareBump({ id: job.id, value: (job.fare + 0.5).toFixed(2) })}
+                            className="flex-1 rounded-xl border-2 border-[#BFDBFE] bg-white py-2 text-xs font-black text-[#4A82B8]"
+                          >
+                            {t('svc.delivFareUp')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeMyDelivery(job)}
+                            className="flex-1 rounded-xl border-2 border-[#FCA5A5] bg-white py-2 text-xs font-black text-[#DC2626]"
+                          >
+                            {t('svc.delivDelete')}
+                          </button>
+                        </div>
+                        {fareBump?.id === job.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              step="0.1"
+                              min={job.fare}
+                              value={fareBump.value}
+                              onChange={(event) => setFareBump({ id: job.id, value: event.target.value })}
+                              placeholder={t('svc.delivFareUpPh')}
+                              aria-label={t('svc.delivFareUp')}
+                              className="w-24 rounded-lg border-2 border-[#BFDBFE] bg-white px-2 py-1.5 text-center text-sm font-black text-[#0F172A] outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => submitFareBump(job)}
+                              className="rounded-lg bg-[#4A82B8] px-3 py-1.5 text-[11px] font-black text-white"
+                            >
+                              {t('common.ok')}
+                            </button>
+                          </div>
+                        ) : null}
+                        {!job.paidAt && !job.paymentMethod ? (
+                          <button
+                            type="button"
+                            onClick={() => setDeliveryPayJob(job)}
+                            className="w-full rounded-xl border-2 border-dashed border-[#BFDBFE] bg-white py-2 text-[11px] font-black text-[#4A82B8]"
+                          >
+                            {t('svc.delivPayNeed')}
+                          </button>
+                        ) : null}
                       </div>
+                    ) : null}
+                    {job.status === 'assigned' && job.paymentMethod === 'onsite_qr' && !job.paidAt ? (
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryQrJob(job)}
+                        className="mt-2 w-full rounded-xl bg-[#4A82B8] py-2 text-xs font-black text-white"
+                      >
+                        {t('svc.delivQrPay')}
+                      </button>
                     ) : null}
                   </div>
                 ))}
@@ -4562,6 +4685,56 @@ function ServiceSheet({
             )}
           </div>
         </div>
+      ) : null}
+      {deliveryPayJob ? (
+        <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/45 px-6" onClick={() => setDeliveryPayJob(null)}>
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5" onClick={(event) => event.stopPropagation()}>
+            <p className="text-xs font-black text-[#4A82B8]">{t('svc.delivPayTitle')}</p>
+            <p className="mt-2 text-sm font-black text-[#0F172A]">
+              {deliveryPayJob.fare.toFixed(2)} Pi · {deliveryPayJob.pickupAddress} → {deliveryPayJob.destAddress}
+            </p>
+            <div className="mt-4 space-y-2">
+              <button
+                type="button"
+                disabled={deliveryPayBusy}
+                onClick={() => void payDeliveryNow()}
+                className="w-full rounded-2xl bg-[#4A82B8] py-3 text-sm font-black text-white disabled:opacity-60"
+              >
+                {deliveryPayBusy ? t('common.loading') : t('svc.delivPayPi')}
+              </button>
+              <button
+                type="button"
+                onClick={chooseDeliveryQr}
+                className="w-full rounded-2xl border-2 border-[#BFDBFE] bg-white py-3 text-sm font-black text-[#4A82B8]"
+              >
+                {t('svc.delivPayQr')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeliveryPayJob(null)}
+                className="w-full rounded-2xl bg-[#F1F5F9] py-3 text-sm font-black text-[#64748B]"
+              >
+                {t('svc.delivPayLater')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {deliveryQrJob ? (
+        <QrPayScanModal
+          onClose={() => setDeliveryQrJob(null)}
+          onPaid={(_record, proof) => {
+            const job = deliveryQrJob
+            setDeliveryQrJob(null)
+            if (!job) return
+            void updateDelivery(job.id, deliveryOwnerId(), { paymentMethod: 'onsite_qr', paymentTxid: proof.txid })
+              .then(() => {
+                onNotice(t('svc.delivPayDone'))
+                refreshMyDeliveries()
+              })
+              .catch((error) => onNotice(error instanceof Error ? error.message : ''))
+          }}
+        />
       ) : null}
       {deliverySearchTarget ? (
         <DestinationSearchModal
@@ -8051,6 +8224,7 @@ function DriverDashboard({
   openLostId?: string | null
   onLostOpened?: () => void
 }) {
+  const { t } = useLocale()
   const [incoming, setIncoming] = useState<PublicRide | null>(null)
   const [activeRide, setActiveRide] = useState<PublicRide | null>(null)
   // 운행 도착 임박 시 수락한 다음 콜 — 현재 운행이 끝나면 서버 active가 자동 승계한다.
@@ -8086,6 +8260,15 @@ function DriverDashboard({
   const [openDeliveries, setOpenDeliveries] = useState<PublicDelivery[]>([])
   // 근접 택배 팝업 — 수거지가 반경 안에 들어온 건만 띄우고 한 건당 한 번만 알린다.
   const [nearDelivery, setNearDelivery] = useState<PublicDelivery | null>(null)
+  // 기사용 물품 사진 뷰어 — 첨부 장수만 목록에 오고, 원본은 클릭 시 조회한다.
+  const [deliveryPhotoView, setDeliveryPhotoView] = useState<{ id: string; photos: { id: string; dataUrl: string; name: string }[] } | null>(null)
+  const openDeliveryPhotos = (id: string) => {
+    void fetchAttachments(id)
+      .then((photos) => setDeliveryPhotoView({ id, photos }))
+      .catch(() => undefined)
+  }
+  const deliveryPayBadge = (job: PublicDelivery) =>
+    job.paidAt ? t('svc.delivPaid') : job.paymentMethod === 'onsite_qr' ? t('svc.delivPayOnsite') : ''
   // 수락한 택배 — 배정 기사에게 발신·수신 연락처가 노출되는 카드.
   const [acceptedDelivery, setAcceptedDelivery] = useState<PublicDelivery | null>(null)
   const deliveryNearSeen = useRef(new Set<string>())
@@ -9075,6 +9258,22 @@ function DriverDashboard({
                     : ' · 즉시'}
                   {km !== null ? ` · ${km.toFixed(1)}km` : ''}
                 </p>
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  {job.photoCount ? (
+                    <button
+                      type="button"
+                      onClick={() => openDeliveryPhotos(job.id)}
+                      className="rounded-full bg-[#E8F1FA] px-2 py-0.5 text-[10px] font-black text-[#4A82B8]"
+                    >
+                      {t('svc.delivPhotosN', { n: String(job.photoCount) })}
+                    </button>
+                  ) : null}
+                  {deliveryPayBadge(job) ? (
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${job.paidAt ? 'bg-[#D1FAE5] text-[#047857]' : 'bg-[#FEF3C7] text-[#B45309]'}`}>
+                      {deliveryPayBadge(job)}
+                    </span>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   disabled={busy}
@@ -9092,6 +9291,22 @@ function DriverDashboard({
         <section className="mt-2 rounded-2xl border-2 border-[#4A82B8] bg-[#E8F1FA] p-4">
           <p className="text-xs font-bold text-[#4A82B8]">배차된 택배 · 연락처</p>
           <p className="mt-2 text-sm font-black text-[#0F172A]">{acceptedDelivery.pickupAddress} → {acceptedDelivery.destAddress}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {acceptedDelivery.photoCount ? (
+              <button
+                type="button"
+                onClick={() => openDeliveryPhotos(acceptedDelivery.id)}
+                className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-[#4A82B8] shadow-sm"
+              >
+                {t('svc.delivPhotosN', { n: String(acceptedDelivery.photoCount) })}
+              </button>
+            ) : null}
+            {deliveryPayBadge(acceptedDelivery) ? (
+              <span className={`rounded-full bg-white px-2 py-0.5 text-[10px] font-black shadow-sm ${acceptedDelivery.paidAt ? 'text-[#047857]' : 'text-[#B45309]'}`}>
+                {deliveryPayBadge(acceptedDelivery)}
+              </span>
+            ) : null}
+          </div>
           <p className="mt-1 text-xs font-semibold text-[#475569]">
             {acceptedDelivery.packageLabel} · {acceptedDelivery.fare.toFixed(1)} Pi
             {acceptedDelivery.scheduledAt
@@ -9112,6 +9327,27 @@ function DriverDashboard({
           </div>
         </section>
       ) : null}
+      {deliveryPhotoView ? (
+        <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/60 px-5" onClick={() => setDeliveryPhotoView(null)}>
+          <div className="w-full max-w-sm rounded-3xl bg-white p-4" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-black text-[#4A82B8]">{t('svc.delivPhoto')}</p>
+              <button type="button" onClick={() => setDeliveryPhotoView(null)} aria-label={t('common.close')} className="rounded-full bg-[#F1F5F9] p-1.5 text-[#64748B]">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {deliveryPhotoView.photos.length ? (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {deliveryPhotoView.photos.map((photo) => (
+                  <img key={photo.id} src={photo.dataUrl} alt={photo.name} className="h-32 w-full rounded-xl border border-[#E2E8F0] object-cover" />
+                ))}
+              </div>
+            ) : (
+              <p className="py-6 text-center text-sm font-bold text-[#94A3B8]">{t('inbox.empty')}</p>
+            )}
+          </div>
+        </div>
+      ) : null}
       {nearDelivery ? (
         <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/45 px-5" onClick={() => setNearDelivery(null)}>
           <div className="w-full max-w-sm rounded-3xl bg-white p-5" onClick={(event) => event.stopPropagation()}>
@@ -9123,6 +9359,22 @@ function DriverDashboard({
                 ? ` · ${haversineKm({ lat, lng }, { lat: Number(nearDelivery.pickupLat), lng: Number(nearDelivery.pickupLng) }).toFixed(1)}km`
                 : ''}
             </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {nearDelivery.photoCount ? (
+                <button
+                  type="button"
+                  onClick={() => openDeliveryPhotos(nearDelivery.id)}
+                  className="rounded-full bg-[#E8F1FA] px-2 py-0.5 text-[10px] font-black text-[#4A82B8]"
+                >
+                  {t('svc.delivPhotosN', { n: String(nearDelivery.photoCount) })}
+                </button>
+              ) : null}
+              {deliveryPayBadge(nearDelivery) ? (
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${nearDelivery.paidAt ? 'bg-[#D1FAE5] text-[#047857]' : 'bg-[#FEF3C7] text-[#B45309]'}`}>
+                  {deliveryPayBadge(nearDelivery)}
+                </span>
+              ) : null}
+            </div>
             <div className="mt-4 flex gap-2">
               <button
                 type="button"

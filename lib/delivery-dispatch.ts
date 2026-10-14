@@ -28,6 +28,13 @@ export type DeliveryDispatch = {
   driverPhone?: string | null
   driverVehicle: string | null
   driverPlate: string | null
+  /** 물품 첨부 사진 수 — 원본은 attachment-store에 id 기준으로 보관. */
+  photoCount?: number
+  /** 배송비 결제 수단 — 'prepay_pi' 선결제 | 'onsite_qr' 현장 QR | null 미선택. */
+  paymentMethod?: 'prepay_pi' | 'onsite_qr' | null
+  /** 서버 검증을 통과한 결제 txid — 라우트에서 paymentKindOf 확인 후 기록. */
+  paymentTxid?: string | null
+  paidAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -107,6 +114,29 @@ export function updateDeliveryDispatch(id: string, ownerId: string, patch: Parti
   return { ok: true as const, job }
 }
 
+export function setDeliveryPhotoCount(id: string, count: number) {
+  const job = getDeliveryDispatch(id)
+  if (!job) return
+  job.photoCount = count
+  job.updatedAt = new Date().toISOString()
+  persist()
+}
+
+/** 배송비 결제 수단/완료 기록 — 발신인 소유 건만. 배정 후에도 결제 표시는 허용한다. */
+export function markDeliveryPayment(id: string, ownerId: string, method: 'prepay_pi' | 'onsite_qr', txid: string | null) {
+  const job = getDeliveryDispatch(id)
+  if (!job) return { ok: false as const, error: 'not_found' as const, job: null }
+  if (job.ownerId && job.ownerId !== ownerId) return { ok: false as const, error: 'forbidden' as const, job: null }
+  job.paymentMethod = method
+  if (txid) {
+    job.paymentTxid = txid
+    job.paidAt = new Date().toISOString()
+  }
+  job.updatedAt = new Date().toISOString()
+  persist()
+  return { ok: true as const, job }
+}
+
 /** 미배차 건 삭제 — 발신인 취소. */
 export function deleteDeliveryDispatch(id: string, ownerId: string) {
   const job = getDeliveryDispatch(id)
@@ -166,6 +196,9 @@ export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
     driverName: job.driverName,
     driverVehicle: job.driverVehicle,
     driverPlate: job.driverPlate,
+    photoCount: job.photoCount ?? 0,
+    paymentMethod: job.paymentMethod ?? null,
+    paidAt: job.paidAt ?? null,
     senderPhone: job.status === 'assigned' && mine ? job.senderPhone : '',
     recipientPhone: job.status === 'assigned' && mine ? job.recipientPhone : '',
     // 발신인·수신인 ↔ 기사 연락처 — 배정된 당사자(기사 또는 발신인)에게만 노출.

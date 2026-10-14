@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createDeliveryDispatch, listAssignedByDriver, listDeliveriesByOwner, listOpenDeliveries, publicDelivery } from '@/lib/delivery-dispatch'
+import { createDeliveryDispatch, listAssignedByDriver, listDeliveriesByOwner, listOpenDeliveries, publicDelivery, setDeliveryPhotoCount } from '@/lib/delivery-dispatch'
+import { sanitizeAttachments, saveAttachments } from '@/lib/attachment-store'
 import { listDrivers, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { haversineKm } from '@/lib/dispatch-geo'
 import { sendDriverPush } from '@/lib/driver-push'
@@ -52,6 +53,12 @@ export async function POST(request: Request) {
     packageSize: typeof body?.packageSize === 'string' ? body.packageSize.trim().slice(0, 30) : '',
     createdAt,
   })
+  // 물품 첨부 사진 — 검증 후 엔티티 id로 저장하고 장수만 기록한다.
+  const photos = sanitizeAttachments(body?.photos)
+  if (photos.length) {
+    const saved = await saveAttachments(job.id, photos)
+    if (saved.length) setDeliveryPhotoCount(job.id, saved.length)
+  }
   // 등록 즉시 수거지 근거리 온라인 택배 기사에게 웹 푸시 — 앱이 꺼져 있거나
   // 백그라운드여도 서비스 워커가 OS 알림으로 띄운다. 구독이 없는 기사는
   // sendDriverPush 내부에서 자동으로 건너뛴다.
