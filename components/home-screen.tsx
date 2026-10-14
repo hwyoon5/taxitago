@@ -3606,8 +3606,6 @@ function ServiceSheet({
           upsertMyDelivery(published)
           setMyDeliveriesOpen(true)
           refreshMyDeliveries()
-          // 등록 직후 결제 수단 선택 — 선결제 또는 현장 QR.
-          setDeliveryPayJob(published)
           onNotice(t('svc.delivRegistered'))
         })
         .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivRegistered')))
@@ -4715,7 +4713,12 @@ function ServiceSheet({
                             </button>
                           </div>
                         ) : null}
-                        {!job.paidAt && !job.paymentMethod ? (
+                      </div>
+                    ) : null}
+                    {/* 결제는 기사 배정 이후에만 열린다 — 등록 시점엔 콜만 올라간다. */}
+                    {job.status === 'assigned' && !job.paidAt ? (
+                      <div className="mt-2 space-y-2">
+                        {!job.paymentMethod ? (
                           <button
                             type="button"
                             onClick={() => setDeliveryPayJob(job)}
@@ -4723,17 +4726,16 @@ function ServiceSheet({
                           >
                             {t('svc.delivPayNeed')}
                           </button>
+                        ) : job.paymentMethod === 'onsite_qr' ? (
+                          <button
+                            type="button"
+                            onClick={() => setDeliveryQrJob(job)}
+                            className="w-full rounded-xl bg-[#4A82B8] py-2 text-xs font-black text-white"
+                          >
+                            {t('svc.delivQrPay')}
+                          </button>
                         ) : null}
                       </div>
-                    ) : null}
-                    {job.status === 'assigned' && job.paymentMethod === 'onsite_qr' && !job.paidAt ? (
-                      <button
-                        type="button"
-                        onClick={() => setDeliveryQrJob(job)}
-                        className="mt-2 w-full rounded-xl bg-[#4A82B8] py-2 text-xs font-black text-white"
-                      >
-                        {t('svc.delivQrPay')}
-                      </button>
                     ) : null}
                   </div>
                 ))}
