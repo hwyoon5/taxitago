@@ -3240,11 +3240,46 @@ function ServiceSheet({
   const [deliveryQrJob, setDeliveryQrJob] = useState<PublicDelivery | null>(null)
   // '요금 올리기' 인라인 입력 — 매칭이 안 될 때 발신인이 상향 재등록한다.
   const [fareBump, setFareBump] = useState<{ id: string; value: string } | null>(null)
-  const deliveryOwnerId = () => loadPiIdentity()?.uid || daeriPassengerIdRef.current || localPassengerId()
+  const [myDeliveriesLoading, setMyDeliveriesLoading] = useState(false)
+  // 등록 요청 중복 방지 — 연타 시 id가 다른 잡이 두 번 만들어지는 걸 막는다.
+  const [deliveryPosting, setDeliveryPosting] = useState(false)
+  const deliveryPostingRef = useRef(false)
+  // ownerId 후보 — 등록 시점의 로그인 상태와 지금이 다를 수 있어 전부 조회·시도한다.
+  const deliveryOwnerIds = () => {
+    const ids = [loadPiIdentity()?.uid, daeriPassengerIdRef.current, localPassengerId()]
+      .map((value) => (value || '').trim())
+      .filter(Boolean)
+    return [...new Set(ids)]
+  }
+  const deliveryOwnerId = () => deliveryOwnerIds()[0] || 'guest'
   const deliveryScheduledAt = () =>
     deliverySchedule > 0 ? new Date(Date.now() + deliverySchedule * 60000).toISOString() : null
   const refreshMyDeliveries = () => {
-    void fetchMyDeliveries(deliveryOwnerId()).then(setMyDeliveries).catch(() => undefined)
+    setMyDeliveriesLoading(true)
+    void Promise.all(deliveryOwnerIds().map((id) => fetchMyDeliveries(id).catch(() => [] as PublicDelivery[])))
+      .then((lists) => {
+        const merged = new Map<string, PublicDelivery>()
+        for (const job of lists.flat()) merged.set(job.id, job)
+        setMyDeliveries([...merged.values()].sort((a, b) => ((a.createdAt ?? '') < (b.createdAt ?? '') ? 1 : -1)))
+      })
+      .finally(() => setMyDeliveriesLoading(false))
+  }
+  // ownerId가 등록 시점과 달라졌을 때 후보 id로 재시도 — forbidden 응답에만 다음 id를 시도한다.
+  const runDeliveryMutation = async <T,>(fn: (ownerId: string) => Promise<T>): Promise<T> => {
+    let lastError: unknown = null
+    for (const id of deliveryOwnerIds()) {
+      try {
+        return await fn(id)
+      } catch (error) {
+        lastError = error
+        if (!/forbidden/i.test(error instanceof Error ? error.message : '')) throw error
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('forbidden')
+  }
+  // 서버 응답 건을 목록에 즉시 반영 — 리프레시 응답을 기다리지 않는다.
+  const upsertMyDelivery = (job: PublicDelivery) => {
+    setMyDeliveries((cur) => [job, ...cur.filter((item) => item.id !== job.id)].sort((a, b) => ((a.createdAt ?? '') < (b.createdAt ?? '') ? 1 : -1)))
   }
   const loadDeliveryIntoForm = (job: PublicDelivery) => {
     setDeliveryPickup(job.pickupAddress)
@@ -3276,7 +3311,8 @@ function ServiceSheet({
         memo: '택배 배송비 선결제',
         metadata: { kind: 'delivery', deliveryId: job.id },
       })
-      await updateDelivery(job.id, deliveryOwnerId(), { paymentMethod: 'prepay_pi', paymentTxid: result.txid })
+      const updated = await runDeliveryMutation((ownerId) => updateDelivery(job.id, ownerId, { paymentMethod: 'prepay_pi', paymentTxid: result.txid }))
+      upsertMyDelivery(updated)
       onNotice(t('svc.delivPayDone'))
       setDeliveryPayJob(null)
       refreshMyDeliveries()
@@ -3289,8 +3325,9 @@ function ServiceSheet({
   const chooseDeliveryQr = () => {
     const job = deliveryPayJob
     if (!job) return
-    void updateDelivery(job.id, deliveryOwnerId(), { paymentMethod: 'onsite_qr' })
-      .then(() => {
+    void runDeliveryMutation((ownerId) => updateDelivery(job.id, ownerId, { paymentMethod: 'onsite_qr' }))
+      .then((updated) => {
+        upsertMyDelivery(updated)
         refreshMyDeliveries()
         onNotice(t('svc.delivPayOnsite'))
       })
@@ -3305,18 +3342,19 @@ function ServiceSheet({
     }
     const bump = next
     setFareBump(null)
-    void updateDelivery(job.id, deliveryOwnerId(), { fare: bump })
-      .then(() => {
+    void runDeliveryMutation((ownerId) => updateDelivery(job.id, ownerId, { fare: bump }))
+      .then((updated) => {
+        upsertMyDelivery(updated)
         onNotice(t('svc.delivFareUpDone'))
         refreshMyDeliveries()
       })
       .catch((error) => onNotice(error instanceof Error ? error.message : ''))
   }
   const removeMyDelivery = (job: PublicDelivery) => {
-    void deleteDelivery(job.id, deliveryOwnerId())
+    void runDeliveryMutation((ownerId) => deleteDelivery(job.id, ownerId))
       .then(() => {
+        setMyDeliveries((cur) => cur.filter((item) => item.id !== job.id))
         onNotice(t('svc.delivDeleted'))
-        refreshMyDeliveries()
       })
       .catch((error) => onNotice(error instanceof Error ? error.message : ''))
   }
@@ -3500,13 +3538,16 @@ function ServiceSheet({
         setPhoneError(t('svc.phoneErr'))
         return
       }
+      if (deliveryPostingRef.current) return
       const ownerId = deliveryOwnerId()
       const scheduledAt = deliveryScheduledAt()
       if (editingDeliveryId) {
         const editId = editingDeliveryId
         setEditingDeliveryId(null)
         setPhoneError('')
-        void updateDelivery(editId, ownerId, {
+        deliveryPostingRef.current = true
+        setDeliveryPosting(true)
+        void runDeliveryMutation((oid) => updateDelivery(editId, oid, {
           ...(deliveryPhotos.length ? { photos: deliveryPhotos } : {}),
           pickupAddress: deliveryPickup.trim(),
           pickupLat: deliveryPickupPoint?.lat ?? null,
@@ -3521,12 +3562,17 @@ function ServiceSheet({
           senderPhone,
           recipientPhone,
           scheduledAt,
-        })
-          .then(() => {
+        }))
+          .then((updated) => {
+            upsertMyDelivery(updated)
             onNotice(t('svc.delivUpdated'))
             refreshMyDeliveries()
           })
           .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivUpdated')))
+          .finally(() => {
+            deliveryPostingRef.current = false
+            setDeliveryPosting(false)
+          })
         return
       }
       const job: DeliveryJob = {
@@ -3552,15 +3598,23 @@ function ServiceSheet({
       setPhoneError('')
       // 등록만 수행 — 매칭 화면으로 넘어가지 않고 '내 택배' 목록에 저장한다.
       // 기사가 목록에서 수락하는 순간 발신인 알림·SMS가 발송된다.
+      deliveryPostingRef.current = true
+      setDeliveryPosting(true)
       void publishDelivery(job)
         .then((published) => {
-          refreshMyDeliveries()
+          // 서버 응답 건을 즉시 목록에 꽂고 백그라운드로 동기화 — 빈 목록이 먼저 보이지 않게 한다.
+          upsertMyDelivery(published)
           setMyDeliveriesOpen(true)
+          refreshMyDeliveries()
           // 등록 직후 결제 수단 선택 — 선결제 또는 현장 QR.
           setDeliveryPayJob(published)
           onNotice(t('svc.delivRegistered'))
         })
         .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivRegistered')))
+        .finally(() => {
+          deliveryPostingRef.current = false
+          setDeliveryPosting(false)
+        })
       return
     }
     const didScan = scanned ?? qrScannedBound
@@ -4478,8 +4532,8 @@ function ServiceSheet({
                 {t('svc.delivSummary', { veh: t(DELIVERY_VEHICLE_KEYS[deliveryVehicle]), pkg: t(PACKAGE_SIZE_KEYS[packageSize].label), hint: t(PACKAGE_SIZE_KEYS[packageSize].hint), min: '30' })}
               </p>
             </div>
-            <button type="button" onClick={() => startService()} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white">
-              {t('svc.delivBtn')}
+            <button type="button" disabled={deliveryPosting} onClick={() => startService()} className="w-full rounded-2xl bg-[#4C1FB8] py-4 font-black text-white disabled:opacity-60">
+              {deliveryPosting ? t('common.loading') : t('svc.delivBtn')}
             </button>
           </div>
         )}
@@ -4587,7 +4641,9 @@ function ServiceSheet({
         <div className="fixed inset-0 z-[140] flex items-end justify-center bg-black/45" onClick={() => setMyDeliveriesOpen(false)}>
           <div className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-t-3xl bg-white p-4" onClick={(event) => event.stopPropagation()}>
             <p className="text-base font-black text-[#0F172A]">{t('svc.myDeliveries')}</p>
-            {myDeliveries.length === 0 ? (
+            {myDeliveriesLoading && myDeliveries.length === 0 ? (
+              <p className="mt-4 pb-2 text-center text-sm font-bold text-[#94A3B8]">{t('common.loading')}</p>
+            ) : myDeliveries.length === 0 ? (
               <p className="mt-4 pb-2 text-center text-sm font-bold text-[#94A3B8]">{t('svc.delivNone')}</p>
             ) : (
               <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pb-1">
@@ -4727,8 +4783,9 @@ function ServiceSheet({
             const job = deliveryQrJob
             setDeliveryQrJob(null)
             if (!job) return
-            void updateDelivery(job.id, deliveryOwnerId(), { paymentMethod: 'onsite_qr', paymentTxid: proof.txid })
-              .then(() => {
+            void runDeliveryMutation((ownerId) => updateDelivery(job.id, ownerId, { paymentMethod: 'onsite_qr', paymentTxid: proof.txid }))
+              .then((updated) => {
+                upsertMyDelivery(updated)
                 onNotice(t('svc.delivPayDone'))
                 refreshMyDeliveries()
               })
