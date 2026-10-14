@@ -39,7 +39,7 @@ import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { DELIVERY_VEHICLES, deliveryDistanceFeePi, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
-import { acceptDelivery, fetchDelivery, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
+import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, publishDelivery, saveDeliveryJob, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
 import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } from '@/lib/member-profile'
 import PhoneVerifyForm from '@/components/phone-verify-form'
@@ -3163,7 +3163,7 @@ function ServiceSheet({
   const { t, locale } = useLocale()
   const IS_TEST_MODE = true
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
-  const [courier, setCourier] = useState<{ name: string; vehicle: string; plate: string } | null>(null)
+  const [courier, setCourier] = useState<{ name: string; vehicle: string; plate: string; phone?: string } | null>(null)
   const deliveryServerId = useRef('')
   const [dispatchRide, setDispatchRide] = useState<PublicRide | null>(null)
   const [daeriMatchError, setDaeriMatchError] = useState('')
@@ -3215,6 +3215,47 @@ function ServiceSheet({
       setDeliveryDestPoint({ lat: Number(destLat), lng: Number(destLng) })
     }
   }, [destLat, destLng])
+  // 발송 예정 오프셋(분) — 0이면 즉시 배송.
+  const [deliverySchedule, setDeliverySchedule] = useState(0)
+  // '내 택배' 목록에서 수정 진입한 건의 서버 id — 호출이 PATCH로 바뀐다.
+  const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null)
+  const [myDeliveriesOpen, setMyDeliveriesOpen] = useState(false)
+  // 등록 완료된 예약 시각 — 매칭 화면의 카운트다운 타이머에 표시한다.
+  const [registeredDeliveryAt, setRegisteredDeliveryAt] = useState<string | null>(null)
+  const [myDeliveries, setMyDeliveries] = useState<PublicDelivery[]>([])
+  const deliveryOwnerId = () => loadPiIdentity()?.uid || daeriPassengerIdRef.current || localPassengerId()
+  const deliveryScheduledAt = () =>
+    deliverySchedule > 0 ? new Date(Date.now() + deliverySchedule * 60000).toISOString() : null
+  const refreshMyDeliveries = () => {
+    void fetchMyDeliveries(deliveryOwnerId()).then(setMyDeliveries).catch(() => undefined)
+  }
+  const loadDeliveryIntoForm = (job: PublicDelivery) => {
+    setDeliveryPickup(job.pickupAddress)
+    setDeliveryDest(job.destAddress)
+    setDeliveryPickupPoint(
+      isUsableCoord(job.pickupLat, job.pickupLng) ? { lat: Number(job.pickupLat), lng: Number(job.pickupLng) } : null,
+    )
+    setDeliveryDestPoint(
+      isUsableCoord(job.destLat, job.destLng) ? { lat: Number(job.destLat), lng: Number(job.destLng) } : null,
+    )
+    if (job.vehicle && (DELIVERY_VEHICLES as readonly string[]).includes(job.vehicle)) {
+      setDeliveryVehicle(job.vehicle as DeliveryVehicle)
+    }
+    if (job.packageSize && (PACKAGE_SIZES as readonly { id: string }[]).some((size) => size.id === job.packageSize)) {
+      setPackageSize(job.packageSize as PackageSizeId)
+    }
+    setDeliverySchedule(0)
+    setEditingDeliveryId(job.id)
+    setMyDeliveriesOpen(false)
+  }
+  const removeMyDelivery = (job: PublicDelivery) => {
+    void deleteDelivery(job.id, deliveryOwnerId())
+      .then(() => {
+        onNotice(t('svc.delivDeleted'))
+        refreshMyDeliveries()
+      })
+      .catch((error) => onNotice(error instanceof Error ? error.message : ''))
+  }
   const [phoneError, setPhoneError] = useState('')
   const [selectedItem, setSelectedItem] = useState('')
   const [mapFocusId, setMapFocusId] = useState('')
@@ -3342,7 +3383,7 @@ function ServiceSheet({
           kind: 'driver' as const,
         }
       : service === '택배'
-        ? { name: courier?.name || t('match.driverPending'), vehicle: courier?.vehicle || t('common.checking'), plate: courier?.plate || t('common.checking'), phone: '', kind: 'driver' as const }
+        ? { name: courier?.name || t('match.driverPending'), vehicle: courier?.vehicle || t('common.checking'), plate: courier?.plate || t('common.checking'), phone: courier?.phone || '', kind: 'driver' as const }
         : { name: selectedUsage?.name || service, vehicle: service, plate: selectedUsage?.rate ?? '', phone: '', kind: 'service' as const }
   const contactRideId = ride ? dispatchRide?.id || daeriRideIdRef.current : ''
   const canStart = more || ride || service === '택배' || Boolean(selectedItem)
@@ -3395,14 +3436,49 @@ function ServiceSheet({
         setPhoneError(t('svc.phoneErr'))
         return
       }
+      const ownerId = deliveryOwnerId()
+      const scheduledAt = deliveryScheduledAt()
+      if (editingDeliveryId) {
+        const editId = editingDeliveryId
+        setEditingDeliveryId(null)
+        setPhoneError('')
+        void updateDelivery(editId, ownerId, {
+          pickupAddress: deliveryPickup.trim(),
+          pickupLat: deliveryPickupPoint?.lat ?? null,
+          pickupLng: deliveryPickupPoint?.lng ?? null,
+          destAddress: deliveryDest.trim(),
+          destLat: deliveryDestPoint?.lat ?? null,
+          destLng: deliveryDestPoint?.lng ?? null,
+          packageLabel: packageOption.label,
+          vehicle: deliveryVehicle,
+          packageSize,
+          fare: deliveryFare,
+          senderPhone,
+          recipientPhone,
+          scheduledAt,
+        })
+          .then(() => {
+            onNotice(t('svc.delivUpdated'))
+            refreshMyDeliveries()
+          })
+          .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivUpdated')))
+        return
+      }
+      setRegisteredDeliveryAt(scheduledAt)
       const job: DeliveryJob = {
         id: `delivery-${Date.now()}`,
+        ownerId,
         vehicle: deliveryVehicle,
         packageSize,
         packageLabel: packageOption.label,
         fare: deliveryFare,
         pickupAddress: deliveryPickup.trim(),
+        pickupLat: deliveryPickupPoint?.lat ?? null,
+        pickupLng: deliveryPickupPoint?.lng ?? null,
         destAddress: deliveryDest.trim(),
+        destLat: deliveryDestPoint?.lat ?? null,
+        destLng: deliveryDestPoint?.lng ?? null,
+        scheduledAt,
         senderPhone,
         recipientPhone,
         status: 'requested',
@@ -3562,9 +3638,9 @@ function ServiceSheet({
     const pull = () => {
       const id = deliveryServerId.current
       if (!id) return
-      void fetchDelivery(id).then((job) => {
+      void fetchDelivery(id, deliveryOwnerId()).then((job) => {
         if (stopped || !job || job.status !== 'assigned' || !job.driverVehicle || !job.driverPlate) return
-        setCourier({ name: job.driverName || t('match.driver'), vehicle: job.driverVehicle, plate: job.driverPlate })
+        setCourier({ name: job.driverName || t('match.driver'), vehicle: job.driverVehicle, plate: job.driverPlate, phone: job.driverPhone || '' })
         setPhase('assigned')
         onNotice(t('match.dispatchedSub'))
       }).catch(() => undefined)
@@ -3675,6 +3751,9 @@ function ServiceSheet({
             <p className="mt-2 text-sm font-bold text-[#8b8495]">
               {ride ? place : selfServe ? t('sheet.checking', { service: serviceLabel }) : t('sheet.finding', { service: serviceLabel })}
             </p>
+            {service === '택배' && registeredDeliveryAt ? (
+              <DeliveryCountdown at={registeredDeliveryAt} className="mt-3 text-sm font-black text-[#4A82B8]" />
+            ) : null}
             {ride ? (
               <TaxiLiveMap
                 kind="daeri"
@@ -4214,6 +4293,29 @@ function ServiceSheet({
                 ariaLabel={t('home.destSearchOpen')}
                 onClick={() => setDeliverySearchTarget('dest')}
               />
+              <p className="mb-2 mt-3 text-sm font-black">{t('svc.delivSched')}</p>
+              <div className="grid grid-cols-4 gap-2">
+                {[0, 10, 30, 60].map((min) => (
+                  <button
+                    key={min}
+                    type="button"
+                    onClick={() => setDeliverySchedule(min)}
+                    className={`rounded-xl border-2 py-2 text-[11px] font-black ${deliverySchedule === min ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
+                  >
+                    {min === 0 ? t('svc.delivNow') : t('svc.delivAfter', { min: String(min) })}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  refreshMyDeliveries()
+                  setMyDeliveriesOpen(true)
+                }}
+                className="mt-2 w-full rounded-xl border-2 border-dashed border-[#BFDBFE] bg-white py-2 text-[11px] font-black text-[#4A82B8]"
+              >
+                {t('svc.myDeliveries')}
+              </button>
             </div>
             <div>
               <p className="mb-2 text-sm font-black">{t('svc.vehiclePick')}</p>
@@ -4404,6 +4506,50 @@ function ServiceSheet({
         onOpenChat={() => setChatOpen(true)}
         onOpenCall={() => setCallOpen(true)}
       />
+      {myDeliveriesOpen ? (
+        <div className="fixed inset-0 z-[140] flex items-end justify-center bg-black/45" onClick={() => setMyDeliveriesOpen(false)}>
+          <div className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-t-3xl bg-white p-4" onClick={(event) => event.stopPropagation()}>
+            <p className="text-base font-black text-[#0F172A]">{t('svc.myDeliveries')}</p>
+            {myDeliveries.length === 0 ? (
+              <p className="mt-4 pb-2 text-center text-sm font-bold text-[#94A3B8]">{t('svc.delivNone')}</p>
+            ) : (
+              <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pb-1">
+                {myDeliveries.map((job) => (
+                  <div key={job.id} className="rounded-2xl border-2 border-[#E8F1FA] p-3">
+                    <p className="text-sm font-black text-[#0F172A]">{job.pickupAddress} → {job.destAddress}</p>
+                    <p className="mt-0.5 text-[11px] font-bold text-[#64748B]">
+                      {job.packageLabel} · {job.fare.toFixed(2)} Pi
+                      {job.scheduledAt
+                        ? ` · ${t('svc.delivScheduled')} ${new Date(job.scheduledAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
+                        : ` · ${t('svc.delivNow')}`}
+                      {job.status === 'assigned' ? ` · ${t('svc.delivAssigned')}` : ''}
+                    </p>
+                    {job.scheduledAt && job.status === 'requested' ? <DeliveryCountdown at={job.scheduledAt} className="mt-1 text-[11px] font-black text-[#4A82B8]" /> : null}
+                    {job.status === 'requested' ? (
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => loadDeliveryIntoForm(job)}
+                          className="flex-1 rounded-xl bg-[#4A82B8] py-2 text-xs font-black text-white"
+                        >
+                          {t('svc.delivEdit')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeMyDelivery(job)}
+                          className="flex-1 rounded-xl border-2 border-[#FCA5A5] bg-white py-2 text-xs font-black text-[#DC2626]"
+                        >
+                          {t('svc.delivDelete')}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
       {deliverySearchTarget ? (
         <DestinationSearchModal
           destination={deliverySearchTarget === 'pickup' ? deliveryPickup : deliveryDest}
@@ -4455,6 +4601,28 @@ function ServiceSheet({
       ) : null}
       </div>
     </div>
+  )
+}
+
+/** 예약 수거까지 남은 시간 — 1초 단위 카운트다운, 도래 시 상태 문구로 전환. */
+function DeliveryCountdown({ at, className }: { at?: string | null; className?: string }) {
+  const { t } = useLocale()
+  const [remain, setRemain] = useState(() => (at ? Date.parse(at) - Date.now() : 0))
+  useEffect(() => {
+    if (!at) return
+    const target = Date.parse(at)
+    setRemain(target - Date.now())
+    const timer = window.setInterval(() => setRemain(target - Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [at])
+  if (!at) return null
+  const total = Math.max(0, Math.floor(remain / 1000))
+  const mm = Math.floor(total / 60)
+  const ss = String(total % 60).padStart(2, '0')
+  return (
+    <p className={className ?? 'text-[11px] font-black text-[#4A82B8]'}>
+      {remain <= 0 ? t('svc.delivDue') : t('svc.delivCountdown', { m: String(mm), s: ss })}
+    </p>
   )
 }
 
@@ -7821,6 +7989,11 @@ function DriverDashboard({
   const [deliveryChatPeer, setDeliveryChatPeer] = useState<DeliveryChatPeer | null>(null)
   const [localDelivery, setLocalDelivery] = useState<DeliveryJob | null>(null)
   const [openDeliveries, setOpenDeliveries] = useState<PublicDelivery[]>([])
+  // 근접 택배 팝업 — 수거지가 반경 안에 들어온 건만 띄우고 한 건당 한 번만 알린다.
+  const [nearDelivery, setNearDelivery] = useState<PublicDelivery | null>(null)
+  // 수락한 택배 — 배정 기사에게 발신·수신 연락처가 노출되는 카드.
+  const [acceptedDelivery, setAcceptedDelivery] = useState<PublicDelivery | null>(null)
+  const deliveryNearSeen = useRef(new Set<string>())
   const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([])
   const [lostItems, setLostItems] = useState<LostItem[]>([])
   const [lostFocus, setLostFocus] = useState<string | null>(null)
@@ -8320,6 +8493,58 @@ function DriverDashboard({
     }
   }, [online, partner?.serviceType])
 
+  // 수거지가 기사 현재 위치 반경 안으로 들어온 택배 — 실시간 팝업 + 알림음.
+  const DELIVERY_NEAR_KM = 3
+  useEffect(() => {
+    if (!online || partner?.serviceType !== '택배') return
+    for (const job of openDeliveries) {
+      if (deliveryNearSeen.current.has(job.id)) continue
+      if (!isUsableCoord(job.pickupLat, job.pickupLng)) continue
+      const km = haversineKm({ lat, lng }, { lat: Number(job.pickupLat), lng: Number(job.pickupLng) })
+      if (km > DELIVERY_NEAR_KM) continue
+      deliveryNearSeen.current.add(job.id)
+      setNearDelivery(job)
+      alertDriverOffer(`delivery-near:${job.id}`)
+      break
+    }
+  }, [openDeliveries, online, lat, lng, partner?.serviceType])
+
+  // 수락한 택배는 서버에 남는다 — 새로고침·재진입 시 배정 건을 복원한다.
+  useEffect(() => {
+    if (!driverId || partner?.serviceType !== '택배') return
+    let stopped = false
+    const pull = () => {
+      void fetchAcceptedDeliveries(driverId).then((jobs) => {
+        if (!stopped) setAcceptedDelivery(jobs[0] ?? null)
+      }).catch(() => undefined)
+    }
+    pull()
+    const timer = window.setInterval(pull, 5000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [driverId, partner?.serviceType])
+
+  const acceptDeliveryJob = (job: PublicDelivery) => {
+    const fleet = partnerVehicle(partner)
+    if (!driverId || !fleet.vehicle || !fleet.plate) {
+      onNotice('프로필에 차량명과 차량번호를 등록한 뒤 수락해 주세요.')
+      return
+    }
+    setBusy(true)
+    void acceptDelivery(job.id, { driverId, name: partner?.name, vehicle: fleet.vehicle, plate: fleet.plate, phone: partner?.phone || memberPhone() })
+      .then((accepted) => {
+        setAcceptedDelivery(accepted)
+        setOpenDeliveries((items) => items.filter((item) => item.id !== job.id))
+        setNearDelivery((cur) => (cur?.id === job.id ? null : cur))
+        noteActivity(`delivery-accept:${job.id}`, '배차 수락', `${job.pickupAddress} → ${job.destAddress} · ${fleet.vehicle} ${fleet.plate}`)
+        onNotice('택배를 수락했어요. 화주 화면에 차량 정보가 표시됩니다.')
+      })
+      .catch((error) => onNotice(error instanceof Error ? error.message : '배차 수락에 실패했어요.'))
+      .finally(() => setBusy(false))
+  }
+
   useEffect(() => {
     const job = deliveryJob ?? localDelivery
     const key = job ? `${job.id}:${job.status}` : ''
@@ -8732,36 +8957,90 @@ function DriverDashboard({
           <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">터치하면 채팅이 바로 열립니다</p>
         </button>
       ) : null}
-      {partner?.serviceType === '택배' && openDeliveries[0] ? (
-        <section className="mt-2 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
-          <p className="text-xs font-bold text-[#4A82B8]">새로운 택배 요청</p>
-          <p className="mt-2 text-base font-bold text-[#0F172A]">{openDeliveries[0].pickupAddress} → {openDeliveries[0].destAddress}</p>
-          <p className="mt-1 text-xs font-semibold text-[#475569]">{openDeliveries[0].packageLabel} · {openDeliveries[0].fare.toFixed(1)} Pi</p>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              const job = openDeliveries[0]
-              const fleet = partnerVehicle(partner)
-              if (!job || !driverId || !fleet.vehicle || !fleet.plate) {
-                onNotice('프로필에 차량명과 차량번호를 등록한 뒤 수락해 주세요.')
-                return
-              }
-              setBusy(true)
-              void acceptDelivery(job.id, { driverId, name: partner?.name, vehicle: fleet.vehicle, plate: fleet.plate })
-                .then(() => {
-                  setOpenDeliveries((items) => items.filter((item) => item.id !== job.id))
-                  noteActivity(`delivery-accept:${job.id}`, '배차 수락', `${job.pickupAddress} → ${job.destAddress} · ${fleet.vehicle} ${fleet.plate}`)
-                  onNotice('택배를 수락했어요. 화주 화면에 차량 정보가 표시됩니다.')
-                })
-                .catch((error) => onNotice(error instanceof Error ? error.message : '배차 수락에 실패했어요.'))
-                .finally(() => setBusy(false))
-            }}
-            className="mt-3 w-full rounded-2xl bg-[#4A82B8] py-3 font-bold text-white disabled:opacity-60"
-          >
-            배차 수락
-          </button>
+      {partner?.serviceType === '택배' && openDeliveries.length ? (
+        <section className="mt-2 space-y-2 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
+          <p className="text-xs font-bold text-[#4A82B8]">실시간 택배 요청 {openDeliveries.length}건</p>
+          {openDeliveries.slice(0, 5).map((job) => {
+            const km = isUsableCoord(job.pickupLat, job.pickupLng)
+              ? haversineKm({ lat, lng }, { lat: Number(job.pickupLat), lng: Number(job.pickupLng) })
+              : null
+            return (
+              <div key={job.id} className="rounded-2xl border border-[#DBEAFE] bg-white p-3">
+                <p className="text-sm font-bold text-[#0F172A]">{job.pickupAddress} → {job.destAddress}</p>
+                <p className="mt-1 text-xs font-semibold text-[#475569]">
+                  {job.packageLabel} · {job.fare.toFixed(1)} Pi
+                  {job.scheduledAt
+                    ? ` · 예약 ${new Date(job.scheduledAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
+                    : ' · 즉시'}
+                  {km !== null ? ` · ${km.toFixed(1)}km` : ''}
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => acceptDeliveryJob(job)}
+                  className="mt-2 w-full rounded-xl bg-[#4A82B8] py-2.5 text-xs font-bold text-white disabled:opacity-60"
+                >
+                  배차 수락
+                </button>
+              </div>
+            )
+          })}
         </section>
+      ) : null}
+      {partner?.serviceType === '택배' && acceptedDelivery ? (
+        <section className="mt-2 rounded-2xl border-2 border-[#4A82B8] bg-[#E8F1FA] p-4">
+          <p className="text-xs font-bold text-[#4A82B8]">배차된 택배 · 연락처</p>
+          <p className="mt-2 text-sm font-black text-[#0F172A]">{acceptedDelivery.pickupAddress} → {acceptedDelivery.destAddress}</p>
+          <p className="mt-1 text-xs font-semibold text-[#475569]">
+            {acceptedDelivery.packageLabel} · {acceptedDelivery.fare.toFixed(1)} Pi
+            {acceptedDelivery.scheduledAt
+              ? ` · 예약 ${new Date(acceptedDelivery.scheduledAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
+              : ' · 즉시'}
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {acceptedDelivery.senderPhone ? (
+              <a href={telHref(acceptedDelivery.senderPhone)} className="rounded-xl bg-white py-2.5 text-center text-xs font-black text-[#4A82B8] shadow-sm">
+                발신인 {formatKoreanPhone(acceptedDelivery.senderPhone)}
+              </a>
+            ) : null}
+            {acceptedDelivery.recipientPhone ? (
+              <a href={telHref(acceptedDelivery.recipientPhone)} className="rounded-xl bg-white py-2.5 text-center text-xs font-black text-[#4A82B8] shadow-sm">
+                수신인 {formatKoreanPhone(acceptedDelivery.recipientPhone)}
+              </a>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+      {nearDelivery ? (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/45 px-5" onClick={() => setNearDelivery(null)}>
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5" onClick={(event) => event.stopPropagation()}>
+            <p className="text-xs font-black text-[#4A82B8]">근처 택배 요청</p>
+            <p className="mt-2 text-base font-black text-[#0F172A]">{nearDelivery.pickupAddress} → {nearDelivery.destAddress}</p>
+            <p className="mt-1 text-xs font-bold text-[#475569]">
+              {nearDelivery.packageLabel} · {nearDelivery.fare.toFixed(1)} Pi
+              {isUsableCoord(nearDelivery.pickupLat, nearDelivery.pickupLng)
+                ? ` · ${haversineKm({ lat, lng }, { lat: Number(nearDelivery.pickupLat), lng: Number(nearDelivery.pickupLng) }).toFixed(1)}km`
+                : ''}
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setNearDelivery(null)}
+                className="flex-1 rounded-2xl border-2 border-[#E2E8F0] py-3 text-sm font-black text-[#64748B]"
+              >
+                나중에
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => acceptDeliveryJob(nearDelivery)}
+                className="flex-1 rounded-2xl bg-[#4A82B8] py-3 text-sm font-black text-white disabled:opacity-60"
+              >
+                배차 수락
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
       {driverPenalty && driverPenalty.level !== 'ok' ? (
         <section className={`mt-2 rounded-xl border px-3 py-2.5 ${
@@ -9058,6 +9337,39 @@ export default function HomeScreen() {
   const [waypoints, setWaypoints] = useState<string[]>([])
   // 검색/지도에서 고른 경유지 좌표를 텍스트 키로 보관 — 호출 시 재지오코딩 없이 재사용한다.
   const waypointPlaces = useRef(new Map<string, RideCoords>())
+
+  // 택배 배차 알림 — 기사 수락 시 발신인 앱에 즉시 토스트를 띄운다(12초 폴링).
+  const deliveryStatusSeen = useRef(new Map<string, string>())
+  useEffect(() => {
+    let stopped = false
+    const pull = () => {
+      const ownerId = loadPiIdentity()?.uid || localPassengerId()
+      if (!ownerId || stopped) return
+      void fetchMyDeliveries(ownerId)
+        .then((jobs) => {
+          if (stopped) return
+          for (const job of jobs) {
+            const prev = deliveryStatusSeen.current.get(job.id)
+            if (prev === 'requested' && job.status === 'assigned') {
+              showNotice(
+                t('svc.delivMatchedNotice', {
+                  driver: job.driverName || t('match.driver'),
+                  vehicle: `${job.driverVehicle ?? ''} ${job.driverPlate ?? ''}`.trim(),
+                }),
+              )
+            }
+            deliveryStatusSeen.current.set(job.id, job.status)
+          }
+        })
+        .catch(() => undefined)
+    }
+    pull()
+    const timer = window.setInterval(pull, 12000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [])
 
   const showNotice = (message: string) => {
     setNotice(message)

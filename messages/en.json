@@ -764,5 +764,19 @@
   "coupon.errMinSpend": "Below the minimum spend.",
   "coupon.errAudience": "You're not eligible for this coupon.",
   "coupon.errLimit": "Usage limit reached.",
-  "svc.delivDist": "approx. {km} km direct · distance fee {fee} Pi"
+  "svc.delivDist": "approx. {km} km direct · distance fee {fee} Pi",
+  "svc.delivSched": "Pickup time",
+  "svc.delivNow": "Now",
+  "svc.delivAfter": "in {min} min",
+  "svc.delivScheduled": "Scheduled",
+  "svc.delivAssigned": "Assigned",
+  "svc.myDeliveries": "My deliveries",
+  "svc.delivNone": "No deliveries yet",
+  "svc.delivEdit": "Edit",
+  "svc.delivDelete": "Delete",
+  "svc.delivUpdated": "Delivery request updated",
+  "svc.delivDeleted": "Delivery request removed",
+  "svc.delivCountdown": "Pickup in {m}m {s}s",
+  "svc.delivDue": "Pickup time reached",
+  "svc.delivMatchedNotice": "Delivery assigned — {driver} ({vehicle}) accepted"
 }

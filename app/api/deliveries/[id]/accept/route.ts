@@ -3,6 +3,7 @@ import { acceptDeliveryDispatch, publicDelivery } from '@/lib/delivery-dispatch'
 import { recordSettlement } from '@/lib/settlement-store'
 import { driverPayoutTarget } from '@/lib/escrow-engine'
 import { getRegistryUser } from '@/lib/user-registry'
+import { sendSmsText } from '@/lib/sms-notify'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,11 +28,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     name: typeof body?.name === 'string' ? body.name : '기사',
     vehicle,
     plate,
+    phone: typeof body?.phone === 'string' ? body.phone : '',
   })
   if (!result.ok || !result.job) {
     return NextResponse.json({ error: result.error }, { status: result.error === 'not_found' ? 404 : 409 })
   }
   const job = result.job
+  // 발신인 SMS/알림톡 통보 — 공급자 미설정이면 로그만 남기고 응답은 지연 없이 반환.
+  void sendSmsText(
+    job.senderPhone,
+    `[TaxiTago] 택배 배차가 완료됐어요. ${job.driverName ?? '기사'} 기사(${job.driverVehicle ?? ''} ${job.driverPlate ?? ''})${job.driverPhone ? ` · ${job.driverPhone}` : ''}`,
+  ).catch(() => undefined)
   await recordSettlement({
     refId: `delivery:${job.id}`,
     service: 'delivery',

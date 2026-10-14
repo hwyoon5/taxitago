@@ -764,5 +764,19 @@
   "coupon.errMinSpend": "最低利用金額に達していません。",
   "coupon.errAudience": "このクーポンの対象ではありません。",
   "coupon.errLimit": "利用上限に達しました。",
-  "svc.delivDist": "直線距離 約{km}km · 距離加算 {fee} Pi"
+  "svc.delivDist": "直線距離 約{km}km · 距離加算 {fee} Pi",
+  "svc.delivSched": "発送予定",
+  "svc.delivNow": "今すぐ",
+  "svc.delivAfter": "{min}分後",
+  "svc.delivScheduled": "予約",
+  "svc.delivAssigned": "配車済み",
+  "svc.myDeliveries": "マイ配送一覧",
+  "svc.delivNone": "依頼がありません",
+  "svc.delivEdit": "編集",
+  "svc.delivDelete": "削除",
+  "svc.delivUpdated": "配送情報を更新しました",
+  "svc.delivDeleted": "配送を削除しました",
+  "svc.delivCountdown": "集荷まで {m}分 {s}秒",
+  "svc.delivDue": "集荷予定時刻です",
+  "svc.delivMatchedNotice": "配送が確定しました — {driver}（{vehicle}）が受諾しました"
 }

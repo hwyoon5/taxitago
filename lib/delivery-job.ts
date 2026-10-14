@@ -5,6 +5,8 @@ export type DeliveryJobStatus = 'requested' | 'assigned' | 'completed'
 
 export type DeliveryJob = {
   id: string
+  /** 발신인 식별자 — 서버 수정·삭제·내 목록 조회의 소유자 키. */
+  ownerId?: string
   vehicle: DeliveryVehicle
   packageSize: PackageSizeId
   packageLabel: string
@@ -13,6 +15,12 @@ export type DeliveryJob = {
   destAddress: string
   senderPhone: string
   recipientPhone: string
+  pickupLat?: number | null
+  pickupLng?: number | null
+  destLat?: number | null
+  destLng?: number | null
+  /** 예약 수거 시각(ISO) — 없으면 즉시 배송. */
+  scheduledAt?: string | null
   status: DeliveryJobStatus
   createdAt: string
 }
@@ -82,12 +90,25 @@ export type PublicDelivery = {
   id: string
   pickupAddress: string
   destAddress: string
+  pickupLat?: number | null
+  pickupLng?: number | null
+  destLat?: number | null
+  destLng?: number | null
+  vehicle?: string | null
+  packageSize?: string | null
+  /** 예약 수거 시각(ISO) — null이면 즉시 배송. */
+  scheduledAt?: string | null
+  createdAt?: string
   packageLabel: string
   fare: number
   status: 'requested' | 'assigned'
   driverName: string | null
   driverVehicle: string | null
   driverPlate: string | null
+  /** 배정 후에만 당사자에게 노출되는 연락처. */
+  driverPhone?: string
+  senderPhone?: string
+  recipientPhone?: string
 }
 
 export async function publishDelivery(job: DeliveryJob) {
@@ -101,8 +122,8 @@ export async function publishDelivery(job: DeliveryJob) {
   return data.job
 }
 
-export async function fetchDelivery(id: string) {
-  const res = await apiFetch(`/api/deliveries/${encodeURIComponent(id)}/`)
+export async function fetchDelivery(id: string, viewer?: string) {
+  const res = await apiFetch(`/api/deliveries/${encodeURIComponent(id)}/${viewer ? `?viewer=${encodeURIComponent(viewer)}` : ''}`)
   if (res.status === 404) return null
   const data = (await res.json().catch(() => null)) as { job?: PublicDelivery } | null
   return data?.job ?? null
@@ -115,7 +136,7 @@ export async function fetchOpenDeliveries() {
   return data?.jobs ?? []
 }
 
-export async function acceptDelivery(id: string, driver: { driverId: string; name?: string; vehicle: string; plate: string }) {
+export async function acceptDelivery(id: string, driver: { driverId: string; name?: string; vehicle: string; plate: string; phone?: string }) {
   const res = await apiFetch(`/api/deliveries/${encodeURIComponent(id)}/accept/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -124,4 +145,39 @@ export async function acceptDelivery(id: string, driver: { driverId: string; nam
   const data = (await res.json().catch(() => null)) as { job?: PublicDelivery; error?: string } | null
   if (!res.ok || !data?.job) throw new Error(data?.error || '배차 수락에 실패했어요.')
   return data.job
+}
+
+export async function fetchAcceptedDeliveries(driverId: string) {
+  const res = await apiFetch(`/api/deliveries/?driverId=${encodeURIComponent(driverId)}`)
+  const data = (await res.json().catch(() => null)) as { jobs?: PublicDelivery[] } | null
+  return res.ok ? (data?.jobs ?? []) : []
+}
+
+export async function fetchMyDeliveries(ownerId: string) {
+  const res = await apiFetch(`/api/deliveries/?ownerId=${encodeURIComponent(ownerId)}`)
+  const data = (await res.json().catch(() => null)) as { jobs?: PublicDelivery[] } | null
+  return res.ok ? (data?.jobs ?? []) : []
+}
+
+export async function updateDelivery(id: string, ownerId: string, patch: Record<string, unknown>) {
+  const res = await apiFetch(`/api/deliveries/${encodeURIComponent(id)}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...patch, ownerId }),
+  })
+  const data = (await res.json().catch(() => null)) as { job?: PublicDelivery; error?: string } | null
+  if (!res.ok || !data?.job) throw new Error(data?.error || '택배 정보를 수정하지 못했어요.')
+  return data.job
+}
+
+export async function deleteDelivery(id: string, ownerId: string) {
+  const res = await apiFetch(`/api/deliveries/${encodeURIComponent(id)}/`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ownerId }),
+  })
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null
+    throw new Error(data?.error || '택배를 삭제하지 못했어요.')
+  }
 }

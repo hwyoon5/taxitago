@@ -764,5 +764,19 @@
   "coupon.errMinSpend": "최소 결제 금액에 미달합니다.",
   "coupon.errAudience": "이 쿠폰의 발급 대상이 아닙니다.",
   "coupon.errLimit": "사용 한도를 모두 사용했습니다.",
-  "svc.delivDist": "직선거리 약 {km}km · 거리 추가 {fee} Pi"
+  "svc.delivDist": "직선거리 약 {km}km · 거리 추가 {fee} Pi",
+  "svc.delivSched": "발송 예정",
+  "svc.delivNow": "즉시",
+  "svc.delivAfter": "{min}분 후",
+  "svc.delivScheduled": "예약",
+  "svc.delivAssigned": "배차 완료",
+  "svc.myDeliveries": "내 택배 목록",
+  "svc.delivNone": "등록된 택배가 없어요",
+  "svc.delivEdit": "수정",
+  "svc.delivDelete": "삭제",
+  "svc.delivUpdated": "택배 정보를 수정했어요",
+  "svc.delivDeleted": "택배를 삭제했어요",
+  "svc.delivCountdown": "수거 예정까지 {m}분 {s}초",
+  "svc.delivDue": "수거 예정 시간입니다",
+  "svc.delivMatchedNotice": "택배 배차 완료 — {driver} 기사({vehicle})가 수락했어요"
 }

@@ -5,8 +5,18 @@ export type DeliveryDispatchStatus = 'requested' | 'assigned'
 
 export type DeliveryDispatch = {
   id: string
+  /** 발신인 식별자 — 수정·삭제 권한 검사와 '내 택배' 목록 필터에 쓴다. */
+  ownerId?: string
   pickupAddress: string
+  pickupLat?: number | null
+  pickupLng?: number | null
   destAddress: string
+  destLat?: number | null
+  destLng?: number | null
+  /** 예약 수거 시각(ISO) — null/없으면 즉시 배송. */
+  scheduledAt?: string | null
+  vehicle?: string
+  packageSize?: string
   packageLabel: string
   fare: number
   senderPhone: string
@@ -14,6 +24,8 @@ export type DeliveryDispatch = {
   status: DeliveryDispatchStatus
   driverId: string | null
   driverName: string | null
+  /** 배정 기사 연락처 — 수락 시 전달, 발신인이 기사와 직통 연결할 때 노출. */
+  driverPhone?: string | null
   driverVehicle: string | null
   driverPlate: string | null
   createdAt: string
@@ -73,11 +85,51 @@ export function getDeliveryDispatch(id: string) {
   return db().jobs.get(id) ?? null
 }
 
+/** 발신인 소유 건 전체(상태 무관) — 최신순. */
+export function listDeliveriesByOwner(ownerId: string) {
+  return [...db().jobs.values()]
+    .filter((job) => job.ownerId === ownerId)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+}
+
+/** 미배차 건만 발신인 본인이 고칠 수 있다. */
+export function updateDeliveryDispatch(id: string, ownerId: string, patch: Partial<DeliveryDispatch>) {
+  const job = getDeliveryDispatch(id)
+  if (!job) return { ok: false as const, error: 'not_found' as const, job: null }
+  if (job.ownerId && job.ownerId !== ownerId) return { ok: false as const, error: 'forbidden' as const, job: null }
+  if (job.status !== 'requested') return { ok: false as const, error: 'already_assigned' as const, job }
+  const editable = ['pickupAddress', 'pickupLat', 'pickupLng', 'destAddress', 'destLat', 'destLng', 'packageLabel', 'vehicle', 'packageSize', 'fare', 'senderPhone', 'recipientPhone', 'scheduledAt'] as const
+  for (const key of editable) {
+    if (key in patch) (job as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key]
+  }
+  job.updatedAt = new Date().toISOString()
+  persist()
+  return { ok: true as const, job }
+}
+
+/** 미배차 건 삭제 — 발신인 취소. */
+export function deleteDeliveryDispatch(id: string, ownerId: string) {
+  const job = getDeliveryDispatch(id)
+  if (!job) return { ok: false as const, error: 'not_found' as const }
+  if (job.ownerId && job.ownerId !== ownerId) return { ok: false as const, error: 'forbidden' as const }
+  if (job.status !== 'requested') return { ok: false as const, error: 'already_assigned' as const }
+  db().jobs.delete(id)
+  persist()
+  return { ok: true as const }
+}
+
+/** 기사에게 배정된 건 — 기사 화면의 수락 건 복원 폴링용. */
+export function listAssignedByDriver(driverId: string) {
+  return [...db().jobs.values()]
+    .filter((job) => job.status === 'assigned' && job.driverId === driverId)
+    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+}
+
 export function listOpenDeliveries() {
   return [...db().jobs.values()].filter((job) => job.status === 'requested').sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
 }
 
-export function acceptDeliveryDispatch(id: string, driver: { driverId: string; name: string; vehicle: string; plate: string }) {
+export function acceptDeliveryDispatch(id: string, driver: { driverId: string; name: string; vehicle: string; plate: string; phone?: string }) {
   const job = getDeliveryDispatch(id)
   if (!job) return { ok: false as const, error: 'not_found', job: null }
   if (job.status === 'assigned') {
@@ -89,6 +141,7 @@ export function acceptDeliveryDispatch(id: string, driver: { driverId: string; n
   job.driverName = driver.name.trim() || '기사'
   job.driverVehicle = driver.vehicle.trim()
   job.driverPlate = driver.plate.trim()
+  job.driverPhone = driver.phone?.trim() || null
   job.updatedAt = new Date().toISOString()
   persist()
   return { ok: true as const, job }
@@ -102,12 +155,21 @@ export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
     destAddress: job.destAddress,
     packageLabel: job.packageLabel,
     fare: job.fare,
+    vehicle: job.vehicle ?? null,
+    packageSize: job.packageSize ?? null,
+    scheduledAt: job.scheduledAt ?? null,
+    pickupLat: job.pickupLat ?? null,
+    pickupLng: job.pickupLng ?? null,
+    destLat: job.destLat ?? null,
+    destLng: job.destLng ?? null,
     status: job.status,
     driverName: job.driverName,
     driverVehicle: job.driverVehicle,
     driverPlate: job.driverPlate,
     senderPhone: job.status === 'assigned' && mine ? job.senderPhone : '',
     recipientPhone: job.status === 'assigned' && mine ? job.recipientPhone : '',
+    // 발신인·수신인 ↔ 기사 연락처 — 배정된 당사자(기사 또는 발신인)에게만 노출.
+    driverPhone: job.status === 'assigned' && (mine || (viewerId && job.ownerId === viewerId)) ? (job.driverPhone ?? '') : '',
     createdAt: job.createdAt,
   }
 }
