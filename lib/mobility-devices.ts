@@ -267,12 +267,12 @@ export async function deleteMobilityDevice(serial: string, ownerUid: string): Pr
 
 // ── 이용자 대여·반납 전이 ───────────────────────────────────────────────────
 
-async function transitionRental(serial: string, rent: boolean): Promise<MobilityDevice | null> {
+async function transitionRental(serial: string, rent: boolean, renterId = ''): Promise<MobilityDevice | null> {
   try {
     const res = await fetch('/api/devices', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId: serial.trim(), rent }),
+      body: JSON.stringify({ deviceId: serial.trim(), rent, renterId: renterId.trim() || undefined }),
     })
     const data = (await res.json().catch(() => null)) as { device?: DeviceTelemetry } | null
     const device = data?.device ? deviceFromTelemetry(data.device) : null
@@ -285,8 +285,8 @@ async function transitionRental(serial: string, rent: boolean): Promise<Mobility
   }
 }
 
-export const rentMobilityDevice = (serial: string) => transitionRental(serial, true)
-export const returnMobilityDevice = (serial: string) => transitionRental(serial, false)
+export const rentMobilityDevice = (serial: string, renterId?: string) => transitionRental(serial, true, renterId)
+export const returnMobilityDevice = (serial: string, renterId?: string) => transitionRental(serial, false, renterId)
 
 // ── 외부 파트너 피드 연동 (서버가 주기 폴링해 기기를 자동 취합) ────────────
 

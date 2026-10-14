@@ -56,20 +56,22 @@ const RENTAL_ERRORS: Record<string, string> = {
 }
 
 /**
- * 이용자 대여·반납 전이 — { deviceId, rent: true|false }.
+ * 이용자 대여·반납 전이 — { deviceId, rent: true|false, renterId? }.
  * 서버가 상태 전이를 검증해 동일 기기의 중복 대여를 막는다.
  */
 export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     deviceId?: unknown
     rent?: unknown
+    renterId?: unknown
   } | null
   const deviceId = typeof body?.deviceId === 'string' ? body.deviceId.trim() : ''
   const rent = body?.rent === true ? true : body?.rent === false ? false : null
+  const renterId = typeof body?.renterId === 'string' ? body.renterId.trim() : ''
   if (!deviceId || rent === null) {
     return NextResponse.json({ error: 'invalid_fields' }, { status: 400 })
   }
-  const result = await setDeviceRentalState(deviceId, rent)
+  const result = await setDeviceRentalState(deviceId, rent, renterId)
   if (!result.ok) {
     return NextResponse.json({ error: result.error, message: RENTAL_ERRORS[result.error] }, { status: 409 })
   }

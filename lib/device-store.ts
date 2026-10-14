@@ -308,6 +308,7 @@ export async function removePartnerDevice(deviceId: string, ownerUid: string): P
 export async function setDeviceRentalState(
   deviceId: string,
   rented: boolean,
+  renterId = '',
 ): Promise<{ ok: true; device: DeviceTelemetry } | { ok: false; error: 'not_found' | 'not_rentable' | 'already_rented' | 'not_rented' }> {
   const id = (deviceId || '').trim()
   if (!id) return { ok: false, error: 'not_found' }
@@ -329,6 +330,10 @@ export async function setDeviceRentalState(
   }
   row.lastSeen = now
   await writeEntries(entries)
+  // 대여 이력은 전이가 확정된 뒤에만 기록한다 — 실패 시 로그가 새지 않게.
+  const { recordRentalStart, recordRentalEnd } = await import('@/lib/rental-store')
+  if (rented) await recordRentalStart(row, renterId).catch(() => null)
+  else await recordRentalEnd(row.deviceId).catch(() => null)
   return { ok: true, device: row }
 }
 

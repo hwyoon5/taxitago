@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import AdminDeliveries from '@/components/admin-deliveries'
+import AdminRentals from '@/components/admin-rentals'
+import AdminRides from '@/components/admin-rides'
 import { BUSAN_CITY_HALL } from '@/lib/user-location'
 import {
   createNaverLatLng,
@@ -762,6 +764,10 @@ export default function AdminLiveDashboard() {
             </div>
           </section>
 
+          {/* 서비스별 현황·이력 — 택시 호출 → 대리운전 → 공유 모빌리티 → 택배 순으로 배치한다. */}
+          <AdminRides kind="taxi" />
+          <AdminRides kind="daeri" />
+
           <section className="rounded-2xl border-2 border-[#E2E8F0] bg-white p-4">
             <h3 className="text-xs font-black text-[#334155]">공유 모빌리티 대여 현황</h3>
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -784,8 +790,12 @@ export default function AdminLiveDashboard() {
                 )
               })}
             </div>
+
+            {/* 대여 이력 검색 — 날짜·상태·검색어로 전체 대여 기록을 조회한다. */}
+            <AdminRentals />
           </section>
 
+          {/* 택배 현황·이력 — 서비스 섹션 순서상 마지막이다. */}
           <AdminDeliveries />
         </>
       ) : null}
