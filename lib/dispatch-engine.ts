@@ -437,6 +437,31 @@ export function markRideProgress(
   return { ok: true as const, ride: saved }
 }
 
+/**
+ * 기사 주도 진행 — 대리운전 전용. 이용자가 음주 상태로 앱 조작이 어려울 수 있어
+ * 탑승(운행 시작)/목적지 도착 확인을 배정된 기사가 대신 진행한다.
+ * 상태 시계는 승객 확인과 동일하게 boardedAt → readyToSettleAt을 쓴다.
+ */
+export function markRideProgressByDriver(rideId: string, driverId: string, step: 'boarded' | 'arrived') {
+  syncDispatchFromDisk()
+  const ride = getRide(rideId)
+  if (!ride) return { ok: false as const, error: 'not_found', ride: null }
+  if (ride.assignedDriverId !== driverId || ride.status !== 'assigned') {
+    return { ok: false as const, error: ride.status === 'assigned' ? 'forbidden' : ride.status || 'not_assigned', ride }
+  }
+  if (ride.kind !== 'daeri') return { ok: false as const, error: 'forbidden', ride }
+  if (step === 'boarded') {
+    if (!ride.boardedAt) ride.boardedAt = nowIso()
+  } else if (!ride.boardedAt) {
+    return { ok: false as const, error: 'not_boarded', ride }
+  } else if (!ride.readyToSettleAt) {
+    ride.readyToSettleAt = nowIso()
+  }
+  const saved = stamp(ride)
+  publishDriverLive(driverId)
+  return { ok: true as const, ride: saved }
+}
+
 export function abandonAssignedRide(rideId: string, driverId: string) {
   syncDispatchFromDisk()
   const ride = getRide(rideId)

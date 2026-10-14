@@ -553,6 +553,8 @@
   "daeri.waitMin": "{n}분 대기",
   "daeri.waitCap": "선택한 시간 동안 주변 기사에게 계속 콜을 보냅니다. 시간 안에 배차되지 않으면 요금을 올려 다시 등록할 수 있어요.",
   "daeri.waitLeft": "기사 응답 대기 · 약 {n}분 남음",
+  "daeri.assignBadge": "대리 기사 배정 완료",
+  "daeri.assignSub": "기사님이 출발지로 이동하고 있어요. 차량·전화번호를 확인하고 필요하면 바로 연락하세요.",
   "daeri.plan.fair": "착한요금",
   "daeri.plan.fairCap": "합리적인 기본 요금",
   "daeri.plan.fast": "빠른배정",

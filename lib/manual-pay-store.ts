@@ -22,6 +22,8 @@ export type ManualPayRecord = {
   txid: string
   /** 잔액 결제로 지불한 승객의 Pi uid — Pi 결제 건은 없을 수 있다. */
   paidByUid?: string
+  /** 배차된 운행에 붙은 현장 결제면 해당 ride id — 완료 처리 시 정산 검증에 쓴다. */
+  rideId?: string
   createdAt: string
   settledAt: string
 }
@@ -57,6 +59,7 @@ export async function createManualPay(input: {
   driverWallet: string
   amount: number
   memo: string
+  rideId?: string
 }): Promise<ManualPayRecord> {
   const record: ManualPayRecord = {
     id: randomUUID().replace(/-/g, '').slice(0, 16),
@@ -68,6 +71,7 @@ export async function createManualPay(input: {
     status: 'pending',
     paymentId: '',
     txid: '',
+    rideId: input.rideId?.trim() || undefined,
     createdAt: new Date().toISOString(),
     settledAt: '',
   }

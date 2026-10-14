@@ -24,6 +24,9 @@ export default function ManualPayModal({
   driverId,
   driverName,
   driverWallet,
+  rideId,
+  initialAmount,
+  initialMemo,
   onSettled,
   onClose,
   onNotice,
@@ -31,13 +34,17 @@ export default function ManualPayModal({
   driverId: string
   driverName: string
   driverWallet: string
+  /** 배차 운행에 붙는 현장 결제면 ride id를 넘겨 완료 처리와 연결한다. */
+  rideId?: string
+  initialAmount?: string
+  initialMemo?: string
   onSettled: (record: ManualPayPublic) => void
   onClose: () => void
   onNotice: (message: string) => void
 }) {
   const [step, setStep] = useState<Step>('form')
-  const [amount, setAmount] = useState('')
-  const [memo, setMemo] = useState('')
+  const [amount, setAmount] = useState(initialAmount ?? '')
+  const [memo, setMemo] = useState(initialMemo ?? '')
   const [record, setRecord] = useState<ManualPayPublic | null>(null)
   const [qrUrl, setQrUrl] = useState('')
   const [payUrl, setPayUrl] = useState('')
@@ -88,7 +95,7 @@ export default function ManualPayModal({
     void apiFetch('/api/manual-pay/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ driverId, driverName, driverWallet, amount: value, memo: memo.trim() }),
+      body: JSON.stringify({ driverId, driverName, driverWallet, amount: value, memo: memo.trim(), rideId }),
     })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { record?: ManualPayPublic; error?: string } | null
@@ -131,7 +138,7 @@ export default function ManualPayModal({
       : apiFetch('/api/manual-pay/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ driverId, driverName, driverWallet, amount: value, memo: memo.trim() }),
+          body: JSON.stringify({ driverId, driverName, driverWallet, amount: value, memo: memo.trim(), rideId }),
         })
           .then(async (res) => {
             const data = (await res.json().catch(() => null)) as { record?: ManualPayPublic } | null

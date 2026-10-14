@@ -553,6 +553,8 @@
   "daeri.waitMin": "Wait {n} min",
   "daeri.waitCap": "We keep offering your call to nearby drivers for the selected time. If it expires, you can raise the fare and re-register.",
   "daeri.waitLeft": "Waiting for a driver · ~{n} min left",
+  "daeri.assignBadge": "Driver assigned",
+  "daeri.assignSub": "Your driver is heading to the pickup. Check the vehicle and phone number, and call if needed.",
   "daeri.plan.fair": "Fair fare",
   "daeri.plan.fairCap": "Reasonable base fare",
   "daeri.plan.fast": "Fast assign",

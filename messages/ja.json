@@ -553,6 +553,8 @@
   "daeri.waitMin": "{n}分待つ",
   "daeri.waitCap": "選択した時間の間、周辺のドライバーに配車リクエストを送り続けます。時間内にマッチしなければ料金を上げて再登録できます。",
   "daeri.waitLeft": "ドライバー応答待ち · 残り約{n}分",
+  "daeri.assignBadge": "代行ドライバー確定",
+  "daeri.assignSub": "ドライバーが出発地に向かっています。車両・電話番号を確認し、必要ならすぐ連絡してください。",
   "daeri.plan.fair": "お得料金",
   "daeri.plan.fairCap": "リーズナブルな基本料金",
   "daeri.plan.fast": "快速割当",

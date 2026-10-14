@@ -436,6 +436,22 @@ export async function markRideProgress(
   return data.ride
 }
 
+/** 대리운전 전용 — 배정된 기사가 탑승/도착 확인을 대신 진행한다. */
+export async function markRideProgressAsDriver(
+  rideId: string,
+  driverId: string,
+  step: 'boarded' | 'arrived',
+) {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/progress/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ driverId, step }),
+  })
+  const data = await readJson<{ ride?: PublicRide; error?: string }>(res).catch(() => null)
+  if (!res.ok || !data?.ride) throw new Error(data?.error || '운행 상태를 저장하지 못했어요.')
+  return data.ride
+}
+
 export async function abandonDriverRide(rideId: string, driverId: string) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/abandon/`, {
     method: 'POST',
@@ -451,12 +467,12 @@ export async function completeRideTrip(
   rideId: string,
   driverId: string,
   ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'expectedMinutes' | 'kind' | 'boardedAt' | 'readyToSettleAt' | 'escrow'>,
-  init?: { signal?: AbortSignal; actualKm?: number },
+  init?: { signal?: AbortSignal; actualKm?: number; onsitePayId?: string },
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/complete/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ driverId, ride, actualKm: init?.actualKm }),
+    body: JSON.stringify({ driverId, ride, actualKm: init?.actualKm, onsitePayId: init?.onsitePayId }),
     signal: init?.signal,
   })
   const data = await readJson<{ ride?: PublicRide; receipt?: SettlementReceipt; error?: string }>(res).catch(() => null)

@@ -8,6 +8,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { id } = await context.params
   const body = (await request.json().catch(() => null)) as {
     passengerId?: unknown
+    driverId?: unknown
     step?: unknown
     ride?: {
       pickup?: { lat?: unknown; lng?: unknown; address?: unknown; label?: unknown }
@@ -21,12 +22,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
   } | null
   const passengerId = typeof body?.passengerId === 'string' ? body.passengerId.trim() : ''
+  // 대리운전은 배정된 기사가 탑승/도착 확인을 대신 진행할 수 있다.
+  const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
   const step = body?.step === 'boarded' || body?.step === 'arrived' ? body.step : null
-  if (!passengerId || !step) return NextResponse.json({ error: 'passengerId and step required' }, { status: 400 })
+  if ((!passengerId && !driverId) || !step) {
+    return NextResponse.json({ error: 'passengerId or driverId and step required' }, { status: 400 })
+  }
   const result = await transitionRide({
     rideId: id,
     action: step === 'boarded' ? 'board' : 'arrive',
     passengerId,
+    driverId,
     snapshot: body?.ride,
   })
   if (!result.ok) {

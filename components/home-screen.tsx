@@ -57,6 +57,7 @@ import {
   cancelRideRequest,
   completeRideTrip,
   markRideProgress,
+  markRideProgressAsDriver,
   createRideRequest,
   fetchActiveRide,
   fetchDriverActiveRide,
@@ -3439,6 +3440,8 @@ function ServiceSheet({
   const [preparingOpen, setPreparingOpen] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  // 대리 기사 배정 직후 1회 띄우는 기사 정보 안내 모달
+  const [assignNoticeOpen, setAssignNoticeOpen] = useState(false)
   const [deviceFormOpen, setDeviceFormOpen] = useState(false)
   const finishedRef = useRef(false)
   const rentalSerialRef = useRef('')
@@ -3573,7 +3576,7 @@ function ServiceSheet({
     const serial = rentalSerialRef.current || (selected?.status === 'rented' ? selected.serial : '')
     if (!serial) return
     rentalSerialRef.current = ''
-    void returnMobilityDevice(serial).catch(() => null)
+    void returnMobilityDevice(serial, daeriPassengerIdRef.current || localPassengerId()).catch(() => null)
   }
   const startService = async (scanned?: boolean, consented?: boolean) => {
     if (service === '택배' || ride) {
@@ -3695,7 +3698,7 @@ function ServiceSheet({
         return
       }
       // 서버가 대여 전이를 검증한다 — 다른 이용자가 먼저 대여했으면 실패한다.
-      const rented = await rentMobilityDevice(device.serial).catch(() => null)
+      const rented = await rentMobilityDevice(device.serial, daeriPassengerIdRef.current || localPassengerId()).catch(() => null)
       if (!rented) {
         void refreshMobilityDevices()
         onNotice(t('svc.rentTaken'))
@@ -3795,6 +3798,7 @@ function ServiceSheet({
       if ((next.status === 'assigned' || next.status === 'completed') && !daeriAcceptedRef.current) {
         daeriAcceptedRef.current = true
         setPhase('assigned')
+        if (ride && next.assignedDriver) setAssignNoticeOpen(true)
         onActivity?.(t('match.dispatched'), `${next.assignedDriver?.name || t('match.driver')} · ${place}`)
         onNotice(t('svc.noticeAssigned', { name: translateService(locale, service) }))
       }
@@ -4736,6 +4740,59 @@ function ServiceSheet({
           onKeep={() => setCancelConfirmOpen(false)}
           onConfirm={() => void confirmInTripCancel()}
         />
+      ) : null}
+      {assignNoticeOpen && ride && dispatchRide?.assignedDriver ? (
+        <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black/50 p-5" onClick={() => setAssignNoticeOpen(false)}>
+          <div className="w-full max-w-sm rounded-[28px] bg-white p-6 text-center shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <p className="text-xs font-black text-[#4A82B8]">{t('daeri.assignBadge')}</p>
+            <div className="mx-auto mt-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#4A82B8] text-xl font-black text-white">
+              {dispatchRide.assignedDriver.name.slice(0, 1)}
+            </div>
+            <h3 className="mt-2 text-xl font-black text-[#0F172A]">{t('match.driverTitle', { name: dispatchRide.assignedDriver.name })}</h3>
+            <p className="mt-1 text-xs font-bold leading-5 text-[#64748B]">{t('daeri.assignSub')}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-left">
+              <div className="rounded-2xl bg-[#F8FAFC] px-3 py-2.5">
+                <p className="text-[10px] font-bold text-[#8b8495]">{t('match.vehicle')}</p>
+                <p className="mt-0.5 text-sm font-black text-[#0F172A]">{dispatchRide.assignedDriver.vehicle || t('common.checking')}</p>
+              </div>
+              <div className="rounded-2xl bg-[#F8FAFC] px-3 py-2.5">
+                <p className="text-[10px] font-bold text-[#8b8495]">{t('match.plate')}</p>
+                <p className="mt-0.5 text-sm font-black tracking-wide text-[#0F172A]">{dispatchRide.assignedDriver.plate || t('common.checking')}</p>
+              </div>
+            </div>
+            {dispatchRide.assignedDriver.phone ? (
+              <a
+                href={telHref(dispatchRide.assignedDriver.phone)}
+                className="mt-3 flex items-center justify-center gap-2 rounded-2xl bg-[#E8F1FA] px-3 py-2.5 text-sm font-black text-[#4A82B8]"
+              >
+                <Phone className="h-4 w-4" />
+                {dispatchRide.assignedDriver.phone}
+              </a>
+            ) : null}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAssignNoticeOpen(false)
+                  const href = telHref(dispatchRide.assignedDriver?.phone || '')
+                  if (href) window.location.href = href
+                  else setCallOpen(true)
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] py-3 text-sm font-black text-white"
+              >
+                <Phone className="h-4 w-4" />
+                {t('match.call')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssignNoticeOpen(false)}
+                className="rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-black text-[#475569]"
+              >
+                {t('common.ok')}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
       {callOpen ? (
         contactRideId ? (
@@ -8585,6 +8642,8 @@ function DriverDashboard({
   const [payoutOpen, setPayoutOpen] = useState(false)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [manualPayOpen, setManualPayOpen] = useState(false)
+  // 대리운전 현장 QR/수동 결제 — 정산할 운행을 들고 ManualPayModal을 연다.
+  const [rideOnsitePay, setRideOnsitePay] = useState<PublicRide | null>(null)
   const [withdrawing, setWithdrawing] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
@@ -9250,6 +9309,35 @@ function DriverDashboard({
       .finally(() => setBusy(false))
   }
 
+  // 대리운전 전용 — 음주 상태 이용자를 대신해 기사가 탑승/도착 확인을 진행한다.
+  const driverMarkProgress = (step: 'boarded' | 'arrived') => {
+    if (busy || !activeRide || !driverId) return
+    setBusy(true)
+    void markRideProgressAsDriver(activeRide.id, activeRide.assignedDriver?.id || driverId, step)
+      .then((next) => setActiveRide(next))
+      .catch((error) => onNotice(error instanceof Error ? error.message : '운행 상태를 저장하지 못했어요.'))
+      .finally(() => setBusy(false))
+  }
+
+  // 대리운전 이용 완료 — 승객 앱 결제(에스크로)가 잠겨 있으면 그대로 해제 정산하고,
+  // 아니면 현장 QR/수동 결제 모달로 이어간다.
+  const finishDaeriTrip = () => {
+    if (busy) return
+    if (!activeRide || !driverId) {
+      onNotice('정산할 운행 정보를 찾지 못했어요. 화면을 새로고침한 뒤 다시 눌러 주세요.')
+      return
+    }
+    if (!activeRide.readyToSettleAt) {
+      onNotice('먼저 승객 탑승과 목적지 도착을 확인해 주세요.')
+      return
+    }
+    if (activeRide.escrow?.status === 'held') {
+      finishTrip()
+      return
+    }
+    setRideOnsitePay(activeRide)
+  }
+
   const finishTrip = () => {
     if (busy) return
     if (!activeRide || !driverId) {
@@ -9425,7 +9513,17 @@ function DriverDashboard({
             에스크로 {activeRide.escrow?.amount?.toFixed(7) ?? activeRide.estimatedFare.toFixed(7)} Pi · {activeRide.escrow?.status === 'held' ? '잠금 완료' : activeRide.escrow?.status === 'released' ? '정산됨' : '승객 입금 대기'}
           </p>
           <p className="mt-2 text-xs font-bold text-[#047857]">
-            {activeRide.readyToSettleAt ? '승객이 목적지 도착을 확인했어요. 정산할 수 있어요.' : activeRide.boardedAt ? '승객이 탑승을 확인했어요. 목적지 도착 확인을 기다리는 중이에요.' : '승객의 탑승 확인 전에는 정산할 수 없어요.'}
+            {activeRide.kind === 'daeri'
+              ? activeRide.readyToSettleAt
+                ? '목적지 도착이 확인됐어요. 이용 완료와 정산을 진행해 주세요.'
+                : activeRide.boardedAt
+                  ? '운행 중이에요. 목적지에 도착하면 도착 확인을 눌러 주세요.'
+                  : '대리 기사가 운행을 시작하면 승객 탑승 확인을 눌러 주세요.'
+              : activeRide.readyToSettleAt
+                ? '승객이 목적지 도착을 확인했어요. 정산할 수 있어요.'
+                : activeRide.boardedAt
+                  ? '승객이 탑승을 확인했어요. 목적지 도착 확인을 기다리는 중이에요.'
+                  : '승객의 탑승 확인 전에는 정산할 수 없어요.'}
           </p>
           {queuedRide ? (
             <p className="mt-2 rounded-lg bg-[#DBEAFE] px-2.5 py-1.5 text-[11px] font-black text-[#1D4ED8]">
@@ -9464,14 +9562,40 @@ function DriverDashboard({
               />
             </div>
           ) : null}
+          {activeRide.kind === 'daeri' && !activeRide.boardedAt ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => driverMarkProgress('boarded')}
+              className="relative z-10 mt-4 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white disabled:opacity-50"
+            >
+              {busy ? '처리 중…' : '승객 확인 · 운행 시작'}
+            </button>
+          ) : null}
+          {activeRide.kind === 'daeri' && activeRide.boardedAt && !activeRide.readyToSettleAt ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => driverMarkProgress('arrived')}
+              className="relative z-10 mt-4 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white disabled:opacity-50"
+            >
+              {busy ? '처리 중…' : '목적지 도착 확인'}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={busy}
             aria-busy={busy}
-            onClick={finishTrip}
+            onClick={activeRide.kind === 'daeri' ? finishDaeriTrip : finishTrip}
             className={`relative z-10 mt-4 w-full rounded-2xl py-3.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 ${canSettle ? 'bg-[#047857]' : 'bg-[#94A3B8]'}`}
           >
-            {busy ? '정산 중…' : '운행 완료 · 자동 정산'}
+            {busy
+              ? '정산 중…'
+              : activeRide.kind === 'daeri'
+                ? activeRide.escrow?.status === 'held'
+                  ? '이용 완료 · 자동 정산'
+                  : '이용 완료 · 현장 QR/수동 정산'
+                : '운행 완료 · 자동 정산'}
           </button>
           <button
             type="button"
@@ -9932,6 +10056,33 @@ function DriverDashboard({
             if (driverId) void fetchDriverEarnings(driverId, driverAliasRef.current).then((stats) => applyEarnings(driverId, stats))
           }}
           onClose={() => setManualPayOpen(false)}
+          onNotice={onNotice}
+        />
+      ) : null}
+      {rideOnsitePay ? (
+        <ManualPayModal
+          driverId={driverId}
+          driverName={partner?.name || partner?.username || ''}
+          driverWallet={partner?.wallet || ''}
+          rideId={rideOnsitePay.id}
+          initialAmount={(rideOnsitePay.escrow?.amount ?? rideOnsitePay.estimatedFare).toFixed(7)}
+          initialMemo={rideStops(rideOnsitePay).chain}
+          onSettled={(record) => {
+            // 현장 결제가 확정됐으니 운행도 함께 마감한다 — 서버가 결제 기록을 검증한다.
+            const ride = rideOnsitePay
+            void completeRideTrip(ride.id, ride.assignedDriver?.id || driverId, ride, { onsitePayId: record.id })
+              .then(() => {
+                dropEndedRide(ride.id)
+                setActiveRide(null)
+                noteActivity(`done:${ride.id}`, '운행 완료', rideRoute(ride))
+                onNotice('이용 완료 · 현장 결제로 정산되었습니다.')
+              })
+              .catch((error) => onNotice(error instanceof Error ? error.message : '운행 완료 처리에 실패했어요.'))
+              .finally(() => {
+                if (driverId) void fetchDriverEarnings(driverId, driverAliasRef.current).then((stats) => applyEarnings(driverId, stats))
+              })
+          }}
+          onClose={() => setRideOnsitePay(null)}
           onNotice={onNotice}
         />
       ) : null}

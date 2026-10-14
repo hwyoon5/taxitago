@@ -32,6 +32,7 @@ export async function POST(request: Request) {
     driverWallet?: unknown
     amount?: unknown
     memo?: unknown
+    rideId?: unknown
   } | null
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
   const amount = Number(body?.amount)
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
     driverWallet: typeof body?.driverWallet === 'string' ? body.driverWallet.trim() : '',
     amount,
     memo: typeof body?.memo === 'string' ? body.memo.trim() : '',
+    rideId: typeof body?.rideId === 'string' ? body.rideId.trim() : undefined,
   })
   return NextResponse.json({ ok: true, record: publicRecord(record) })
 }

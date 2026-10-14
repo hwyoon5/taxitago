@@ -5,10 +5,12 @@ import {
   ensureRideForCompletion,
   getPublicRide,
   markRideProgress,
+  markRideProgressByDriver,
   respondToOffer,
   restorePendingOffer,
   toPublicRide,
 } from '@/lib/dispatch-engine'
+import { getManualPay } from '@/lib/manual-pay-store'
 import { flushDispatchPersist, getRide, hydrateDispatchFromKv, listRides, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import {
   flushEscrowPersist,
@@ -121,6 +123,7 @@ export async function transitionRide(input: {
   settleFee?: boolean
   proof?: RideEscrowProof
   actualKm?: number
+  onsitePayId?: string
   snapshot?: {
     passengerId?: unknown
     pickup?: RidePointSnapshot
@@ -156,6 +159,7 @@ async function applyTransition(input: {
   settleFee?: boolean
   proof?: RideEscrowProof
   actualKm?: number
+  onsitePayId?: string
   snapshot?: {
     passengerId?: unknown
     pickup?: RidePointSnapshot
@@ -204,13 +208,12 @@ async function applyTransition(input: {
 
     case 'board':
     case 'arrive': {
-      if (!passengerId) return fail('passenger_required')
-      const result = markRideProgress(
-        rideId,
-        passengerId,
-        action === 'board' ? 'boarded' : 'arrived',
-        rideSnapshot,
-      )
+      if (!passengerId && !driverId) return fail('passenger_required')
+      const step = action === 'board' ? ('boarded' as const) : ('arrived' as const)
+      // 대리운전은 이용자가 음주 상태일 수 있어 배정된 기사가 단계를 대신 진행할 수 있다.
+      const result = passengerId
+        ? markRideProgress(rideId, passengerId, step, rideSnapshot)
+        : markRideProgressByDriver(rideId, driverId, step)
       if (!result.ride) return fail(result.error)
       if (!result.ok) return fail(result.error, result.ride)
       return okRecord(result.ride)
@@ -253,6 +256,35 @@ async function applyTransition(input: {
     case 'complete': {
       if (!driverId) return fail('driver_required')
       ensureRideForCompletion(rideId, driverId, rideSnapshot)
+      // 현장 QR/수동 결제로 이미 정산된 건 — 결제 기록을 검증한 뒤 에스크로 없이 운행을 마감한다.
+      const onsitePayId = typeof input.onsitePayId === 'string' ? input.onsitePayId.trim() : ''
+      if (onsitePayId) {
+        const ride = getRide(rideId)
+        if (!ride) return fail('not_found')
+        if (ride.assignedDriverId !== driverId) return fail('forbidden', ride)
+        if (ride.status !== 'assigned') return fail(ride.status, ride)
+        if (!ride.readyToSettleAt) return fail('passenger_not_ready', ride)
+        const heldEscrow = getEscrowByRide(rideId)
+        // 승객이 앱 결제로 에스크로까지 잠갔다면 현장 결제 대신 에스크로 해제로 정산한다.
+        if (heldEscrow?.status === 'held') {
+          const escrowResult = await releaseEscrow(rideId, driverId, input.proof, input.actualKm)
+          if (!escrowResult.ok) return fail(escrowResult.error, getPublicRide(rideId))
+          const done = completeAssignedRide(rideId, driverId)
+          await archiveRideComms(rideId, 'completed').catch(() => undefined)
+          const settled = getPublicRide(rideId) ?? (done ? toPublicRide(done) : null)
+          if (!settled) return fail('not_found')
+          return { ok: true as const, ride: settled, escrow: toPublicEscrow(escrowResult.escrow), receipt: escrowResult.receipt }
+        }
+        const record = await getManualPay(onsitePayId)
+        if (!record || record.driverId !== driverId) return fail('not_found', ride)
+        if (record.rideId && record.rideId !== rideId) return fail('forbidden', ride)
+        if (record.status !== 'paid' && record.status !== 'manual') return fail('escrow_not_held', ride)
+        const finished = completeAssignedRide(rideId, driverId)
+        await archiveRideComms(rideId, 'completed').catch(() => undefined)
+        const done = getPublicRide(rideId) ?? (finished ? toPublicRide(finished) : null)
+        if (!done) return fail('not_found')
+        return { ok: true as const, ride: done, escrow: toPublicEscrow(getEscrowByRide(rideId)), receipt: null }
+      }
       const result = await releaseEscrow(rideId, driverId, input.proof, input.actualKm)
       if (!result.ok) return fail(result.error, getPublicRide(rideId))
       const finished = completeAssignedRide(rideId, driverId)

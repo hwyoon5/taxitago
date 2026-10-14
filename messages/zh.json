@@ -553,6 +553,8 @@
   "daeri.waitMin": "等待{n}分钟",
   "daeri.waitCap": "在所选时间内持续向附近司机派单。超时未接单可提高费用重新登记。",
   "daeri.waitLeft": "等待司机接单 · 约剩{n}分钟",
+  "daeri.assignBadge": "代驾司机已接单",
+  "daeri.assignSub": "司机正在前往出发点。请确认车辆与电话号码，需要时可直接联系。",
   "daeri.plan.fair": "实惠价",
   "daeri.plan.fairCap": "合理基础价",
   "daeri.plan.fast": "快速派单",

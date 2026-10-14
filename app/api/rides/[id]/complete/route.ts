@@ -21,6 +21,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       escrow?: { status?: unknown; lockTxid?: unknown; lockPaymentId?: unknown }
     }
     actualKm?: unknown
+    onsitePayId?: unknown
   } | null
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
   if (!driverId) return NextResponse.json({ error: 'driverId required' }, { status: 400 })
@@ -30,6 +31,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       rideId: id,
       action: 'complete',
       driverId,
+      onsitePayId: typeof body?.onsitePayId === 'string' ? body.onsitePayId.trim() : undefined,
       snapshot: body?.ride,
       proof: escrowProof
         ? {
