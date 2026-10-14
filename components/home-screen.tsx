@@ -3231,6 +3231,9 @@ function ServiceSheet({
   // 미배차 택시/대리 호출의 요금 수동 상향 입력값 — 매칭 시트에서만 사용한다.
   const [rideFareBump, setRideFareBump] = useState('')
   const [rideFareBumpBusy, setRideFareBumpBusy] = useState(false)
+  // 요금 상향 입력창이 열려 있는 동안(입력 중·확인 대기 포함)에는 폴링/SSE가
+  // '매칭 실패' 화면으로 강제 전환하지 않도록 편집 상태를 추적한다.
+  const fareBumpEditingRef = useRef(false)
   const [myDeliveriesLoading, setMyDeliveriesLoading] = useState(false)
   // 등록 요청 중복 방지 — 연타 시 id가 다른 잡이 두 번 만들어지는 걸 막는다.
   const [deliveryPosting, setDeliveryPosting] = useState(false)
@@ -3376,6 +3379,13 @@ function ServiceSheet({
   }
   // 미배차 택시/대리 호출의 요금 상향 — 서버가 본인·상태·상향 여부를 검증하고
   // 상향된 견적은 기사 오퍼·실시간 리스트에 즉시 반영된다.
+  // 요금 상향 입력창 닫기 — 이미 unmatched면 미뤄둔 실패 안내를 이때 보인다.
+  const closeRideFareBump = () => {
+    fareBumpEditingRef.current = false
+    setRideFareBump('')
+    if (dispatchRide?.status === 'unmatched') setDaeriMatchError(t('match.errNoResponse'))
+  }
+  // [확인]을 눌러야만 요금이 반영되고 서버가 같은 콜로 재배차를 시도한다.
   const submitRideFareBump = () => {
     const target = dispatchRide
     if (!target || rideFareBumpBusy) return
@@ -3387,9 +3397,15 @@ function ServiceSheet({
     setRideFareBumpBusy(true)
     void bumpRideFare(target.id, daeriPassengerIdRef.current || localPassengerId(), next)
       .then((updated) => {
+        fareBumpEditingRef.current = false
         setDispatchRide(updated)
         setRideFareBump('')
-        onNotice(t('svc.delivFareUpDone'))
+        if (updated.status === 'unmatched') {
+          setDaeriMatchError(t('match.errNoResponse'))
+        } else {
+          setDaeriMatchError('')
+          onNotice(t('svc.delivFareUpDone'))
+        }
       })
       .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivFareUpErr')))
       .finally(() => setRideFareBumpBusy(false))
@@ -3782,7 +3798,10 @@ function ServiceSheet({
       }
       if (daeriAcceptedRef.current && next.status !== 'assigned' && next.status !== 'completed') return
       setDispatchRide(next)
-      if (next.status === 'unmatched') setDaeriMatchError(t('match.errNoResponse'))
+      // 요금 상향 입력 중에는 실패 안내를 미룬다 — [확인] 눌러 재호출한 뒤에도
+      // unmatched면 그때 노출하고, 다시 배차가 진행되면 지운다.
+      if (next.status === 'unmatched' && !fareBumpEditingRef.current) setDaeriMatchError(t('match.errNoResponse'))
+      if (next.status === 'searching' || next.status === 'offered') setDaeriMatchError('')
     }
     const unsubscribe = subscribeRideLive(rideId, apply)
     const pull = () => {
@@ -3832,6 +3851,8 @@ function ServiceSheet({
     const staleId = dispatchRide?.id || daeriRideIdRef.current
     setDaeriAccepting(true)
     setDaeriMatchError('')
+    fareBumpEditingRef.current = false
+    setRideFareBump('')
     daeriEndedRef.current = false
     daeriAcceptedRef.current = false
     setDispatchRide(null)
@@ -3991,7 +4012,11 @@ function ServiceSheet({
                   </p>
                   <button
                     type="button"
-                    onClick={() => setRideFareBump((dispatchRide.estimatedFare + 0.5).toFixed(2))}
+                    onClick={() => {
+                      fareBumpEditingRef.current = true
+                      setDaeriMatchError('')
+                      setRideFareBump((dispatchRide.estimatedFare + 0.5).toFixed(2))
+                    }}
                     className="rounded-lg border-2 border-[#BFDBFE] px-2.5 py-1 text-[10px] font-black text-[#4A82B8]"
                   >
                     {t('svc.delivFareUp')}
@@ -4018,6 +4043,15 @@ function ServiceSheet({
                     >
                       {rideFareBumpBusy ? t('common.loading') : t('common.ok')}
                     </button>
+                    <button
+                      type="button"
+                      disabled={rideFareBumpBusy}
+                      onClick={closeRideFareBump}
+                      aria-label={t('common.close')}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#F1F5F9] text-[#64748B] disabled:opacity-50"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 ) : null}
               </div>
@@ -4030,6 +4064,8 @@ function ServiceSheet({
                 daeriSheetRideId = ''
                 daeriRideIdRef.current = ''
                 daeriAcceptedRef.current = false
+                fareBumpEditingRef.current = false
+                setRideFareBump('')
                 setDaeriMatchError('')
                 setDaeriAccepting(false)
                 if (ride && staleId) {
