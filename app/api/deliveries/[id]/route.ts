@@ -14,7 +14,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   return NextResponse.json({ ok: true, job: publicDelivery(job, viewer || undefined) })
 }
 
-const EDITABLE = ['pickupAddress', 'pickupLat', 'pickupLng', 'destAddress', 'destLat', 'destLng', 'packageLabel', 'vehicle', 'packageSize', 'fare', 'senderPhone', 'recipientPhone', 'scheduledAt'] as const
+const EDITABLE = ['pickupAddress', 'pickupLat', 'pickupLng', 'destAddress', 'destLat', 'destLng', 'packageLabel', 'vehicle', 'packageSize', 'fare', 'senderPhone', 'recipientPhone', 'scheduledAt', 'driverNote'] as const
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params

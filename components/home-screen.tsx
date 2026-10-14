@@ -53,6 +53,7 @@ import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfil
 import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, refreshMobilityDevices, rentMobilityDevice, returnMobilityDevice } from '@/lib/mobility-devices'
 import {
   abandonDriverRide,
+  bumpRideFare,
   cancelRideRequest,
   completeRideTrip,
   markRideProgress,
@@ -3233,6 +3234,8 @@ function ServiceSheet({
   const [myDeliveries, setMyDeliveries] = useState<PublicDelivery[]>([])
   // 물품 첨부 사진(리사이즈된 dataURL) — 등록 시 서버 attachment-store로 간다.
   const [deliveryPhotos, setDeliveryPhotos] = useState<PhotoUpload[]>([])
+  // 기사에게 전하는 요청 메모 — 특이사항·찾아오는 길·배송 주의점.
+  const [deliveryNote, setDeliveryNote] = useState('')
   // 등록 직후 열리는 결제 수단 선택 시트 대상 — 선결제/현장 QR 분기의 기준 건.
   const [deliveryPayJob, setDeliveryPayJob] = useState<PublicDelivery | null>(null)
   const [deliveryPayBusy, setDeliveryPayBusy] = useState(false)
@@ -3240,6 +3243,9 @@ function ServiceSheet({
   const [deliveryQrJob, setDeliveryQrJob] = useState<PublicDelivery | null>(null)
   // '요금 올리기' 인라인 입력 — 매칭이 안 될 때 발신인이 상향 재등록한다.
   const [fareBump, setFareBump] = useState<{ id: string; value: string } | null>(null)
+  // 미배차 택시/대리 호출의 요금 수동 상향 입력값 — 매칭 시트에서만 사용한다.
+  const [rideFareBump, setRideFareBump] = useState('')
+  const [rideFareBumpBusy, setRideFareBumpBusy] = useState(false)
   const [myDeliveriesLoading, setMyDeliveriesLoading] = useState(false)
   // 등록 요청 중복 방지 — 연타 시 id가 다른 잡이 두 번 만들어지는 걸 막는다.
   const [deliveryPosting, setDeliveryPosting] = useState(false)
@@ -3329,6 +3335,7 @@ function ServiceSheet({
       setPackageSize(job.packageSize as PackageSizeId)
     }
     setDeliverySchedule(0)
+    setDeliveryNote(job.driverNote || '')
     setEditingDeliveryId(job.id)
     setMyDeliveriesOpen(false)
   }
@@ -3381,6 +3388,26 @@ function ServiceSheet({
         refreshMyDeliveries()
       })
       .catch((error) => onNotice(error instanceof Error ? error.message : ''))
+  }
+  // 미배차 택시/대리 호출의 요금 상향 — 서버가 본인·상태·상향 여부를 검증하고
+  // 상향된 견적은 기사 오퍼·실시간 리스트에 즉시 반영된다.
+  const submitRideFareBump = () => {
+    const target = dispatchRide
+    if (!target || rideFareBumpBusy) return
+    const next = Number(rideFareBump)
+    if (!Number.isFinite(next) || next <= target.estimatedFare) {
+      onNotice(t('svc.delivFareUpErr'))
+      return
+    }
+    setRideFareBumpBusy(true)
+    void bumpRideFare(target.id, daeriPassengerIdRef.current || localPassengerId(), next)
+      .then((updated) => {
+        setDispatchRide(updated)
+        setRideFareBump('')
+        onNotice(t('svc.delivFareUpDone'))
+      })
+      .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivFareUpErr')))
+      .finally(() => setRideFareBumpBusy(false))
   }
   const removeMyDelivery = (job: PublicDelivery) => {
     void runDeliveryMutation((ownerId) => deleteDelivery(job.id, ownerId))
@@ -3623,6 +3650,7 @@ function ServiceSheet({
         scheduledAt,
         senderPhone,
         recipientPhone,
+        driverNote: deliveryNote.trim(),
         status: 'requested',
         createdAt: new Date().toISOString(),
         photos: deliveryPhotos,
@@ -3969,6 +3997,45 @@ function ServiceSheet({
               >
                 {daeriAccepting ? t('match.retrying') : t('match.retry')}
               </button>
+            ) : null}
+            {dispatchRide && (dispatchRide.status === 'searching' || dispatchRide.status === 'offered' || dispatchRide.status === 'unmatched') ? (
+              <div className="rounded-2xl border-2 border-[#BFDBFE] bg-white p-3 text-left">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-black text-[#64748B]">
+                    {t('match.estFareLbl')} · <span className="text-[#4A82B8]">{dispatchRide.estimatedFare.toFixed(2)} Pi</span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setRideFareBump((dispatchRide.estimatedFare + 0.5).toFixed(2))}
+                    className="rounded-lg border-2 border-[#BFDBFE] px-2.5 py-1 text-[10px] font-black text-[#4A82B8]"
+                  >
+                    {t('svc.delivFareUp')}
+                  </button>
+                </div>
+                {rideFareBump ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.1"
+                      min={dispatchRide.estimatedFare}
+                      value={rideFareBump}
+                      onChange={(event) => setRideFareBump(event.target.value)}
+                      placeholder={t('svc.delivFareUpPh')}
+                      aria-label={t('svc.delivFareUp')}
+                      className="w-24 rounded-lg border-2 border-[#BFDBFE] bg-white px-2 py-1.5 text-center text-sm font-black text-[#0F172A] outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={rideFareBumpBusy}
+                      onClick={submitRideFareBump}
+                      className="rounded-lg bg-[#4A82B8] px-3 py-1.5 text-[11px] font-black text-white disabled:opacity-60"
+                    >
+                      {rideFareBumpBusy ? t('common.loading') : t('common.ok')}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
             <button
               type="button"
@@ -4545,6 +4612,18 @@ function ServiceSheet({
               </label>
               {phoneError ? <p className="mt-2 text-xs font-bold text-[#BE123C]">{phoneError}</p> : null}
             </div>
+            <div>
+              <p className="mb-1.5 mt-1 text-sm font-black">{t('svc.delivNote')}</p>
+              <textarea
+                rows={3}
+                maxLength={300}
+                value={deliveryNote}
+                onChange={(event) => setDeliveryNote(event.target.value)}
+                placeholder={t('svc.delivNotePh')}
+                aria-label={t('svc.delivNote')}
+                className="w-full resize-none rounded-2xl border-2 border-[#E0D4FF] bg-[#F8F5FF] px-4 py-3 text-sm font-bold leading-5 text-[#0F172A] outline-none focus:border-[#4A82B8]"
+              />
+            </div>
             <div className="rounded-3xl bg-[#f7f3ff] p-4">
               <div className="flex justify-between">
                 <span className="font-black">{t('svc.delivFare')}</span>
@@ -4704,6 +4783,22 @@ function ServiceSheet({
                       </span>
                       {job.scheduledAt && job.status === 'requested' ? <DeliveryCountdown at={job.scheduledAt} className="mt-1 text-[11px] font-black text-[#4A82B8]" /> : null}
                     </button>
+                    {job.driverNote ? (
+                      <p className="mt-1.5 rounded-xl bg-[#F8FAFC] px-2.5 py-1.5 text-[11px] font-bold leading-4 text-[#475569]">{job.driverNote}</p>
+                    ) : null}
+                    {job.status !== 'requested' && job.driverName ? (
+                      <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-[#E8F1FA] px-3 py-2">
+                        <p className="min-w-0 flex-1 truncate text-[11px] font-black text-[#0F172A]">
+                          {t('svc.delivDriver')} · {job.driverName}
+                          {job.driverVehicle || job.driverPlate ? ` · ${[job.driverVehicle, job.driverPlate].filter(Boolean).join(' ')}` : ''}
+                        </p>
+                        {job.driverPhone ? (
+                          <a href={telHref(job.driverPhone)} onClick={(event) => event.stopPropagation()} className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-[10px] font-black text-[#4A82B8] shadow-sm">
+                            {t('svc.delivCall')}
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {job.status === 'requested' ? (
                       <div className="mt-2 space-y-2">
                         <div className="flex gap-2">
@@ -4813,11 +4908,14 @@ function ServiceSheet({
               </p>
               {deliveryDetail.senderPhone ? <p><span className="text-[#94A3B8]">{t('svc.sender')}</span> · {deliveryDetail.senderPhone}</p> : null}
               {deliveryDetail.recipientPhone ? <p><span className="text-[#94A3B8]">{t('svc.recipient')}</span> · {deliveryDetail.recipientPhone}</p> : null}
+              {deliveryDetail.driverNote ? (
+                <p className="whitespace-pre-wrap break-keep"><span className="text-[#94A3B8]">{t('svc.delivNote')}</span> · {deliveryDetail.driverNote}</p>
+              ) : null}
             </div>
             {deliveryDetail.scheduledAt && deliveryDetail.status === 'requested' ? (
               <DeliveryCountdown at={deliveryDetail.scheduledAt} className="mt-2 text-xs font-black text-[#4A82B8]" />
             ) : null}
-            {deliveryDetail.status === 'assigned' && deliveryDetail.driverName ? (
+            {deliveryDetail.status !== 'requested' && deliveryDetail.driverName ? (
               <div className="mt-3 rounded-2xl bg-[#E8F1FA] p-3">
                 <p className="text-[10px] font-black text-[#4A82B8]">{t('svc.delivDriver')}</p>
                 <p className="mt-1 text-sm font-black text-[#0F172A]">
@@ -9460,6 +9558,9 @@ function DriverDashboard({
                     : ' · 즉시'}
                   {km !== null ? ` · ${km.toFixed(1)}km` : ''}
                 </p>
+                {job.driverNote ? (
+                  <p className="mt-1.5 rounded-lg bg-[#F8FAFC] px-2 py-1 text-[11px] font-bold leading-4 text-[#475569]">{t('svc.delivNote')} · {job.driverNote}</p>
+                ) : null}
                 <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   {job.photoCount ? (
                     <button
@@ -9515,6 +9616,9 @@ function DriverDashboard({
               ? ` · 예약 ${new Date(acceptedDelivery.scheduledAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
               : ' · 즉시'}
           </p>
+          {acceptedDelivery.driverNote ? (
+            <p className="mt-1.5 rounded-lg bg-white px-2 py-1 text-[11px] font-bold leading-4 text-[#475569] shadow-sm">{t('svc.delivNote')} · {acceptedDelivery.driverNote}</p>
+          ) : null}
           <div className="mt-3 grid grid-cols-2 gap-2">
             {acceptedDelivery.senderPhone ? (
               <a href={telHref(acceptedDelivery.senderPhone)} className="rounded-xl bg-white py-2.5 text-center text-xs font-black text-[#4A82B8] shadow-sm">
@@ -9580,6 +9684,9 @@ function DriverDashboard({
                 ? ` · ${haversineKm({ lat, lng }, { lat: Number(nearDelivery.pickupLat), lng: Number(nearDelivery.pickupLng) }).toFixed(1)}km`
                 : ''}
             </p>
+            {nearDelivery.driverNote ? (
+              <p className="mt-1.5 rounded-lg bg-[#F8FAFC] px-2 py-1 text-[11px] font-bold leading-4 text-[#475569]">{t('svc.delivNote')} · {nearDelivery.driverNote}</p>
+            ) : null}
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               {nearDelivery.photoCount ? (
                 <button

@@ -21,6 +21,8 @@ export type DeliveryJob = {
   destLng?: number | null
   /** 예약 수거 시각(ISO) — 없으면 즉시 배송. */
   scheduledAt?: string | null
+  /** 기사에게 전하는 요청 메모 — 특이사항·찾아오는 길·배송 주의점. */
+  driverNote?: string
   status: DeliveryJobStatus
   createdAt: string
   /** 물품 사진 — 리사이즈된 dataURL, 서버가 attachment-store에 보관. */
@@ -104,6 +106,8 @@ export type PublicDelivery = {
   packageLabel: string
   fare: number
   status: 'requested' | 'assigned' | 'in_transit' | 'completed'
+  /** 발신인이 남긴 기사 요청 메모. */
+  driverNote?: string
   driverName: string | null
   driverVehicle: string | null
   driverPlate: string | null

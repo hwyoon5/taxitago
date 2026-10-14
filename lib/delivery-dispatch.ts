@@ -23,6 +23,8 @@ export type DeliveryDispatch = {
   fare: number
   senderPhone: string
   recipientPhone: string
+  /** 발신인이 기사에게 남기는 요청 메모 — 특이사항·찾아오는 길·주의점. */
+  driverNote?: string
   status: DeliveryDispatchStatus
   driverId: string | null
   driverName: string | null
@@ -189,7 +191,7 @@ export async function updateDeliveryDispatch(id: string, ownerId: string, patch:
   if (!job) return { ok: false as const, error: 'not_found' as const, job: null }
   if (job.ownerId && job.ownerId !== ownerId) return { ok: false as const, error: 'forbidden' as const, job: null }
   if (job.status !== 'requested') return { ok: false as const, error: 'already_assigned' as const, job }
-  const editable = ['pickupAddress', 'pickupLat', 'pickupLng', 'destAddress', 'destLat', 'destLng', 'packageLabel', 'vehicle', 'packageSize', 'fare', 'senderPhone', 'recipientPhone', 'scheduledAt'] as const
+  const editable = ['pickupAddress', 'pickupLat', 'pickupLng', 'destAddress', 'destLat', 'destLng', 'packageLabel', 'vehicle', 'packageSize', 'fare', 'senderPhone', 'recipientPhone', 'scheduledAt', 'driverNote'] as const
   for (const key of editable) {
     if (key in patch) (job as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key]
   }
@@ -303,6 +305,7 @@ export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
     destLat: job.destLat ?? null,
     destLng: job.destLng ?? null,
     status: job.status,
+    driverNote: job.driverNote || '',
     driverName: job.driverName,
     driverVehicle: job.driverVehicle,
     driverPlate: job.driverPlate,

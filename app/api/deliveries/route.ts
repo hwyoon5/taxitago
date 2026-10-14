@@ -51,6 +51,7 @@ export async function POST(request: Request) {
     })(),
     vehicle: typeof body?.vehicle === 'string' ? body.vehicle.trim().slice(0, 30) : '',
     packageSize: typeof body?.packageSize === 'string' ? body.packageSize.trim().slice(0, 30) : '',
+    driverNote: typeof body?.driverNote === 'string' ? body.driverNote.trim().slice(0, 300) : '',
     createdAt,
   })
   // 물품 첨부 사진 — 검증 후 엔티티 id로 저장하고 장수만 기록한다.

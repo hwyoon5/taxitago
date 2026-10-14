@@ -209,6 +209,18 @@ export function subscribeRideLive(rideId: string, onRide: (ride: PublicRide) => 
   }
 }
 
+/** 미배차 호출 요금 수동 상향 — 서버가 본인·상태·상향 여부를 검증한다. */
+export async function bumpRideFare(rideId: string, passengerId: string, fare: number) {
+  const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/fare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ passengerId, fare }),
+  })
+  const data = await readJson<{ ride?: PublicRide; error?: string }>(res).catch(() => null)
+  if (!res.ok || !data?.ride) throw new Error(data?.error || '요금을 올리지 못했어요.')
+  return data.ride
+}
+
 export async function cancelRideRequest(rideId: string, passengerId: string, options?: { settleFee?: boolean }) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/cancel/`, {
     method: 'POST',
