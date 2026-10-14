@@ -1169,7 +1169,6 @@ function DestinationSearchModal({
 }) {
   const { t } = useLocale()
   const [query, setQuery] = useState(initialQuery)
-  const [voiceOpen, setVoiceOpen] = useState(false)
   const [destMapOpen, setDestMapOpen] = useState(false)
   const [destMapSession, setDestMapSession] = useState(0)
   const [remotePlaces, setRemotePlaces] = useState<PlaceItem[]>([])
@@ -1258,14 +1257,6 @@ function DestinationSearchModal({
                     {t('search.clear')}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => setVoiceOpen(true)}
-                  aria-label={t('home.voiceDest')}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#E8F1FA] text-[#4A82B8] transition hover:bg-[#DCEBF7] active:scale-95"
-                >
-                  <Mic className="h-4 w-4" />
-                </button>
               </div>
               <button
                 type="button"
@@ -1408,12 +1399,6 @@ function DestinationSearchModal({
             pick(place.address, place.address, { lat: place.lat, lng: place.lng, address: place.address })
             setDestMapOpen(false)
           }}
-        />
-      ) : null}
-      {voiceOpen ? (
-        <VoiceInputModal
-          onResult={(text) => setQuery(text)}
-          onClose={() => setVoiceOpen(false)}
         />
       ) : null}
     </div>
@@ -6078,14 +6063,6 @@ function Home({
               </button>
               <DestinationTaxiLoop className="w-[6.75rem] shrink-0 self-stretch overflow-hidden" />
             </div>
-            <button
-              type="button"
-              onClick={() => setVoiceDestOpen(true)}
-              aria-label={t('home.voiceDest')}
-              className="flex w-12 shrink-0 items-center justify-center rounded-lg bg-[#4A82B8] text-white shadow-[0_6px_12px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] active:scale-95"
-            >
-              <Mic className="h-5 w-5" />
-            </button>
           </div>
         </div>
         <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -6121,15 +6098,25 @@ function Home({
             {t('home.callDaeri')}
           </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setQrPayOpen(true)}
-          className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] px-3 py-3 text-[13px] font-black text-white shadow-[0_8px_18px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] active:scale-[0.99]"
-        >
-          <ScanLine className="h-5 w-5" />
-          {t('home.qrPay')}
-          <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black">{t('home.qrPayBadge')}</span>
-        </button>
+        <div className="mt-2 flex items-stretch gap-2">
+          <button
+            type="button"
+            onClick={() => setQrPayOpen(true)}
+            className="flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#4A82B8] px-3 py-3 text-[13px] font-black text-white shadow-[0_8px_18px_rgba(74,130,184,0.28)] transition hover:bg-[#3F74A8] active:scale-[0.99]"
+          >
+            <ScanLine className="h-5 w-5" />
+            {t('home.qrPay')}
+            <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black">{t('home.qrPayBadge')}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setVoiceDestOpen(true)}
+            aria-label={t('home.voiceDest')}
+            className="flex w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F97316] text-white shadow-[0_8px_18px_rgba(249,115,22,0.32)] transition hover:bg-[#EA580C] active:scale-95"
+          >
+            <Mic className="h-5 w-5" />
+          </button>
+        </div>
         <BroadcastBanner audience="passenger" region={broadcastRegionForCoord(pickupLat, pickupLng) || undefined} />
         <section className="mt-4">
           <div className="flex items-end justify-between px-0.5">
