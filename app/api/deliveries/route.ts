@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createDeliveryDispatch, listAssignedByDriver, listDeliveriesByOwner, listOpenDeliveries, publicDelivery } from '@/lib/delivery-dispatch'
+import { listDrivers, syncDispatchFromDisk } from '@/lib/dispatch-store'
+import { haversineKm } from '@/lib/dispatch-geo'
+import { sendDriverPush } from '@/lib/driver-push'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -49,5 +52,30 @@ export async function POST(request: Request) {
     packageSize: typeof body?.packageSize === 'string' ? body.packageSize.trim().slice(0, 30) : '',
     createdAt,
   })
+  // 등록 즉시 수거지 근거리 온라인 택배 기사에게 웹 푸시 — 앱이 꺼져 있거나
+  // 백그라운드여도 서비스 워커가 OS 알림으로 띄운다. 구독이 없는 기사는
+  // sendDriverPush 내부에서 자동으로 건너뛴다.
+  const DELIVERY_PUSH_NEAR_KM = 8
+  if (job.pickupLat != null && job.pickupLng != null) {
+    try {
+      syncDispatchFromDisk()
+      const pickup = { lat: Number(job.pickupLat), lng: Number(job.pickupLng) }
+      for (const driver of listDrivers()) {
+        if (driver.status !== 'online' || driver.serviceType !== '택배' || driver.virtual) continue
+        if (!Number.isFinite(driver.lat) || haversineKm(driver, pickup) > DELIVERY_PUSH_NEAR_KM) continue
+        void sendDriverPush(driver.id, {
+          type: 'delivery',
+          title: '새 택배 배송 등록',
+          body: `${job.pickupAddress} → ${job.destAddress} · ${job.fare.toFixed(1)} Pi`,
+          tag: `taxitago-delivery-${job.id}`,
+          url: '/?driver=1',
+          rideId: job.id,
+          expiresAt: job.scheduledAt ?? undefined,
+        }).catch(() => undefined)
+      }
+    } catch (error) {
+      console.warn('[deliveries] near-driver push failed', error)
+    }
+  }
   return NextResponse.json({ ok: true, job: publicDelivery(job) })
 }

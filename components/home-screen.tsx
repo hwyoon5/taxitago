@@ -8580,11 +8580,17 @@ function DriverDashboard({
         if (!stopped) setOpenDeliveries(jobs)
       }).catch(() => undefined)
     }
+    // 푸시로 깨운 포그라운드 — 2초 폴링을 기다리지 않고 즉시 새 목록을 당긴다.
+    const onPush = (event: MessageEvent) => {
+      if (event.data?.type === 'delivery-offer') pull()
+    }
+    navigator.serviceWorker?.addEventListener('message', onPush)
     pull()
     const timer = window.setInterval(pull, 2000)
     return () => {
       stopped = true
       window.clearInterval(timer)
+      navigator.serviceWorker?.removeEventListener('message', onPush)
     }
   }, [online, partner?.serviceType])
 
@@ -9990,6 +9996,10 @@ export default function HomeScreen() {
     if (value) showNotice(t('toast.destPicked', { name: value }))
   }
   const enterDriverMode = () => {
+    // 기사 모드 진입 시점에 알림 권한·푸시 구독을 활성화한다 — 사용자 제스처
+    // 컨텍스트 안이라 브라우저 권한 팝업이 허용된다. 모든 서비스 콜이
+    // 이 구독으로 들어온다(택시/대리 오퍼·택배 근거리 등록).
+    void enableDriverPush(localDriverId(loadPartnerProfile()?.uid), true).catch(() => undefined)
     setDriverMode(true)
     // 명시적인 '기사 모드 전환' 액션은 복합 권한 유저에게 기사 뷰를 연다.
     setPartnerTabRole('driver')

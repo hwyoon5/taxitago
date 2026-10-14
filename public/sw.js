@@ -33,7 +33,8 @@ self.addEventListener('push', (event) => {
       data: notice,
     })
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    for (const client of windows) client.postMessage({ type: 'driver-offer', offer: payload })
+    const channel = payload.type === 'delivery' ? 'delivery-offer' : 'driver-offer'
+    for (const client of windows) client.postMessage({ type: channel, offer: payload })
   })())
 })
 
@@ -64,7 +65,8 @@ self.addEventListener('notificationclick', (event) => {
     for (const client of appClients) {
       try {
         const next = typeof client.navigate === 'function' ? (await client.navigate(href)) || client : client
-        next.postMessage({ type: 'driver-offer', offer: event.notification.data?.offer || lastOffer })
+        const offer = event.notification.data?.offer || lastOffer
+        next.postMessage({ type: offer?.type === 'delivery' ? 'delivery-offer' : 'driver-offer', offer })
         await next.focus()
         return
       } catch {

@@ -7,6 +7,9 @@ export type DriverPushSubscription = {
 }
 
 type PushPayload = {
+  /** 콜 유형 — 'ride'(택시/대리) | 'delivery'(택배). sw가 이 값으로
+   *  포그라운드 메시지 채널을 구분한다. 미설정은 'ride'로 간주. */
+  type?: 'ride' | 'delivery'
   title: string
   body: string
   tag: string
