@@ -3257,15 +3257,21 @@ function ServiceSheet({
   const deliveryOwnerId = () => deliveryOwnerIds()[0] || 'guest'
   const deliveryScheduledAt = () =>
     deliverySchedule > 0 ? new Date(Date.now() + deliverySchedule * 60000).toISOString() : null
+  // 리프레시 경합 가드 — 늦게 도착한 옛 응답이 새 목록을 덮어쓰지 못하게 한다.
+  const myDeliveriesReqRef = useRef(0)
   const refreshMyDeliveries = () => {
+    const req = ++myDeliveriesReqRef.current
     setMyDeliveriesLoading(true)
     void Promise.all(deliveryOwnerIds().map((id) => fetchMyDeliveries(id).catch(() => [] as PublicDelivery[])))
       .then((lists) => {
+        if (req !== myDeliveriesReqRef.current) return
         const merged = new Map<string, PublicDelivery>()
         for (const job of lists.flat()) merged.set(job.id, job)
         setMyDeliveries([...merged.values()].sort((a, b) => ((a.createdAt ?? '') < (b.createdAt ?? '') ? 1 : -1)))
       })
-      .finally(() => setMyDeliveriesLoading(false))
+      .finally(() => {
+        if (req === myDeliveriesReqRef.current) setMyDeliveriesLoading(false)
+      })
   }
   // ownerId가 등록 시점과 달라졌을 때 후보 id로 재시도 — forbidden 응답에만 다음 id를 시도한다.
   const runDeliveryMutation = async <T,>(fn: (ownerId: string) => Promise<T>): Promise<T> => {
@@ -4460,10 +4466,7 @@ function ServiceSheet({
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  refreshMyDeliveries()
-                  setMyDeliveriesOpen(true)
-                }}
+                onClick={() => setMyDeliveriesOpen(true)}
                 className="mt-2 w-full rounded-xl border-2 border-dashed border-[#BFDBFE] bg-white py-2 text-[11px] font-black text-[#4A82B8]"
               >
                 {t('svc.myDeliveries')}

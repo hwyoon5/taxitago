@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   const fromMs = /^\d{4}-\d{2}-\d{2}$/.test(from) ? Date.parse(`${from}T00:00:00+09:00`) : -Infinity
   const toMs = /^\d{4}-\d{2}-\d{2}$/.test(to) ? Date.parse(`${to}T23:59:59.999+09:00`) : Infinity
 
-  const items = listAllDeliveries()
+  const items = (await listAllDeliveries())
     .filter((job) => {
       const at = Date.parse(job.createdAt)
       if (Number.isFinite(fromMs) && at < fromMs) return false

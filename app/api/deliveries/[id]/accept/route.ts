@@ -23,7 +23,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (registryType && registryType !== '택배') {
     return NextResponse.json({ error: '택배 등록 기사만 수락할 수 있습니다.' }, { status: 403 })
   }
-  const result = acceptDeliveryDispatch(id, {
+  const result = await acceptDeliveryDispatch(id, {
     driverId,
     name: typeof body?.name === 'string' ? body.name : '기사',
     vehicle,

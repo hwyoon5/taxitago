@@ -16,7 +16,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!driverId || !next) {
     return NextResponse.json({ error: 'driverId and action required' }, { status: 400 })
   }
-  const result = progressDeliveryDispatch(id, driverId, next)
+  const result = await progressDeliveryDispatch(id, driverId, next)
   if (!result.ok || !result.job) {
     const status = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 409
     return NextResponse.json({ error: result.error }, { status })
