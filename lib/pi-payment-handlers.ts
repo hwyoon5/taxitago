@@ -3,6 +3,25 @@ import { approvePiPayment, assertPiPaymentCompleted, cancelPiPayment, completePi
 import { isPiSandboxEnv, isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 /**
+ * Pi 결제 경로 CORS — 앱이 Pi App Studio 래퍼(*.piappengine.com) 등 다른
+ * 오리진에서 열려도 클라이언트의 승인/완료 요청이 정규 백엔드에 도달하도록
+ * 한다. 비밀값을 받지 않는 공개 엔드포인트라 와일드카드 오리진을 허용한다.
+ */
+export const PI_CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, x-admin-key',
+} as const
+
+export function handlePiCorsPreflight() {
+  return new Response(null, { status: 204, headers: PI_CORS_HEADERS })
+}
+
+function corsJson(data: unknown, init?: { status?: number }) {
+  return NextResponse.json(data, { status: init?.status, headers: PI_CORS_HEADERS })
+}
+
+/**
  * 승인 경로는 지갑 만료 시간 안에 응답해야 하므로, 완료 처리에만 필요한
  * 디스패치/에스크로/정산 모듈 그래프를 필요 시점에 lazy-load 한다.
  */
@@ -103,7 +122,7 @@ export async function handlePiApprove(request: Request) {
   })
   if (!paymentId) {
     console.error('[Pi] /api/pi/approve rejected: paymentId required')
-    return NextResponse.json({ error: 'paymentId required' }, { status: 400 })
+    return corsJson({ error: 'paymentId required' }, { status: 400 })
   }
 
   // 'received'를 먼저 영속 기록 — 이후 ok/error 이벤트 유무로 지갑 만료 원인이
@@ -127,7 +146,7 @@ export async function handlePiApprove(request: Request) {
       network: effectiveSandbox ? 'testnet' : 'mainnet',
       ms: Date.now() - startedAt,
     }).catch(() => undefined)
-    return NextResponse.json({ ok: true, payment })
+    return corsJson({ ok: true, payment })
   } catch (error) {
     // 샌드박스 폴백 없음 — 승인 실패를 ok로 위장해도 Pi Platform이 승인하지
     // 않은 결제는 지갑에서 어차피 만료되며, 진짜 오류만 로그에서 가려진다.
@@ -180,7 +199,7 @@ export async function handlePiApprove(request: Request) {
         network: effectiveSandbox ? 'testnet' : 'mainnet',
         ms: Date.now() - startedAt,
       }).catch(() => undefined)
-      return NextResponse.json({ ok: true, payment: afterError, recovered: true })
+      return corsJson({ ok: true, payment: afterError, recovered: true })
     }
     // after()로 응답 뒤에 실행해야 서버리스 함수 종료에 취소 요청이 끊기지 않는다.
     after(async () => {
@@ -193,7 +212,7 @@ export async function handlePiApprove(request: Request) {
           }),
         )
     })
-    return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
+    return corsJson({ error: message }, { status: errorStatus(error, message) })
   }
 }
 
@@ -213,7 +232,7 @@ export async function handlePiCancel(request: Request) {
   const sandboxHint = requestSandboxHint(body)
   const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
   if (!paymentId) {
-    return NextResponse.json({ error: 'paymentId required' }, { status: 400 })
+    return corsJson({ error: 'paymentId required' }, { status: 400 })
   }
   const { recordPiEvent } = await import('@/lib/pi-audit')
   void recordPiEvent({
@@ -230,15 +249,15 @@ export async function handlePiCancel(request: Request) {
       info && typeof info.transaction === 'object' ? (info.transaction as Record<string, unknown>) : null
     const onChainTxid = typeof transaction?.txid === 'string' ? transaction.txid.trim() : ''
     if (onChainTxid) {
-      return NextResponse.json({ ok: true, redirected: 'complete', txid: onChainTxid })
+      return corsJson({ ok: true, redirected: 'complete', txid: onChainTxid })
     }
     const status = info?.status && typeof info.status === 'object' ? (info.status as Record<string, unknown>) : null
     if (status?.developer_completed === true || status?.cancelled === true || status?.user_cancelled === true) {
-      return NextResponse.json({ ok: true, already: 'final' })
+      return corsJson({ ok: true, already: 'final' })
     }
     const payment = await cancelPiPayment(paymentId, effectiveSandbox)
     console.log('[Pi] /api/pi/cancel ok', { paymentId })
-    return NextResponse.json({ ok: true, payment })
+    return corsJson({ ok: true, payment })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'cancel failed'
     const upstream = (error as { piHttpStatus?: number } | null)?.piHttpStatus
@@ -246,10 +265,10 @@ export async function handlePiCancel(request: Request) {
     // 이미 해소된 상태 — 복구 호출자가 실패로 오인해 매번 재시도하지 않게 ok로 돌린다.
     if (typeof upstream === 'number' && upstream >= 400 && upstream < 500) {
       console.warn('[Pi] /api/pi/cancel not needed (already final)', { paymentId, upstream, message })
-      return NextResponse.json({ ok: true, already: 'final', note: message })
+      return corsJson({ ok: true, already: 'final', note: message })
     }
     console.error('[Pi] /api/pi/cancel error', { paymentId, message, ...describeError(error) })
-    return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
+    return corsJson({ error: message }, { status: errorStatus(error, message) })
   }
 }
 
@@ -280,7 +299,7 @@ export async function handlePiComplete(request: Request) {
   })
   if (!paymentId || !txid) {
     console.error('[Pi] /api/pi/complete rejected: paymentId and txid required')
-    return NextResponse.json({ error: 'paymentId and txid required' }, { status: 400 })
+    return corsJson({ error: 'paymentId and txid required' }, { status: 400 })
   }
   const fallbackAmount = typeof body?.amount === 'number' ? body.amount : null
   const fallbackMetadata =
@@ -392,7 +411,7 @@ export async function handlePiComplete(request: Request) {
       })
       console.log('[Pi] /api/pi/complete background work done', { paymentId, txid })
     })
-    return NextResponse.json({ ok: true, payment })
+    return corsJson({ ok: true, payment })
   } catch (error) {
     // 샌드박스 폴백 없음 — 검증 실패(취소·txid 불일치·체인 거부)를 ok로 위장해
     // 에스크로/정산을 기록하는 것은 가짜 '처리됨' 상태를 만든다. 실제 체인 결제가
@@ -416,6 +435,6 @@ export async function handlePiComplete(request: Request) {
       httpStatus: typeof upstreamStatus === 'number' ? upstreamStatus : undefined,
       message: message.slice(0, 300),
     }).catch(() => undefined)
-    return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
+    return corsJson({ error: message }, { status: errorStatus(error, message) })
   }
 }

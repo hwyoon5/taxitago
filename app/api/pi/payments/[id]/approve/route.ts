@@ -1,8 +1,10 @@
-import { handlePiApprove } from '@/lib/pi-payment-handlers'
+import { handlePiApprove, handlePiCorsPreflight } from '@/lib/pi-payment-handlers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
+
+export const OPTIONS = handlePiCorsPreflight
 
 /**
  * REST형 승인 경로 — POST /api/pi/payments/:id/approve

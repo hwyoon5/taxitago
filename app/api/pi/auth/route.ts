@@ -1,6 +1,13 @@
 import { after, NextResponse } from 'next/server'
 import { describeError, inspectPiAccessToken } from '@/lib/pi-platform'
+import { handlePiCorsPreflight, PI_CORS_HEADERS } from '@/lib/pi-payment-handlers'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
+
+export const OPTIONS = handlePiCorsPreflight
+
+function corsJson(data: unknown, init?: { status?: number }) {
+  return NextResponse.json(data, { status: init?.status, headers: PI_CORS_HEADERS })
+}
 
 const PI_APP_STUDIO_LOGIN_URL =
   'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
@@ -26,7 +33,7 @@ export async function POST(request: Request) {
     const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
     const accessToken = typeof body?.accessToken === 'string' ? body.accessToken.trim() : ''
     if (!uid || !accessToken) {
-      return NextResponse.json({ ok: false, error: 'uid/accessToken required' }, { status: 400 })
+      return corsJson({ ok: false, error: 'uid/accessToken required' }, { status: 400 })
     }
 
     // 토큰은 요청이 결정된 네트워크의 /v2/me로 검증한다 — 테스트 도메인에서
@@ -54,22 +61,22 @@ export async function POST(request: Request) {
     })
 
     if (result.status === 'ok' && result.uid === uid) {
-      return NextResponse.json({ ok: true, uid })
+      return corsJson({ ok: true, uid })
     }
     if (result.status === 'unreachable') {
-      return NextResponse.json(
+      return corsJson(
         { ok: false, error: 'Pi 인증 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.' },
         { status: 502 },
       )
     }
     console.warn('[Pi] /api/pi/auth rejected', { uid, status: result.status, tokenUid: result.uid })
-    return NextResponse.json(
+    return corsJson(
       { ok: false, error: 'Pi 로그인 세션이 끊겼습니다. 파이 브라우저에서 다시 로그인한 뒤 시도해 주세요.' },
       { status: 401 },
     )
   } catch (error) {
     console.error('[Pi] /api/pi/auth unhandled error', describeError(error))
-    return NextResponse.json(
+    return corsJson(
       { ok: false, error: '인증 처리 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' },
       { status: 500 },
     )

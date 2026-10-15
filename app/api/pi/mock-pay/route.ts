@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { isPiSandboxRequest, parseChargeAmount } from '@/lib/pi-sandbox'
-import { lockRideEscrowFromPayment } from '@/lib/pi-payment-handlers'
+import { handlePiCorsPreflight, lockRideEscrowFromPayment, PI_CORS_HEADERS } from '@/lib/pi-payment-handlers'
 import { handleServicePaymentComplete } from '@/lib/service-settlement'
 
 export const runtime = 'nodejs'
@@ -11,9 +11,11 @@ export const dynamic = 'force-dynamic'
  * SDK). Books the same escrow lock / settlement records a real completion
  * would so the admin ledger and driver earnings stay consistent.
  */
+export const OPTIONS = handlePiCorsPreflight
+
 export async function POST(request: Request) {
   if (!isPiSandboxRequest(request)) {
-    return NextResponse.json({ error: 'mock payment is testnet-only' }, { status: 403 })
+    return NextResponse.json({ error: 'mock payment is testnet-only' }, { status: 403, headers: PI_CORS_HEADERS })
   }
 
   const body = (await request.json().catch(() => null)) as {
@@ -23,7 +25,7 @@ export async function POST(request: Request) {
   } | null
   const amount = parseChargeAmount(body?.amount)
   if (amount == null) {
-    return NextResponse.json({ error: 'valid amount required' }, { status: 400 })
+    return NextResponse.json({ error: 'valid amount required' }, { status: 400, headers: PI_CORS_HEADERS })
   }
   const metadata =
     body?.metadata && typeof body.metadata === 'object' ? (body.metadata as Record<string, unknown>) : null
@@ -52,5 +54,5 @@ export async function POST(request: Request) {
     })
   }
 
-  return NextResponse.json({ ok: true, sandbox: true, amount, paymentId, txid })
+  return NextResponse.json({ ok: true, sandbox: true, amount, paymentId, txid }, { headers: PI_CORS_HEADERS })
 }

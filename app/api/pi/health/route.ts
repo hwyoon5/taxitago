@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { piPaymentHealth } from '@/lib/pi-platform'
+import { handlePiCorsPreflight, PI_CORS_HEADERS } from '@/lib/pi-payment-handlers'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+export const OPTIONS = handlePiCorsPreflight
 
 /**
  * 결제 사전 점검 — GET /api/pi/health (공개, 민감 정보 없음).
@@ -17,7 +20,7 @@ export async function GET(request: Request) {
     const health = await piPaymentHealth(effectiveSandbox)
     return NextResponse.json(
       { ok: true, generatedAt: new Date().toISOString(), ...health },
-      { status: health.ready ? 200 : 503 },
+      { status: health.ready ? 200 : 503, headers: PI_CORS_HEADERS },
     )
   } catch (error) {
     // 키가 아예 없는 등 — 체크아웃을 조용히 진행시키면 지갑 만료로 끝나므로
@@ -26,7 +29,7 @@ export async function GET(request: Request) {
     console.error('[Pi] /api/pi/health error', { message })
     return NextResponse.json(
       { ok: true, ready: false, keyStatus: 'unconfigured', message, network: effectiveSandbox ? 'testnet' : 'mainnet' },
-      { status: 503 },
+      { status: 503, headers: PI_CORS_HEADERS },
     )
   }
 }

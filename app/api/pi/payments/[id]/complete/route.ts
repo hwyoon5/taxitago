@@ -1,8 +1,10 @@
-import { handlePiComplete } from '@/lib/pi-payment-handlers'
+import { handlePiComplete, handlePiCorsPreflight } from '@/lib/pi-payment-handlers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
+
+export const OPTIONS = handlePiCorsPreflight
 
 /**
  * REST형 완료 경로 — POST /api/pi/payments/:id/complete

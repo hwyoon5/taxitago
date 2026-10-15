@@ -313,11 +313,55 @@ function waitForPi(timeoutMs = 12000) {
  */
 type PiApiPath = '/api/pi/approve' | '/api/pi/complete' | '/api/pi/cancel'
 
+/**
+ * Pi 결제 API의 절대 오리진 — 앱이 Pi App Studio 래퍼(*.piappengine.com)나
+ * 프리뷰 도메인에서 열리면 상대 경로('/api/pi/approve')가 그쪽 서버로 가서
+ * 승인 요청이 우리 백엔드에 아예 도달하지 않는다. 정식 도메인·로컬에서는
+ * same-origin을 유지하고, 그 외 호스트에서는 정규 백엔드 오리진으로 고정한다.
+ * NEXT_PUBLIC_PI_API_ORIGIN으로 재지정 가능(미설정 시 테스트 배포 도메인).
+ */
+const PI_API_CANONICAL_ORIGIN = (
+  process.env.NEXT_PUBLIC_PI_API_ORIGIN || 'https://test.taxitago.co.kr'
+).trim().replace(/\/+$/, '')
+
+function piApiBaseOrigin() {
+  if (typeof window === 'undefined') return ''
+  const host = window.location.hostname.toLowerCase()
+  if (
+    host === 'taxitago.co.kr' ||
+    host === 'test.taxitago.co.kr' ||
+    host === 'www.taxitago.co.kr' ||
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.endsWith('.local')
+  ) {
+    return ''
+  }
+  return PI_API_CANONICAL_ORIGIN
+}
+
+/** Pi 결제 경로만 절대 오리진으로 해석한다 — canonical은 trailing-slash 정규형. */
+function piApiUrl(path: string) {
+  const normalized = `/${path.replace(/^\/+|\/+$/g, '')}/`
+  const base = piApiBaseOrigin()
+  return base ? `${base}${normalized}` : normalized
+}
+
+async function piApiFetch(path: string, init?: RequestInit) {
+  return fetch(piApiUrl(path), { cache: 'no-store', ...init })
+}
+
 function beaconPiApi(path: PiApiPath | string, body: Record<string, unknown>) {
   try {
     if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return
-    const queued = navigator.sendBeacon(`${path}/`, new Blob([JSON.stringify(body)], { type: 'application/json' }))
-    logPi('log', `${path} beacon`, { queued })
+    // text/plain으로 보내 cross-origin beacon이 프리플라이트 없이 도달한다 —
+    // 서버는 content-type과 무관하게 request.json()으로 본문을 파싱한다.
+    const queued = navigator.sendBeacon(
+      piApiUrl(path),
+      new Blob([JSON.stringify(body)], { type: 'text/plain' }),
+    )
+    logPi('log', `${path} beacon`, { queued, url: piApiUrl(path) })
   } catch (error) {
     logPi('warn', `${path} beacon failed`, error)
   }
@@ -335,7 +379,7 @@ function warmPiPaymentApi() {
   if (piApiWarmed || typeof window === 'undefined') return
   piApiWarmed = true
   for (const path of ['/api/pi/approve', '/api/pi/complete'] as const) {
-    void apiFetch(path, {
+    void piApiFetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
@@ -349,8 +393,8 @@ function warmPiPaymentApi() {
 
 async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
   const startedAt = Date.now()
-  logPi('log', `${path} request`, body)
-  const response = await apiFetch(path, {
+  logPi('log', `${path} request`, { ...body, url: piApiUrl(path) })
+  const response = await piApiFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -379,8 +423,8 @@ async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
 async function postPiApproveRest(paymentId: string, body: Record<string, unknown>) {
   const path = `/api/pi/payments/${encodeURIComponent(paymentId)}/approve`
   const startedAt = Date.now()
-  logPi('log', `${path} request (fallback)`, { paymentId })
-  const response = await apiFetch(path, {
+  logPi('log', `${path} request (fallback)`, { paymentId, url: piApiUrl(path) })
+  const response = await piApiFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -686,7 +730,7 @@ async function verifyPiSessionOnServer(session: PiSession) {
     return
   }
   try {
-    const res = await apiFetch('/api/pi/auth', {
+    const res = await piApiFetch('/api/pi/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: session.uid, accessToken: session.accessToken }),
@@ -774,7 +818,7 @@ async function mockPiCheckout(options: {
           `[테스트넷 모의 결제]\n\n${options.memo}\n결제 금액: ${amount.toFixed(7)} Pi\n\nPi SDK를 찾지 못해 모의 결제로 진행합니다. 승인할까요?`,
         )
   if (!approved) throw new Error('결제가 취소되었습니다.')
-  const response = await apiFetch('/api/pi/mock-pay', {
+  const response = await piApiFetch('/api/pi/mock-pay', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ amount, memo: options.memo.slice(0, 25), metadata: options.metadata ?? {} }),
@@ -872,7 +916,7 @@ export async function startPiCheckout(options: {
   // 만료되므로, 여기서 명확한 원인으로 즉시 중단한다. 헬스체크 호출 자체의
   // 실패(네트워크·구배포)는 판단 불가로 두고 결제를 진행한다.
   try {
-    const health = (await apiFetch('/api/pi/health', { signal: AbortSignal.timeout(10_000) })
+    const health = (await piApiFetch('/api/pi/health', { signal: AbortSignal.timeout(10_000) })
       .then((res) => res.json().catch(() => null))) as {
       ready?: boolean
       keyStatus?: string

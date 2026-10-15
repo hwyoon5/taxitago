@@ -1,7 +1,8 @@
-import { handlePiCancel } from '@/lib/pi-payment-handlers'
+import { handlePiCancel, handlePiCorsPreflight } from '@/lib/pi-payment-handlers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export const POST = handlePiCancel
+export const OPTIONS = handlePiCorsPreflight
