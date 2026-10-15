@@ -18,6 +18,8 @@ export type PiAuditEvent = {
   ms?: number
   httpStatus?: number
   message?: string
+  /** 클라이언트 SDK가 속한 Pi 앱 인스턴스 식별자 — 백엔드 키의 앱과 불일치 판별용 */
+  app?: string
 }
 
 const useKv = kvConfigured

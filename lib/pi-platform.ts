@@ -489,6 +489,15 @@ export async function verifyPiAccessToken(accessToken: string, sandboxHint?: boo
  *   reachable=true + status 401/404 → egress 정상, 키-앱 불일치 가능성을 본다.
  *   reachable=false → Vercel→Pi API 연결 자체가 막힌 것(DNS/방화벽/타임아웃).
  */
+/**
+ * 키 식별용 지문 — 값 자체가 아니라 앞 6자와 전체 길이만 노출한다.
+ * 개발자 포털의 구 테스트넷 앱 키와 신규 앱 키 중 어느 것이 배포돼 있는지
+ * 대조할 때 쓴다(포털에 표시된 키 앞자리와 비교).
+ */
+function piKeyFingerprint(key: string) {
+  return { prefix: `${key.trim().slice(0, 6)}…`, length: key.trim().length }
+}
+
 export async function piPaymentDiagnostics(sandboxHint?: boolean | null) {
   const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
   const network: PiNetwork = sandbox ? 'testnet' : 'mainnet'
@@ -502,6 +511,15 @@ export async function piPaymentDiagnostics(sandboxHint?: boolean | null) {
     const scope = piKeyNetworkScope(value)
     return scope === 'unknown' || scope === network
   })
+  // 어떤 앱의 키가 배포돼 있는지 포털과 대조할 수 있게 env 이름 + 지문을 나열한다.
+  const keyFingerprints = [
+    ...scopedNames
+      .map((name) => ({ name, ...(process.env[name]?.trim() ? piKeyFingerprint(process.env[name]!) : null) }))
+      .filter((entry) => entry.prefix),
+    ...(['PI_NETWORK_API_KEY', 'PI_API_KEY'] as const)
+      .map((name) => ({ name, ...(process.env[name]?.trim() ? piKeyFingerprint(process.env[name]!) : null) }))
+      .filter((entry) => entry.prefix),
+  ]
   const apiBase = piPaymentsApiBase(sandbox)
 
   const probeStart = Date.now()
@@ -532,6 +550,8 @@ export async function piPaymentDiagnostics(sandboxHint?: boolean | null) {
       configuredScoped,
       configuredShared,
       builtinFallbackOnly: sandbox && !configuredScoped.length && !configuredShared.length,
+      fingerprints: keyFingerprints,
+      builtinFallback: sandbox ? piKeyFingerprint(PI_TESTNET_API_KEY) : null,
     },
     probe,
     recentEvents,

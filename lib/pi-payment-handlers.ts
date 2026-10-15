@@ -104,9 +104,13 @@ export async function handlePiApprove(request: Request) {
     metadata?: unknown
     sandbox?: unknown
     uid?: unknown
+    appInstance?: unknown
   } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const claimedUid = typeof body?.uid === 'string' ? body.uid.trim() : ''
+  // 클라이언트 SDK가 속한 Pi 앱 인스턴스 — 지갑의 결제 앱과 백엔드 키의 앱이
+  // 다른 경우(포털 앱 분리) 401/404로 실패하므로 상관관계용으로 함께 받는다.
+  const appInstance = typeof body?.appInstance === 'string' ? body.appInstance.trim() : ''
   const kind = requestKind(body)
   const sandboxHint = requestSandboxHint(body)
   // 힌트(결제 생성 네트워크) → 요청 host(테스트 전용 도메인 강제) → env 순으로
@@ -116,6 +120,7 @@ export async function handlePiApprove(request: Request) {
     paymentId: paymentId || '(empty)',
     kind,
     uid: claimedUid || '(unknown)',
+    appInstance: appInstance || '(unknown)',
     sandboxHint,
     effectiveSandbox,
     envSandbox: isPiSandboxEnv(),
@@ -133,6 +138,7 @@ export async function handlePiApprove(request: Request) {
     stage: 'received',
     paymentId,
     network: effectiveSandbox ? 'testnet' : 'mainnet',
+    app: appInstance || undefined,
   }).catch(() => undefined)
 
   const startedAt = Date.now()
@@ -169,11 +175,15 @@ export async function handlePiApprove(request: Request) {
       httpStatus: typeof status === 'number' ? status : undefined,
       message: message.slice(0, 300),
     }).catch(() => undefined)
-    if (status === 401 || status === 403) {
+    if (status === 401 || status === 403 || status === 404) {
       console.error(
-        '[Pi] /api/pi/approve auth rejected on every key candidate — ' +
-          `PI_API_KEY_${effectiveSandbox ? 'TESTNET' : 'MAINNET'}가 이 Pi 앱의 ${effectiveSandbox ? '테스트넷' : '메인넷'} 키인지 확인해 주세요. ` +
-          '포털의 다른 앱 키나 만료 키면 모든 승인이 401로 만료됩니다.',
+        '[Pi] /api/pi/approve possible app/key mismatch — ' +
+          `모든 키 후보가 ${status}로 거절됐습니다. ` +
+          `PI_API_KEY_${effectiveSandbox ? 'TESTNET' : 'MAINNET'}가 클라이언트 지갑 앱` +
+          `${appInstance ? `(${appInstance})` : ''}과 같은 Pi 프로젝트의 키인지 확인해 주세요. ` +
+          '포털의 구 테스트넷 앱과 신규 앱이 분리돼 있으면 지갑의 결제는 다른 앱 네임스페이스에 생성돼 ' +
+          '승인이 401(키 거절)/404(결제 없음)로 끝납니다. ' +
+          'GET /api/pi/diagnostics의 keys.fingerprints로 배포된 키 앞자리를 포털 키와 대조하세요.',
       )
     }
     // 실패 표면화 전 최종 상태를 한 번 더 확인한다 — 승인 응답만 유실되고 Pi
@@ -281,10 +291,13 @@ export async function handlePiComplete(request: Request) {
     metadata?: unknown
     sandbox?: unknown
     uid?: unknown
+    appInstance?: unknown
   } | null
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
   const claimedUid = typeof body?.uid === 'string' ? body.uid.trim() : ''
+  const appInstance =
+    body && typeof body.appInstance === 'string' ? body.appInstance.trim() : ''
   const kind = requestKind(body)
   const sandboxHint = requestSandboxHint(body)
   const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
@@ -293,6 +306,7 @@ export async function handlePiComplete(request: Request) {
     txid: txid || '(empty)',
     kind,
     uid: claimedUid || '(unknown)',
+    appInstance: appInstance || '(unknown)',
     sandboxHint,
     effectiveSandbox,
     envSandbox: isPiSandboxEnv(),

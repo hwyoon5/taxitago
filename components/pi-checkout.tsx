@@ -515,6 +515,12 @@ const PI_SDK_SRC = 'https://sdk.minepi.com/pi-sdk.js'
  * accessToken을 여기로 POST해야 App Studio가 앱을 검증 완료로 표시한다.
  */
 const PI_APP_STUDIO_LOGIN_URL = 'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
+/**
+ * 이 SDK가 결제를 생성하는 Pi 앱 인스턴스 — 포털에서 앱이 분리된 경우(구
+ * 테스트넷 앱 vs 신규 앱) 백엔드 API 키의 앱과 다르면 승인이 401/404로
+ * 끝나므로, 상관관계용으로 승인 요청 body에 함께 실어 보낸다.
+ */
+const PI_APP_INSTANCE = 'appstudio-u7cm9zhmha0ruwv8'
 
 /**
  * authenticate 직후 accessToken을 App Studio 로그인 엔드포인트로 교환한다.
@@ -1026,7 +1032,13 @@ function runCreatePayment(
             return Promise.resolve()
           }
           // 지갑 시트가 뜨는 동안 페이지 fetch가 멈출 수 있어 beacon을 먼저 실어둔다.
-          const approveBody = { paymentId, kind: checkoutKind(payment.metadata), sandbox: PI_SANDBOX, uid: sessionUid }
+          const approveBody = {
+            paymentId,
+            kind: checkoutKind(payment.metadata),
+            sandbox: PI_SANDBOX,
+            uid: sessionUid,
+            appInstance: PI_APP_INSTANCE,
+          }
           beaconPiApi('/api/pi/approve', approveBody)
           // REST형 대체 경로도 beacon으로 함께 실어둔다 — 기본 경로가 전혀
           // 도달하지 않는 환경에서도 승인 한 번은 서버에 닿게 한다(멱등).
@@ -1081,6 +1093,7 @@ function runCreatePayment(
             kind: checkoutKind(payment.metadata),
             sandbox: PI_SANDBOX,
             uid: sessionUid,
+            appInstance: PI_APP_INSTANCE,
           }
           beaconPiApi('/api/pi/complete', completeBody)
           return postPiApiRetry('/api/pi/complete', completeBody)
