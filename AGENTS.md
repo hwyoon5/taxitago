@@ -16,6 +16,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - `.env*` 파일은 gitignore 처리되어 있으므로 실제 시드 값은 Vercel Environment Variables 또는 로컬 `.env.local`에만 둔다.
 - 관리자 인증은 쿠키가 아니라 `x-admin-key` 헤더 + HMAC 서명된 stateless 토큰 방식(`lib/admin-auth.ts`). 클라이언트는 토큰을 `localStorage['taxitago.admin.key']`에 저장(`lib/admin-key.ts`). 비밀번호·TOTP 시크릿·세션 서명 시크릿은 모두 KV(`taxitago:admin:*`)에만 저장되며 ADMIN_* env는 참조하지 않는다 — DB가 비어 있으면 `/admin/*`이 초기 설정 화면(새 비밀번호 + OTP QR)을 띄운다. KV가 없으면 프로세스 메모리에 저장되어 서버리스 재시작 시 초기화된다. `scripts/reset-admin.ts`로 `taxitago:admin:*` 전체 초기화 가능.
 - 채팅 자동 번역(`lib/chat-translate.ts`): provider 체인은 `TRANSLATE_API_URL`(+`TRANSLATE_API_KEY`, LibreTranslate 호환) → NCP Papago(`naveropenapi.apigw.ntruss.com/nmt/v1/translation`, `resolveNaverRestCredentials`의 `NCP_APIGW_API_KEY_ID`/`NCP_APIGW_API_KEY`) → 구형 Papago(`openapi.naver.com/v1/papago/n2mt`, `PAPAGO_CLIENT_ID`/`PAPAGO_CLIENT_SECRET` 또는 네이버 검색 키) 순. 모두 없으면 번역 없이 원문만 표시(기능 자체는 정상 동작). 메시지는 전송 시 3개 언어로 미리 번역되어 `ChatMessage.translations`에 저장되고, 조회 시 `lang` 파라미터로 누락분을 지연 보충한다.
+- 결제 승인 만료 디버깅: `GET /api/pi/diagnostics`(`x-admin-key` 필요, `lib/pi-platform.ts` `piPaymentDiagnostics`)가 배포 환경의 결정 네트워크·설정된 Pi 키 env 이름·Pi Payments API 도달성(probe)을 돌려준다. 지갑에서 "개발자가 이 결제를 승인하지 못했습니다"가 뜨면 Vercel 함수 로그의 `[Pi] /api/pi/approve incoming → [Pi] POST .../approve → ok/error(ms 포함)` 체인으로 수신·전송·실패 원인(401=키-앱 불일치, timeout/네트워크=egress 문제)을 구분한다. `builtinFallbackOnly: true`면 env 키가 없어 내장 테스트넷 키만 쓰는 상태 — 해당 앱의 `PI_API_KEY_TESTNET` 설정 필요.
 
 ## UI 디자인 가이드
 

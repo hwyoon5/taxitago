@@ -106,16 +106,24 @@ export async function handlePiApprove(request: Request) {
     return NextResponse.json({ error: 'paymentId required' }, { status: 400 })
   }
 
+  const startedAt = Date.now()
   try {
     const payment = await approvePiPayment(paymentId, effectiveSandbox)
-    console.log('[Pi] /api/pi/approve ok', { paymentId })
+    console.log('[Pi] /api/pi/approve ok', { paymentId, ms: Date.now() - startedAt })
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
     // 샌드박스 폴백 없음 — 승인 실패를 ok로 위장해도 Pi Platform이 승인하지
     // 않은 결제는 지갑에서 어차피 만료되며, 진짜 오류만 로그에서 가려진다.
     const message = error instanceof Error ? error.message : 'approve failed'
     const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
-    console.error('[Pi] /api/pi/approve error', { paymentId, kind, message, effectiveSandbox, ...describeError(error) })
+    console.error('[Pi] /api/pi/approve error', {
+      paymentId,
+      kind,
+      message,
+      effectiveSandbox,
+      ms: Date.now() - startedAt,
+      ...describeError(error),
+    })
     if (status === 401 || status === 403) {
       console.error(
         '[Pi] /api/pi/approve auth rejected on every key candidate — ' +
@@ -209,13 +217,14 @@ export async function handlePiComplete(request: Request) {
   const fallbackMetadata =
     body?.metadata && typeof body.metadata === 'object' ? (body.metadata as Record<string, unknown>) : null
 
+  const startedAt = Date.now()
   try {
     const { payment, info, network } = await completePiPayment(paymentId, txid, effectiveSandbox)
     assertPiPaymentCompleted(payment, paymentId, txid)
     // Horizon 교차 검증은 결제가 실제 완료된 네트워크에서 한다 — 결제가 반대
     // 네트워크에 생성됐으면 해석된 sandbox로 조회하면 404로 정상 건을 거부한다.
     await verifyPiTxidOnChain(txid, network === 'testnet')
-    console.log('[Pi] /api/pi/complete verified', { paymentId, txid })
+    console.log('[Pi] /api/pi/complete verified', { paymentId, txid, ms: Date.now() - startedAt })
     // kind는 Pi Platform이 보관하는 결제 메타데이터(서버가 조회한 원본)가 권위.
     // 서버 조회가 실패(info null)하거나 원본에 kind가 없으면 클라이언트 주장을
     // '입금 아님' 방향으로만 받아들인다 — 입금 계열 주장은 미검증이면 기록하지
@@ -305,7 +314,14 @@ export async function handlePiComplete(request: Request) {
     // 에스크로/정산을 기록하는 것은 가짜 '처리됨' 상태를 만든다. 실제 체인 결제가
     // 된 경우는 입금 스캐너·미완료 결제 복구가 잡아낸다.
     const message = error instanceof Error ? error.message : 'complete failed'
-    console.error('[Pi] /api/pi/complete error', { paymentId, txid, kind, message, ...describeError(error) })
+    console.error('[Pi] /api/pi/complete error', {
+      paymentId,
+      txid,
+      kind,
+      message,
+      ms: Date.now() - startedAt,
+      ...describeError(error),
+    })
     return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
   }
 }

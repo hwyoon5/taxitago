@@ -348,6 +348,7 @@ function warmPiPaymentApi() {
 }
 
 async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
+  const startedAt = Date.now()
   logPi('log', `${path} request`, body)
   const response = await apiFetch(path, {
     method: 'POST',
@@ -362,10 +363,10 @@ async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
   const payload = (await response.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
   if (!response.ok || payload?.ok !== true) {
     const message = typeof payload?.error === 'string' ? payload.error : `${path} failed (${response.status})`
-    logPi('error', `${path} failed`, { status: response.status, payload, message })
+    logPi('error', `${path} failed`, { status: response.status, payload, message, ms: Date.now() - startedAt })
     throw new Error(message)
   }
-  logPi('log', `${path} ok`, { status: response.status, payload })
+  logPi('log', `${path} ok`, { status: response.status, payload, ms: Date.now() - startedAt })
   return payload
 }
 

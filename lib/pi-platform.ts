@@ -481,6 +481,56 @@ export async function verifyPiAccessToken(accessToken: string, sandboxHint?: boo
   return result.status === 'ok' ? result.uid : null
 }
 
+/**
+ * 관리자 진단용 — 결제가 '개발자 승인 만료'로 끝날 때 원인을 서버에서 바로
+ * 확인하기 위한 설정/도달성 요약. 키 값은 절대 노출하지 않고 env 이름만 돌린다.
+ *
+ * probe: 존재하지 않는 paymentId + 무효 키로 Pi Payments API를 한 번 두드린다.
+ *   reachable=true + status 401/404 → egress 정상, 키-앱 불일치 가능성을 본다.
+ *   reachable=false → Vercel→Pi API 연결 자체가 막힌 것(DNS/방화벽/타임아웃).
+ */
+export async function piPaymentDiagnostics(sandboxHint?: boolean | null) {
+  const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  const network: PiNetwork = sandbox ? 'testnet' : 'mainnet'
+  const scopedNames = sandbox
+    ? (['PI_API_KEY_TESTNET', 'PI_TESTNET_API_KEY', 'PI_SANDBOX_API_KEY'] as const)
+    : (['PI_API_KEY_MAINNET', 'PI_MAINNET_API_KEY'] as const)
+  const configuredScoped = scopedNames.filter((name) => Boolean((process.env[name] || '').trim()))
+  const configuredShared = (['PI_NETWORK_API_KEY', 'PI_API_KEY'] as const).filter((name) => {
+    const value = (process.env[name] || '').trim()
+    if (!value) return false
+    const scope = piKeyNetworkScope(value)
+    return scope === 'unknown' || scope === network
+  })
+  const apiBase = piPaymentsApiBase(sandbox)
+
+  const probeStart = Date.now()
+  let probe: Record<string, unknown>
+  try {
+    const res = await fetch(`${apiBase}/__diagnostics_probe__`, {
+      headers: { Authorization: 'Key __diagnostics_probe__' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8_000),
+    })
+    await res.arrayBuffer().catch(() => undefined)
+    probe = { reachable: true, status: res.status, ms: Date.now() - probeStart }
+  } catch (error) {
+    probe = { reachable: false, ms: Date.now() - probeStart, ...describeError(error) }
+  }
+
+  return {
+    network,
+    apiBase,
+    horizonBase: piHorizonUrl(sandbox),
+    keys: {
+      configuredScoped,
+      configuredShared,
+      builtinFallbackOnly: sandbox && !configuredScoped.length && !configuredShared.length,
+    },
+    probe,
+  }
+}
+
 function piHorizonUrl(sandboxHint?: boolean | null) {
   const override = (process.env.PI_HORIZON_URL || '').trim()
   if (override) return override
