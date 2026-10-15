@@ -11,8 +11,9 @@ import { kvCommand, kvConfigured } from '@/lib/kv'
 export type PiAuditEvent = {
   at: string
   kind: 'approve' | 'complete' | 'cancel'
-  /** received = 라우트 도달 · ok = Pi 승인/완료 성공 · error = 실패 */
-  stage: 'received' | 'ok' | 'error'
+  /** received = 라우트 도달 · ok = Pi 승인/완료 성공 · error = 실패 ·
+   *  pending = 동기 승인 실패 후 백그라운드 재시도가 진행 중 */
+  stage: 'received' | 'ok' | 'error' | 'pending'
   paymentId: string
   network: string
   ms?: number

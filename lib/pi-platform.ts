@@ -112,7 +112,7 @@ export function describeError(error: unknown): Record<string, unknown> {
     if (record instanceof Error || typeof record === 'object') {
       out[`${prefix}name`] = typeof record.name === 'string' ? record.name : undefined
       out[`${prefix}message`] = typeof record.message === 'string' ? record.message : String(current)
-      for (const key of ['code', 'errno', 'syscall', 'hostname', 'address', 'port', 'status', 'piHttpStatus', 'type'] as const) {
+      for (const key of ['code', 'errno', 'syscall', 'hostname', 'address', 'port', 'status', 'piHttpStatus', 'piHttpBody', 'type'] as const) {
         if (record[key] !== undefined) out[`${prefix}${key}`] = record[key]
       }
       if (typeof record.stack === 'string') out[`${prefix}stack`] = record.stack.split('\n').slice(0, 4).join('\n')
@@ -125,9 +125,10 @@ export function describeError(error: unknown): Record<string, unknown> {
   return out
 }
 
-function piHttpError(message: string, status: number) {
-  const error = new Error(message) as Error & { piHttpStatus?: number }
+function piHttpError(message: string, status: number, body?: string) {
+  const error = new Error(message) as Error & { piHttpStatus?: number; piHttpBody?: string }
   error.piHttpStatus = status
+  if (body) error.piHttpBody = body
   return error
 }
 
@@ -193,7 +194,7 @@ async function piPaymentsRequest(
       payload,
       message,
     })
-    throw piHttpError(message, response.status)
+    throw piHttpError(message, response.status, raw.slice(0, 1000))
   }
 
   console.log(`[Pi] ${method} ${url} success`, { status: response.status, ms: elapsed })

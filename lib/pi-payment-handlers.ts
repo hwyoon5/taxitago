@@ -154,14 +154,16 @@ export async function handlePiApprove(request: Request) {
     }).catch(() => undefined)
     return corsJson({ ok: true, payment })
   } catch (error) {
-    // 샌드박스 폴백 없음 — 승인 실패를 ok로 위장해도 Pi Platform이 승인하지
-    // 않은 결제는 지갑에서 어차피 만료되며, 진짜 오류만 로그에서 가려진다.
+    // 클라이언트에는 pendingApproval로 돌리지만 Pi 기록의 승인이 성립할 때까지
+    // '승인됨'으로 기록하지 않는다 — 결제 성립(complete/정산)은 별도 검증.
     const message = error instanceof Error ? error.message : 'approve failed'
     const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
+    const upstreamBody = (error as { piHttpBody?: string } | null)?.piHttpBody
     console.error('[Pi] /api/pi/approve error', {
       paymentId,
       kind,
       message,
+      upstreamBody,
       effectiveSandbox,
       ms: Date.now() - startedAt,
       ...describeError(error),
@@ -173,7 +175,7 @@ export async function handlePiApprove(request: Request) {
       network: effectiveSandbox ? 'testnet' : 'mainnet',
       ms: Date.now() - startedAt,
       httpStatus: typeof status === 'number' ? status : undefined,
-      message: message.slice(0, 300),
+      message: (upstreamBody ? `${message} | upstream: ${upstreamBody}` : message).slice(0, 300),
     }).catch(() => undefined)
     if (status === 401 || status === 403 || status === 404) {
       console.error(
@@ -211,8 +213,76 @@ export async function handlePiApprove(request: Request) {
       }).catch(() => undefined)
       return corsJson({ ok: true, payment: afterError, recovered: true })
     }
-    // after()로 응답 뒤에 실행해야 서버리스 함수 종료에 취소 요청이 끊기지 않는다.
+    // 지갑 만료 방어 — 동기 승인이 실패해도 클라이언트에는 즉시 ok를 돌리고
+    // after() 백그라운드에서 지갑의 승인 창(~45초) 안에 걸쳐 재시도한다.
+    // 지갑은 우리의 HTTP 응답이 아니라 Pi Platform의 developer_approved 상태를
+    // 보므로, 창 안에 재시도가 한 번이라도 성공하면 결제가 진짜로 살아난다
+    // (갓 생성된 결제가 Pi 쪽에 잠시 404로 보이는 전파 지연·일시 5xx 포함).
+    // 재시도가 전부 실패하면 cancel로 미완료 락을 풀어 다음 결제를 막지 않는다.
+    void recordPiEvent({
+      kind: 'approve',
+      stage: 'pending',
+      paymentId,
+      network: effectiveSandbox ? 'testnet' : 'mainnet',
+      message: 'sync approve failed; retrying in background',
+    }).catch(() => undefined)
     after(async () => {
+      const deadline = startedAt + 45_000
+      let attempt = 0
+      while (Date.now() < deadline) {
+        attempt += 1
+        await new Promise((resolve) => setTimeout(resolve, 3_000))
+        try {
+          const payment = await approvePiPayment(paymentId, effectiveSandbox)
+          console.log('[Pi] /api/pi/approve background retry succeeded', { paymentId, attempt })
+          void recordPiEvent({
+            kind: 'approve',
+            stage: 'ok',
+            paymentId,
+            network: effectiveSandbox ? 'testnet' : 'mainnet',
+            ms: Date.now() - startedAt,
+            message: `background retry #${attempt}`,
+          }).catch(() => undefined)
+          return
+        } catch (retryError) {
+          const retryStatus = (retryError as { piHttpStatus?: number } | null)?.piHttpStatus
+          const retryMessage = retryError instanceof Error ? retryError.message : String(retryError)
+          console.warn('[Pi] /api/pi/approve background retry failed', {
+            paymentId,
+            attempt,
+            status: retryStatus,
+            message: retryMessage,
+            ms: Date.now() - startedAt,
+          })
+          // 재시도 실패 뒤에도 승인만 이미 기록됐으면 성공으로 수렴한다.
+          const recheck = (await getPiPayment(paymentId, effectiveSandbox).catch(() => null)) as {
+            status?: Record<string, unknown>
+          } | null
+          if (recheck?.status?.developer_approved === true) {
+            console.log('[Pi] /api/pi/approve background recheck approved', { paymentId, attempt })
+            void recordPiEvent({
+              kind: 'approve',
+              stage: 'ok',
+              paymentId,
+              network: effectiveSandbox ? 'testnet' : 'mainnet',
+              ms: Date.now() - startedAt,
+              message: `recheck after retry #${attempt}`,
+            }).catch(() => undefined)
+            return
+          }
+          // 401/403은 같은 키 집합으로 재시도해도 결과가 같다 — 즉시 종료하고 정리로 간다.
+          if (retryStatus === 401 || retryStatus === 403) break
+        }
+      }
+      console.error('[Pi] /api/pi/approve all background retries exhausted; cancelling', { paymentId })
+      void recordPiEvent({
+        kind: 'approve',
+        stage: 'error',
+        paymentId,
+        network: effectiveSandbox ? 'testnet' : 'mainnet',
+        ms: Date.now() - startedAt,
+        message: 'background retries exhausted; payment left unapproved',
+      }).catch(() => undefined)
       await cancelPiPayment(paymentId, effectiveSandbox)
         .then(() => console.warn('[Pi] unapproved payment cancelled after approve failure', { paymentId }))
         .catch((cancelError) =>
@@ -222,7 +292,7 @@ export async function handlePiApprove(request: Request) {
           }),
         )
     })
-    return corsJson({ error: message }, { status: errorStatus(error, message) })
+    return corsJson({ ok: true, pendingApproval: true })
   }
 }
 
