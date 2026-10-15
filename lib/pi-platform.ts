@@ -538,6 +538,54 @@ export async function piPaymentDiagnostics(sandboxHint?: boolean | null) {
   }
 }
 
+/**
+ * 결제 시작 전 사전 점검 — 설정된 키로 존재하지 않는 paymentId를 GET해
+ * Pi가 키를 받아들이는지 확인한다(404=키 정상·결제 없음, 401/403=키-앱
+ * 불일치). 여기서 false면 실제 approve도 같은 이유로 실패하므로 지갑을
+ * 만료까지 기다리게 하지 말고 클라이언트가 즉시 중단하게 한다.
+ * 키 값·env 이름은 응답에 넣지 않는다.
+ */
+export async function piPaymentHealth(sandboxHint?: boolean | null) {
+  const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  const keys = resolvePiApiKeys(sandbox)
+  const apiBase = piPaymentsApiBase(sandbox)
+  const url = piPaymentUrl('__health_probe__', apiBase)
+  const startedAt = Date.now()
+  const network = sandbox ? 'testnet' : 'mainnet'
+  for (let i = 0; i < keys.length; i += 1) {
+    const { key, source } = keys[i]
+    const isLast = i === keys.length - 1
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Key ${key}` },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8_000),
+      })
+      await res.arrayBuffer().catch(() => undefined)
+      if (res.status === 404) {
+        return { ready: true, network, keyStatus: 'accepted', ms: Date.now() - startedAt }
+      }
+      if (res.status === 401 || res.status === 403) {
+        console.warn('[Pi] health probe key rejected; trying next candidate', { status: res.status, source })
+        continue
+      }
+      // 5xx 등 Pi측 일시 장애 — 마지막 후보까지 같은 결과면 '판단 불가'로
+      // ready를 유지해 체크아웃을 막지 않는다(실제 approve가 같은 응답을 주면
+      // 그때 실패로 수렴한다).
+      if (isLast) {
+        return { ready: true, network, keyStatus: 'uncertain', httpStatus: res.status, ms: Date.now() - startedAt }
+      }
+      continue
+    } catch (error) {
+      console.error('[Pi] health probe network error', { source, ...describeError(error) })
+      if (isLast) {
+        return { ready: false, network, keyStatus: 'unreachable', ms: Date.now() - startedAt }
+      }
+    }
+  }
+  return { ready: false, network, keyStatus: 'rejected', ms: Date.now() - startedAt }
+}
+
 function piHorizonUrl(sandboxHint?: boolean | null) {
   const override = (process.env.PI_HORIZON_URL || '').trim()
   if (override) return override

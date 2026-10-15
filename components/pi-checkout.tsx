@@ -867,6 +867,30 @@ export async function startPiCheckout(options: {
     new Promise((resolve) => window.setTimeout(resolve, 8_000)),
   ])
 
+  // 지갑 시트를 열기 전에 서버의 Pi API 키 상태를 점검한다 — 키 거절(401)이나
+  // 미설정이면 approve가 어차피 실패해 지갑이 '승인 프로세스 시간 초과'로
+  // 만료되므로, 여기서 명확한 원인으로 즉시 중단한다. 헬스체크 호출 자체의
+  // 실패(네트워크·구배포)는 판단 불가로 두고 결제를 진행한다.
+  try {
+    const health = (await apiFetch('/api/pi/health', { signal: AbortSignal.timeout(10_000) })
+      .then((res) => res.json().catch(() => null))) as {
+      ready?: boolean
+      keyStatus?: string
+    } | null
+    if (health && health.ready === false) {
+      const reason =
+        health.keyStatus === 'rejected'
+          ? 'Pi API 키가 Pi 서버에서 거절되었습니다(401/403).'
+          : health.keyStatus === 'unreachable'
+            ? '결제 서버가 Pi 서버에 연결되지 않습니다.'
+            : '서버에 Pi API 키가 설정되어 있지 않습니다.'
+      throw new Error(`Pi 결제 서버 설정에 문제가 있어 결제를 시작할 수 없습니다. ${reason} 관리자에게 문의해 주세요.`)
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('결제 서버 설정')) throw error
+    logPi('warn', 'pi health check failed; proceeding anyway', error)
+  }
+
   // 승인 타임아웃·만료 류 실패이고 아직 paymentId가 생성되지 않았다면
   // (체인 청구가 물리적으로 불가능한 단계) 세션 리셋 + 미완료 정리 후 1회 재시도.
   let lastError: unknown

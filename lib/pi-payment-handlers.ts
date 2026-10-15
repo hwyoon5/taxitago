@@ -157,6 +157,42 @@ export async function handlePiApprove(request: Request) {
           '포털의 다른 앱 키나 만료 키면 모든 승인이 401로 만료됩니다.',
       )
     }
+    // 실패 표면화 전 최종 상태를 한 번 더 확인한다 — 승인 응답만 유실되고 Pi
+    // 쪽에서는 승인이 끝난 경우(네트워크 단절 직후)까지 실패로 돌리면 지갑과
+    // 서버의 판정이 어긋난다. 정말 미승인이면 즉시 cancel해 지갑의 미완료
+    // 결제 락을 풀어 다음 결제가 '이전 결제 대기'로 막히지 않게 한다.
+    // 재확인은 지갑 만료 창 안에 끝나야 하므로 GET 자체의 45초 예산보다 짧게 자른다.
+    const afterError = (await Promise.race([
+      getPiPayment(paymentId, effectiveSandbox),
+      new Promise<null>((resolve) => setTimeout(resolve, 6_000)),
+    ]).catch(() => null)) as {
+      status?: Record<string, unknown>
+    } | null
+    if (afterError?.status?.developer_approved === true) {
+      console.log('[Pi] /api/pi/approve error path but payment already approved — treating as ok', {
+        paymentId,
+        originalError: message,
+      })
+      void recordPiEvent({
+        kind: 'approve',
+        stage: 'ok',
+        paymentId,
+        network: effectiveSandbox ? 'testnet' : 'mainnet',
+        ms: Date.now() - startedAt,
+      }).catch(() => undefined)
+      return NextResponse.json({ ok: true, payment: afterError, recovered: true })
+    }
+    // after()로 응답 뒤에 실행해야 서버리스 함수 종료에 취소 요청이 끊기지 않는다.
+    after(async () => {
+      await cancelPiPayment(paymentId, effectiveSandbox)
+        .then(() => console.warn('[Pi] unapproved payment cancelled after approve failure', { paymentId }))
+        .catch((cancelError) =>
+          console.warn('[Pi] post-failure cancel skipped', {
+            paymentId,
+            message: cancelError instanceof Error ? cancelError.message : String(cancelError),
+          }),
+        )
+    })
     return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
   }
 }
