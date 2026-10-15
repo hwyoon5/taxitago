@@ -313,7 +313,7 @@ function waitForPi(timeoutMs = 12000) {
  */
 type PiApiPath = '/api/pi/approve' | '/api/pi/complete' | '/api/pi/cancel'
 
-function beaconPiApi(path: PiApiPath, body: Record<string, unknown>) {
+function beaconPiApi(path: PiApiPath | string, body: Record<string, unknown>) {
   try {
     if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return
     const queued = navigator.sendBeacon(`${path}/`, new Blob([JSON.stringify(body)], { type: 'application/json' }))
@@ -367,6 +367,33 @@ async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
     throw new Error(message)
   }
   logPi('log', `${path} ok`, { status: response.status, payload, ms: Date.now() - startedAt })
+  return payload
+}
+
+/**
+ * REST형 대체 승인 경로 — POST /api/pi/payments/:id/approve.
+ * 기본 /api/pi/approve 경로가 엣지 규칙·경로 차단 등으로 도달하지 못하는
+ * 경우를 대비한 폴백이다. 핸들러·검증 로직은 동일한데, 승인은 멱등이라
+ * beacon과 기본 fetch가 둘 다 도달해도 안전하다.
+ */
+async function postPiApproveRest(paymentId: string, body: Record<string, unknown>) {
+  const path = `/api/pi/payments/${encodeURIComponent(paymentId)}/approve`
+  const startedAt = Date.now()
+  logPi('log', `${path} request (fallback)`, { paymentId })
+  const response = await apiFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    keepalive: true,
+    signal: AbortSignal.timeout(15_000),
+  })
+  const payload = (await response.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
+  if (!response.ok || payload?.ok !== true) {
+    const message = typeof payload?.error === 'string' ? payload.error : `${path} failed (${response.status})`
+    logPi('error', `${path} failed`, { status: response.status, payload, message, ms: Date.now() - startedAt })
+    throw new Error(message)
+  }
+  logPi('log', `${path} ok`, { status: response.status, ms: Date.now() - startedAt })
   return payload
 }
 
@@ -933,6 +960,9 @@ function runCreatePayment(
           // 지갑 시트가 뜨는 동안 페이지 fetch가 멈출 수 있어 beacon을 먼저 실어둔다.
           const approveBody = { paymentId, kind: checkoutKind(payment.metadata), sandbox: PI_SANDBOX, uid: sessionUid }
           beaconPiApi('/api/pi/approve', approveBody)
+          // REST형 대체 경로도 beacon으로 함께 실어둔다 — 기본 경로가 전혀
+          // 도달하지 않는 환경에서도 승인 한 번은 서버에 닿게 한다(멱등).
+          beaconPiApi(`/api/pi/payments/${encodeURIComponent(paymentId)}/approve`, approveBody)
           if (options.advanceOnApproval && approvedTxid) succeed({ paymentId, txid: approvedTxid })
           return postPiApiRetry('/api/pi/approve', approveBody)
             .then((payload) => {
@@ -941,10 +971,20 @@ function runCreatePayment(
               }
               return payload
             })
-            .catch((error) => {
+            .catch(async (error) => {
               if (settled) return undefined
-              finishError('approve failed', error)
-              return undefined
+              // 기본 경로 실패 → REST형 승인 경로로 최종 시도. 둘 다 실패해야
+              // 진짜 approve 실패로 표면화한다.
+              try {
+                const payload = await postPiApproveRest(paymentId, approveBody)
+                if (options.advanceOnApproval) {
+                  succeed({ paymentId, txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}` })
+                }
+                return payload
+              } catch {
+                finishError('approve failed', error)
+                return undefined
+              }
             })
         },
         onReadyForServerCompletion: (paymentIdArg, txidArg) => {

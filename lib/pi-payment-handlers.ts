@@ -106,10 +106,27 @@ export async function handlePiApprove(request: Request) {
     return NextResponse.json({ error: 'paymentId required' }, { status: 400 })
   }
 
+  // 'received'를 먼저 영속 기록 — 이후 ok/error 이벤트 유무로 지갑 만료 원인이
+  // '요청 미도달'인지 '업스트림 실패'인지를 diagnostics만으로 판별할 수 있다.
+  const { recordPiEvent } = await import('@/lib/pi-audit')
+  void recordPiEvent({
+    kind: 'approve',
+    stage: 'received',
+    paymentId,
+    network: effectiveSandbox ? 'testnet' : 'mainnet',
+  }).catch(() => undefined)
+
   const startedAt = Date.now()
   try {
     const payment = await approvePiPayment(paymentId, effectiveSandbox)
     console.log('[Pi] /api/pi/approve ok', { paymentId, ms: Date.now() - startedAt })
+    void recordPiEvent({
+      kind: 'approve',
+      stage: 'ok',
+      paymentId,
+      network: effectiveSandbox ? 'testnet' : 'mainnet',
+      ms: Date.now() - startedAt,
+    }).catch(() => undefined)
     return NextResponse.json({ ok: true, payment })
   } catch (error) {
     // 샌드박스 폴백 없음 — 승인 실패를 ok로 위장해도 Pi Platform이 승인하지
@@ -124,6 +141,15 @@ export async function handlePiApprove(request: Request) {
       ms: Date.now() - startedAt,
       ...describeError(error),
     })
+    void recordPiEvent({
+      kind: 'approve',
+      stage: 'error',
+      paymentId,
+      network: effectiveSandbox ? 'testnet' : 'mainnet',
+      ms: Date.now() - startedAt,
+      httpStatus: typeof status === 'number' ? status : undefined,
+      message: message.slice(0, 300),
+    }).catch(() => undefined)
     if (status === 401 || status === 403) {
       console.error(
         '[Pi] /api/pi/approve auth rejected on every key candidate — ' +
@@ -153,6 +179,13 @@ export async function handlePiCancel(request: Request) {
   if (!paymentId) {
     return NextResponse.json({ error: 'paymentId required' }, { status: 400 })
   }
+  const { recordPiEvent } = await import('@/lib/pi-audit')
+  void recordPiEvent({
+    kind: 'cancel',
+    stage: 'received',
+    paymentId,
+    network: effectiveSandbox ? 'testnet' : 'mainnet',
+  }).catch(() => undefined)
   try {
     // 취소 전에 상태를 조회 — 체인 제출이 끝난 건(txid 존재)은 취소할 수 없고
     // complete 경로로 마감해야 하므로 클라이언트에 txid를 돌려준다.
@@ -217,6 +250,14 @@ export async function handlePiComplete(request: Request) {
   const fallbackMetadata =
     body?.metadata && typeof body.metadata === 'object' ? (body.metadata as Record<string, unknown>) : null
 
+  const { recordPiEvent } = await import('@/lib/pi-audit')
+  void recordPiEvent({
+    kind: 'complete',
+    stage: 'received',
+    paymentId,
+    network: effectiveSandbox ? 'testnet' : 'mainnet',
+  }).catch(() => undefined)
+
   const startedAt = Date.now()
   try {
     const { payment, info, network } = await completePiPayment(paymentId, txid, effectiveSandbox)
@@ -225,6 +266,13 @@ export async function handlePiComplete(request: Request) {
     // 네트워크에 생성됐으면 해석된 sandbox로 조회하면 404로 정상 건을 거부한다.
     await verifyPiTxidOnChain(txid, network === 'testnet')
     console.log('[Pi] /api/pi/complete verified', { paymentId, txid, ms: Date.now() - startedAt })
+    void recordPiEvent({
+      kind: 'complete',
+      stage: 'ok',
+      paymentId,
+      network: effectiveSandbox ? 'testnet' : 'mainnet',
+      ms: Date.now() - startedAt,
+    }).catch(() => undefined)
     // kind는 Pi Platform이 보관하는 결제 메타데이터(서버가 조회한 원본)가 권위.
     // 서버 조회가 실패(info null)하거나 원본에 kind가 없으면 클라이언트 주장을
     // '입금 아님' 방향으로만 받아들인다 — 입금 계열 주장은 미검증이면 기록하지
@@ -314,6 +362,7 @@ export async function handlePiComplete(request: Request) {
     // 에스크로/정산을 기록하는 것은 가짜 '처리됨' 상태를 만든다. 실제 체인 결제가
     // 된 경우는 입금 스캐너·미완료 결제 복구가 잡아낸다.
     const message = error instanceof Error ? error.message : 'complete failed'
+    const upstreamStatus = (error as { piHttpStatus?: number } | null)?.piHttpStatus
     console.error('[Pi] /api/pi/complete error', {
       paymentId,
       txid,
@@ -322,6 +371,15 @@ export async function handlePiComplete(request: Request) {
       ms: Date.now() - startedAt,
       ...describeError(error),
     })
+    void recordPiEvent({
+      kind: 'complete',
+      stage: 'error',
+      paymentId,
+      network: effectiveSandbox ? 'testnet' : 'mainnet',
+      ms: Date.now() - startedAt,
+      httpStatus: typeof upstreamStatus === 'number' ? upstreamStatus : undefined,
+      message: message.slice(0, 300),
+    }).catch(() => undefined)
     return NextResponse.json({ error: message }, { status: errorStatus(error, message) })
   }
 }

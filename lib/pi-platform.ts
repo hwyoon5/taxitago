@@ -118,7 +118,7 @@ export function describeError(error: unknown): Record<string, unknown> {
     if (record instanceof Error || typeof record === 'object') {
       out[`${prefix}name`] = typeof record.name === 'string' ? record.name : undefined
       out[`${prefix}message`] = typeof record.message === 'string' ? record.message : String(current)
-      for (const key of ['code', 'errno', 'syscall', 'hostname', 'address', 'port', 'status', 'type'] as const) {
+      for (const key of ['code', 'errno', 'syscall', 'hostname', 'address', 'port', 'status', 'piHttpStatus', 'type'] as const) {
         if (record[key] !== undefined) out[`${prefix}${key}`] = record[key]
       }
       if (typeof record.stack === 'string') out[`${prefix}stack`] = record.stack.split('\n').slice(0, 4).join('\n')
@@ -518,6 +518,12 @@ export async function piPaymentDiagnostics(sandboxHint?: boolean | null) {
     probe = { reachable: false, ms: Date.now() - probeStart, ...describeError(error) }
   }
 
+  // 최근 승인/완료 이벤트 — 'received'만 있고 ok/error가 없으면 요청이 서버까지
+  // 도달했지만 업스트림 응답 전에 함수가 죽은 것, 아무것도 없으면 클라이언트
+  // 요청이 서버에 도달하지 않은 것(CORS·경로·네트워크 문제)으로 판별할 수 있다.
+  const { listPiEvents } = await import('@/lib/pi-audit')
+  const recentEvents = await listPiEvents().catch(() => [])
+
   return {
     network,
     apiBase,
@@ -528,6 +534,7 @@ export async function piPaymentDiagnostics(sandboxHint?: boolean | null) {
       builtinFallbackOnly: sandbox && !configuredScoped.length && !configuredShared.length,
     },
     probe,
+    recentEvents,
   }
 }
 
