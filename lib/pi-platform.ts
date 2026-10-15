@@ -1,12 +1,9 @@
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 
-/**
- * Pi 개발자 포털 도메인 인증 충돌 우회용 임시 테스트넷 키.
- * 샌드박스/테스트넷 모드에서 env 키가 없을 때 마지막 후보로만 사용한다.
- * 메인넷(NEXT_PUBLIC_PI_SANDBOX=false/0/mainnet)에서는 절대 사용되지 않는다.
- * TODO: 포털 도메인 인증이 정리되면 제거하고 PI_API_KEY로 되돌린다.
- */
-const PI_TESTNET_API_KEY = 'Uyu7admbaeoeucn1yfqsg57l71oa2ah5ldyoe5urrpyjzr9mse2pdmof3o1ee1nd'
+// 하드코드된 폴백 API 키는 두지 않는다 — 구 앱 소유 키가 폴백으로 남아 있으면
+// 신규 앱의 결제를 다른 프로젝트 키로 승인하려다 401/404로 만료되는 장애를
+// 조용히 가린다. 키는 반드시 env(PI_API_KEY_TESTNET 등)로만 주입하고, 없으면
+// 명시적 오류로 실패한다.
 
 type PiNetwork = 'testnet' | 'mainnet'
 type PiKeyChoice = { key: string; source: string }
@@ -67,9 +64,6 @@ function resolvePiApiKeys(sandboxHint?: boolean | null): PiKeyChoice[] {
     }
     choices.push({ key, source: 'env' })
   }
-  // 포털 등록 키보다 임시 강제 키가 먼저 거절돼 401 노이즈를 만들지 않도록
-  // 하드코드된 테스트넷 키는 env 후보가 모두 실패한 마지막 순번에 둔다.
-  if (sandbox) choices.push({ key: PI_TESTNET_API_KEY, source: 'forced-testnet' })
   if (!choices.length) {
     throw new Error(
       `PI_API_KEY is not configured for ${network} — set PI_API_KEY_${sandbox ? 'TESTNET' : 'MAINNET'} or a shared PI_API_KEY/PI_NETWORK_API_KEY`,
@@ -257,12 +251,6 @@ function piApproveAttempt(paymentId: string, timeoutMs: number, sandboxHint?: bo
   const keys = resolvePiApiKeys(sandboxHint)
   const apiBase = piPaymentsApiBase(sandboxHint)
   console.log('[Pi] approve key candidates', { count: keys.length, sources: keys.map((k) => k.source), apiBase })
-  if (keys.length === 1 && keys[0].source === 'forced-testnet') {
-    console.warn(
-      '[Pi] approve has only the built-in testnet fallback key — set PI_API_KEY_TESTNET ' +
-        '(개발자 포털 > 해당 앱의 테스트넷 키). 내장 키가 다른 앱 소유거나 폐기됐으면 모든 승인이 401로 만료됩니다.',
-    )
-  }
   if (keys.length === 1) {
     const only = keys[0]
     return piPaymentsRequest(paymentId, 'POST', '/approve', undefined, timeoutMs, only.key, only.source, apiBase)
@@ -549,9 +537,8 @@ export async function piPaymentDiagnostics(sandboxHint?: boolean | null) {
     keys: {
       configuredScoped,
       configuredShared,
-      builtinFallbackOnly: sandbox && !configuredScoped.length && !configuredShared.length,
+      missing: !configuredScoped.length && !configuredShared.length,
       fingerprints: keyFingerprints,
-      builtinFallback: sandbox ? piKeyFingerprint(PI_TESTNET_API_KEY) : null,
     },
     probe,
     recentEvents,

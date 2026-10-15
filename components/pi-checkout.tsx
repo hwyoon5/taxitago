@@ -514,13 +514,22 @@ const PI_SDK_SRC = 'https://sdk.minepi.com/pi-sdk.js'
  * Pi App Studio "Verified" 단계용 로그인 엔드포인트 — authenticate로 받은
  * accessToken을 여기로 POST해야 App Studio가 앱을 검증 완료로 표시한다.
  */
-const PI_APP_STUDIO_LOGIN_URL = 'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
 /**
- * 이 SDK가 결제를 생성하는 Pi 앱 인스턴스 — 포털에서 앱이 분리된 경우(구
- * 테스트넷 앱 vs 신규 앱) 백엔드 API 키의 앱과 다르면 승인이 401/404로
- * 끝나므로, 상관관계용으로 승인 요청 body에 함께 실어 보낸다.
+ * App Studio 로그인 엔드포인트 — 앱별 고유 도메인(`backend.appstudio-<slug>
+ * .piappengine.com`)이라 client ID로 파생되지 않는다. 새 앱의 URL은 App Studio
+ * 대시보드에서 확인해 NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL로 주입한다.
  */
-const PI_APP_INSTANCE = 'appstudio-u7cm9zhmha0ruwv8'
+const PI_APP_STUDIO_LOGIN_URL =
+  (process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL || '').trim() ||
+  'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
+/**
+ * 이 SDK가 결제를 생성하는 Pi 앱의 식별자 — 신규 테스트넷 앱의 Auth client
+ * ID(포털에서 공개 값으로 발급). 포털에서 앱이 분리된 경우 백엔드 API 키의
+ * 앱과 다르면 승인이 401/404로 끝나므로, 상관관계용으로 승인 요청 body에
+ * 함께 실어 보낸다.
+ */
+const PI_APP_INSTANCE =
+  (process.env.NEXT_PUBLIC_PI_APP_ID || '').trim() || 'Lqzm93E4twPAWjR_CQ3qgMYdWyFbOPYl9e-dxB_u9s8'
 
 /**
  * authenticate 직후 accessToken을 App Studio 로그인 엔드포인트로 교환한다.

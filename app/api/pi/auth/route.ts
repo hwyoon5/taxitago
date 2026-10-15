@@ -10,6 +10,7 @@ function corsJson(data: unknown, init?: { status?: number }) {
 }
 
 const PI_APP_STUDIO_LOGIN_URL =
+  (process.env.PI_APP_STUDIO_LOGIN_URL || process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL || '').trim() ||
   'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
 
 /**

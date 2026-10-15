@@ -12,9 +12,9 @@ export const dynamic = 'force-dynamic'
  *   - 이 배포가 어떤 Pi 네트워크로 결정됐는지 (host/env 규칙 적용 결과)
  *   - 그 네트워크용 API 키가 env에 실제로 잡혀 있는지 (값이 아니라 이름만)
  *   - 서버가 Pi Payments API에 닿는지 (probe.reachable/status/ms)
- * 승인이 전부 401로 떨어지면 configuredScoped가 비어 있는지 먼저 본다 —
- * 내장 테스트넷 폴백 키만 있는 상태(builtinFallbackOnly)는 다른 앱 소유 키라
- * 모든 승인이 거절돼 지갑 만료로 이어진다.
+ * 승인이 전부 401로 떨어지면 keys.missing/configuredScoped를 먼저 본다 —
+ * env에 키가 없으면(missing) 승인 자체가 실패하며, fingerprints로 배포된
+ * 키가 지갑이 쓰는 앱의 포털 키와 같은 앱 소유인지 대조한다.
  */
 export async function GET(request: Request) {
   const actor = await adminActor(request)
