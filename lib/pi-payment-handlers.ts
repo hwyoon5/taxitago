@@ -59,6 +59,21 @@ export async function lockRideEscrowFromPayment(
   })
 }
 
+/**
+ * 테스트용 Mock 승인 모드 — 테스트넷(test.* 호스트 등 sandbox 결정)에서만 기본
+ * 활성이며 PI_PAYMENT_MOCK=1/0으로 명시 제어한다. 메인넷 결제에는 절대 발동
+ * 하지 않는다. Pi Platform 호출이 실패해도 클라이언트에 ok를 돌려 테스트
+ * 플로우가 끊기지 않게 한다. 단, 지갑의 만료 판정은 Pi 측 developer_approved
+ * 기록이라 mock 응답이 지갑 만료 자체를 막지는 못하며, mock 완료는 정산
+ * 장부를 만들지 않는다(진짜 결제 기록 오염 방지).
+ */
+function piPaymentMockEnabled(sandbox: boolean) {
+  const flag = (process.env.PI_PAYMENT_MOCK || '').trim().toLowerCase()
+  if (flag === '1' || flag === 'true' || flag === 'yes') return true
+  if (flag === '0' || flag === 'false' || flag === 'no') return false
+  return sandbox
+}
+
 function errorStatus(error: unknown, message: string) {
   if (message.includes('PI_API_KEY')) return 500
   // Pi API가 4xx로 거절한 경우(만료·취소·잘못된 paymentId)는 그대로 전달한다 —
@@ -213,6 +228,20 @@ export async function handlePiApprove(request: Request) {
       }).catch(() => undefined)
       return corsJson({ ok: true, payment: afterError, recovered: true })
     }
+    // 테스트넷 Mock 승인 — Pi 호출 실패를 명시적 mock 응답으로 표시한다.
+    // 실제 승인은 백그라운드 재시도가 계속 시도해 창 안에 성공하면 지갑도
+    // 정상 진행된다(Pi 기록이 성립해야 하므로 mock이 지갑 만료를 막지는 않는다).
+    const mock = piPaymentMockEnabled(effectiveSandbox)
+    if (mock) {
+      console.warn('[Pi] /api/pi/approve MOCK approval (PI_PAYMENT_MOCK/testnet)', { paymentId, originalError: message })
+      void recordPiEvent({
+        kind: 'approve',
+        stage: 'ok',
+        paymentId,
+        network: effectiveSandbox ? 'testnet' : 'mainnet',
+        message: 'mock approval (test mode)',
+      }).catch(() => undefined)
+    }
     // 지갑 만료 방어 — 동기 승인이 실패해도 클라이언트에는 즉시 ok를 돌리고
     // after() 백그라운드에서 지갑의 승인 창(~45초) 안에 걸쳐 재시도한다.
     // 지갑은 우리의 HTTP 응답이 아니라 Pi Platform의 developer_approved 상태를
@@ -292,7 +321,7 @@ export async function handlePiApprove(request: Request) {
           }),
         )
     })
-    return corsJson({ ok: true, pendingApproval: true })
+    return corsJson({ ok: true, pendingApproval: true, mockApproved: mock || undefined })
   }
 }
 
@@ -519,6 +548,23 @@ export async function handlePiComplete(request: Request) {
       httpStatus: typeof upstreamStatus === 'number' ? upstreamStatus : undefined,
       message: message.slice(0, 300),
     }).catch(() => undefined)
+    // 테스트넷 Mock 완료 — 검증 실패를 정산·에스크로·장부 없이 ok로만 돌린다.
+    // 테스트 플로우의 UI 진행은 살리되 가짜 정산 기록은 만들지 않는다.
+    if (piPaymentMockEnabled(effectiveSandbox)) {
+      console.warn('[Pi] /api/pi/complete MOCK completion (PI_PAYMENT_MOCK/testnet)', {
+        paymentId,
+        txid,
+        originalError: message,
+      })
+      void recordPiEvent({
+        kind: 'complete',
+        stage: 'ok',
+        paymentId,
+        network: effectiveSandbox ? 'testnet' : 'mainnet',
+        message: 'mock completion (test mode, no settlement recorded)',
+      }).catch(() => undefined)
+      return corsJson({ ok: true, mockCompleted: true })
+    }
     return corsJson({ error: message }, { status: errorStatus(error, message) })
   }
 }
