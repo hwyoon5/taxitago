@@ -9,9 +9,11 @@ function corsJson(data: unknown, init?: { status?: number }) {
   return NextResponse.json(data, { status: init?.status, headers: PI_CORS_HEADERS })
 }
 
+// App Studio 검증 포워딩 — 앱별 고유 도메인이라 env로만 설정한다.
+// 샌드박스 포털 앱에는 이 엔드포인트가 없을 수 있으므로 미설정이면 생략
+// (구 앱 도메인으로의 스테일 폴백은 제거).
 const PI_APP_STUDIO_LOGIN_URL =
-  (process.env.PI_APP_STUDIO_LOGIN_URL || process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL || '').trim() ||
-  'https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com/pi/auth/v1/login'
+  (process.env.PI_APP_STUDIO_LOGIN_URL || process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL || '').trim()
 
 /**
  * Pi 로그인 세션 재검증 — authenticate 직후 발급된 accessToken을 /v2/me로
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
     // 처리한다. 직렬로 기다리면 최대 8초가 로그인 응답에 붙어 클라이언트
     // 타임아웃(15s)과 합쳐져 로그인이 느려진다.
     after(async () => {
+      if (!PI_APP_STUDIO_LOGIN_URL) return
       try {
         const studioRes = await fetch(PI_APP_STUDIO_LOGIN_URL, {
           method: 'POST',
