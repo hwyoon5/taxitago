@@ -436,7 +436,7 @@ export async function markRideProgress(
   return data.ride
 }
 
-/** 대리운전 전용 — 배정된 기사가 탑승/도착 확인을 대신 진행한다. */
+/** 택시·대리운전 공통 — 배정된 기사가 탑승(운행 시작)/목적지 도착 확인을 진행한다. */
 export async function markRideProgressAsDriver(
   rideId: string,
   driverId: string,

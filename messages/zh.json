@@ -468,6 +468,8 @@
   "match.checking": "确认中…",
   "match.boarded": "确认上车",
   "match.arrived": "到达目的地",
+  "match.waitDriverBoard": "司机正在前往上车点 · 上车确认由司机操作",
+  "match.waitDriverArrive": "行程中 · 到达确认与费用结算由司机操作",
   "match.retrying": "重新呼叫中…",
   "match.retry": "重新呼叫",
   "match.accepting": "接单中…",

@@ -468,6 +468,8 @@
   "match.checking": "Checking…",
   "match.boarded": "Confirm boarding",
   "match.arrived": "Arrived at destination",
+  "match.waitDriverBoard": "Your driver is heading to the pickup · the driver confirms boarding",
+  "match.waitDriverArrive": "On the way · the driver confirms arrival and finalizes the fare",
   "match.retrying": "Re-calling…",
   "match.retry": "Call again",
   "match.accepting": "Accepting…",

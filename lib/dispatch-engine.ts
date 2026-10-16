@@ -438,9 +438,9 @@ export function markRideProgress(
 }
 
 /**
- * 기사 주도 진행 — 대리운전 전용. 이용자가 음주 상태로 앱 조작이 어려울 수 있어
- * 탑승(운행 시작)/목적지 도착 확인을 배정된 기사가 대신 진행한다.
- * 상태 시계는 승객 확인과 동일하게 boardedAt → readyToSettleAt을 쓴다.
+ * 기사 주도 진행 — 택시·대리운전 공통. 현장 운영에서는 탑승(운행 시작)과
+ * 목적지 도착 확인을 배정된 기사가 진행하고, 이용자 화면은 폴링/SSE로
+ * boardedAt → readyToSettleAt 상태 시계를 그대로 따라간다.
  */
 export function markRideProgressByDriver(rideId: string, driverId: string, step: 'boarded' | 'arrived') {
   syncDispatchFromDisk()
@@ -449,7 +449,6 @@ export function markRideProgressByDriver(rideId: string, driverId: string, step:
   if (ride.assignedDriverId !== driverId || ride.status !== 'assigned') {
     return { ok: false as const, error: ride.status === 'assigned' ? 'forbidden' : ride.status || 'not_assigned', ride }
   }
-  if (ride.kind !== 'daeri') return { ok: false as const, error: 'forbidden', ride }
   if (step === 'boarded') {
     if (!ride.boardedAt) ride.boardedAt = nowIso()
   } else if (!ride.boardedAt) {

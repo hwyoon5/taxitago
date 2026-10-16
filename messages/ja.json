@@ -468,6 +468,8 @@
   "match.checking": "確認中…",
   "match.boarded": "乗車確認",
   "match.arrived": "目的地到着",
+  "match.waitDriverBoard": "ドライバーが乗車位置へ移動中です · 乗車確認はドライバーが行います",
+  "match.waitDriverArrive": "移動中です · 到着確認と料金確定はドライバーが行います",
   "match.retrying": "再呼出中…",
   "match.retry": "再度呼ぶ",
   "match.accepting": "承諾中…",

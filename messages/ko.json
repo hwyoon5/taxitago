@@ -468,6 +468,8 @@
   "match.checking": "확인 중…",
   "match.boarded": "탑승 확인",
   "match.arrived": "목적지 도착",
+  "match.waitDriverBoard": "기사님이 승객 위치로 이동 중이에요 · 탑승 확인은 기사님이 진행합니다",
+  "match.waitDriverArrive": "운행 중이에요 · 목적지 도착 확인과 요금 확정은 기사님이 진행합니다",
   "match.retrying": "다시 호출 중…",
   "match.retry": "다시 호출",
   "match.accepting": "수락 중…",

@@ -56,7 +56,6 @@ import {
   bumpRideFare,
   cancelRideRequest,
   completeRideTrip,
-  markRideProgress,
   markRideProgressAsDriver,
   createRideRequest,
   fetchActiveRide,
@@ -2645,19 +2644,6 @@ function TaxiMatchingSheet({
       .finally(() => setAccepting(false))
   }
 
-  const confirmRideProgress = (step: 'boarded' | 'arrived') => {
-    const rideId = ride?.id || rideIdRef.current
-    if (!rideId || accepting) return
-    setAccepting(true)
-    void markRideProgress(rideId, ride?.passengerId || passengerIdRef.current || localPassengerId(), step, ride)
-      .then((next) => {
-        setRide(next)
-        onNotice(step === 'boarded' ? t('match.noticeBoarded') : t('match.noticeArrived'))
-      })
-      .catch((error) => onNotice(error instanceof Error ? error.message : t('match.errState')))
-      .finally(() => setAccepting(false))
-  }
-
   const finishPassengerTrip = () => {
     if (accepting || payingRef.current || settledRef.current) return
     if (!ride?.readyToSettleAt) {
@@ -2909,17 +2895,13 @@ function TaxiMatchingSheet({
               ) : null}
             </div>
             <div className="mt-4 space-y-2">
-              {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
-              {phase === 'arriving' && (
-                <button type="button" disabled={accepting} onClick={() => confirmRideProgress('boarded')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8] disabled:opacity-60">
-                  {accepting ? t('match.checking') : t('match.boarded')}
-                </button>
-              )}
-              {phase === 'boarding' && (
-                <button type="button" disabled={accepting} onClick={() => confirmRideProgress('arrived')} className="w-full rounded-2xl border-2 border-[#4C1FB8] bg-white py-3 font-black text-[#4C1FB8] disabled:opacity-60">
-                  {accepting ? t('match.checking') : t('match.arrived')}
-                </button>
-              )}
+              {/* 탑승/도착 확인은 기사 모드에서 진행 — 이용자 화면은 서버 운행
+                  기록(boardedAt → readyToSettleAt)을 폴링·SSE로 따라간다. */}
+              {phase === 'arriving' || phase === 'boarding' ? (
+                <p className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3 text-center text-xs font-bold leading-5 text-[#64748B]">
+                  {phase === 'arriving' ? t('match.waitDriverBoard') : t('match.waitDriverArrive')}
+                </p>
+              ) : null}
               <PaymentHandler
                 service="택시"
                 amount={phase === 'moving' ? billed.actual : fare}
@@ -4239,48 +4221,12 @@ function ServiceSheet({
                 {t('match.safeCall')}
               </button>
             </div>
-            {/* TODO [정식 서비스 오픈 시 전환 필수]: 현재는 테스트용 수동 트리거임. 정식 오픈 시 기사 모드 서버/웹소켓 신호 수신 시 자동으로 넘어가도록 연동 필요 */}
-            {ride && !dispatchRide?.boardedAt ? (
-              <button
-                type="button"
-                disabled={daeriAccepting}
-                onClick={() => {
-                  const rideId = dispatchRide?.id || daeriRideIdRef.current
-                  if (!rideId) return
-                  setDaeriAccepting(true)
-                  void markRideProgress(rideId, daeriPassengerIdRef.current || localPassengerId(), 'boarded')
-                    .then((next) => {
-                      setDispatchRide(next)
-                      onNotice(t('match.noticeBoardedShort'))
-                    })
-                    .catch((error) => onNotice(error instanceof Error ? error.message : t('match.errBoard')))
-                    .finally(() => setDaeriAccepting(false))
-                }}
-                className="w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-base font-bold text-[#4A82B8] disabled:opacity-60"
-              >
-                {t('match.boarded')}
-              </button>
-            ) : null}
-            {ride && dispatchRide?.boardedAt && !dispatchRide.readyToSettleAt ? (
-              <button
-                type="button"
-                disabled={daeriAccepting}
-                onClick={() => {
-                  const rideId = dispatchRide?.id || daeriRideIdRef.current
-                  if (!rideId) return
-                  setDaeriAccepting(true)
-                  void markRideProgress(rideId, daeriPassengerIdRef.current || localPassengerId(), 'arrived')
-                    .then((next) => {
-                      setDispatchRide(next)
-                      onNotice(t('match.noticeArrivedShort'))
-                    })
-                    .catch((error) => onNotice(error instanceof Error ? error.message : t('match.errArrive')))
-                    .finally(() => setDaeriAccepting(false))
-                }}
-                className="w-full rounded-2xl border-2 border-[#4A82B8] bg-white py-3.5 text-base font-bold text-[#4A82B8] disabled:opacity-60"
-              >
-                {t('match.arrived')}
-              </button>
+            {/* 탑승/도착 확인은 기사 모드에서 진행 — 이용자 화면은 서버 운행
+                기록(boardedAt → readyToSettleAt)을 폴링·SSE로 따라간다. */}
+            {ride && !dispatchRide?.readyToSettleAt ? (
+              <p className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3 text-center text-xs font-bold leading-5 text-[#64748B]">
+                {dispatchRide?.boardedAt ? t('match.waitDriverArrive') : t('match.waitDriverBoard')}
+              </p>
             ) : null}
             {ride ? (
               dispatchRide?.status === 'completed' ? (
@@ -9315,7 +9261,8 @@ function DriverDashboard({
       .finally(() => setBusy(false))
   }
 
-  // 대리운전 전용 — 음주 상태 이용자를 대신해 기사가 탑승/도착 확인을 진행한다.
+  // 택시·대리운전 공통 — 기사가 탑승(운행 시작)/목적지 도착을 확인하면 서버
+  // 상태가 boardedAt → readyToSettleAt로 바뀌고 이용자 화면이 그대로 따라간다.
   const driverMarkProgress = (step: 'boarded' | 'arrived') => {
     if (busy || !activeRide || !driverId) return
     setBusy(true)
@@ -9325,16 +9272,16 @@ function DriverDashboard({
       .finally(() => setBusy(false))
   }
 
-  // 대리운전 이용 완료 — 승객 앱 결제(에스크로)가 잠겨 있으면 그대로 해제 정산하고,
-  // 아니면 현장 QR/수동 결제 모달로 이어간다.
-  const finishDaeriTrip = () => {
+  // 택시·대리운전 공통 이용 완료 — 승객 앱 결제(에스크로)가 잠겨 있으면 그대로
+  // 해제 정산하고, 아니면 현장 QR/수동 결제 모달로 이어간다.
+  const settleActiveTrip = () => {
     if (busy) return
     if (!activeRide || !driverId) {
       onNotice('정산할 운행 정보를 찾지 못했어요. 화면을 새로고침한 뒤 다시 눌러 주세요.')
       return
     }
     if (!activeRide.readyToSettleAt) {
-      onNotice('먼저 승객 탑승과 목적지 도착을 확인해 주세요.')
+      onNotice('먼저 [탑승 확인]과 [목적지 도착]을 눌러 주세요.')
       return
     }
     if (activeRide.escrow?.status === 'held') {
@@ -9351,7 +9298,7 @@ function DriverDashboard({
       return
     }
     if (!activeRide.readyToSettleAt) {
-      onNotice('승객이 탑승을 확인하고 목적지에 도착한 뒤에만 정산할 수 있어요.')
+      onNotice('먼저 [탑승 확인]과 [목적지 도착]을 눌러 주세요.')
       return
     }
     setBusy(true)
@@ -9519,17 +9466,11 @@ function DriverDashboard({
             에스크로 {activeRide.escrow?.amount?.toFixed(7) ?? activeRide.estimatedFare.toFixed(7)} Pi · {activeRide.escrow?.status === 'held' ? '잠금 완료' : activeRide.escrow?.status === 'released' ? '정산됨' : '승객 입금 대기'}
           </p>
           <p className="mt-2 text-xs font-bold text-[#047857]">
-            {activeRide.kind === 'daeri'
-              ? activeRide.readyToSettleAt
-                ? '목적지 도착이 확인됐어요. 이용 완료와 정산을 진행해 주세요.'
-                : activeRide.boardedAt
-                  ? '운행 중이에요. 목적지에 도착하면 도착 확인을 눌러 주세요.'
-                  : '대리 기사가 운행을 시작하면 승객 탑승 확인을 눌러 주세요.'
-              : activeRide.readyToSettleAt
-                ? '승객이 목적지 도착을 확인했어요. 정산할 수 있어요.'
-                : activeRide.boardedAt
-                  ? '승객이 탑승을 확인했어요. 목적지 도착 확인을 기다리는 중이에요.'
-                  : '승객의 탑승 확인 전에는 정산할 수 없어요.'}
+            {activeRide.readyToSettleAt
+              ? '목적지 도착이 확인됐어요. 요금이 확정됐습니다 — 아래에서 정산을 진행해 주세요.'
+              : activeRide.boardedAt
+                ? '운행 중이에요. 목적지에 도착하면 [목적지 도착]을 눌러 요금을 확정해 주세요.'
+                : '승객이 탑승하면 [탑승 확인]을 눌러 운행을 시작해 주세요.'}
           </p>
           {queuedRide ? (
             <p className="mt-2 rounded-lg bg-[#DBEAFE] px-2.5 py-1.5 text-[11px] font-black text-[#1D4ED8]">
@@ -9568,40 +9509,38 @@ function DriverDashboard({
               />
             </div>
           ) : null}
-          {activeRide.kind === 'daeri' && !activeRide.boardedAt ? (
+          {!activeRide.boardedAt ? (
             <button
               type="button"
               disabled={busy}
               onClick={() => driverMarkProgress('boarded')}
               className="relative z-10 mt-4 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white disabled:opacity-50"
             >
-              {busy ? '처리 중…' : '승객 확인 · 운행 시작'}
+              {busy ? '처리 중…' : '승객 탑승 확인 · 운행 시작'}
             </button>
           ) : null}
-          {activeRide.kind === 'daeri' && activeRide.boardedAt && !activeRide.readyToSettleAt ? (
+          {activeRide.boardedAt && !activeRide.readyToSettleAt ? (
             <button
               type="button"
               disabled={busy}
               onClick={() => driverMarkProgress('arrived')}
               className="relative z-10 mt-4 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white disabled:opacity-50"
             >
-              {busy ? '처리 중…' : '목적지 도착 확인'}
+              {busy ? '처리 중…' : '목적지 도착 · 요금 확정'}
             </button>
           ) : null}
           <button
             type="button"
             disabled={busy}
             aria-busy={busy}
-            onClick={activeRide.kind === 'daeri' ? finishDaeriTrip : finishTrip}
+            onClick={settleActiveTrip}
             className={`relative z-10 mt-4 w-full rounded-2xl py-3.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 ${canSettle ? 'bg-[#047857]' : 'bg-[#94A3B8]'}`}
           >
             {busy
               ? '정산 중…'
-              : activeRide.kind === 'daeri'
-                ? activeRide.escrow?.status === 'held'
-                  ? '이용 완료 · 자동 정산'
-                  : '이용 완료 · 현장 QR/수동 정산'
-                : '운행 완료 · 자동 정산'}
+              : activeRide.escrow?.status === 'held'
+                ? '운행 완료 · 자동 정산'
+                : '운행 완료 · 현장 QR/수동 정산'}
           </button>
           <button
             type="button"
