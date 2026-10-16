@@ -20,6 +20,7 @@ import {
 } from '@/lib/dispatch-store'
 import { sendDriverPush } from '@/lib/driver-push'
 import { recordZoneOutcome } from '@/lib/avoid-zone-store'
+import { resolveNetworkMode } from '@/lib/pi-sandbox'
 import {
   DRIVER_STALE_MS,
   MATCH_RADIUS_KM,
@@ -112,7 +113,15 @@ function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: nu
   if (driver.status === 'offline') return false
   // 본인 호출 원천 차단 — 등록 기사/파트너가 승객으로 부른 콜이 자기
   // 단말기(기사 id 또는 piUid가 같은 레코드)로 배정되지 않게 한다.
-  if (ride.passengerUid && (driver.id === ride.passengerUid || driver.piUid === ride.passengerUid)) return false
+  // 테스트넷에서는 같은 테스트 계정으로 승객↔기사 end-to-end 검증을
+  // 허용하기 위해 이 제외를 적용하지 않는다(메인넷은 그대로 차단).
+  if (
+    ride.passengerUid &&
+    resolveNetworkMode() !== 'testnet' &&
+    (driver.id === ride.passengerUid || driver.piUid === ride.passengerUid)
+  ) {
+    return false
+  }
   const assignedRide = listRides().find((item) => item.assignedDriverId === driver.id && item.status === 'assigned')
   if (assignedRide && !prematchEligible(driver, assignedRide)) return false
   if (listRides().some((item) => item.id !== ride.id && item.currentOffer?.driverId === driver.id && item.currentOffer.decision === 'pending')) return false

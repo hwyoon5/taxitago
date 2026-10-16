@@ -9,6 +9,7 @@ import type { AppLocale, MessageKey } from '@/lib/i18n'
 import { applyThemeMode, loadThemeMode, saveThemeMode, type ThemeMode } from '@/lib/theme'
 import { localizedText, translateService } from '@/lib/i18n'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
+import { loadPiIdentity } from '@/lib/partner-account'
 
 const THEME_LABEL: Record<ThemeMode, MessageKey> = {
   light: 'settings.theme.light',
@@ -116,6 +117,9 @@ export function FaresView({ onBack }: { onBack: () => void }) {
 }
 
 function localSupportActorId() {
+  // 승객 식별자와 동일한 규칙 — Pi 세션이 있으면 uid를 써 호출 건과 actor가 일치한다.
+  const uid = loadPiIdentity()?.uid?.trim()
+  if (uid) return uid
   try {
     const existing = window.localStorage.getItem('taxitago-passenger-id')
     if (existing) return existing

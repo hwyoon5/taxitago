@@ -48,6 +48,7 @@ import BroadcastBanner from '@/components/broadcast-banner'
 import { broadcastRegionForCoord } from '@/lib/broadcast-regions'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
 import { isRidePayLabel, settleMidTripCancelFee } from '@/lib/ride-fare'
+import { resolvePiSandbox } from '@/lib/pi-sandbox'
 import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
 import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, refreshMobilityDevices, rentMobilityDevice, returnMobilityDevice } from '@/lib/mobility-devices'
@@ -135,8 +136,34 @@ function readOrCreateLocalId(key: string, prefix: string) {
   }
 }
 
+/**
+ * 승객 식별자 — Pi 세션이 있으면 uid를 그대로 쓴다. 같은 Pi 계정은 어느
+ * 기기(PC/모바일)에서도 동일한 passengerId를 갖게 돼 기사 화면의 ridePid와
+ * 일치하고, 세션 불일치로 인한 소유권 충돌이 없어진다. 미인증이면 기기별
+ * 로컬 id(passenger-<uuid>)로 폴백한다.
+ */
 function localPassengerId() {
+  const uid = loadPiIdentity()?.uid?.trim()
+  if (uid) return uid
   return readOrCreateLocalId(PASSENGER_ID_KEY, 'passenger')
+}
+
+/** 이전 랜덤 passenger-<uuid>로 생성된 진행 중 운행의 소유권 복원용 폴백. */
+function legacyPassengerId() {
+  try {
+    const stored = window.localStorage.getItem(PASSENGER_ID_KEY)?.trim() || ''
+    return stored !== localPassengerId() ? stored : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 테스트넷(테스트 도메인)에서는 같은 Pi 계정이 승객+기사 역할을 겸할 수 있게
+ * 자기콜 제외를 끈다. 메인넷에서는 서버/클라 모두 본인 호출 차단을 유지한다.
+ */
+function selfCallAllowedForTest() {
+  return resolvePiSandbox({ host: typeof window === 'undefined' ? null : window.location.hostname })
 }
 
 const DRIVER_ACTIVE_KEY = 'taxitago-driver-active'
@@ -196,8 +223,9 @@ function hasRecordedEarnings(stats: DriverEarningsStats | null | undefined) {
 }
 
 function localDriverId(partnerUid?: string) {
-  if (partnerUid) return partnerUid
-  return readOrCreateLocalId(DRIVER_ID_KEY, 'driver')
+  // 파트너 uid 우선, 없으면 Pi 세션 uid — 같은 테스트 계정은 어느 기기에서도
+  // 동일한 기사 식별자를 갖는다. 둘 다 없으면 기기별 로컬 id로 폴백한다.
+  return partnerUid || loadPiIdentity()?.uid?.trim() || readOrCreateLocalId(DRIVER_ID_KEY, 'driver')
 }
 
 function liveVehicleFromRide(ride: PublicRide | null | undefined) {
@@ -2408,6 +2436,8 @@ function TaxiMatchingSheet({
         void cancelRideRequest(created.id, passengerIdRef.current || localPassengerId()).catch(() => undefined)
         return
       }
+      // 레거시 passenger-<uuid>로 만든 복원 운행은 그 id를 소유권 호출에 그대로 쓴다.
+      if (created.passengerId) passengerIdRef.current = created.passengerId
       taxiSheetRideId = created.id
       rideIdRef.current = created.id
       setRide(created)
@@ -3728,6 +3758,8 @@ function ServiceSheet({
         void cancelRideRequest(created.id, daeriPassengerIdRef.current || localPassengerId()).catch(() => undefined)
         return
       }
+      // 레거시 passenger-<uuid>로 만든 복원 운행은 그 id를 소유권 호출에 그대로 쓴다.
+      if (created.passengerId) daeriPassengerIdRef.current = created.passengerId
       daeriSheetRideId = created.id
       daeriRideIdRef.current = created.id
       setDispatchRide(created)
@@ -8353,7 +8385,8 @@ function DriverOfferWatcher({
     const applyOffer = (pending: { ride: PublicRide | null; offer?: { pickupDistanceKm?: number; expiresAt?: string } | null; active?: PublicRide | null } | null) => {
       let fetched = pending?.ride ?? null
       // 본인 승객 호출은 내 기사 오퍼가 아니다 — 서버 매칭 제외와 별개로 클라이언트에서도 차단.
-      if (fetched && fetched.passengerId === localPassengerId()) fetched = null
+      // 단 테스트넷은 같은 테스트 계정으로 승객+기사를 겸할 수 있게 예외를 둔다.
+      if (fetched && !selfCallAllowedForTest() && fetched.passengerId === localPassengerId()) fetched = null
       const ride = fetched && dismissedRef.current.has(fetched.id) ? null : fetched
       const active = pending?.active && pending.active.status === 'assigned' ? pending.active : null
       setActiveRide((current) => {
@@ -8962,7 +8995,8 @@ function DriverDashboard({
       let fetched = pending?.ride ?? null
       // 본인이 승객으로 부른 콜은 내 기사 단말기의 오퍼가 아니다 — 서버가
       // 매칭에서 제외하지만, 구형 레코드·스냅샷 경유 도착도 여기서 걸러낸다.
-      if (fetched && fetched.passengerId === localPassengerId()) fetched = null
+      // 단 테스트넷은 같은 테스트 계정으로 승객+기사를 겸할 수 있게 예외를 둔다.
+      if (fetched && !selfCallAllowedForTest() && fetched.passengerId === localPassengerId()) fetched = null
       if (fetched && dismissedOfferIds.current.has(fetched.id) && localOfferRef.current?.ride.id === fetched.id) {
         localOfferRef.current = null
       }
@@ -10730,7 +10764,11 @@ export default function HomeScreen() {
       dest: { lat: place.lat, lng: place.lng, address: place.address, label: place.label },
     })
     // The server is the single source of truth — reattach to any live ride for this passenger.
-    const serverActive = await fetchActiveRide(localPassengerId(), 'passenger')
+    // uid 바인딩 이전의 로컬 passenger-<uuid>로 만든 진행 운행도 함께 조회한다.
+    const legacyId = legacyPassengerId()
+    const serverActive =
+      (await fetchActiveRide(localPassengerId(), 'passenger')) ??
+      (legacyId ? await fetchActiveRide(legacyId, 'passenger') : null)
     if (serverActive) {
       taxiSheetRideId = serverActive.id
       const trip: ActiveTrip = {
