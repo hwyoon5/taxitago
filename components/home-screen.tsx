@@ -19,7 +19,7 @@ import { MobilityDeviceFormModal } from '@/components/mobility-device-form'
 import { PlacePickerScreen } from '@/components/place-picker-map'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
-import { searchPlacesFromApi } from '@/lib/geocode-client'
+import { searchPlacesFromApi, type SearchedPlace } from '@/lib/geocode-client'
 import { detectTextLang, translateForSearch } from '@/lib/text-lang'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { isUsableCoord, resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
@@ -1227,40 +1227,58 @@ function DestinationSearchModal({
     setSearching(true)
     const timer = window.setTimeout(() => {
       const seq = ++searchSeq.current
-      void (async () => {
-        // 외국어 입력은 한국어 검색어로 번역해 병행 검색 — 원문 그대로는
-        // 한국 주소 DB에서 결과가 빈약하므로 두 쿼리를 합쳐 보여 준다.
-        let translated = ''
-        if (detectTextLang(keyword) !== 'ko') {
-          translated = (await translateForSearch(keyword, 'ko').catch(() => null))?.translated ?? ''
-          if (translated === keyword) translated = ''
-        }
-        if (seq !== searchSeq.current) return
-        setTranslatedQuery(translated)
-        const queries = translated ? [keyword, translated] : [keyword]
-        const places = (await Promise.all(queries.map((q) => searchPlacesFromApi(q).catch(() => [])))).flat()
-        if (seq !== searchSeq.current) return
-        const seen = new Set<string>()
-        setRemotePlaces(
-          places
-            .filter((place): place is NonNullable<typeof place> => place != null)
-            .filter((place) => {
-              const dedupeKey = `${place.name}|${place.address}`
-              if (seen.has(dedupeKey)) return false
-              seen.add(dedupeKey)
-              return true
-            })
-            .map((place) => ({
-              name: place.name,
-              address: place.address,
-              jibun: place.jibun,
-              category: place.category,
-              kind: place.kind,
-              hint: locationHint(place.address),
-              lat: place.lat,
-              lng: place.lng,
-            })),
+      const norm = (value: string) => value.replace(/\s+/g, '').toLowerCase()
+      const seen = new Set<string>()
+      const kept: PlaceItem[] = []
+      // 정규화된 이름+주소 키와 "같은 이름·40m 이내 좌표" 근접 중복을 함께 걸러
+      // 원문/번역본 두 검색이 같은 장소를 중복 노출하지 않게 한다.
+      const pushPlace = (place: SearchedPlace) => {
+        const key = `${norm(place.name)}|${norm(place.address)}`
+        if (seen.has(key)) return
+        const nearDup = kept.some(
+          (item) =>
+            norm(item.name) === norm(place.name) &&
+            Number.isFinite(item.lat) &&
+            Number.isFinite(item.lng) &&
+            Math.abs((item.lat as number) - place.lat) < 0.0005 &&
+            Math.abs((item.lng as number) - place.lng) < 0.0005,
         )
+        if (nearDup) return
+        seen.add(key)
+        kept.push({
+          name: place.name,
+          address: place.address,
+          jibun: place.jibun,
+          category: place.category,
+          kind: place.kind,
+          hint: locationHint(place.address),
+          lat: place.lat,
+          lng: place.lng,
+        })
+      }
+      void (async () => {
+        // 외국어 입력은 한국어 검색어로 번역해 병행 검색한다 — 원문 검색과
+        // 번역을 동시에 시작해 원문 결과를 먼저 보여 주고, 번역본 결과가
+        // 도착하면 그 뒤로 합친다(직렬 대기로 목록이 늦게 뜨는 문제 방지).
+        const needsTranslation = detectTextLang(keyword) !== 'ko'
+        const [original, translation] = await Promise.all([
+          searchPlacesFromApi(keyword).catch(() => [] as SearchedPlace[]),
+          needsTranslation ? translateForSearch(keyword, 'ko').catch(() => null) : Promise.resolve(null),
+        ])
+        if (seq !== searchSeq.current) return
+        const translated = translation?.translated && translation.translated !== keyword ? translation.translated : ''
+        setTranslatedQuery(translated)
+        original.forEach(pushPlace)
+        setRemotePlaces(kept.slice())
+        if (!translated) {
+          setSearching(false)
+          return
+        }
+        // 번역 검색어 두 번째 다리 — 원문 결과 뒤에 병합한다.
+        const extra = await searchPlacesFromApi(translated).catch(() => [] as SearchedPlace[])
+        if (seq !== searchSeq.current) return
+        extra.forEach(pushPlace)
+        setRemotePlaces(kept.slice())
         setSearching(false)
       })()
     }, 180)

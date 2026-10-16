@@ -78,29 +78,62 @@ const papagoOpenProvider: TranslateProvider = async (text, source, target) => {
 }
 
 const PROVIDERS: TranslateProvider[] = [libreProvider, papagoNcpProvider, papagoOpenProvider]
+const PROVIDER_NAMES = ['libre', 'papago-ncp', 'papago-open'] as const
+
+/** env 기준으로 사용 가능한 번역 provider 이름 목록 — 번역 누락 원인 진단용. */
+export function translateProvidersConfigured(): string[] {
+  const configured: string[] = []
+  if (/^https?:\/\//i.test((process.env.TRANSLATE_API_URL || '').trim())) configured.push('libre')
+  const ncp = resolveNaverRestCredentials()
+  if (ncp.keyId && ncp.secret) configured.push('papago-ncp')
+  const search = resolveNaverSearchCredentials()
+  if ((process.env.PAPAGO_CLIENT_ID || '').trim() || search.keyId) configured.push('papago-open')
+  return configured
+}
 
 // 동일 문장의 반복 번호를 막는 프로세스 내 소형 캐시.
-const cache = new Map<string, string>()
+const cache = new Map<string, { translated: string; provider: string }>()
 const cacheKey = (text: string, source: ChatLang, target: ChatLang) => `${source}:${target}:${text}`
 
-export async function translateChatText(text: string, source: ChatLang, target: ChatLang): Promise<string | null> {
+/**
+ * provider 체인을 순회하며 번역하고, 성공한 provider 이름까지 돌려준다.
+ * 각 provider의 실패는 로그로 남겨 번역 누락 원인을 배포 환경에서 바로 볼 수 있다.
+ */
+export async function translateChatTextVerbose(
+  text: string,
+  source: ChatLang,
+  target: ChatLang,
+): Promise<{ translated: string; provider: string } | null> {
   if (source === target) return null
   const key = cacheKey(text, source, target)
   const hit = cache.get(key)
   if (hit) return hit
-  for (const provider of PROVIDERS) {
+  const configured = translateProvidersConfigured()
+  if (configured.length === 0) {
+    console.warn('[translate] no provider configured — set TRANSLATE_API_URL or Papago/NCP env')
+    return null
+  }
+  for (let i = 0; i < PROVIDERS.length; i += 1) {
+    const name = PROVIDER_NAMES[i]
+    if (!configured.includes(name)) continue
     try {
-      const translated = await provider(text, source, target)
+      const translated = await PROVIDERS[i](text, source, target)
       if (translated && translated !== text) {
         if (cache.size > 500) cache.clear()
-        cache.set(key, translated)
-        return translated
+        cache.set(key, { translated, provider: name })
+        return { translated, provider: name }
       }
-    } catch {
-      continue
+      console.warn('[translate] provider returned empty/same', { provider: name, source, target })
+    } catch (error) {
+      console.warn('[translate] provider failed', { provider: name, source, target, error })
     }
   }
+  console.warn('[translate] all providers failed', { source, target, configured })
   return null
+}
+
+export async function translateChatText(text: string, source: ChatLang, target: ChatLang): Promise<string | null> {
+  return (await translateChatTextVerbose(text, source, target))?.translated ?? null
 }
 
 /**

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Languages, Mic, X } from 'lucide-react'
+import { Languages, Mic, Square, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { APP_LOCALES, type AppLocale } from '@/lib/i18n'
 import { createSpeechRecognizer, isSpeechRecognitionSupported, speakText, stopSpeaking, type SpeechRecognizer } from '@/lib/speech'
@@ -9,12 +9,22 @@ import { detectTextLang, translateForSearch } from '@/lib/text-lang'
 
 type VoicePhase = 'idle' | 'listening' | 'translating' | 'done' | 'error' | 'unsupported'
 
+// 최종 발화 후 이 시간만큼 새 결과가 없으면 자동으로 인식을 마무리한다.
+const SILENCE_FINALIZE_MS = 2600
+// 무입력 상태로 마이크가 계속 열려 있지 않도록 하는 세션 상한.
+const SESSION_MAX_MS = 45000
+// 엔진이 세션을 자체 종료했을 때 자동 재개 최대 횟수 — 무한 재시작 방지.
+const MAX_AUTO_RESTARTS = 5
+
 /**
  * 브라우저 Web Speech API 기반 음성 입력 시트.
  * - 열리면 선택된 인식 언어(기본: 앱 언어)로 인식을 자동 시작한다.
  *   한국어/English/日本語/中文 칩으로 말하는 언어를 바꿀 수 있다.
- * - 인식 결과가 한국어가 아니면 /api/translate로 한국어 검색어를 만들어
- *   원문과 함께 보여 주고, 확정 시 번역본이 검색어로 넘어간다.
+ * - continuous 모드로 짧은 침묵에 끊기지 않게 하고, 최종 발화 후
+ *   SILENCE_FINALIZE_MS 동안 새 결과가 없으면 자동 마무리한다.
+ *   엔진이 세션을 자체 종료하면 누적된 인식문을 보존한 채 자동 재개한다.
+ * - 세션이 끝난 뒤 인식 결과가 한국어가 아니면 /api/translate로
+ *   한국어 검색어를 만들어 원문과 함께 보여 주고, 확정 시 번역본이 넘어간다.
  * - 미지원·권한 거부·인식 실패 모두 인라인 안내로 수렴하고 크래시로 번지지 않는다.
  */
 export default function VoiceInputModal({ onResult, onClose }: { onResult: (text: string) => void; onClose: () => void }) {
@@ -24,7 +34,133 @@ export default function VoiceInputModal({ onResult, onClose }: { onResult: (text
   const [translated, setTranslated] = useState('')
   const [speechLang, setSpeechLang] = useState<AppLocale>(locale)
   const recognizerRef = useRef<SpeechRecognizer | null>(null)
-  const translateSeq = useRef(0)
+  const sessionRef = useRef(0)
+  // 같은 세션 안에서 인식기가 교체될 때 구형 인스턴스의 콜백이 신형을
+  // 오염시키지 않도록 세대 번호로 구분한다.
+  const generationRef = useRef(0)
+  // wantListeningRef: 사용자가 듣기를 원하는 상태인지 — 엔진의 자체 onend와
+  // 우리가 요청한 종료를 구분해 자동 재개 여부를 결정한다.
+  const wantListeningRef = useRef(false)
+  const restartsRef = useRef(0)
+  const noSpeechRetriedRef = useRef(false)
+  const transcriptRef = useRef('')
+  const silenceTimerRef = useRef(0)
+  const sessionTimerRef = useRef(0)
+
+  const clearTimers = () => {
+    window.clearTimeout(silenceTimerRef.current)
+    window.clearTimeout(sessionTimerRef.current)
+  }
+
+  const stopActive = () => {
+    try {
+      recognizerRef.current?.stop()
+    } catch {
+      /* 이미 종료된 인식기 — 무시 */
+    }
+  }
+
+  const abortActive = () => {
+    try {
+      recognizerRef.current?.abort()
+    } catch {
+      /* 이미 종료된 인식기 — 무시 */
+    }
+  }
+
+  // 인식 세션이 끝났을 때 마무리 — 한국어가 아니면 검색용 번역을 붙인다.
+  const finishSession = (session: number, lang: AppLocale) => {
+    const text = transcriptRef.current.trim()
+    if (!text) {
+      setPhase('done')
+      return
+    }
+    if (detectTextLang(text) === 'ko') {
+      setTranslated('')
+      setPhase('done')
+      speakText(text, 'ko')
+      return
+    }
+    setPhase('translating')
+    void translateForSearch(text, 'ko')
+      .then((result) => {
+        if (session !== sessionRef.current) return
+        if (result?.translated) setTranslated(result.translated)
+        setPhase('done')
+        // 이용자에게는 원문을 선택한 인식 언어로 읽어 주고, 검색에는 번역본이 넘어간다.
+        speakText(text, lang)
+      })
+      .catch(() => {
+        if (session !== sessionRef.current) return
+        setPhase('done')
+      })
+  }
+
+  /** 인식기 하나를 만들어 세션에 연결한다 — 최초 시작·자동 재개·no-speech 재시도가 공용. */
+  const beginRecognizer = (session: number, lang: AppLocale) => {
+    const gen = ++generationRef.current
+    const prev = recognizerRef.current
+    recognizerRef.current = null
+    try {
+      prev?.abort()
+    } catch {
+      /* 이미 종료된 인식기 — 무시 */
+    }
+    const stale = () => session !== sessionRef.current || gen !== generationRef.current
+    const recognizer = createSpeechRecognizer({
+      locale: lang,
+      onResult: (text, isFinal) => {
+        if (stale()) return
+        transcriptRef.current = text
+        setTranscript(text)
+        // 발화가 확정되면 침묵 타이머를 건다 — 이후 새 음성이 없으면 자동 마무리.
+        if (isFinal) {
+          window.clearTimeout(silenceTimerRef.current)
+          silenceTimerRef.current = window.setTimeout(() => {
+            if (stale()) return
+            wantListeningRef.current = false
+            stopActive()
+          }, SILENCE_FINALIZE_MS)
+        }
+      },
+      onError: (code) => {
+        if (stale() || code === 'aborted') return
+        // 마이크는 열렸는데 음성이 없었던 경우 — 한 번은 조용히 다시 듣는다.
+        if (code === 'no-speech' && !noSpeechRetriedRef.current && wantListeningRef.current) {
+          noSpeechRetriedRef.current = true
+          beginRecognizer(session, lang)
+          return
+        }
+        wantListeningRef.current = false
+        setPhase(code === 'not-allowed' || code === 'service-not-allowed' ? 'unsupported' : 'error')
+      },
+      onEnd: () => {
+        if (stale()) return
+        // 엔진이 자체적으로 세션을 닫은 경우(Android Chrome 등) — 사용자가
+        // 아직 듣기를 원하면 누적 인식문을 보존한 채 자동으로 재개한다.
+        if (wantListeningRef.current && restartsRef.current < MAX_AUTO_RESTARTS) {
+          restartsRef.current += 1
+          beginRecognizer(session, lang)
+          return
+        }
+        wantListeningRef.current = false
+        finishSession(session, lang)
+      },
+    })
+    recognizerRef.current = recognizer
+    if (!recognizer) {
+      wantListeningRef.current = false
+      setPhase('unsupported')
+      return
+    }
+    try {
+      recognizer.start()
+    } catch {
+      // 시작 직후 오류 — 사용자가 재시도 버튼으로 다시 열 수 있게 error로 수렴.
+      wantListeningRef.current = false
+      setPhase('error')
+    }
+  }
 
   const start = () => {
     if (!isSpeechRecognitionSupported()) {
@@ -33,70 +169,53 @@ export default function VoiceInputModal({ onResult, onClose }: { onResult: (text
       speakText(t('voice.unsupported'), locale)
       return
     }
-    recognizerRef.current?.abort()
+    // 구형 콜백이 abort에 반응해 finishSession을 돌리지 않도록 세션·세대를 먼저 무효화한다.
+    const session = ++sessionRef.current
+    generationRef.current += 1
+    wantListeningRef.current = false
+    abortActive()
+    clearTimers()
+    wantListeningRef.current = true
+    restartsRef.current = 0
+    noSpeechRetriedRef.current = false
+    transcriptRef.current = ''
     setTranscript('')
     setTranslated('')
     setPhase('listening')
-    const recognizer = createSpeechRecognizer({
-      locale: speechLang,
-      onResult: (text, isFinal) => {
-        setTranscript(text)
-        if (!isFinal) return
-        // 인식 결과가 한국어가 아니면 검색용 한국어로 번역해 함께 보여 준다.
-        if (detectTextLang(text) === 'ko') {
-          setTranslated('')
-          setPhase('done')
-          speakText(text, 'ko')
-          return
-        }
-        setPhase('translating')
-        const seq = ++translateSeq.current
-        void translateForSearch(text, 'ko')
-          .then((result) => {
-            if (seq !== translateSeq.current) return
-            if (result?.translated) {
-              setTranslated(result.translated)
-              // 이용자에게는 번역본을 앱 언어 발음 대신 원문 언어로 읽어 주고,
-              // 검색에는 번역본이 넘어간다.
-              speakText(text, speechLang)
-            }
-            setPhase('done')
-          })
-          .catch(() => {
-            if (seq !== translateSeq.current) return
-            setPhase('done')
-          })
-      },
-      onError: (code) => setPhase(code === 'not-allowed' || code === 'service-not-allowed' ? 'unsupported' : 'error'),
-      onEnd: () => {
-        setPhase((prev) => (prev === 'listening' ? 'done' : prev))
-      },
-    })
-    recognizerRef.current = recognizer
-    if (!recognizer) {
-      setPhase('unsupported')
-      return
-    }
-    try {
-      recognizer.start()
-    } catch {
-      setPhase('error')
-    }
+    beginRecognizer(session, speechLang)
+    // 세션 상한 — 무음 상태로 마이크가 영구히 열리지 않게 한다.
+    sessionTimerRef.current = window.setTimeout(() => {
+      if (session !== sessionRef.current) return
+      wantListeningRef.current = false
+      stopActive()
+    }, SESSION_MAX_MS)
   }
 
   // 열리자마자 바로 듣기 시작 — 별도 탭 없이 말할 수 있게 한다.
   useEffect(() => {
     start()
     return () => {
-      recognizerRef.current?.abort()
+      sessionRef.current += 1
+      wantListeningRef.current = false
+      clearTimers()
+      abortActive()
       recognizerRef.current = null
       stopSpeaking()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speechLang])
 
+  const stopListening = () => {
+    // stop()은 최종 결과를 비운 뒤 onEnd를 발생시켜 마무리 번역으로 이어진다.
+    wantListeningRef.current = false
+    stopActive()
+  }
+
   const close = () => {
-    recognizerRef.current?.abort()
+    sessionRef.current += 1
+    wantListeningRef.current = false
+    clearTimers()
+    abortActive()
     recognizerRef.current = null
     stopSpeaking()
     onClose()
@@ -111,7 +230,7 @@ export default function VoiceInputModal({ onResult, onClose }: { onResult: (text
 
   const status =
     phase === 'listening'
-      ? t('voice.listening')
+      ? transcript || t('voice.listening')
       : phase === 'translating'
         ? t('voice.translating')
         : phase === 'unsupported'
@@ -160,13 +279,13 @@ export default function VoiceInputModal({ onResult, onClose }: { onResult: (text
         <div className="mt-4 flex flex-col items-center">
           <button
             type="button"
-            onClick={start}
-            aria-label={t('voice.tap')}
+            onClick={phase === 'listening' ? stopListening : start}
+            aria-label={phase === 'listening' ? t('voice.stop') : t('voice.tap')}
             className={`flex h-20 w-20 items-center justify-center rounded-full text-white shadow-[0_12px_24px_rgba(74,130,184,0.35)] transition active:scale-95 ${
               phase === 'listening' ? 'animate-pulse bg-[#4A82B8]' : 'bg-[#4A82B8] hover:bg-[#3F74A8]'
             }`}
           >
-            <Mic className="h-9 w-9" />
+            {phase === 'listening' ? <Square className="h-7 w-7" /> : <Mic className="h-9 w-9" />}
           </button>
           <p aria-live="polite" className={`mt-4 min-h-10 w-full text-center text-sm font-bold leading-5 ${phase === 'error' || phase === 'unsupported' ? 'text-[#B45309]' : 'text-[#0F172A]'}`}>
             {status}
