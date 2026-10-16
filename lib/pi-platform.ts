@@ -242,6 +242,19 @@ export async function getPiPayment(paymentId: string, sandboxHint?: boolean | nu
 }
 
 /**
+ * 승인 창 안의 상태 조회용 짧은 GET — 지갑의 서버 승인 마감(~수십 초) 안에
+ * 쓰이는 확인 조회가 45초 예산을 그대로 쓰면 Pi API 지연 한 번으로 승인
+ * 전체가 만료된다. approve 경로의 존재 확인·4xx 재확인은 이 버전을 쓴다.
+ */
+export async function getPiPaymentQuick(paymentId: string, sandboxHint?: boolean | null, timeoutMs = 10_000) {
+  return (await piPaymentsRequestAuthed(paymentId, 'GET', '', undefined, timeoutMs, sandboxHint)) as {
+    amount?: number
+    metadata?: Record<string, unknown>
+    [key: string]: unknown
+  } | null
+}
+
+/**
  * 승인 한 번의 시도 — 키 후보를 전부 동시에 보내 가장 먼저 성공한 응답을 채택한다.
  * 지갑의 서버 승인 마감(~수십 초) 안에서 401 스테일 키를 순차 폴백하다 보면
  * 유효 키가 뒤에 있어도 만료에 걸린다. approve는 paymentId 멱등 POST라 같은
@@ -282,12 +295,20 @@ function piApproveAttempt(paymentId: string, timeoutMs: number, sandboxHint?: bo
  * 만든 네트워크와 어긋나면 반대 네트워크를 두드려 404가 떨어진다. 404면
  * 반대 네트워크에서 결제 존재를 확인하고, 있으면 그쪽으로 작업을 이어간다.
  */
-async function withNetworkFallback<T>(paymentId: string, sandbox: boolean, op: (sandbox: boolean) => Promise<T>) {
+async function withNetworkFallback<T>(
+  paymentId: string,
+  sandbox: boolean,
+  op: (sandbox: boolean) => Promise<T>,
+  lookupTimeoutMs = PI_FETCH_TIMEOUT_MS,
+) {
   try {
     return { value: await op(sandbox), sandbox }
   } catch (error) {
     if ((error as { piHttpStatus?: number } | null)?.piHttpStatus !== 404) throw error
-    const found = (await getPiPayment(paymentId, !sandbox).catch(() => null)) as Record<string, unknown> | null
+    const found = (await getPiPaymentQuick(paymentId, !sandbox, lookupTimeoutMs).catch(() => null)) as Record<
+      string,
+      unknown
+    > | null
     if (!found) {
       // 양쪽 네트워크 모두에 paymentId가 없다 = 결제가 생성된 앱과 API 키의
       // 앱이 다르다(포털 앱 분리). 도메인이 지갑에선 구 앱으로 열리는데 키는
@@ -297,6 +318,9 @@ async function withNetworkFallback<T>(paymentId: string, sandbox: boolean, op: (
           'The payment was created under a different Pi app than the configured API key.',
         { paymentId, triedSandbox: sandbox },
       )
+      if (error instanceof Error) {
+        ;(error as Error & { piNotFoundAnywhere?: boolean }).piNotFoundAnywhere = true
+      }
       throw error
     }
     console.warn('[Pi] payment exists on the other network; retrying there', {
@@ -314,7 +338,9 @@ async function withNetworkFallback<T>(paymentId: string, sandbox: boolean, op: (
  */
 export async function approvePiPayment(paymentId: string, sandboxHint?: boolean | null) {
   const primary = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
-  return (await withNetworkFallback(paymentId, primary, (sandbox) => approvePiPaymentOn(paymentId, sandbox))).value
+  // 지갑 승인 창 안의 호출 — 네트워크 오판 시의 폴백 존재 확인도 10초로 자른다.
+  return (await withNetworkFallback(paymentId, primary, (sandbox) => approvePiPaymentOn(paymentId, sandbox), 10_000))
+    .value
 }
 
 async function approvePiPaymentOn(paymentId: string, sandbox: boolean) {
@@ -332,7 +358,8 @@ async function approvePiPaymentOn(paymentId: string, sandbox: boolean) {
         // 첫 번째의 성공 뒤에 도착하면 '이미 승인됨' 오류로 겉보기 실패한다.
         // 실패 표면화 전에 GET으로 현재 상태를 확인해 developer_approved면
         // 승인 성공으로 수렴한다(지갑은 Pi 기록의 승인 여부를 보고 진행한다).
-        const existing = (await getPiPayment(paymentId, sandbox).catch(() => null)) as {
+        // 승인 창 안의 확인이라 짧은 예산의 GET을 쓴다.
+        const existing = (await getPiPaymentQuick(paymentId, sandbox).catch(() => null)) as {
           status?: Record<string, unknown>
         } | null
         if (existing?.status?.developer_approved === true) {

@@ -265,6 +265,37 @@ export async function handlePiApprove(request: Request) {
       }).catch(() => undefined)
       return corsJson({ ok: true, payment: afterError, recovered: true })
     }
+    // 영구 실패 분류 — 401/403은 모든 후보 키가 거절된 것(키-앱 불일치),
+    // piNotFoundAnywhere는 양쪽 네트워크에 paymentId가 없는 것(결제 생성 앱과
+    // 키의 앱 불일치). 재시도가 무의미한 이런 건을 ok+pendingApproval로 돌리면
+    // 지갑이 만료까지 빙글고 진짜 원인이 '만료' 에러 뒤에 숨는다. 즉시 에러를
+    // 돌려 클라이언트가 실제 원인을 표시하게 하고, 백그라운드에서 cancel로
+    // 지갑 시트와 미완료 락을 닫는다.
+    const fatalApprove =
+      status === 401 || status === 403 || (error as { piNotFoundAnywhere?: boolean } | null)?.piNotFoundAnywhere === true
+    if (fatalApprove) {
+      console.error('[Pi] /api/pi/approve fatal — not retryable', { paymentId, status, message })
+      void recordPiEvent({
+        kind: 'approve',
+        stage: 'error',
+        paymentId,
+        network: effectiveSandbox ? 'testnet' : 'mainnet',
+        ms: Date.now() - startedAt,
+        httpStatus: typeof status === 'number' ? status : undefined,
+        message: `fatal approve rejection: ${message}`.slice(0, 300),
+      }).catch(() => undefined)
+      after(async () => {
+        await cancelPiPayment(paymentId, effectiveSandbox)
+          .then(() => console.warn('[Pi] fatally-rejected payment cancelled to close wallet sheet', { paymentId }))
+          .catch((cancelError) =>
+            console.warn('[Pi] post-fatal cancel skipped', {
+              paymentId,
+              message: cancelError instanceof Error ? cancelError.message : String(cancelError),
+            }),
+          )
+      })
+      return corsJson({ error: `Pi 결제 승인이 서버에서 거절되었습니다(${status ?? '404'}). 앱/키 설정을 확인해 주세요.`, code: 'approve_rejected' }, { status: errorStatus(error, message) })
+    }
     // 테스트넷 Mock 승인 — Pi 호출 실패를 명시적 mock 응답으로 표시한다.
     // 실제 승인은 백그라운드 재시도가 계속 시도해 창 안에 성공하면 지갑도
     // 정상 진행된다(Pi 기록이 성립해야 하므로 mock이 지갑 만료를 막지는 않는다).
@@ -447,6 +478,19 @@ export async function handlePiCancel(request: Request) {
     const status = info?.status && typeof info.status === 'object' ? (info.status as Record<string, unknown>) : null
     if (status?.developer_completed === true || status?.cancelled === true || status?.user_cancelled === true) {
       return corsJson({ ok: true, already: 'final' })
+    }
+    // 승인은 됐지만 체인 제출 전인 결제는 지갑이 지금 제출을 기다리는 중일 수
+    // 있다 — 취소하면 사용자 앞에서 열린 지갑 시트가 강제로 닫힌다. 최근에
+    // 승인된 건(90초 미만, 열린 시트로 볼 수 있는 창)만 취소를 건너뛰고,
+    // 그보다 오래 방치된 건은 다음 결제를 막는 미완료 락이므로 취소한다.
+    if (status?.developer_approved === true) {
+      const createdAt = info && typeof info.created_at === 'string' ? Date.parse(info.created_at) : NaN
+      const ageMs = Number.isFinite(createdAt) ? Date.now() - createdAt : Infinity
+      if (ageMs < 90_000) {
+        console.warn('[Pi] /api/pi/cancel skipped: payment approved, awaiting chain submission', { paymentId, ageMs })
+        return corsJson({ ok: true, skipped: 'approved' })
+      }
+      console.warn('[Pi] /api/pi/cancel proceeding: approved payment abandoned', { paymentId, ageMs })
     }
     const payment = await cancelPiPayment(paymentId, effectiveSandbox)
     console.log('[Pi] /api/pi/cancel ok', { paymentId })
