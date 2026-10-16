@@ -20,6 +20,7 @@ import { PlacePickerScreen } from '@/components/place-picker-map'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { searchPlacesFromApi, type SearchedPlace } from '@/lib/geocode-client'
+import { PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { detectTextLang, translateForSearch } from '@/lib/text-lang'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { isUsableCoord, resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
@@ -828,6 +829,8 @@ type RecentUse = {
   at: string
   paymentId: string
   txid: string
+  /** 결제 수령인 지갑 주소 — 서버 검증 완료 응답의 to_address가 권위. */
+  payee?: string
 }
 
 function loadRecentUse(): RecentUse | null {
@@ -869,6 +872,7 @@ function receiptFromRecent(item: RecentUse): RideReceipt {
     plate: '-',
     transactionId: item.txid,
     method: 'Pi 월렛',
+    payee: item.payee || PLATFORM_DEPOSIT_WALLET,
   }
 }
 
@@ -890,7 +894,7 @@ function saveActivities(items: ActivityEntry[]) {
 
 type FavoritePlace = { id: string; name: string; address: string }
 type RecentPlace = { id: string; name: string; address: string }
-type PiTransaction = { label: string; amount: number; detail: string; place: string; at: string; ts?: number; estimated?: number; txid?: string }
+type PiTransaction = { label: string; amount: number; detail: string; place: string; at: string; ts?: number; estimated?: number; txid?: string; payee?: string }
 type RideReceipt = {
   rideId?: string
   route: string
@@ -909,6 +913,8 @@ type RideReceipt = {
   plate: string
   transactionId: string
   method: string
+  /** 수령인 지갑 주소 — 플랫폼 수신지 또는 기사 정산 지갑. */
+  payee?: string
 }
 
 function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
@@ -933,6 +939,8 @@ function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
     plate: item.plate,
     transactionId: item.payoutTxid,
     method: 'Pi 에스크로 정산',
+    // 에스크로 정산 영수증의 수령인은 정산을 실제로 받은 기사 지갑이다.
+    payee: item.payoutWallet || PLATFORM_DEPOSIT_WALLET,
   }
 }
 
@@ -962,6 +970,7 @@ function receiptFromTransaction(tx: PiTransaction, index: number): RideReceipt {
     plate: '-',
     transactionId: tx.txid || `TX-${String(index + 1).padStart(4, '0')}-${tx.at.replace(/[^0-9]/g, '').slice(0, 8) || '000000'}`,
     method: 'Pi 월렛',
+    payee: tx.payee || PLATFORM_DEPOSIT_WALLET,
   }
 }
 
@@ -1782,11 +1791,13 @@ function PaymentDoneModal({
   amount,
   place,
   estimated,
+  payee,
   onClose,
 }: {
   amount: number
   place: string
   estimated?: number
+  payee?: string
   onClose: () => void
 }) {
   const { t } = useLocale()
@@ -1830,6 +1841,12 @@ function PaymentDoneModal({
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs font-medium text-[#64748B]">{t('pay.method')}</span>
             <span className="text-sm font-bold text-[#0F172A]">Pi Network</span>
+          </div>
+          <div className="mt-2 border-t border-[#E2E8F0] pt-2">
+            <span className="text-xs font-medium text-[#64748B]">{t('receipt.payee')}</span>
+            <p className="mt-1 break-all font-mono text-[11px] font-bold leading-4 text-[#0F172A] [overflow-wrap:anywhere] select-all">
+              {payee || PLATFORM_DEPOSIT_WALLET}
+            </p>
           </div>
         </div>
         <button type="button" onClick={onClose} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-bold text-white">
@@ -6386,7 +6403,8 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
   const { t } = useLocale()
   const shareReceipt = async () => {
     const title = t('receipt.shareTitle')
-    const text = `${t('receipt.shareTitle')} ${ride.transactionId}\n${[ride.origin, ...(ride.waypoints ?? []), ride.dest].join(' → ')}\n${t('receipt.paidLabel')} ${ride.fare} · ${ride.method}\n${t('receipt.driverName', { name: ride.driver })} · ${ride.car} ${ride.plate}\n${ride.date}`
+    const payee = ride.payee || PLATFORM_DEPOSIT_WALLET
+    const text = `${t('receipt.shareTitle')} ${ride.transactionId}\n${[ride.origin, ...(ride.waypoints ?? []), ride.dest].join(' → ')}\n${t('receipt.paidLabel')} ${ride.fare} · ${ride.method}\n${t('receipt.payee')} ${payee}\n${t('receipt.driverName', { name: ride.driver })} · ${ride.car} ${ride.plate}\n${ride.date}`
     const url = typeof window !== 'undefined' ? window.location.href : ''
     const copiedMessage = t('receipt.copied')
 
@@ -6527,6 +6545,10 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
             <dd className="min-w-0 break-all text-right font-mono text-xs font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere]">{ride.transactionId}</dd>
           </div>
           <div className="flex justify-between gap-3 py-3 text-sm">
+            <dt className="shrink-0 font-bold text-[#64748B]">{t('receipt.payee')}</dt>
+            <dd className="min-w-0 break-all text-right font-mono text-xs font-black leading-5 text-[#0F172A] [overflow-wrap:anywhere] select-all">{ride.payee || PLATFORM_DEPOSIT_WALLET}</dd>
+          </div>
+          <div className="flex justify-between gap-3 py-3 text-sm">
             <dt className="font-bold text-[#64748B]">{t('receipt.issued')}</dt>
             <dd className="font-black text-[#0F172A]">{ride.date}</dd>
           </div>
@@ -6636,6 +6658,7 @@ function receiptFromRideHistory(ride: PublicRide): RideReceipt {
     plate: ride.assignedDriver?.plate || '-',
     transactionId: ride.escrow?.payoutTxid || ride.escrow?.lockTxid || ride.id,
     method: 'Pi 월렛',
+    payee: ride.escrow?.payoutWallet || PLATFORM_DEPOSIT_WALLET,
   }
 }
 
@@ -10320,7 +10343,7 @@ export default function HomeScreen() {
   const [receiptRide, setReceiptRide] = useState<RideReceipt | null>(null)
   const [inboxItem, setInboxItem] = useState<Notice | null>(null)
   const [readNoticeIds, setReadNoticeIds] = useState<string[]>([])
-  const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; estimated?: number; paymentId: string; txid: string } | null>(null)
+  const [paymentDone, setPaymentDone] = useState<{ amount: number; place: string; estimated?: number; paymentId: string; txid: string; payee?: string } | null>(null)
   // 결제·운행 멱등 키는 모듈 레벨 영속 세트(markSettledPayment/markSettledRide,
   // localStorage)로 관리한다 — useRef는 새로고침마다 비워져 완료 폴러가 과거
   // 운행을 다시 차감하는 중복 결제 버그가 있었다.
@@ -10566,7 +10589,7 @@ export default function HomeScreen() {
     place: string,
     label: string,
     estimated: number | undefined,
-    proof: { paymentId: string; txid: string },
+    proof: { paymentId: string; txid: string; payee?: string },
     rideId?: string,
   ) => {
     if (!proof.paymentId || !proof.txid) {
@@ -10580,9 +10603,10 @@ export default function HomeScreen() {
     if (rideId) markSettledRide(rideId)
     const at = formatPiTime()
     const ts = Date.now()
-    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated, txid: proof.txid }, ...items])
+    const payee = (proof.payee || '').trim() || undefined
+    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated, txid: proof.txid, payee }, ...items])
     recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(7)} Pi · ${place}`)
-    setPaymentDone({ amount, place, estimated, paymentId: proof.paymentId, txid: proof.txid })
+    setPaymentDone({ amount, place, estimated, paymentId: proof.paymentId, txid: proof.txid, payee })
     emitLedgerChange()
     if (!label.includes('취소')) {
       const from = origin.address.trim() || '현재 위치'
@@ -10597,6 +10621,7 @@ export default function HomeScreen() {
         at,
         paymentId: proof.paymentId,
         txid: proof.txid,
+        payee,
       }
       saveRecentUse(next)
       setRecentUse(next)
@@ -10617,7 +10642,8 @@ export default function HomeScreen() {
     const at = formatPiTime()
     const ts = Date.now()
     const place = receipt.route
-    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated: receipt.estimatedFare, txid: receipt.payoutTxid || receipt.lockTxid }, ...items])
+    const payee = receipt.payoutWallet?.trim() || undefined
+    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated: receipt.estimatedFare, txid: receipt.payoutTxid || receipt.lockTxid, payee }, ...items])
     recordActivity('운행 완료', `${place} · ${amount.toFixed(7)} Pi · 정산 완료`)
     const next: RecentUse = {
       route: place,
@@ -10626,6 +10652,7 @@ export default function HomeScreen() {
       at,
       paymentId: receipt.lockTxid || key || `pay-${ts}`,
       txid: receipt.payoutTxid || receipt.lockTxid || `done-${ts}`,
+      payee,
     }
     saveRecentUse(next)
     setRecentUse(next)
@@ -11347,6 +11374,7 @@ export default function HomeScreen() {
             amount={paymentDone.amount}
             place={paymentDone.place}
             estimated={paymentDone.estimated}
+            payee={paymentDone.payee}
             onClose={resetToHomeAfterReceipt}
           />
         ) : driverReview ? (

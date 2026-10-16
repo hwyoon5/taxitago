@@ -120,6 +120,7 @@
   "receipt.none": "해당 없음",
   "receipt.driverName": "{name} 기사님",
   "receipt.txid": "영수증 번호",
+  "receipt.payee": "수령인 주소",
   "receipt.issued": "발행 일시",
   "receipt.payStatus": "결제 상태",
   "receipt.paid": "정상 결제 완료",

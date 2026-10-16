@@ -120,6 +120,7 @@
   "receipt.none": "无",
   "receipt.driverName": "{name}司机",
   "receipt.txid": "收据编号",
+  "receipt.payee": "收款地址",
   "receipt.issued": "开具时间",
   "receipt.payStatus": "支付状态",
   "receipt.paid": "支付完成",

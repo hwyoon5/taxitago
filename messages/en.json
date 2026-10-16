@@ -120,6 +120,7 @@
   "receipt.none": "N/A",
   "receipt.driverName": "Driver {name}",
   "receipt.txid": "Receipt no.",
+  "receipt.payee": "Recipient address",
   "receipt.issued": "Issued at",
   "receipt.payStatus": "Payment status",
   "receipt.paid": "Paid in full",

@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { apiFetch } from '@/lib/app-origin'
+import { isPiWalletAddress, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { resolvePiSandbox } from '@/lib/pi-sandbox'
 
 type IncompletePiPayment = {
@@ -33,7 +34,12 @@ declare global {
   }
 }
 
-export type PiCheckoutResult = { paymentId: string; txid: string }
+export type PiCheckoutResult = {
+  paymentId: string
+  txid: string
+  /** 결제 수신 지갑 주소(수령인) — 서버 완료 응답의 검증된 to_address가 우선. */
+  payee?: string
+}
 
 /**
  * Developer portal testnet → true. Mainnet app → NEXT_PUBLIC_PI_SANDBOX=false.
@@ -994,6 +1000,26 @@ function readPaymentId(value: unknown) {
   return typeof identifier === 'string' ? identifier.trim() : ''
 }
 
+/**
+ * Pi 결제 응답(PaymentDTO·서버 래퍼)에서 수령인 지갑 주소를 읽는다.
+ * 서버 complete 응답의 `payee`, DTO의 `to_address`, 체인 트랜잭션의
+ * `to` 순으로 찾고 형식(G + 55자)이 확인된 값만 돌려준다.
+ */
+function payeeFromPiPayload(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return ''
+  const record = payload as Record<string, unknown>
+  const direct = record.payee ?? record.toAddress ?? record.to_address
+  if (isPiWalletAddress(direct)) return (direct as string).trim()
+  const transaction = record.transaction
+  if (transaction && typeof transaction === 'object') {
+    const to = (transaction as Record<string, unknown>).to ?? (transaction as Record<string, unknown>).to_address
+    if (isPiWalletAddress(to)) return (to as string).trim()
+  }
+  const payment = record.payment
+  if (payment && typeof payment === 'object') return payeeFromPiPayload(payment)
+  return ''
+}
+
 const PI_SERVER_TIMEOUT_MS = 45000
 
 /**
@@ -1033,7 +1059,12 @@ async function mockPiCheckout(options: {
     logPi('error', 'mock checkout failed', { status: response.status, message })
     throw new Error(message)
   }
-  const result = { paymentId: payload.paymentId, txid: payload.txid || `approved-${payload.paymentId}` }
+  const result = {
+    paymentId: payload.paymentId,
+    txid: payload.txid || `approved-${payload.paymentId}`,
+    // 모의 결제에도 수령인 표기를 유지 — 영수증 UI가 항목을 고정으로 보여 준다.
+    payee: PLATFORM_DEPOSIT_WALLET,
+  }
   logPi('log', 'mock checkout settled', result)
   return result
 }
@@ -1099,7 +1130,13 @@ export async function startPiCheckout(options: {
   const payment = {
     amount,
     memo: options.memo.slice(0, 25),
-    metadata: { ...(options.metadata ?? {}), ...(sessionUid ? { piUid: sessionUid } : {}) },
+    metadata: {
+      // 수령인 지갑 주소를 결제 메타데이터에 실어 둔다 — Pi 포털 결제 상세와
+      // 서버 장부·영수증에서 동일 수신지를 대조할 수 있다(호출부 재지정 가능).
+      payeeWallet: PLATFORM_DEPOSIT_WALLET,
+      ...(options.metadata ?? {}),
+      ...(sessionUid ? { piUid: sessionUid } : {}),
+    },
   }
   logPi('log', 'window.Pi.createPayment', payment)
 
@@ -1255,7 +1292,11 @@ function runCreatePayment(
           return postPiApiRetry('/api/pi/approve', approveBody)
             .then((payload) => {
               if (options.advanceOnApproval) {
-                succeed({ paymentId, txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}` })
+                succeed({
+                  paymentId,
+                  txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}`,
+                  payee: payeeFromPiPayload(payload) || undefined,
+                })
               }
               return payload
             })
@@ -1266,7 +1307,11 @@ function runCreatePayment(
               try {
                 const payload = await postPiApproveRest(paymentId, approveBody)
                 if (options.advanceOnApproval) {
-                  succeed({ paymentId, txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}` })
+                  succeed({
+                    paymentId,
+                    txid: txidFromPiPayload(payload) || approvedTxid || `approved-${paymentId}`,
+                    payee: payeeFromPiPayload(payload) || undefined,
+                  })
                 }
                 return payload
               } catch {
@@ -1322,8 +1367,9 @@ function runCreatePayment(
           }
           beaconPiApi('/api/pi/complete', completeBody)
           return postPiApiRetry('/api/pi/complete', completeBody)
-            .then(() => {
-              succeed({ paymentId, txid })
+            .then((payload) => {
+              // 서버가 검증한 수령인 주소(to_address)를 영수증까지 그대로 운반한다.
+              succeed({ paymentId, txid, payee: payeeFromPiPayload(payload) || undefined })
             })
             .catch((error) => {
               if (settled) return undefined

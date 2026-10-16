@@ -607,6 +607,21 @@ export async function handlePiComplete(request: Request) {
       console.warn('[Pi] /api/pi/complete legacy wallet-charge payment; recording as service payment (no credit)', { paymentId, txid })
     }
     await markPaymentKind(txid, metaKind).catch(() => undefined)
+    // 수령인(결제 수신) 지갑 — 서버가 조회한 Pi 결제 원본의 to_address가 권위이고,
+    // 트랜잭션 수신지·결제 메타데이터의 payeeWallet 순으로 보강한다. 영수증과
+    // 이용내역에 '수령인 주소'로 고정 노출되는 값이다.
+    const infoTransaction = info?.transaction && typeof info.transaction === 'object'
+      ? (info.transaction as Record<string, unknown>)
+      : null
+    const { isPiWalletAddress, PLATFORM_DEPOSIT_WALLET } = await import('@/lib/pi-wallet')
+    const payeeWallet = [
+      (info as { to_address?: unknown } | null)?.to_address,
+      infoTransaction?.to,
+      infoTransaction?.to_address,
+      (info?.metadata as Record<string, unknown> | undefined)?.payeeWallet,
+      (fallbackMetadata as Record<string, unknown> | null)?.payeeWallet,
+    ].find((value): value is string => typeof value === 'string' && isPiWalletAddress(value))
+    const payee = (payeeWallet as string | undefined)?.trim() || PLATFORM_DEPOSIT_WALLET
     // 검증은 응답 전에 끝내고, 무거운 후속 작업(에스크로·정산 기록·쿠폰 소비)은
     // 응답 이후 백그라운드로 — maxDuration 초과로 함수가 kill돼 응답이 유실되거나
     // 장부가 반만 기록되는 사태를 막는다. 각 단계는 멱등이라 폴러가 복구도 한다.
@@ -631,6 +646,7 @@ export async function handlePiComplete(request: Request) {
           txid,
           uid: typeof info?.user_uid === 'string' ? info.user_uid : '',
           wallet: typeof info?.from_address === 'string' ? info.from_address : '',
+          toWallet: payee,
           amount: typeof info?.amount === 'number' ? info.amount : (fallbackAmount ?? 0),
           label: metaKind,
         }).catch((spendError) => {
@@ -674,7 +690,7 @@ export async function handlePiComplete(request: Request) {
       })
       console.log('[Pi] /api/pi/complete background work done', { paymentId, txid })
     })
-    return corsJson({ ok: true, payment })
+    return corsJson({ ok: true, payment, payee })
   } catch (error) {
     // 샌드박스 폴백 없음 — 검증 실패(취소·txid 불일치·체인 거부)를 ok로 위장해
     // 에스크로/정산을 기록하는 것은 가짜 '처리됨' 상태를 만든다. 실제 체인 결제가

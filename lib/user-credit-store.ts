@@ -321,6 +321,8 @@ export type UserSpendEntry = {
   /** 결제 txid — 글로벌 멱등키: 한 결제는 정확히 한 번 차감된다. */
   txid: string
   wallet: string
+  /** 수령인(결제 수신) 지갑 주소 — Pi 결제 원본의 to_address가 권위. */
+  toWallet?: string
   uid: string
   amount: number
   label: string
@@ -388,6 +390,7 @@ async function writeSpends(entries: UserSpendEntry[]) {
 export async function recordUserSpend(input: {
   txid: string
   wallet?: string
+  toWallet?: string
   uid?: string
   amount: number
   label?: string
@@ -404,6 +407,7 @@ export async function recordUserSpend(input: {
     id: crypto.randomUUID(),
     txid,
     wallet,
+    ...(typeof input.toWallet === 'string' && input.toWallet.trim() ? { toWallet: input.toWallet.trim() } : {}),
     uid,
     amount,
     label: (input.label || '').slice(0, 60),

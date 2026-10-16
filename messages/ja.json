@@ -120,6 +120,7 @@
   "receipt.none": "該当なし",
   "receipt.driverName": "{name} ドライバー",
   "receipt.txid": "レシート番号",
+  "receipt.payee": "受取アドレス",
   "receipt.issued": "発行日時",
   "receipt.payStatus": "決済状態",
   "receipt.paid": "決済完了",
