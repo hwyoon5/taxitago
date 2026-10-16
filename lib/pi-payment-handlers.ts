@@ -1,5 +1,5 @@
 import { after, NextResponse } from 'next/server'
-import { approvePiPayment, assertPiPaymentCompleted, cancelPiPayment, completePiPayment, describeError, getPiPayment, verifyPiTxidOnChain } from '@/lib/pi-platform'
+import { approvePiPayment, assertPiPaymentCompleted, cancelPiPayment, completePiPayment, describeError, getPiPayment, listIncompletePiPayments, verifyPiTxidOnChain } from '@/lib/pi-platform'
 import { isPiSandboxEnv, isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 /**
@@ -360,6 +360,49 @@ export async function handlePiApprove(request: Request) {
         )
     })
     return corsJson({ ok: true, pendingApproval: true, mockApproved: mock || undefined })
+  }
+}
+
+/** 이 시간보다 오래된 승인 완료·체인 미제출 결제는 버려진 건으로 보고 cancel한다. */
+const STALE_APPROVED_PAYMENT_MS = 10 * 60 * 1000
+
+/**
+ * 서버 측 미완료 결제 스위퍼 — 지갑이 이전 세션의 미완료 결제를 띄우면 우리
+ * SDK 콜백이 발화되지 않아 승인 요청이 서버에 도달하지 않고 지갑이 45초
+ * 만료된다. 미승인 건은 승인해 지갑을 진행시키고, 승인 후 체인 미제출로
+ * 오래 방치된 건은 cancel로 미완료 락을 해제한다.
+ * /api/pi/health의 after()에서 결제 시작 전에 실행된다.
+ */
+export async function sweepIncompletePiPayments(sandbox: boolean) {
+  const list = await listIncompletePiPayments(sandbox).catch((error) => {
+    console.warn('[Pi] incomplete payments sweep failed', describeError(error))
+    return null
+  })
+  if (!list?.length) return
+  for (const payment of list.slice(0, 25)) {
+    const paymentId = typeof payment.identifier === 'string' ? payment.identifier.trim() : ''
+    if (!paymentId) continue
+    const status = payment.status && typeof payment.status === 'object' ? (payment.status as Record<string, unknown>) : {}
+    const createdAt = typeof payment.created_at === 'string' ? Date.parse(payment.created_at) : NaN
+    const ageMs = Number.isFinite(createdAt) ? Date.now() - createdAt : Infinity
+    if (status.developer_approved !== true) {
+      // 승인 자체가 안 된 건 — 콜백 유실로 지갑이 만료 대기 중일 수 있다.
+      // 승인은 청금이 아니라 진행 허가라 진행 중인 지갑의 결제도 살린다.
+      await approvePiPayment(paymentId, sandbox)
+        .then(() => console.log('[Pi] sweep approved incomplete payment', { paymentId }))
+        .catch((error) => console.warn('[Pi] sweep approve failed', { paymentId, ...describeError(error) }))
+      continue
+    }
+    const transaction = payment.transaction && typeof payment.transaction === 'object' ? (payment.transaction as Record<string, unknown>) : null
+    const hasTxid = typeof transaction?.txid === 'string' && transaction.txid.trim().length > 0
+    const finalized = status.developer_completed === true || status.cancelled === true || status.user_cancelled === true
+    // 승인됐지만 체인 제출이 없는 채 오래 방치된 건은 다음 결제를 막는다 —
+    // 현재 진행 중일 수 있는 최신 건은 건드리지 않는다.
+    if (!hasTxid && !finalized && ageMs > STALE_APPROVED_PAYMENT_MS) {
+      await cancelPiPayment(paymentId, sandbox)
+        .then(() => console.log('[Pi] sweep cancelled stale approved payment', { paymentId }))
+        .catch((error) => console.warn('[Pi] sweep cancel failed', { paymentId, ...describeError(error) }))
+    }
   }
 }
 

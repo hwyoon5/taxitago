@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { piPaymentHealth } from '@/lib/pi-platform'
-import { handlePiCorsPreflight, PI_CORS_HEADERS } from '@/lib/pi-payment-handlers'
+import { handlePiCorsPreflight, PI_CORS_HEADERS, sweepIncompletePiPayments } from '@/lib/pi-payment-handlers'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
@@ -16,6 +16,14 @@ export const OPTIONS = handlePiCorsPreflight
  */
 export async function GET(request: Request) {
   const effectiveSandbox = isPiSandboxRequest(request)
+  // 결제 시작 전 헬스체크를 겸해 서버 측 미완료 결제를 정리한다 — 지갑이 이전
+  // 세션의 미완료 결제를 띄우면 승인 콜백이 발화되지 않아 서버에 요청이 도달하지
+  // 않는다. 응답 지연 없이 백그라운드로 처리한다.
+  after(async () => {
+    await sweepIncompletePiPayments(effectiveSandbox).catch((error) =>
+      console.warn('[Pi] health sweep failed', error instanceof Error ? error.message : 'error'),
+    )
+  })
   try {
     const health = await piPaymentHealth(effectiveSandbox)
     return NextResponse.json(

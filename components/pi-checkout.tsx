@@ -373,14 +373,26 @@ async function piApiFetch(path: string, init?: RequestInit) {
 
 function beaconPiApi(path: PiApiPath | string, body: Record<string, unknown>) {
   try {
-    if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return
+    const url = piApiUrl(path)
+    const payload = JSON.stringify(body)
     // text/plain으로 보내 cross-origin beacon이 프리플라이트 없이 도달한다 —
     // 서버는 content-type과 무관하게 request.json()으로 본문을 파싱한다.
-    const queued = navigator.sendBeacon(
-      piApiUrl(path),
-      new Blob([JSON.stringify(body)], { type: 'text/plain' }),
-    )
-    logPi('log', `${path} beacon`, { queued, url: piApiUrl(path) })
+    let queued = false
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      queued = navigator.sendBeacon(url, new Blob([payload], { type: 'text/plain' }))
+    }
+    if (!queued) {
+      // sendBeacon 미지원·큐 거부(WebView 제한) 시에도 요청이 유실되지 않도록
+      // keepalive fetch로 보강한다 — text/plain은 프리플라이트가 필요 없다.
+      void piApiFetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: payload,
+        keepalive: true,
+        signal: piTimeoutSignal(10_000),
+      }).catch((error) => logPi('warn', `${path} beacon-fetch failed`, error))
+    }
+    logPi('log', `${path} beacon`, { queued, url })
   } catch (error) {
     logPi('warn', `${path} beacon failed`, error)
   }
@@ -422,12 +434,12 @@ function warmPiPaymentApi() {
   for (const path of ['/api/pi/approve', '/api/pi/complete'] as const) {
     void piApiFetch(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain' },
       // warmup 마커 — 서버가 이를 결제 요청으로 오인해 'paymentId required'
       // 에러 로그를 남기지 않도록 명시한다.
       body: JSON.stringify({ warmup: true }),
       keepalive: true,
-      signal: AbortSignal.timeout(10_000),
+      signal: piTimeoutSignal(10_000),
     })
       .then((res) => logPi('log', `${path} warm`, { status: res.status }))
       .catch((error) => logPi('warn', `${path} warm failed`, error))
@@ -439,13 +451,16 @@ async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
   logPi('log', `${path} request`, { ...body, url: piApiUrl(path) })
   const response = await piApiFetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // text/plain은 'simple request'라 cross-origin에서도 프리플라이트 없이
+    // 곧장 전송된다 — WebView가 OPTIONS preflight를 유실하면 JSON POST는
+    // 서버에 한 번도 도달하지 않는다("요청이 아예 없다" 증상의 제거).
+    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(body),
     // keepalive: 지갑 모달로 페이지가 백그라운드돼도 요청이 끝까지 전달된다.
     keepalive: true,
     // 서버 승인 예산(시도당 8s × 최대 2회 + 왕복)에 맞춘 상한 — 네트워크가
     // 멈춰도 결제 스피너가 무한 대기하지 않게 한다.
-    signal: AbortSignal.timeout(PI_APPROVE_SERVER_TIMEOUT_MS),
+    signal: piTimeoutSignal(PI_APPROVE_SERVER_TIMEOUT_MS),
   })
   const payload = (await response.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
   if (!response.ok || payload?.ok !== true) {
@@ -469,10 +484,10 @@ async function postPiApproveRest(paymentId: string, body: Record<string, unknown
   logPi('log', `${path} request (fallback)`, { paymentId, url: piApiUrl(path) })
   const response = await piApiFetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(body),
     keepalive: true,
-    signal: AbortSignal.timeout(15_000),
+    signal: piTimeoutSignal(15_000),
   })
   const payload = (await response.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
   if (!response.ok || payload?.ok !== true) {
@@ -482,6 +497,25 @@ async function postPiApproveRest(paymentId: string, body: Record<string, unknown
   }
   logPi('log', `${path} ok`, { status: response.status, ms: Date.now() - startedAt })
   return payload
+}
+
+/**
+ * AbortSignal.timeout() 폴백 — Pi Browser의 내장 WebView가 구형 Chromium이면
+ * AbortSignal.timeout 자체가 없어 fetch init 객체 생성 시점에 동기 TypeError로
+ * 죽고, 요청이 네트워크에 한 건도 나가지 않는다("서버에 요청이 아예 도달하지
+ * 않는" 증상과 일치). 폴백은 AbortController + setTimeout으로 같은 동작을 한다.
+ */
+function piTimeoutSignal(ms: number): AbortSignal | undefined {
+  try {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      return AbortSignal.timeout(ms)
+    }
+    const controller = new AbortController()
+    window.setTimeout(() => controller.abort(), ms)
+    return controller.signal
+  } catch {
+    return undefined
+  }
 }
 
 const PI_CALL_TIMEOUT_MS = 8000
@@ -587,7 +621,7 @@ async function loginPiAppStudio(accessToken: string) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accessToken }),
-      signal: AbortSignal.timeout(10_000),
+      signal: piTimeoutSignal(10_000),
     })
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null
     logPi(res.ok ? 'log' : 'warn', 'App Studio login', { status: res.status, data })
@@ -749,7 +783,7 @@ export async function signInWithPi(): Promise<PiSession> {
     try {
       const res = await apiFetch(`/api/partner/link?uid=${encodeURIComponent(session.uid)}`, {
         cache: 'no-store',
-        signal: AbortSignal.timeout(8_000),
+        signal: piTimeoutSignal(8_000),
       })
       const data = (await res.json().catch(() => null)) as { locked?: boolean } | null
       if (res.ok && data?.locked) {
@@ -792,11 +826,11 @@ async function verifyPiSessionOnServer(session: PiSession) {
   try {
     const res = await piApiFetch('/api/pi/auth', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ uid: session.uid, accessToken: session.accessToken }),
       // apiFetch엔 기본 타임아웃이 없다 — 검증 서버가 멈추면 로그인 스피너가
       // 무한 대기하므로 상한을 둔다(서버 /v2/me 8s + 왕복 여유).
-      signal: AbortSignal.timeout(15_000),
+      signal: piTimeoutSignal(15_000),
     })
     const data = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null
     if (!res.ok || data?.ok !== true) {
@@ -880,7 +914,7 @@ async function mockPiCheckout(options: {
   if (!approved) throw new Error('결제가 취소되었습니다.')
   const response = await piApiFetch('/api/pi/mock-pay', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify({ amount, memo: options.memo.slice(0, 25), metadata: options.metadata ?? {} }),
   })
   const payload = (await response.json().catch(() => null)) as {
@@ -977,7 +1011,7 @@ export async function startPiCheckout(options: {
   // 만료되므로, 여기서 명확한 원인으로 즉시 중단한다. 헬스체크 호출 자체의
   // 실패(네트워크·구배포)는 판단 불가로 두고 결제를 진행한다.
   try {
-    const health = (await piApiFetch('/api/pi/health', { signal: AbortSignal.timeout(10_000) })
+    const health = (await piApiFetch('/api/pi/health', { signal: piTimeoutSignal(10_000) })
       .then((res) => res.json().catch(() => null))) as {
       ready?: boolean
       keyStatus?: string

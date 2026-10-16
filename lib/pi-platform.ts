@@ -393,6 +393,48 @@ export async function completePiPayment(paymentId: string, txid: string, sandbox
 }
 
 /**
+ * 서버 측 미완료 결제 목록 — GET /v2/payments/incomplete_server_payments.
+ * 지갑이 이전 세션의 미완료 결제 시트를 띄우면 우리 SDK 콜백이 아예 발화되지
+ * 않아 승인 요청이 서버에 도달하지 않는다 — 목록을 돌아 미승인 건은 승인해
+ * 지갑을 진행시키고, 승인 후 체인 미제출로 오래 방치된 건은 cancel로 해제해
+ * 다음 결제를 막는 미완료 락을 푼다.
+ */
+export async function listIncompletePiPayments(sandboxHint?: boolean | null): Promise<Array<Record<string, unknown>>> {
+  const keys = resolvePiApiKeys(sandboxHint)
+  const apiBase = piPaymentsApiBase(sandboxHint)
+  const url = `${apiBase}/incomplete_server_payments`
+  let lastError: unknown
+  for (const { key, source } of keys) {
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Key ${key}` },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15_000),
+      })
+      const raw = await res.text().catch(() => '')
+      if (!res.ok) {
+        const err = piHttpError(`Pi API ${res.status}`, res.status, raw.slice(0, 1000))
+        if (res.status === 401 || res.status === 403) {
+          lastError = err
+          continue
+        }
+        throw err
+      }
+      const payload = raw ? (JSON.parse(raw) as Record<string, unknown>) : null
+      const list = payload?.incomplete_server_payments
+      console.log('[Pi] incomplete_server_payments', { count: Array.isArray(list) ? list.length : 0, source })
+      return Array.isArray(list) ? (list as Array<Record<string, unknown>>) : []
+    } catch (error) {
+      lastError = error
+      const status = (error as { piHttpStatus?: number } | null)?.piHttpStatus
+      if (status === 401 || status === 403) continue
+      throw error
+    }
+  }
+  throw lastError
+}
+
+/**
  * A bare 2xx from Pi's /complete is not proof of settlement — insist on the
  * documented completion markers: developer_completed / transaction.verified,
  * a matching txid, no cancellation, and a matching identifier.
