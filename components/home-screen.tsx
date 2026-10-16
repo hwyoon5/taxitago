@@ -1491,7 +1491,7 @@ function TaxiDriveBar({ className }: { className?: string }) {
         className="absolute inset-x-2 top-1/2 h-[2px] -translate-y-1/2 rounded-full"
         style={{
           backgroundImage: 'repeating-linear-gradient(90deg, #FDE68A 0 8px, transparent 8px 17px)',
-          animation: 'ttBarDashV1 0.55s linear infinite',
+          animation: 'ttBarDashV1 0.9s linear infinite',
         }}
       />
       <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-[#0F172A]/50" />
@@ -1499,8 +1499,8 @@ function TaxiDriveBar({ className }: { className?: string }) {
         className="absolute inset-y-0 left-0 z-10"
         style={{
           aspectRatio: '76 / 44',
-          animation: 'ttBarLoopV1 3.6s linear infinite',
-          WebkitAnimation: 'ttBarLoopV1 3.6s linear infinite',
+          animation: 'ttBarLoopV1 5.8s linear infinite',
+          WebkitAnimation: 'ttBarLoopV1 5.8s linear infinite',
           willChange: 'transform',
         }}
       >
