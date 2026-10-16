@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { BadgeCheck, Briefcase, Car, ChevronRight, CircleUserRound, Copy, Gift, MonitorSmartphone, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
 import PartnerStatSheet from '@/components/partner-stat-sheet'
@@ -53,6 +53,8 @@ export type MyPageProps = {
   onNotice?: (message: string) => void
   activities?: ActivityRow[]
   transactions?: TxRow[]
+  /** 세션/UID 대조용 디버그 스트립 — 상단 카드 안에 안착된다. */
+  debugInfo?: ReactNode
 }
 
 const tabs: { id: InnerTab; labelKey: MessageKey }[] = [
@@ -152,6 +154,7 @@ export default function MyPage({
   onNotice,
   activities,
   transactions,
+  debugInfo,
 }: MyPageProps) {
   const { t } = useLocale()
   const [innerTab, setInnerTab] = useState<InnerTab>('profile')
@@ -367,6 +370,7 @@ export default function MyPage({
 
       <div className="mx-auto w-full max-w-md px-4">
         <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#1E1B4B] via-[#4C1FB8] to-[#0F172A] p-5 text-white shadow-[0_16px_32px_rgba(76,31,184,0.32)]">
+          {debugInfo ? <div className="mb-4">{debugInfo}</div> : null}
           <button type="button" onClick={openWallet} className="flex w-full items-start justify-between gap-3 text-left">
             <div>
               <span className="inline-flex items-center gap-1 rounded-full bg-[#FDE68A] px-2.5 py-1 text-[10px] font-black tracking-wide text-[#92400E]">

@@ -6863,6 +6863,7 @@ function TabContent({
   activities,
   transactions,
   broadcastRegion = '',
+  debugInfo,
 }: {
   tab: string
   destination: string
@@ -6885,6 +6886,7 @@ function TabContent({
   activities: ActivityEntry[]
   transactions: PiTransaction[]
   broadcastRegion?: string
+  debugInfo?: ReactNode
 }) {
   const { t } = useLocale()
   const [preparingOpen, setPreparingOpen] = useState(false)
@@ -6941,6 +6943,7 @@ function TabContent({
       onNotice={onNotice}
       activities={activities}
       transactions={transactions}
+      debugInfo={debugInfo}
     />
     </div>
   )
@@ -10163,13 +10166,26 @@ function SessionDebugBadge() {
     if (!v) return '—'
     return v.length > 16 ? `${v.slice(0, 6)}…${v.slice(-8)}` : v
   }
+  const rows: [string, string][] = [
+    ['uid', info.uid],
+    ['pid', info.pid],
+    ['ridePid', info.ridePid],
+    ['did', info.did],
+    ['ride', info.ride],
+  ]
+  // 내 정보 상단 카드 안에 안착하는 인라인 스트립 — 그라디언트 위에서
+  // 읽히도록 반투명 화이트 톤, 값은 복사 가능하게 둔다.
   return (
-    <div className="pointer-events-none fixed left-1 top-[max(4px,env(safe-area-inset-top))] z-[9999] select-none rounded-md bg-black/45 px-1.5 py-1 font-mono text-[9px] leading-[13px] text-white/85">
-      <div>uid {short(info.uid)}</div>
-      <div>pid {short(info.pid)}</div>
-      <div>ridePid {short(info.ridePid)}</div>
-      <div>did {short(info.did)}</div>
-      <div>ride {short(info.ride)}</div>
+    <div className="rounded-2xl bg-white/10 px-3 py-2 ring-1 ring-white/15 backdrop-blur-sm">
+      <p className="text-[9px] font-black tracking-[0.14em] text-white/50">DEBUG · SESSION IDS</p>
+      <dl className="mt-1 space-y-0.5 font-mono text-[10.5px] leading-4">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-baseline justify-between gap-3">
+            <dt className="shrink-0 font-bold text-white/55">{label}</dt>
+            <dd className="m-0 select-all truncate text-white/90">{short(value)}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   )
 }
@@ -10931,7 +10947,6 @@ export default function HomeScreen() {
 
   return (
     <main className="h-dvh overflow-hidden bg-[#E2E8F0] text-[#0F172A]">
-      <SessionDebugBadge />
       <div className="mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden bg-[#F8FAFC] shadow-2xl">
         <header className="relative z-20 shrink-0 border-b border-[#E2E8F0] bg-white px-4 pb-2 pt-[max(0.9rem,env(safe-area-inset-top))]">
           <div className="flex items-center justify-between gap-3">
@@ -11026,7 +11041,7 @@ export default function HomeScreen() {
               <div className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-[#d8d2e0]" />
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <SafeBoundary label="화면을 불러오는 중 문제가 발생했어요.">
-                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} transactions={transactions} broadcastRegion={broadcastRegionForCoord(gps.lat, gps.lng) || undefined} />
+                <TabContent tab={tab} destination={destination} onDestination={selectDestination} onService={(value) => { openService(value); setTab('홈') }} onNotice={showNotice} onWallet={openWallet} onReceipt={setReceiptRide} readNoticeIds={readNoticeIds} onOpenInbox={openInbox} username={user.username} driverMode={driverMode} isDriverRegistered={isDriverRegistered} isPartnerRegistered={isPartnerRegistered} piLinked={isPiLinked} onToggleDriverMode={toggleDriverMode} onOpenDriverSignup={() => setPartnerSignupOpen(true)} onOpenPartnerSignup={() => setPartnerSignupOpen(true)} inboxIdentities={[{ id: localPassengerId(), role: 'passenger' }, ...(isDriverRegistered || isPartnerRegistered ? [{ id: localDriverId(loadPartnerProfile()?.uid), role: 'driver' as const }] : [])]} activities={activities} transactions={transactions} broadcastRegion={broadcastRegionForCoord(gps.lat, gps.lng) || undefined} debugInfo={<SessionDebugBadge />} />
                 </SafeBoundary>
               </div>
             </div>
