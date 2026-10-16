@@ -1,9 +1,9 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, FileSpreadsheet, Gift, House, LayoutGrid, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, FileSpreadsheet, Gift, House, Languages, LayoutGrid, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
-import { localizedText, translateDeviceStatus, translateService, type MessageKey } from '@/lib/i18n'
+import { APP_LOCALES, localizedText, translateDeviceStatus, translateService, type AppLocale, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
 import type { BroadcastEntry } from '@/lib/broadcast-store'
 import MoreMenu, { type MoreItemId } from '@/components/more/more-menu'
@@ -1214,6 +1214,49 @@ function DestinationSearchModal({
   const [remotePlaces, setRemotePlaces] = useState<PlaceItem[]>([])
   const [searching, setSearching] = useState(false)
   const [translatedQuery, setTranslatedQuery] = useState('')
+  const [trTarget, setTrTarget] = useState<AppLocale | null>(null)
+  const [trOriginal, setTrOriginal] = useState('')
+  const [trNote, setTrNote] = useState<'translating' | 'failed' | ''>('')
+  const trSeq = useRef(0)
+  const runTranslate = async (target: AppLocale) => {
+    const seq = ++trSeq.current
+    const source = (trOriginal || query).trim()
+    if (!source) {
+      setTrTarget(target)
+      return
+    }
+    if (!trOriginal && detectTextLang(source) === target) {
+      setTrTarget(target)
+      setTrNote('')
+      return
+    }
+    setTrNote('translating')
+    const result = await translateForSearch(source, target).catch(() => null)
+    if (seq !== trSeq.current) return
+    setTrTarget(target)
+    if (result?.translated) {
+      if (!trOriginal) setTrOriginal(source)
+      setQuery(result.translated)
+      setTrNote('')
+    } else {
+      setTrNote('failed')
+    }
+  }
+  const restoreOriginal = () => {
+    const restored = trOriginal
+    trSeq.current += 1
+    setTrOriginal('')
+    setTrTarget(null)
+    setTrNote('')
+    if (restored) setQuery(restored)
+  }
+  const pickTranslateTarget = (lang: AppLocale) => {
+    if (lang === trTarget || (trOriginal && detectTextLang(trOriginal) === lang)) {
+      restoreOriginal()
+      return
+    }
+    void runTranslate(lang)
+  }
   const openDestMap = () => {
     setDestMapSession((value) => value + 1)
     setDestMapOpen(true)
@@ -1225,6 +1268,16 @@ function DestinationSearchModal({
     return () => window.clearTimeout(timer)
   }, [])
   const keyword = query.trim()
+  // 목표 언어가 선택된 상태에서 입력이 멈추면 자동으로 해당 언어로 변환
+  useEffect(() => {
+    if (!trTarget || !keyword) return
+    if (!trOriginal && detectTextLang(keyword) === trTarget) return
+    const timer = window.setTimeout(() => {
+      void runTranslate(trTarget)
+    }, 900)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyword, trTarget, trOriginal])
   useEffect(() => {
     setTranslatedQuery('')
     if (!keyword) {
@@ -1319,17 +1372,56 @@ function DestinationSearchModal({
                 <input
                   ref={inputRef}
                   value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(event) => {
+                    setQuery(event.target.value)
+                    if (trOriginal) setTrOriginal('')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && trTarget && keyword) {
+                      event.preventDefault()
+                      void runTranslate(trTarget)
+                    }
+                  }}
                   placeholder={searchPlaceholder || t('search.ph')}
                   className="w-full bg-transparent text-sm font-extrabold text-[#0F172A] outline-none placeholder:text-[#64748B]"
                   aria-label={t('search.aria')}
                 />
                 {query ? (
-                  <button type="button" onClick={() => setQuery('')} className="text-[11px] font-black text-[#4C1FB8]" aria-label={t('search.clear')}>
+                  <button type="button" onClick={() => { trSeq.current += 1; setTrOriginal(''); setTrNote(''); setQuery('') }} className="text-[11px] font-black text-[#4C1FB8]" aria-label={t('search.clear')}>
                     {t('search.clear')}
                   </button>
                 ) : null}
               </div>
+              <div className="flex flex-wrap items-center gap-1.5 px-1">
+                <Languages className="h-3.5 w-3.5 shrink-0 text-[#4A82B8]" />
+                <span className="text-[10px] font-extrabold text-[#64748B]">{t('search.translateTo')}</span>
+                {APP_LOCALES.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => pickTranslateTarget(item.id)}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold transition ${
+                      trTarget === item.id ? 'bg-[#4A82B8] text-white' : 'bg-[#E8F1FA] text-[#3F74A8]'
+                    }`}
+                  >
+                    {item.nativeName}
+                  </button>
+                ))}
+                {trOriginal ? (
+                  <button
+                    type="button"
+                    onClick={restoreOriginal}
+                    className="ml-auto rounded-full bg-white px-2 py-0.5 text-[10px] font-extrabold text-[#64748B] ring-1 ring-[#E2E8F0]"
+                  >
+                    ↩ {t('search.restoreOriginal')}
+                  </button>
+                ) : null}
+              </div>
+              {trNote ? (
+                <p className="px-1 text-[10px] font-semibold text-[#94A3B8]">
+                  {trNote === 'translating' ? t('search.translating') : t('search.translateFailed')}
+                </p>
+              ) : null}
               <button
                 type="button"
                 onClick={openDestMap}
