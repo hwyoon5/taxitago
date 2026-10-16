@@ -323,18 +323,37 @@ type PiApiPath = '/api/pi/approve' | '/api/pi/complete' | '/api/pi/cancel'
 const PI_API_CANONICAL_ORIGIN = (
   process.env.NEXT_PUBLIC_PI_API_ORIGIN || 'https://test.taxitago.co.kr'
 ).trim().replace(/\/+$/, '')
+const PI_API_CANONICAL_HOST = (() => {
+  try {
+    return new URL(PI_API_CANONICAL_ORIGIN).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+})()
 
 function piApiBaseOrigin() {
   if (typeof window === 'undefined') return ''
   const host = window.location.hostname.toLowerCase()
   if (
-    host === 'taxitago.co.kr' ||
-    host === 'test.taxitago.co.kr' ||
-    host === 'www.taxitago.co.kr' ||
     host === 'localhost' ||
     host === '127.0.0.1' ||
     host === '::1' ||
     host.endsWith('.local')
+  ) {
+    return ''
+  }
+  // 테스트넷(샌드박스) 결제는 앱이 어느 도메인에서 열리든 항상 테스트 백엔드로
+  // 보낸다. 샌드박스 앱 URL이 프로덕션 도메인(taxitago.co.kr)으로 등록돼 있으면
+  // same-origin 호출이 메인넷 키를 쓰는 프로덕션 백엔드로 가 승인이 영원히
+  // 실패하고, 그 요청은 테스트 배포 로그에도 남지 않는다 — "서버에 요청이 아예
+  // 도달하지 않는" 것처럼 보이는 원인이다.
+  if (PI_SANDBOX) {
+    return host === PI_API_CANONICAL_HOST ? '' : PI_API_CANONICAL_ORIGIN
+  }
+  if (
+    host === 'taxitago.co.kr' ||
+    host === 'test.taxitago.co.kr' ||
+    host === 'www.taxitago.co.kr'
   ) {
     return ''
   }
@@ -364,6 +383,28 @@ function beaconPiApi(path: PiApiPath | string, body: Record<string, unknown>) {
     logPi('log', `${path} beacon`, { queued, url: piApiUrl(path) })
   } catch (error) {
     logPi('warn', `${path} beacon failed`, error)
+  }
+}
+
+/**
+ * 서버 로그로 관측 가능한 클라이언트 생명주기 트레이스 — Pi Browser 안에서는
+ * 개발자 콘솔을 볼 수 없어 'SDK 콜백이 불렸는지'조차 확인이 안 된다. beacon은
+ * 지갑 시트 중 스로틀되는 fetch와 달리 OS 큐에서 전송되므로 승인 요청 자체가
+ * 유실돼도 트레이스는 남는다. /api/pi/trace는 로그만 남기고 204로 끝난다.
+ */
+function tracePi(label: string, extra?: Record<string, unknown>) {
+  try {
+    beaconPiApi('/api/pi/trace', {
+      label,
+      extra: {
+        host: typeof location !== 'undefined' ? location.host : '',
+        href: typeof location !== 'undefined' ? location.href : '',
+        apiBase: piApiBaseOrigin() || '(same-origin)',
+        ...extra,
+      },
+    })
+  } catch {
+    /* 트레이스 실패가 결제를 막으면 안 된다 */
   }
 }
 
@@ -876,6 +917,7 @@ export async function startPiCheckout(options: {
   const amount = Math.round(options.amount * 1_000_000) / 1_000_000
   if (!(amount > 0)) throw new Error('결제 금액이 올바르지 않습니다.')
 
+  tracePi('checkout start', { amount, memo: options.memo.slice(0, 25) })
   warmPiPaymentApi()
   let pi = await preparePiSdk()
   // SDK 스크립트는 일반 브라우저에서도 로드되지만 authenticate는 Pi Browser
@@ -1045,6 +1087,7 @@ function runCreatePayment(
           if (approvedTxid) attempt.txid = approvedTxid
           paymentInitiated = true
           logPi('log', 'onReadyForServerApproval', { paymentId, approvedTxid })
+          tracePi('onReadyForServerApproval fired', { paymentId })
           if (!paymentId) {
             finishError('approve missing paymentId', paymentIdArg)
             return Promise.resolve()
@@ -1080,6 +1123,7 @@ function runCreatePayment(
                 }
                 return payload
               } catch {
+                tracePi('approve request failed', { paymentId, error: errorText(error) })
                 finishError('approve failed', error)
                 return undefined
               }
@@ -1101,6 +1145,7 @@ function runCreatePayment(
           if (txid) attempt.txid = txid
           paymentInitiated = true
           logPi('log', 'onReadyForServerCompletion', { paymentId, txid })
+          tracePi('onReadyForServerCompletion fired', { paymentId, txid })
           if (!paymentId) {
             if (!options.advanceOnApproval) finishError('completion missing ids', { paymentId, txid })
             return Promise.resolve()
@@ -1150,6 +1195,7 @@ function runCreatePayment(
           if (id) attempt.paymentId = id
           paymentInitiated = true
           logPi('warn', 'onCancel', { paymentId })
+          tracePi('onCancel fired', { paymentId: id })
           finishError('cancelled', new Error('결제가 취소되었습니다.'))
         },
         onError: (error, paymentInfo) => {
@@ -1158,6 +1204,7 @@ function runCreatePayment(
           if (paymentId) attempt.paymentId = paymentId
           if (txid) attempt.txid = txid
           logPi('error', 'onError', { error, paymentInfo, paymentId, txid })
+          tracePi('onError fired', { paymentId, txid, error: errorText(error) })
           if (options.advanceOnApproval && paymentId && txid) {
             succeed({ paymentId, txid })
             return
