@@ -712,6 +712,8 @@
   "qrpay.again": "Scan again",
   "qrpay.missing": "Payment request not found",
   "qrpay.missingDesc": "The link expired or is invalid. Ask the driver for a new QR.",
+  "qrpay.expired": "This payment QR has expired",
+  "qrpay.expiredDesc": "Payment requests are valid for 2 hours. Ask the driver for a new QR.",
   "qrpay.payFail": "Couldn’t process the payment.",
   "qrpay.driver": "Driver",
   "invite.badge": "Friend invite perk",

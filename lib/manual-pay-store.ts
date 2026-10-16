@@ -33,6 +33,8 @@ const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST
 const useKv = Boolean(kvUrl && kvToken)
 
 const TTL_MS = 24 * 60 * 60 * 1000
+/** QR/링크에 남는 pending 청구는 2시간까지만 유효 — 오래된 QR의 재사용(재생)을 차단한다. */
+export const MANUAL_PAY_PENDING_TTL_MS = 2 * 60 * 60 * 1000
 const key = (id: string) => `taxitago:manual-pay:${id}`
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoManualPay?: Map<string, ManualPayRecord> }
@@ -165,6 +167,13 @@ export async function settleManualPayByBalance(id: string, payer: { uid?: string
   await save(record)
   await bookSettlement(record, 'pi')
   return { ok: true as const, record }
+}
+
+/** 아직 결제되지 않은 청구가 QR 유효 기간(2h)을 넘겼는지 판정한다. 완료·취소 건은 만료 개념 없음. */
+export function manualPayPendingExpired(record: ManualPayRecord) {
+  if (record.status !== 'pending') return false
+  const created = new Date(record.createdAt).getTime()
+  return !Number.isFinite(created) || Date.now() - created > MANUAL_PAY_PENDING_TTL_MS
 }
 
 export async function cancelManualPay(id: string, driverId: string) {

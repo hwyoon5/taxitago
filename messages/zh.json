@@ -712,6 +712,8 @@
   "qrpay.again": "重新扫描",
   "qrpay.missing": "找不到支付请求",
   "qrpay.missingDesc": "链接已过期或无效，请向司机索取新的收款码。",
+  "qrpay.expired": "此收款码已过期",
+  "qrpay.expiredDesc": "支付请求在生成后2小时内有效。请向司机索取新的二维码。",
   "qrpay.payFail": "支付处理失败。",
   "qrpay.driver": "司机",
   "invite.badge": "邀请好友福利",

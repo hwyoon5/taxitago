@@ -48,6 +48,7 @@ export default function ManualPayModal({
   const [record, setRecord] = useState<ManualPayPublic | null>(null)
   const [qrUrl, setQrUrl] = useState('')
   const [payUrl, setPayUrl] = useState('')
+  const [deepLink, setDeepLink] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const settledRef = useRef(false)
@@ -66,8 +67,15 @@ export default function ManualPayModal({
     const tick = async () => {
       try {
         const res = await apiFetch(`/api/manual-pay/?id=${encodeURIComponent(record.id)}`, { cache: 'no-store' })
-        const data = (await res.json().catch(() => null)) as { record?: ManualPayPublic } | null
-        if (stopped || !data?.record) return
+        const data = (await res.json().catch(() => null)) as { record?: ManualPayPublic; error?: string } | null
+        if (stopped) return
+        if (res.status === 410 || data?.error === 'expired') {
+          setRecord(null)
+          setError('결제 요청이 만료되었습니다. 새 QR을 생성해 주세요.')
+          setStep('form')
+          return
+        }
+        if (!data?.record) return
         if (data.record.status === 'paid' || data.record.status === 'manual') markSettled(data.record)
         else if (data.record.status === 'cancelled') setStep('form')
       } catch {
@@ -101,9 +109,14 @@ export default function ManualPayModal({
         const data = (await res.json().catch(() => null)) as { record?: ManualPayPublic; error?: string } | null
         if (!res.ok || !data?.record) throw new Error(data?.error || 'create_failed')
         setRecord(data.record)
-        const url = `${window.location.origin}/pay/manual/${data.record.id}`
-        setPayUrl(url)
-        const qr = await qrToDataURL(url, { margin: 1, width: 220 }).catch(() => '')
+        const path = `/pay/manual/${data.record.id}?pay=auto`
+        // Pi Browser 스캐너는 pi:// 딥링크 QR만 인증된 형식으로 받아들인다.
+        // 스캔하면 Pi Browser가 이 앱의 결제 페이지를 열고, pay=auto가
+        // window.Pi.createPayment 결제 승인 시트를 곧바로 띄운다.
+        const link = `pi://${window.location.host}${path}`
+        setDeepLink(link)
+        setPayUrl(`${window.location.origin}${path}`)
+        const qr = await qrToDataURL(link, { margin: 1, width: 220 }).catch(() => '')
         setQrUrl(qr)
         setStep('qr')
       })
@@ -228,14 +241,17 @@ export default function ManualPayModal({
             <h2 className="mt-1 text-xl font-black text-[#0F172A]">{record.amount.toFixed(7)} Pi</h2>
             {record.memo ? <p className="mt-0.5 text-xs font-bold text-[#64748B]">{record.memo}</p> : null}
             <p className="mt-2 text-xs font-bold leading-5 text-[#475569]">
-              승객이 아래 QR을 Pi Browser/카메라로 스캔해 결제합니다. 결제가 완료되면 자동으로 정산됩니다.
+              승객이 Pi Browser의 스캔(카메라)으로 QR을 비추면 결제 승인창이 바로 열립니다. 결제가 완료되면 자동으로 정산됩니다.
             </p>
             {qrUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={qrUrl} alt="승객 결제 QR 코드" className="mx-auto mt-3 h-44 w-44 rounded-2xl border-2 border-[#E0D4FF] p-1" />
             ) : null}
             <p className="mt-2 select-all break-all rounded-xl bg-[#F1F5F9] px-2.5 py-2 text-center text-[10px] font-bold text-[#64748B]">
-              {payUrl}
+              {deepLink}
+            </p>
+            <p className="mt-1.5 select-all break-all text-center text-[10px] font-bold leading-4 text-[#94A3B8]">
+              Pi Browser가 아니면 이 링크로 결제 페이지를 열 수 있어요: {payUrl}
             </p>
             <button
               type="button"

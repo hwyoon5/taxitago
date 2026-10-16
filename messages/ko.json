@@ -712,6 +712,8 @@
   "qrpay.again": "다시 스캔",
   "qrpay.missing": "결제 요청을 찾을 수 없어요",
   "qrpay.missingDesc": "링크가 만료되었거나 잘못되었습니다. 기사에게 새 결제 QR을 받아 주세요.",
+  "qrpay.expired": "만료된 결제 QR입니다",
+  "qrpay.expiredDesc": "결제 요청은 생성 후 2시간까지만 유효합니다. 기사에게 새 QR을 받아 주세요.",
   "qrpay.payFail": "결제를 처리하지 못했습니다.",
   "qrpay.driver": "기사",
   "invite.badge": "친구 초대 혜택",

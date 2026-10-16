@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/app-origin'
 import { describePiUserMessage, startPiCheckout } from '@/components/pi-checkout'
 import { loadPiIdentity } from '@/lib/partner-account'
@@ -15,7 +15,7 @@ type ManualPayPublic = {
   createdAt: string
 }
 
-type ViewState = 'loading' | 'ready' | 'paying' | 'done' | 'closed' | 'missing'
+type ViewState = 'loading' | 'ready' | 'paying' | 'done' | 'closed' | 'missing' | 'expired'
 
 /** 승객이 기사의 QR/링크로 여는 현장 수동 결제 화면 — 본인 Pi 지갑으로 직접 결제한다. */
 export default function ManualPayCheckout({ manualId }: { manualId: string }) {
@@ -23,6 +23,7 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
   const [view, setView] = useState<ViewState>('loading')
   const [error, setError] = useState('')
   const [coupon, setCoupon] = useState<AppliedCoupon | null>(null)
+  const autoPayRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -30,6 +31,10 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { record?: ManualPayPublic } | null
         if (cancelled) return
+        if (res.status === 410) {
+          setView('expired')
+          return
+        }
         if (!res.ok || !data?.record) {
           setView('missing')
           return
@@ -64,6 +69,20 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
       })
   }
 
+  // 기사의 QR은 pi://{host}/pay/manual/{id}?pay=auto 딥링크다.
+  // Pi Browser가 스캔해 이 페이지를 열었으면 버튼 탭 없이 결제 승인 시트를 바로 띄운다.
+  useEffect(() => {
+    if (view !== 'ready' || !record || autoPayRef.current) return
+    autoPayRef.current = true
+    try {
+      if (new URLSearchParams(window.location.search).get('pay') !== 'auto') return
+    } catch {
+      return
+    }
+    pay()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, record])
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center bg-[#F8FAFC] px-6 text-[#0F172A]">
       <p className="text-xs font-black text-[#4C1FB8]">TaxiTago 현장 결제</p>
@@ -80,6 +99,12 @@ export default function ManualPayCheckout({ manualId }: { manualId: string }) {
         <>
           <h1 className="mt-1 text-2xl font-black">취소된 결제입니다</h1>
           <p className="mt-2 text-sm font-bold text-[#64748B]">기사가 이 결제 요청을 취소했습니다.</p>
+        </>
+      ) : null}
+      {view === 'expired' ? (
+        <>
+          <h1 className="mt-1 text-2xl font-black">만료된 결제 요청입니다</h1>
+          <p className="mt-2 text-sm font-bold text-[#64748B]">QR 결제 요청은 생성 후 2시간까지만 유효합니다. 기사에게 새 QR을 받아 주세요.</p>
         </>
       ) : null}
       {view === 'done' ? (

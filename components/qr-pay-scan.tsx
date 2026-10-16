@@ -46,7 +46,7 @@ type ManualPayPublic = {
   status: 'pending' | 'paid' | 'manual' | 'cancelled'
 }
 
-type Stage = 'scan' | 'loading' | 'confirm' | 'paying' | 'done' | 'closed' | 'missing'
+type Stage = 'scan' | 'loading' | 'confirm' | 'paying' | 'done' | 'closed' | 'missing' | 'expired'
 
 export default function QrPayScanModal({
   onClose,
@@ -81,6 +81,10 @@ export default function QrPayScanModal({
     try {
       const res = await apiFetch(`/api/manual-pay/?id=${encodeURIComponent(id)}`, { cache: 'no-store' })
       const data = (await res.json().catch(() => null)) as { record?: ManualPayPublic } | null
+      if (res.status === 410) {
+        setStage('expired')
+        return
+      }
       if (!res.ok || !data?.record) {
         setStage('missing')
         return
@@ -328,6 +332,16 @@ export default function QrPayScanModal({
             <p className="text-base font-black text-[#334155]">{t('qrpay.cancelled')}</p>
             <p className="mt-1 text-xs font-bold text-[#64748B]">{t('qrpay.cancelledDesc')}</p>
             <button type="button" onClick={reset} className="mt-4 w-full rounded-2xl border border-[#CBD5E1] bg-white py-3 text-sm font-black text-[#334155]">
+              {t('qrpay.again')}
+            </button>
+          </div>
+        ) : null}
+
+        {stage === 'expired' ? (
+          <div className="mt-4 rounded-2xl bg-[#FFFBEB] p-5 text-center">
+            <p className="text-base font-black text-[#B45309]">{t('qrpay.expired')}</p>
+            <p className="mt-1 text-xs font-bold text-[#92400E]">{t('qrpay.expiredDesc')}</p>
+            <button type="button" onClick={reset} className="mt-4 w-full rounded-2xl border border-[#FCD34D] bg-white py-3 text-sm font-black text-[#B45309]">
               {t('qrpay.again')}
             </button>
           </div>

@@ -712,6 +712,8 @@
   "qrpay.again": "再スキャン",
   "qrpay.missing": "決済リクエストが見つかりません",
   "qrpay.missingDesc": "リンクが期限切れか無効です。ドライバーに新しいQRをもらってください。",
+  "qrpay.expired": "期限切れの決済QRです",
+  "qrpay.expiredDesc": "決済リクエストは作成後2時間まで有効です。ドライバーに新しいQRをもらってください。",
   "qrpay.payFail": "決済を処理できませんでした。",
   "qrpay.driver": "ドライバー",
   "invite.badge": "友達招待特典",

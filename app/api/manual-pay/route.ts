@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { cancelManualPay, createManualPay, getManualPay, settleManualPayByDriver } from '@/lib/manual-pay-store'
+import { cancelManualPay, createManualPay, getManualPay, manualPayPendingExpired, settleManualPayByDriver } from '@/lib/manual-pay-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,6 +22,8 @@ export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get('id')?.trim() || ''
   const record = await getManualPay(id)
   if (!record) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+  // 만료된 QR 청구는 결제 화면을 열지 않는다 — 기사가 새 요청을 만들게 한다.
+  if (manualPayPendingExpired(record)) return NextResponse.json({ error: 'expired' }, { status: 410 })
   return NextResponse.json({ ok: true, record: publicRecord(record) })
 }
 
