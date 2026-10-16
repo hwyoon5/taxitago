@@ -44,3 +44,38 @@ export async function POST(request: Request) {
   console.log(`[Pi-trace] ${label}`, sanitize(body?.extra))
   return new NextResponse(null, { status: 204, headers: PI_CORS_HEADERS })
 }
+
+// 1x1 투명 GIF — GET 픽셀 핑(Image)용. fetch/sendBeacon/XHR이 모두 막혀도
+// 이미지 로드는 나가므로 "콜백이 정말 발화했는지" 최후의 관측 채널이 된다.
+const PIXEL_GIF = Buffer.from(
+  'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+  'base64',
+)
+
+/**
+ * GET /api/pi/trace?label=...&key=value — 픽셀 핑 채널.
+ * 콜백 진입 직후 new Image().src로 쏘는 GET은 프리플라이트·JS 네트워크 API가
+ * 전혀 필요 없어 WebView가 fetch 계열을 통째로 막아도 서버 로그에 도달한다.
+ */
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const label = (searchParams.get('label') || '(no label)').slice(0, 120)
+    const extra: Record<string, unknown> = {}
+    for (const [key, value] of searchParams.entries()) {
+      if (key === 'label') continue
+      extra[key.slice(0, 40)] = value.slice(0, MAX_FIELD)
+    }
+    console.log(`[Pi-trace] ${label} (GET)`, sanitize(extra))
+  } catch {
+    /* 트레이스 라우트는 절대 실패로 응답하지 않는다 */
+  }
+  return new NextResponse(PIXEL_GIF, {
+    status: 200,
+    headers: {
+      ...PI_CORS_HEADERS,
+      'Content-Type': 'image/gif',
+      'Cache-Control': 'no-store',
+    },
+  })
+}

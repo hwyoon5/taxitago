@@ -368,18 +368,85 @@ function piApiUrl(path: string) {
 }
 
 async function piApiFetch(path: string, init?: RequestInit) {
-  return fetch(piApiUrl(path), { cache: 'no-store', ...init })
+  const url = piApiUrl(path)
+  if (typeof fetch === 'function') {
+    return fetch(url, { cache: 'no-store', ...init })
+  }
+  // 극구형 WebView에 fetch가 없으면 모든 승인/완료 요청이 침묵 실패한다 —
+  // XMLHttpRequest 폴백으로 최소한의 POST 경로를 확보한다.
+  return xhrPiApi(url, init)
+}
+
+/** fetch 부재 환경용 XMLHttpRequest 폴백 — Response 최소 호환형을 반환한다. */
+function xhrPiApi(url: string, init?: RequestInit): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    try {
+      const xhr = new XMLHttpRequest()
+      xhr.open(init?.method || 'GET', url, true)
+      const headers = init?.headers
+      if (headers) {
+        for (const [key, value] of Object.entries(headers as Record<string, string>)) {
+          try {
+            xhr.setRequestHeader(key, value)
+          } catch {
+            /* 허용되지 않는 헤더는 건너뛴다 */
+          }
+        }
+      }
+      xhr.timeout = 30_000
+      xhr.onload = () => {
+        const text = xhr.responseText ?? ''
+        resolve({
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          json: () => Promise.resolve(JSON.parse(text)),
+          text: () => Promise.resolve(text),
+        } as Response)
+      }
+      xhr.onerror = () => reject(new Error(`XHR ${url} network error`))
+      xhr.ontimeout = () => reject(new Error(`XHR ${url} timed out`))
+      xhr.send(typeof init?.body === 'string' ? init.body : undefined)
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error('XHR request failed'))
+    }
+  })
+}
+
+/**
+ * 직렬화가 실패해도 요청 자체를 죽이지 않는다 — metadata에 순환 참조나
+ * BigInt가 섞이면 JSON.stringify가 동기 예외를 던져 fetch 호출 전에 콜백이
+ * 죽고 서버에 요청이 한 건도 나가지 않는다.
+ */
+function safeJsonStringify(body: Record<string, unknown>) {
+  try {
+    return JSON.stringify(body)
+  } catch {
+    try {
+      const shallow: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(body)) {
+        shallow[key] = typeof value === 'object' && value !== null ? '[unserializable]' : value
+      }
+      return JSON.stringify(shallow)
+    } catch {
+      return '{}'
+    }
+  }
 }
 
 function beaconPiApi(path: PiApiPath | string, body: Record<string, unknown>) {
   try {
     const url = piApiUrl(path)
-    const payload = JSON.stringify(body)
-    // text/plain으로 보내 cross-origin beacon이 프리플라이트 없이 도달한다 —
-    // 서버는 content-type과 무관하게 request.json()으로 본문을 파싱한다.
+    const payload = safeJsonStringify(body)
+    // 문자열 데이터는 sendBeacon이 text/plain;charset=UTF-8로 보낸다 —
+    // simple request라 cross-origin에서도 프리플라이트 없이 도달하고,
+    // Blob 생성자가 없는 구형 WebView에서도 동작한다.
     let queued = false
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-      queued = navigator.sendBeacon(url, new Blob([payload], { type: 'text/plain' }))
+      try {
+        queued = navigator.sendBeacon(url, payload)
+      } catch {
+        queued = false
+      }
     }
     if (!queued) {
       // sendBeacon 미지원·큐 거부(WebView 제한) 시에도 요청이 유실되지 않도록
@@ -421,6 +488,42 @@ function tracePi(label: string, extra?: Record<string, unknown>) {
 }
 
 /**
+ * 콜백 진입 신호 — SDK 콜백이 실제로 발화했는지를 서버 로그로 입증하기 위해
+ * 각 콜백의 첫 문장에서 동기 호출한다. 파싱·헬퍼보다 먼저 나가야 하므로 모든
+ * 단계를 개별 try로 감싼다:
+ *  1) console.log — Pi Browser 콘솔은 못 보지만 데스크톱 디버깅용
+ *  2) sendBeacon POST — OS 큐라 지갑 시트 중 JS 스로틀에도 전송
+ *  3) new Image() GET 픽셀 — fetch/XHR/beacon이 통째로 막혀도 나가는 최후 채널
+ * 셋 중 하나라도 도달하면 서버 로그에 '[Pi-trace] <label>'이 남는다.
+ */
+function signalPi(label: string, extra?: Record<string, unknown>) {
+  try {
+    console.log(`[Pi-signal] ${label}`, extra ?? '')
+  } catch {
+    /* ignore */
+  }
+  tracePi(label, extra)
+  try {
+    const params = new URLSearchParams()
+    params.set('label', label.slice(0, 100))
+    for (const [key, value] of Object.entries(extra ?? {}).slice(0, 6)) {
+      if (value == null) continue
+      params.set(key.slice(0, 40), String(value).slice(0, 120))
+    }
+    let url = ''
+    try {
+      url = `${piApiUrl('/api/pi/trace')}?${params.toString()}`
+    } catch {
+      url = `/api/pi/trace/?${params.toString()}`
+    }
+    const img = new Image()
+    img.src = url
+  } catch {
+    /* 픽셀 핑 실패도 결제를 막지 않는다 */
+  }
+}
+
+/**
  * 결제창이 열린 뒤 첫 승인 요청이 라우트 컴파일(dev)이나 서버리스 콜드
  * 스타트를 겪으면 지갑의 승인 마감(수십 초)이 응답 도착 전에 끝나
  * '결제 준비 중'에서 만료된다 — 결제 흐름 시작 시점에 {warmup:true} 마커
@@ -437,7 +540,7 @@ function warmPiPaymentApi() {
       headers: { 'Content-Type': 'text/plain' },
       // warmup 마커 — 서버가 이를 결제 요청으로 오인해 'paymentId required'
       // 에러 로그를 남기지 않도록 명시한다.
-      body: JSON.stringify({ warmup: true }),
+      body: safeJsonStringify({ warmup: true }),
       keepalive: true,
       signal: piTimeoutSignal(10_000),
     })
@@ -455,7 +558,7 @@ async function postPiApi(path: PiApiPath, body: Record<string, unknown>) {
     // 곧장 전송된다 — WebView가 OPTIONS preflight를 유실하면 JSON POST는
     // 서버에 한 번도 도달하지 않는다("요청이 아예 없다" 증상의 제거).
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(body),
+    body: safeJsonStringify(body),
     // keepalive: 지갑 모달로 페이지가 백그라운드돼도 요청이 끝까지 전달된다.
     keepalive: true,
     // 서버 승인 예산(시도당 8s × 최대 2회 + 왕복)에 맞춘 상한 — 네트워크가
@@ -485,7 +588,7 @@ async function postPiApproveRest(paymentId: string, body: Record<string, unknown
   const response = await piApiFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(body),
+    body: safeJsonStringify(body),
     keepalive: true,
     signal: piTimeoutSignal(15_000),
   })
@@ -620,7 +723,7 @@ async function loginPiAppStudio(accessToken: string) {
     const res = await fetch(PI_APP_STUDIO_LOGIN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken }),
+      body: safeJsonStringify({ accessToken }),
       signal: piTimeoutSignal(10_000),
     })
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null
@@ -827,7 +930,7 @@ async function verifyPiSessionOnServer(session: PiSession) {
     const res = await piApiFetch('/api/pi/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ uid: session.uid, accessToken: session.accessToken }),
+      body: safeJsonStringify({ uid: session.uid, accessToken: session.accessToken }),
       // apiFetch엔 기본 타임아웃이 없다 — 검증 서버가 멈추면 로그인 스피너가
       // 무한 대기하므로 상한을 둔다(서버 /v2/me 8s + 왕복 여유).
       signal: piTimeoutSignal(15_000),
@@ -915,7 +1018,7 @@ async function mockPiCheckout(options: {
   const response = await piApiFetch('/api/pi/mock-pay', {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ amount, memo: options.memo.slice(0, 25), metadata: options.metadata ?? {} }),
+    body: safeJsonStringify({ amount, memo: options.memo.slice(0, 25), metadata: options.metadata ?? {} }),
   })
   const payload = (await response.json().catch(() => null)) as {
     ok?: boolean
@@ -1108,8 +1211,16 @@ function runCreatePayment(
     }
 
     try {
+      // 시트가 열리는 경계 — 여기까지 로그가 있고 approval entry가 없으면
+      // createPayment~콜백 사이(SDK·앱 등록·미완료 락)가 끊긴 것으로 확정된다.
+      signalPi('createPayment invoked', { amount: payment.amount })
       pi.createPayment(payment, {
         onReadyForServerApproval: (paymentIdArg) => {
+          // 첫 문장 — 파싱보다 먼저 발화해야 "콜백이 불렸다"가 서버에 입증된다.
+          signalPi('approval callback entry', {
+            argType: typeof paymentIdArg,
+            argPreview: String(paymentIdArg).slice(0, 80),
+          })
           // SDK 콜백 인자 형태가 달라도 누락되지 않도록 attempt 값으로 보강한다.
           const paymentId = readPaymentId(paymentIdArg) || attempt.paymentId
           // 문자열 인자는 paymentId뿐이다 — txid로 오인해 attempt에 심으면
@@ -1164,6 +1275,12 @@ function runCreatePayment(
             })
         },
         onReadyForServerCompletion: (paymentIdArg, txidArg) => {
+          // 첫 문장 — 파싱 전 진입 신호.
+          signalPi('completion callback entry', {
+            argType: typeof paymentIdArg,
+            txidType: typeof txidArg,
+            argPreview: String(txidArg).slice(0, 80),
+          })
           // 문자열 인자는 위치대로 paymentId/txid다 — txidArg 문자열을
           // paymentId로 역추출하거나 paymentIdArg 문자열을 txid로 쓰면
           // complete가 틀린 식별자로 Pi를 호출해 404가 떨어진다.
@@ -1226,6 +1343,7 @@ function runCreatePayment(
             })
         },
         onCancel: (paymentId) => {
+          signalPi('cancel callback entry', { argType: typeof paymentId })
           const id = readPaymentId(paymentId)
           if (id) attempt.paymentId = id
           paymentInitiated = true
@@ -1234,6 +1352,7 @@ function runCreatePayment(
           finishError('cancelled', new Error('결제가 취소되었습니다.'))
         },
         onError: (error, paymentInfo) => {
+          signalPi('error callback entry', { error: errorText(error) })
           const paymentId = readPaymentId(paymentInfo)
           const txid = txidFromPiPayload(paymentInfo)
           if (paymentId) attempt.paymentId = paymentId
