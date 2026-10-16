@@ -96,6 +96,7 @@ import RideReviewModal, { type RideReviewTarget } from '@/components/ride-review
 import SupportCenter, { type LostPrefill } from '@/components/support-center'
 import LanguageQuickSwitcher from '@/components/language-quick-switcher'
 import VoiceInputModal from '@/components/voice-input-modal'
+import ReceivableNoticeSheet, { type ReceivableNotice } from '@/components/receivable-notice'
 import { fetchUserRating, recordReviewReward } from '@/lib/review-client'
 import { fetchAttachments, fetchLostInbox, fetchSosInbox, type PhotoUpload } from '@/lib/support-client'
 import PhotoPicker from '@/components/photo-picker'
@@ -3450,6 +3451,7 @@ function ServiceSheet({
   // 대리 기사 배정 직후 1회 띄우는 기사 정보 안내 모달
   const [assignNoticeOpen, setAssignNoticeOpen] = useState(false)
   const [deviceFormOpen, setDeviceFormOpen] = useState(false)
+  const [receivableNotice, setReceivableNotice] = useState<ReceivableNotice | null>(null)
   const finishedRef = useRef(false)
   const rentalSerialRef = useRef('')
   // 서버에서 먼저 완료된 운행의 정산 내역을 홈 '최근 이용'/활동 기록과 동기화한다.
@@ -3584,6 +3586,45 @@ function ServiceSheet({
     if (!serial) return
     rentalSerialRef.current = ''
     void returnMobilityDevice(serial, daeriPassengerIdRef.current || localPassengerId()).catch(() => null)
+  }
+  /**
+   * 셀프·무인 서비스 종료 결제 실패 처리 — 미수금을 서버 장부에 기록하고
+   * 이용자에게 잔액 부족/실패 안내 시트(제공자·고객센터 연락처 포함)를 띄운다.
+   * 서버 기록 실패가 안내 표시를 막지 않게 신고는 fire-and-forget으로 둔다.
+   */
+  const reportServiceReceivable = (error: unknown) => {
+    const message = describePiUserMessage(error)
+    onNotice(message)
+    const text = error instanceof Error ? error.message : String(error ?? '')
+    const reason = /insufficient|balance|잔액/i.test(text) ? 'insufficient' : /cancel/i.test(text) ? 'cancelled' : 'failed'
+    const identity = loadPiIdentity()
+    const notice: ReceivableNotice = {
+      amount: chargeAmount,
+      service: `${service} 이용`,
+      place,
+      partnerName: selectedDevice?.ownerName || '',
+      partnerPhone: '',
+      reason,
+    }
+    setReceivableNotice(notice)
+    void fetch('/api/receivables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: identity?.uid || daeriPassengerIdRef.current || localPassengerId(),
+        wallet: identity?.wallet || '',
+        phone: memberPhone(),
+        service: notice.service,
+        serviceKey: settleServiceKey,
+        partnerId: selectedDevice?.ownerUid || '',
+        partnerName: notice.partnerName,
+        deviceId: selectedDevice?.serial || rentalSerialRef.current || '',
+        place,
+        amount: chargeAmount,
+        reason,
+        detail: message,
+      }),
+    }).catch(() => undefined)
   }
   const startService = async (scanned?: boolean, consented?: boolean) => {
     if (service === '택배' || ride) {
@@ -4161,7 +4202,7 @@ function ServiceSheet({
                 if (vehicle) releaseRental()
                 onSettle(chargeAmount, place, `${service} 이용`, ride ? billed.estimate : undefined, result, dispatchRide?.id || daeriRideIdRef.current || undefined)
               }}
-              onFailed={(error) => onNotice(describePiUserMessage(error))}
+              onFailed={(error) => reportServiceReceivable(error)}
             >
               {vehicle ? t('svc.doneReturn') : settleTiming === 'qr_auto' ? t('svc.doneAuto') : settleTiming === 'postpaid' ? t('svc.donePost') : t('match.complete')}
             </PiCheckoutButton>
@@ -4703,6 +4744,7 @@ function ServiceSheet({
           }}
         />
       ) : null}
+      {receivableNotice ? <ReceivableNoticeSheet notice={receivableNotice} onClose={() => setReceivableNotice(null)} /> : null}
       {cancelConfirmOpen && ride ? (
         <InTripCancelConfirmModal
           quoted={cancelSettlement.quoted}

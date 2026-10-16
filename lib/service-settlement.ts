@@ -1,4 +1,5 @@
 import { recordSettlement } from '@/lib/settlement-store'
+import { clearOpenReceivable } from '@/lib/receivable-store'
 import { payoutSettlementNet } from '@/lib/settlement-payout'
 import { driverPayoutTarget } from '@/lib/escrow-engine'
 import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
@@ -75,6 +76,12 @@ export async function handleServicePaymentComplete(input: {
   // 승객 결제는 플랫폼 지갑에 입금되므로, 수수료를 뺀 net을 파트너에게 A2U 송금한다.
   if (entry && partnerId) {
     await payoutSettlementNet(entry, `${label || '서비스 결제'} 정산`).catch(() => null)
+  }
+  // 실결제가 검증돼 장부에 오른 뒤에만 열린 미수금을 자동 회수한다 —
+  // 모의결제·실패 경로는 이 지점에 도달하지 않아 미수 기록이 그대로 남는다.
+  if (entry) {
+    const piUid = typeof metadata.piUid === 'string' ? metadata.piUid.trim() : ''
+    if (piUid) await clearOpenReceivable(piUid, deviceId, gross).catch(() => 0)
   }
   return entry
 }

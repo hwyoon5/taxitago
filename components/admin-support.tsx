@@ -20,6 +20,7 @@ import AdminBlacklist from '@/components/admin-blacklist'
 import AdminCoupons from '@/components/admin-coupons'
 import AdminAnalytics from '@/components/admin-analytics'
 import AdminLiveDashboard from '@/components/admin-live'
+import AdminReceivables from '@/components/admin-receivables'
 import AttachmentGallery from '@/components/photo-gallery'
 import { positionDisplayLabel } from '@/lib/staff-positions'
 import {
@@ -50,7 +51,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'partners', 'devices', 'fare', 'ledger', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
+const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'partners', 'devices', 'fare', 'ledger', 'receivable', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 /** URL 해시(#ledger) 또는 ?view= 쿼리에서 탭을 복원 — 리마운트·새로고침 시에도 마지막 메뉴를 유지한다. */
@@ -523,6 +524,8 @@ export default function AdminSupportDesk() {
                   ? '수수료 설정'
                   : tab === 'ledger'
                     ? '정산 내역'
+                    : tab === 'receivable'
+                      ? '미수금'
                     : tab === 'payouts'
                       ? '출금 요청'
                       : tab === 'coupons'
@@ -555,6 +558,8 @@ export default function AdminSupportDesk() {
         <AdminFareSettings />
       ) : view === 'ledger' ? (
         <AdminSettlements />
+      ) : view === 'receivable' ? (
+        <AdminReceivables />
       ) : view === 'payouts' ? (
         <AdminPayouts />
       ) : view === 'coupons' ? (

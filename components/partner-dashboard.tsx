@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Briefcase, FileSpreadsheet, Link2, MonitorSmartphone, RefreshCw, Store, Trash2 } from 'lucide-react'
+import { Briefcase, CircleAlert, FileSpreadsheet, Link2, MonitorSmartphone, RefreshCw, Store, Trash2 } from 'lucide-react'
 import PartnerStatSheet from '@/components/partner-stat-sheet'
 import { MobilityDeviceFormModal } from '@/components/mobility-device-form'
 import { PartnerFeedsPanel } from '@/components/partner-feeds-panel'
@@ -48,6 +48,28 @@ const fmtSyncAt = (iso: string) => {
 
 const STATUS_ORDER: MobilityDeviceStatus[] = ['available', 'rented', 'maintenance', 'low_battery']
 
+/** 파트너 대시보드에 표시할 미수금 건 — /api/receivables?partner= 의 응답 행. */
+type PartnerReceivable = {
+  id: string
+  userId: string
+  wallet: string
+  phone: string
+  service: string
+  deviceId: string
+  place: string
+  amount: number
+  reason: string
+  attempts: number
+  createdAt: string
+}
+
+async function fetchPartnerReceivables(uid: string): Promise<PartnerReceivable[]> {
+  const res = await fetch(`/api/receivables?partner=${encodeURIComponent(uid)}&status=open`, { cache: 'no-store' })
+  const data = (await res.json().catch(() => null)) as { items?: PartnerReceivable[] } | null
+  if (!res.ok || !Array.isArray(data?.items)) return []
+  return data.items
+}
+
 /**
  * 파트너 전용 대시보드 — 기기 현황 요약, 외부 API 연동 모니터링, 수익·정산,
  * 기기 목록·수정·삭제를 한 화면에서 제공한다. 기사 센터 카드 대신 '기사·파트너
@@ -70,6 +92,7 @@ export function PartnerDashboard({
   const { t, locale } = useLocale()
   const [devices, setDevices] = useState<MobilityDevice[]>([])
   const [feeds, setFeeds] = useState<PartnerFeedInfo[]>([])
+  const [receivables, setReceivables] = useState<PartnerReceivable[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [dataVersion, setDataVersion] = useState(0)
@@ -79,9 +102,10 @@ export function PartnerDashboard({
   const [payoutOpen, setPayoutOpen] = useState(false)
 
   const fetchData = useCallback(async () => {
-    const [d, f] = await Promise.allSettled([fetchMyMobilityDevices(uid), fetchMyPartnerFeeds(uid)])
+    const [d, f, r] = await Promise.allSettled([fetchMyMobilityDevices(uid), fetchMyPartnerFeeds(uid), fetchPartnerReceivables(uid)])
     if (d.status === 'fulfilled') setDevices(d.value)
     if (f.status === 'fulfilled') setFeeds(f.value)
+    if (r.status === 'fulfilled') setReceivables(r.value)
   }, [uid])
 
   const reload = useCallback(() => {
@@ -264,6 +288,52 @@ export function PartnerDashboard({
         >
           수익 출금 신청
         </button>
+      </article>
+
+      {/* 미수금 — 이용 종료 시점 결제 실패 건이 20초 주기 폴링으로 실시간 노출된다 */}
+      <article className="rounded-[24px] border-2 border-[#E2E8F0] bg-white p-4">
+        <div className="flex items-center justify-between">
+          <p className="flex items-center gap-1.5 text-xs font-black text-[#334155]">
+            <CircleAlert className="h-4 w-4 text-[#B45309]" />
+            미수금 현황
+          </p>
+          <span className={`text-lg font-black tabular-nums ${receivables.length ? 'text-[#B45309]' : 'text-[#0F172A]'}`}>
+            {receivables.length}건
+          </span>
+        </div>
+        {!receivables.length ? (
+          <p className="mt-2 text-xs font-bold leading-5 text-[#64748B]">
+            미결제로 남은 이용 요금이 없습니다.
+          </p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {receivables.map((row) => (
+              <li key={row.id} className="rounded-2xl border border-[#F59E0B] bg-[#FFFBEB] px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="min-w-0 truncate text-[12px] font-black text-[#0F172A]">
+                    {row.service}
+                    {row.deviceId ? <span className="font-bold text-[#64748B]"> · {row.deviceId}</span> : null}
+                  </p>
+                  <span className="shrink-0 text-[12px] font-black tabular-nums text-[#B45309]">{row.amount.toFixed(4)} Pi</span>
+                </div>
+                <p className="mt-1 truncate text-[10px] font-bold text-[#64748B]">
+                  {agoLabel(row.createdAt)} · 이용자 {row.userId || '—'}
+                  {row.attempts > 1 ? ` · 실패 ${row.attempts}회` : ''}
+                </p>
+                {row.phone ? (
+                  <a href={`tel:${row.phone}`} className="mt-1 block truncate text-[11px] font-black text-[#4A82B8]">
+                    📞 {row.phone}
+                  </a>
+                ) : null}
+                {row.wallet ? (
+                  <p className="mt-0.5 truncate font-mono text-[9px] font-bold text-[#94A3B8]" title={row.wallet}>
+                    지갑 {row.wallet}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
       </article>
 
       {/* 내 기기 목록 */}
