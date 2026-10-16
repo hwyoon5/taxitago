@@ -17,6 +17,10 @@ export type ReceivableNotice = {
   partnerPhone: string
   /** 이용자에게 보여 줄 실패 사유 */
   reason: string
+  /** 누적 페널티 포인트 — 서버 응답 도착 후 채워진다 */
+  points?: number
+  /** 이용 제한 해제 시각 — 제한 중이면 ISO 문자열 */
+  restrictedUntil?: string | null
 }
 
 /**
@@ -75,6 +79,16 @@ export default function ReceivableNoticeSheet({
             {t('recv.recorded')}
           </p>
         </div>
+
+        {/* 반복 미수 페널티·이용 제한 경고 */}
+        {(notice.points ?? 0) > 0 ? (
+          <p className="mt-3 rounded-2xl bg-[#FEF2F2] px-4 py-3 text-[11px] font-bold leading-5 text-[#B91C1C]">
+            {t('recv.penalty', { points: String(notice.points ?? 0) })}
+            {notice.restrictedUntil
+              ? `\n${t('recv.restricted', { until: new Date(notice.restrictedUntil).toLocaleDateString() })}`
+              : ''}
+          </p>
+        ) : null}
 
         {/* 제공자·고객센터 연락처 */}
         <div className="mt-3 rounded-2xl bg-[#F8FAFC] p-4">

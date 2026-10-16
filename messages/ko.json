@@ -492,6 +492,7 @@
   "svc.rentBlocked": "{serial}은(는) {status} 상태라 대여할 수 없어요.",
   "svc.rentBlockedShort": "이 기기는 지금 대여할 수 없어요.",
   "svc.rentTaken": "방금 다른 이용자가 대여했거나 대여가 막힌 기기예요. 목록을 새로고침합니다.",
+  "svc.rentRestricted": "미수금 누적으로 {until}까지 셀프 서비스 대여가 제한되어 있어요. 미수금을 정산하면 바로 해제됩니다.",
   "svc.phoneErr": "발신인과 수신인 연락처를 올바르게 입력해 주세요.",
   "svc.selected": "{name} 서비스를 선택했어요.",
   "svc.qrDone": "{name} QR 스캔이 완료되었어요.",

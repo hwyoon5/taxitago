@@ -492,6 +492,7 @@
   "svc.rentBlocked": "{serial} is {status} and cannot be rented.",
   "svc.rentBlockedShort": "This device cannot be rented now.",
   "svc.rentTaken": "Just rented by another user or blocked. Refreshing the list.",
+  "svc.rentRestricted": "Self-service rental is restricted until {until} due to unpaid fees. It unlocks once the balance is settled.",
   "svc.phoneErr": "Enter valid sender and recipient phone numbers.",
   "svc.selected": "{name} selected.",
   "svc.qrDone": "{name} QR scan complete.",

@@ -4,6 +4,18 @@ import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import { PageSizeSelect, PaginationBar, usePagination } from '@/components/admin-pagination'
 
+type AdminPenalty = {
+  userId: string
+  wallet: string
+  phone: string
+  points: number
+  receivableCount: number
+  waivedPoints: number
+  restrictedUntil: string | null
+  note: string
+  updatedAt: string
+}
+
 type AdminReceivable = {
   id: string
   userId: string
@@ -48,6 +60,7 @@ const fmt = (iso: string | null) =>
  */
 export default function AdminReceivables() {
   const [items, setItems] = useState<AdminReceivable[]>([])
+  const [penalties, setPenalties] = useState<AdminPenalty[]>([])
   const [openTotal, setOpenTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -63,13 +76,19 @@ export default function AdminReceivables() {
       if (status) params.set('status', status)
       if (q.trim()) params.set('q', q.trim())
       const res = await fetch(`/api/admin/receivables?${params.toString()}`, { headers: adminHeaders(), cache: 'no-store' })
-      const data = (await res.json().catch(() => null)) as { items?: AdminReceivable[]; openTotal?: number; error?: string } | null
+      const data = (await res.json().catch(() => null)) as {
+        items?: AdminReceivable[]
+        penalties?: AdminPenalty[]
+        openTotal?: number
+        error?: string
+      } | null
       if (!res.ok || !data?.items) {
         setError(data?.error || '조회에 실패했습니다.')
         if (!silent) setItems([])
         return
       }
       setItems(data.items)
+      setPenalties(Array.isArray(data.penalties) ? data.penalties : [])
       setOpenTotal(typeof data.openTotal === 'number' ? data.openTotal : 0)
     } catch {
       if (!silent) {
@@ -120,7 +139,40 @@ export default function AdminReceivables() {
     }
   }
 
+  /** 운영자 페널티 조치 — 감면(포인트 차감), 즉시 제한 해제, 전체 초기화. */
+  const penaltyAction = async (row: AdminPenalty, action: 'penalty-waive' | 'penalty-unrestrict' | 'penalty-clear') => {
+    if (busyId) return
+    const note = window.prompt(
+      action === 'penalty-waive'
+        ? `페널티 10점을 감면합니다. (현재 ${row.points}점)\n사유를 입력해 주세요.`
+        : action === 'penalty-unrestrict'
+          ? `${row.userId}의 이용 제한을 즉시 해제합니다.\n사유를 입력해 주세요.`
+          : `${row.userId}의 페널티를 전체 초기화하고 제한을 해제합니다.\n사유를 입력해 주세요.`,
+      '',
+    )
+    if (note === null) return
+    setBusyId(row.userId)
+    try {
+      const res = await fetch('/api/admin/receivables', {
+        method: 'PATCH',
+        headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, userId: row.userId, points: 10, note }),
+      })
+      const data = (await res.json().catch(() => null)) as { penalty?: AdminPenalty; error?: string } | null
+      if (!res.ok || !data?.penalty) {
+        setError(data?.error || '처리에 실패했습니다.')
+        return
+      }
+      setPenalties((prev) => prev.map((item) => (item.userId === row.userId ? data.penalty! : item)))
+    } catch {
+      setError('네트워크 오류')
+    } finally {
+      setBusyId('')
+    }
+  }
+
   const pagination = usePagination(items, 10, [status, q])
+  const restrictedNow = (row: AdminPenalty) => Boolean(row.restrictedUntil && Date.parse(row.restrictedUntil) > Date.now())
 
   return (
     <div className="mt-4">
@@ -236,6 +288,60 @@ export default function AdminReceivables() {
         pageButtons={pagination.pageButtons}
         onPage={pagination.setPage}
       />
+
+      {/* 반복 미수 페널티 — 포인트·제한 현황과 감면/해제 액션 */}
+      {penalties.length ? (
+        <div className="mt-4 border-t border-[#E2E8F0] pt-3">
+          <p className="text-[11px] font-black text-[#334155]">페널티 이용자 · {penalties.length}명</p>
+          <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">미수 1건 +10점 · 30점 이상 7일 / 60점 이상 30일 대여 제한 · 정산 건당 -10점 자동 감면</p>
+          <div className="mt-2 space-y-2">
+            {penalties.map((row) => (
+              <div key={row.userId} className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="min-w-0 flex-1 truncate text-[12px] font-black text-[#0F172A]">이용자 {row.userId}</p>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${restrictedNow(row) ? 'bg-[#FEE2E2] text-[#B91C1C]' : 'bg-[#FEF3C7] text-[#B45309]'}`}>
+                    {restrictedNow(row) ? `제한 중 · ${fmt(row.restrictedUntil)} 해제` : `${row.points}점`}
+                  </span>
+                </div>
+                <p className="mt-1 text-[10px] font-bold text-[#64748B]">
+                  미수 누적 {row.receivableCount}건 · 감면 {row.waivedPoints}점
+                  {row.phone ? ` · 📞 ${row.phone}` : ''}
+                </p>
+                {row.wallet ? <p className="mt-0.5 truncate font-mono text-[9px] font-bold text-[#94A3B8]" title={row.wallet}>지갑 {row.wallet}</p> : null}
+                {row.note ? <p className="mt-0.5 truncate text-[10px] font-bold text-[#94A3B8]">{row.note}</p> : null}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    disabled={busyId === row.userId || row.points <= 0}
+                    onClick={() => void penaltyAction(row, 'penalty-waive')}
+                    className="rounded-lg bg-[#FEF3C7] px-2.5 py-1.5 text-[11px] font-black text-[#B45309] disabled:opacity-40"
+                  >
+                    -10점 감면
+                  </button>
+                  {restrictedNow(row) ? (
+                    <button
+                      type="button"
+                      disabled={busyId === row.userId}
+                      onClick={() => void penaltyAction(row, 'penalty-unrestrict')}
+                      className="rounded-lg bg-[#FEE2E2] px-2.5 py-1.5 text-[11px] font-black text-[#B91C1C] disabled:opacity-40"
+                    >
+                      제한 즉시 해제
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={busyId === row.userId || row.points <= 0}
+                    onClick={() => void penaltyAction(row, 'penalty-clear')}
+                    className="rounded-lg bg-[#F1F5F9] px-2.5 py-1.5 text-[11px] font-black text-[#64748B] disabled:opacity-40"
+                  >
+                    전체 초기화
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

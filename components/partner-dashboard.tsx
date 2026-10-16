@@ -63,11 +63,27 @@ type PartnerReceivable = {
   createdAt: string
 }
 
-async function fetchPartnerReceivables(uid: string): Promise<PartnerReceivable[]> {
+type ReceivableSummary = {
+  openCount: number
+  openTotal: number
+  week: { count: number; total: number }
+  month: { count: number; total: number }
+  byUser: {
+    userId: string
+    wallet: string
+    phone: string
+    count: number
+    amount: number
+    latestAt: string
+    penalty: { points: number; restrictedUntil: string | null } | null
+  }[]
+}
+
+async function fetchPartnerReceivables(uid: string): Promise<{ items: PartnerReceivable[]; summary: ReceivableSummary | null }> {
   const res = await fetch(`/api/receivables?partner=${encodeURIComponent(uid)}&status=open`, { cache: 'no-store' })
-  const data = (await res.json().catch(() => null)) as { items?: PartnerReceivable[] } | null
-  if (!res.ok || !Array.isArray(data?.items)) return []
-  return data.items
+  const data = (await res.json().catch(() => null)) as { items?: PartnerReceivable[]; summary?: ReceivableSummary } | null
+  if (!res.ok || !Array.isArray(data?.items)) return { items: [], summary: null }
+  return { items: data.items, summary: data.summary ?? null }
 }
 
 /**
@@ -93,6 +109,8 @@ export function PartnerDashboard({
   const [devices, setDevices] = useState<MobilityDevice[]>([])
   const [feeds, setFeeds] = useState<PartnerFeedInfo[]>([])
   const [receivables, setReceivables] = useState<PartnerReceivable[]>([])
+  const [recvSummary, setRecvSummary] = useState<ReceivableSummary | null>(null)
+  const [recvBusy, setRecvBusy] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [dataVersion, setDataVersion] = useState(0)
@@ -105,7 +123,10 @@ export function PartnerDashboard({
     const [d, f, r] = await Promise.allSettled([fetchMyMobilityDevices(uid), fetchMyPartnerFeeds(uid), fetchPartnerReceivables(uid)])
     if (d.status === 'fulfilled') setDevices(d.value)
     if (f.status === 'fulfilled') setFeeds(f.value)
-    if (r.status === 'fulfilled') setReceivables(r.value)
+    if (r.status === 'fulfilled') {
+      setReceivables(r.value.items)
+      setRecvSummary(r.value.summary)
+    }
   }, [uid])
 
   const reload = useCallback(() => {
@@ -157,6 +178,72 @@ export function PartnerDashboard({
       setDevices((list) => list.map((item) => (item.serial === device.serial ? updated : item)))
       onNotice?.(updated.rentable ? `${device.serial} 대여를 허용했어요.` : `${device.serial} 대여를 중지했어요.`)
     }
+  }
+
+  /** 제공자 수동 정산 — Pi 송금을 확인한 미수금을 정산 완료로 처리한다. */
+  const settleReceivable = async (row: PartnerReceivable) => {
+    if (recvBusy) return
+    const note = window.prompt(`${row.amount} Pi 미수금을 정산 완료 처리합니다.\nPi 송금 확인 메모를 입력해 주세요.`, '')
+    if (note === null) return
+    setRecvBusy(row.id)
+    try {
+      const res = await fetch('/api/receivables', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner: uid, id: row.id, action: 'settle', note }),
+      })
+      const data = (await res.json().catch(() => null)) as { ok?: boolean } | null
+      if (!res.ok || !data?.ok) throw new Error('failed')
+      setReceivables((prev) => prev.filter((item) => item.id !== row.id))
+      setRecvSummary((prev) =>
+        prev
+          ? { ...prev, openCount: prev.openCount - 1, openTotal: Math.max(0, prev.openTotal - row.amount) }
+          : prev,
+      )
+      onNotice?.('미수금을 정산 완료 처리했어요. 해당 이용자의 페널티도 자동 감면됩니다.')
+      void fetchData()
+    } catch {
+      onNotice?.('정산 처리에 실패했어요. 잠시 후 다시 시도해 주세요.')
+    } finally {
+      setRecvBusy('')
+    }
+  }
+
+  /** 제공자 페널티 감면 — 자사 미수 이용자에 한해 포인트를 깎거나 제한을 해제한다. */
+  const relieveUserPenalty = async (userId: string, action: 'waive-penalty' | 'clear-restriction') => {
+    if (recvBusy) return
+    setRecvBusy(userId)
+    try {
+      const res = await fetch('/api/receivables', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner: uid, userId, action, points: 10 }),
+      })
+      const data = (await res.json().catch(() => null)) as { ok?: boolean } | null
+      if (!res.ok || !data?.ok) throw new Error('failed')
+      onNotice?.(action === 'clear-restriction' ? '이용 제한을 해제했어요.' : '페널티 10점을 감면했어요.')
+      void fetchData()
+    } catch {
+      onNotice?.('페널티 처리에 실패했어요.')
+    } finally {
+      setRecvBusy('')
+    }
+  }
+
+  /** 이용자에게 보낼 Pi 송금 안내 문구 — 지갑 주소·미수 총액을 담아 복사한다. */
+  const copyRemittanceGuide = (row: ReceivableSummary['byUser'][number]) => {
+    const text = [
+      '[택시타고 미수금 정산 안내]',
+      `Pi 지갑 주소: ${row.wallet || '(미확인)'}`,
+      `미수 이용료: ${row.amount.toFixed(7)} Pi (${row.count}건)`,
+      `최근 이용: ${agoLabel(row.latestAt)}`,
+      '',
+      'Pi Browser에서 해당 지갑으로 미수금을 송금하신 뒤 고객센터로 알려 주시면 정산 완료 처리됩니다.',
+    ].join('\n')
+    void navigator.clipboard?.writeText(text).then(
+      () => onNotice?.('송금 안내 문구를 복사했어요. 이용자에게 전달해 주세요.'),
+      () => onNotice?.('복사에 실패했어요.'),
+    )
   }
 
   if (!uid) {
@@ -306,33 +393,125 @@ export function PartnerDashboard({
             미결제로 남은 이용 요금이 없습니다.
           </p>
         ) : (
-          <ul className="mt-3 space-y-2">
-            {receivables.map((row) => (
-              <li key={row.id} className="rounded-2xl border border-[#F59E0B] bg-[#FFFBEB] px-3 py-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="min-w-0 truncate text-[12px] font-black text-[#0F172A]">
-                    {row.service}
-                    {row.deviceId ? <span className="font-bold text-[#64748B]"> · {row.deviceId}</span> : null}
-                  </p>
-                  <span className="shrink-0 text-[12px] font-black tabular-nums text-[#B45309]">{row.amount.toFixed(4)} Pi</span>
+          <>
+            {/* 주간·월간 미수 집계 — Pi 송금 정산 유도의 기준 */}
+            {recvSummary ? (
+              <div className="mt-3 grid grid-cols-3 gap-1.5">
+                <div className="rounded-2xl bg-[#F8FAFC] px-2 py-2 text-center">
+                  <p className="text-sm font-black tabular-nums text-[#0F172A]">{recvSummary.openTotal.toFixed(4)}</p>
+                  <p className="mt-0.5 text-[9px] font-black text-[#64748B]">전체 미수 (Pi)</p>
                 </div>
-                <p className="mt-1 truncate text-[10px] font-bold text-[#64748B]">
-                  {agoLabel(row.createdAt)} · 이용자 {row.userId || '—'}
-                  {row.attempts > 1 ? ` · 실패 ${row.attempts}회` : ''}
-                </p>
-                {row.phone ? (
-                  <a href={`tel:${row.phone}`} className="mt-1 block truncate text-[11px] font-black text-[#4A82B8]">
-                    📞 {row.phone}
-                  </a>
-                ) : null}
-                {row.wallet ? (
-                  <p className="mt-0.5 truncate font-mono text-[9px] font-bold text-[#94A3B8]" title={row.wallet}>
-                    지갑 {row.wallet}
+                <div className="rounded-2xl bg-[#F8FAFC] px-2 py-2 text-center">
+                  <p className="text-sm font-black tabular-nums text-[#B45309]">{recvSummary.week.total.toFixed(4)}</p>
+                  <p className="mt-0.5 text-[9px] font-black text-[#64748B]">최근 7일 ({recvSummary.week.count}건)</p>
+                </div>
+                <div className="rounded-2xl bg-[#F8FAFC] px-2 py-2 text-center">
+                  <p className="text-sm font-black tabular-nums text-[#B45309]">{recvSummary.month.total.toFixed(4)}</p>
+                  <p className="mt-0.5 text-[9px] font-black text-[#64748B]">최근 30일 ({recvSummary.month.count}건)</p>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 이용자별 미수 집계 — 지갑 주소·연락처·페널티와 송금 안내 */}
+            {recvSummary?.byUser.length ? (
+              <ul className="mt-3 space-y-2">
+                {recvSummary.byUser.map((row) => (
+                  <li key={row.userId || row.wallet || row.phone} className="rounded-2xl border border-[#BFDBFE] bg-[#F8FAFC] px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="min-w-0 truncate text-[12px] font-black text-[#0F172A]">
+                        이용자 {row.userId || '—'}
+                        {row.penalty ? (
+                          <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] font-black ${row.penalty.restrictedUntil && Date.parse(row.penalty.restrictedUntil) > Date.now() ? 'bg-[#FEE2E2] text-[#B91C1C]' : 'bg-[#FEF3C7] text-[#B45309]'}`}>
+                            {row.penalty.restrictedUntil && Date.parse(row.penalty.restrictedUntil) > Date.now() ? '이용 제한 중' : `페널티 ${row.penalty.points}점`}
+                          </span>
+                        ) : null}
+                      </p>
+                      <span className="shrink-0 text-[12px] font-black tabular-nums text-[#B45309]">{row.amount.toFixed(4)} Pi</span>
+                    </div>
+                    <p className="mt-1 truncate text-[10px] font-bold text-[#64748B]">
+                      {row.count}건 · 최근 이용 {agoLabel(row.latestAt)}
+                    </p>
+                    {row.phone ? (
+                      <a href={`tel:${row.phone}`} className="mt-0.5 block truncate text-[11px] font-black text-[#4A82B8]">
+                        📞 {row.phone}
+                      </a>
+                    ) : null}
+                    {row.wallet ? (
+                      <p className="mt-0.5 truncate font-mono text-[9px] font-bold text-[#94A3B8]" title={row.wallet}>
+                        지갑 {row.wallet}
+                      </p>
+                    ) : null}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => copyRemittanceGuide(row)}
+                        className="rounded-full border border-[#BFDBFE] bg-white px-2.5 py-1 text-[10px] font-black text-[#4A82B8]"
+                      >
+                        송금 안내 복사
+                      </button>
+                      {row.penalty && row.penalty.points > 0 ? (
+                        <button
+                          type="button"
+                          disabled={recvBusy === row.userId}
+                          onClick={() => void relieveUserPenalty(row.userId, 'waive-penalty')}
+                          className="rounded-full bg-[#FEF3C7] px-2.5 py-1 text-[10px] font-black text-[#B45309] disabled:opacity-50"
+                        >
+                          페널티 -10점
+                        </button>
+                      ) : null}
+                      {row.penalty?.restrictedUntil && Date.parse(row.penalty.restrictedUntil) > Date.now() ? (
+                        <button
+                          type="button"
+                          disabled={recvBusy === row.userId}
+                          onClick={() => void relieveUserPenalty(row.userId, 'clear-restriction')}
+                          className="rounded-full bg-[#FEE2E2] px-2.5 py-1 text-[10px] font-black text-[#B91C1C] disabled:opacity-50"
+                        >
+                          제한 해제
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            {/* 미수 건 목록 — 건별 정산 완료 처리 */}
+            <ul className="mt-3 space-y-2">
+              {receivables.map((row) => (
+                <li key={row.id} className="rounded-2xl border border-[#F59E0B] bg-[#FFFBEB] px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-[12px] font-black text-[#0F172A]">
+                      {row.service}
+                      {row.deviceId ? <span className="font-bold text-[#64748B]"> · {row.deviceId}</span> : null}
+                    </p>
+                    <span className="shrink-0 text-[12px] font-black tabular-nums text-[#B45309]">{row.amount.toFixed(4)} Pi</span>
+                  </div>
+                  <p className="mt-1 truncate text-[10px] font-bold text-[#64748B]">
+                    {agoLabel(row.createdAt)} · 이용자 {row.userId || '—'}
+                    {row.attempts > 1 ? ` · 실패 ${row.attempts}회` : ''}
                   </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+                  {row.phone ? (
+                    <a href={`tel:${row.phone}`} className="mt-1 block truncate text-[11px] font-black text-[#4A82B8]">
+                      📞 {row.phone}
+                    </a>
+                  ) : null}
+                  {row.wallet ? (
+                    <p className="mt-0.5 truncate font-mono text-[9px] font-bold text-[#94A3B8]" title={row.wallet}>
+                      지갑 {row.wallet}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={recvBusy === row.id}
+                    onClick={() => void settleReceivable(row)}
+                    className="mt-2 w-full rounded-xl bg-[#15803D] py-2 text-[11px] font-black text-white disabled:opacity-50"
+                  >
+                    Pi 송금 확인 · 정산 완료
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </article>
 

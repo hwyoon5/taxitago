@@ -492,6 +492,7 @@
   "svc.rentBlocked": "{serial}は{status}状態のためレンタルできません。",
   "svc.rentBlockedShort": "この機器は現在レンタルできません。",
   "svc.rentTaken": "他の利用者がレンタルしたかブロックされた機器です。リストを更新します。",
+  "svc.rentRestricted": "未収金の累積により{until}までセルフサービスのレンタルが制限されています。精算すれば解除されます。",
   "svc.phoneErr": "発信者と受信者の連絡先を正しく入力してください。",
   "svc.selected": "{name}を選択しました。",
   "svc.qrDone": "{name} QRスキャンが完了しました。",

@@ -1,5 +1,6 @@
 import { NextResponse, after } from 'next/server'
 import { listDevices, setDeviceRentalState } from '@/lib/device-store'
+import { receivableRestriction } from '@/lib/receivable-store'
 import { partnerFeedsStale } from '@/lib/partner-source-store'
 import { syncPartnerFeeds } from '@/lib/partner-feed'
 
@@ -53,6 +54,7 @@ const RENTAL_ERRORS: Record<string, string> = {
   not_rentable: '파트너가 대여를 허용하지 않은 기기입니다.',
   already_rented: '다른 이용자가 이미 대여한 기기입니다.',
   not_rented: '대여 중이 아닌 기기입니다.',
+  restricted: '미수금 누적으로 서비스 이용이 제한된 계정입니다.',
 }
 
 /**
@@ -70,6 +72,16 @@ export async function PATCH(request: Request) {
   const renterId = typeof body?.renterId === 'string' ? body.renterId.trim() : ''
   if (!deviceId || rent === null) {
     return NextResponse.json({ error: 'invalid_fields' }, { status: 400 })
+  }
+  // 미수금 페널티 이용 제한 — 반복 미수 이용자의 신규 대여를 차단한다.
+  if (rent && renterId) {
+    const gate = await receivableRestriction(renterId).catch(() => ({ restricted: false, until: null, points: 0 }))
+    if (gate.restricted) {
+      return NextResponse.json(
+        { error: 'restricted', message: RENTAL_ERRORS.restricted, restrictedUntil: gate.until, points: gate.points },
+        { status: 403 },
+      )
+    }
   }
   const result = await setDeviceRentalState(deviceId, rent, renterId)
   if (!result.ok) {

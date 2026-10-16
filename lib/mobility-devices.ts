@@ -267,16 +267,29 @@ export async function deleteMobilityDevice(serial: string, ownerUid: string): Pr
 
 // ── 이용자 대여·반납 전이 ───────────────────────────────────────────────────
 
+/** 마지막 대여 전이 실패 사유 — 'restricted'면 미수금 제한으로 차단된 것이다. */
+let lastRentalError: { error: string; message: string; restrictedUntil?: string } | null = null
+export const rentalLastError = () => lastRentalError
+
 async function transitionRental(serial: string, rent: boolean, renterId = ''): Promise<MobilityDevice | null> {
+  lastRentalError = null
   try {
     const res = await fetch('/api/devices', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceId: serial.trim(), rent, renterId: renterId.trim() || undefined }),
     })
-    const data = (await res.json().catch(() => null)) as { device?: DeviceTelemetry } | null
+    const data = (await res.json().catch(() => null)) as {
+      device?: DeviceTelemetry
+      error?: string
+      message?: string
+      restrictedUntil?: string
+    } | null
     const device = data?.device ? deviceFromTelemetry(data.device) : null
-    if (!res.ok || !device) return null
+    if (!res.ok || !device) {
+      if (data?.error) lastRentalError = { error: data.error, message: data.message || '', restrictedUntil: data.restrictedUntil }
+      return null
+    }
     // 캐시에도 즉시 반영해 지도·목록이 같은 상태를 본다.
     writeCache(cache.map((item) => (item.serial === device.serial ? device : item)))
     return device

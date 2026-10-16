@@ -492,6 +492,7 @@
   "svc.rentBlocked": "{serial}当前状态为{status}，无法租用。",
   "svc.rentBlockedShort": "该设备暂时无法租用。",
   "svc.rentTaken": "刚被其他用户租用或被锁定，正在刷新列表。",
+  "svc.rentRestricted": "因累计欠款，自助服务租赁被限制至 {until}。结算后即可解除。",
   "svc.phoneErr": "请正确填写发件人和收件人联系方式。",
   "svc.selected": "已选择{name}服务。",
   "svc.qrDone": "{name}二维码扫描完成。",

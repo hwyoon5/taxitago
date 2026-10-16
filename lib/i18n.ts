@@ -122,6 +122,8 @@ const MESSAGE_TABLE = {
     'recv.callSupport': '전화 문의',
     'recv.mailSupport': '메일 문의',
     'recv.retry': '다시 결제하기',
+    'recv.penalty': '누적 페널티 {points}점 — 미수금이 쌓이면 셀프 서비스 이용이 제한됩니다.',
+    'recv.restricted': '반복 미수로 {until}까지 셀프 서비스 대여가 제한됩니다.',
   },
   en: {
     'more.notice': 'Notices',
@@ -230,6 +232,8 @@ const MESSAGE_TABLE = {
     'recv.callSupport': 'Call support',
     'recv.mailSupport': 'Email support',
     'recv.retry': 'Pay again',
+    'recv.penalty': 'Penalty points {points} — repeated unpaid fees restrict self-service use.',
+    'recv.restricted': 'Self-service rental is restricted until {until} due to repeated unpaid fees.',
   },
   ja: {
     'more.notice': 'お知らせ',
@@ -338,6 +342,8 @@ const MESSAGE_TABLE = {
     'recv.callSupport': '電話で問い合わせ',
     'recv.mailSupport': 'メールで問い合わせ',
     'recv.retry': 'もう一度支払う',
+    'recv.penalty': 'ペナルティ累計 {points}点 — 未収金が続くとセルフサービスの利用が制限されます。',
+    'recv.restricted': '未収金の繰り返しにより{until}までセルフサービスのレンタルが制限されます。',
   },
   zh: {
     'more.notice': '公告',
@@ -446,6 +452,8 @@ const MESSAGE_TABLE = {
     'recv.callSupport': '电话咨询',
     'recv.mailSupport': '邮件咨询',
     'recv.retry': '重新支付',
+    'recv.penalty': '累计罚分 {points} 分 — 持续欠款将限制自助服务的使用。',
+    'recv.restricted': '因多次欠款，自助服务租赁将被限制至 {until}。',
   },
 } as const
 

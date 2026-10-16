@@ -52,7 +52,7 @@ import { isRidePayLabel, settleMidTripCancelFee } from '@/lib/ride-fare'
 import { resolvePiSandbox } from '@/lib/pi-sandbox'
 import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
-import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, refreshMobilityDevices, rentMobilityDevice, returnMobilityDevice } from '@/lib/mobility-devices'
+import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, refreshMobilityDevices, rentMobilityDevice, rentalLastError, returnMobilityDevice } from '@/lib/mobility-devices'
 import {
   abandonDriverRide,
   bumpRideFare,
@@ -3624,7 +3624,16 @@ function ServiceSheet({
         reason,
         detail: message,
       }),
-    }).catch(() => undefined)
+    })
+      .then((res) => res.json().catch(() => null))
+      // 반복 미수로 제한이 걸렸으면 안내 시트에 제한 해제일을 함께 표시한다.
+      .then((data: { penalty?: { points?: number; restrictedUntil?: string | null } | null } | null) => {
+        const penalty = data?.penalty
+        if (penalty && (penalty.points ?? 0) > 0) {
+          setReceivableNotice((prev) => (prev ? { ...prev, points: penalty.points ?? 0, restrictedUntil: penalty.restrictedUntil ?? null } : prev))
+        }
+      })
+      .catch(() => undefined)
   }
   const startService = async (scanned?: boolean, consented?: boolean) => {
     if (service === '택배' || ride) {
@@ -3749,7 +3758,17 @@ function ServiceSheet({
       const rented = await rentMobilityDevice(device.serial, daeriPassengerIdRef.current || localPassengerId()).catch(() => null)
       if (!rented) {
         void refreshMobilityDevices()
-        onNotice(t('svc.rentTaken'))
+        // 미수금 페널티 이용 제한 — 제한 사유와 해제 시각을 이용자에게 알린다.
+        const lastError = rentalLastError()
+        if (lastError?.error === 'restricted') {
+          onNotice(
+            t('svc.rentRestricted', {
+              until: lastError.restrictedUntil ? new Date(lastError.restrictedUntil).toLocaleDateString() : '',
+            }),
+          )
+        } else {
+          onNotice(t('svc.rentTaken'))
+        }
         return
       }
       rentalSerialRef.current = device.serial
