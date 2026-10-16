@@ -1034,7 +1034,11 @@ function runCreatePayment(
         onReadyForServerApproval: (paymentIdArg) => {
           // SDK 콜백 인자 형태가 달라도 누락되지 않도록 attempt 값으로 보강한다.
           const paymentId = readPaymentId(paymentIdArg) || attempt.paymentId
-          const approvedTxid = txidFromPiPayload(paymentIdArg)
+          // 문자열 인자는 paymentId뿐이다 — txid로 오인해 attempt에 심으면
+          // 실패 복구가 /api/pi/complete에 paymentId를 txid로 보내 404를 낸다.
+          // txid는 객체(PaymentDTO.transaction.txid)에서만 읽는다.
+          const approvedTxid =
+            typeof paymentIdArg === 'object' && paymentIdArg !== null ? txidFromPiPayload(paymentIdArg) : ''
           if (paymentId) attempt.paymentId = paymentId
           if (approvedTxid) attempt.txid = approvedTxid
           paymentInitiated = true
@@ -1080,8 +1084,17 @@ function runCreatePayment(
             })
         },
         onReadyForServerCompletion: (paymentIdArg, txidArg) => {
-          const paymentId = readPaymentId(paymentIdArg) || readPaymentId(txidArg) || attempt.paymentId
-          const txid = txidFromPiPayload(txidArg) || txidFromPiPayload(paymentIdArg) || attempt.txid
+          // 문자열 인자는 위치대로 paymentId/txid다 — txidArg 문자열을
+          // paymentId로 역추출하거나 paymentIdArg 문자열을 txid로 쓰면
+          // complete가 틀린 식별자로 Pi를 호출해 404가 떨어진다.
+          const paymentId =
+            readPaymentId(paymentIdArg) ||
+            (typeof txidArg === 'object' && txidArg !== null ? readPaymentId(txidArg) : '') ||
+            attempt.paymentId
+          const txid =
+            (typeof txidArg === 'string' ? txidArg.trim() : txidFromPiPayload(txidArg)) ||
+            (typeof paymentIdArg === 'object' && paymentIdArg !== null ? txidFromPiPayload(paymentIdArg) : '') ||
+            attempt.txid
           if (paymentId) attempt.paymentId = paymentId
           if (txid) attempt.txid = txid
           paymentInitiated = true

@@ -288,7 +288,17 @@ async function withNetworkFallback<T>(paymentId: string, sandbox: boolean, op: (
   } catch (error) {
     if ((error as { piHttpStatus?: number } | null)?.piHttpStatus !== 404) throw error
     const found = (await getPiPayment(paymentId, !sandbox).catch(() => null)) as Record<string, unknown> | null
-    if (!found) throw error
+    if (!found) {
+      // 양쪽 네트워크 모두에 paymentId가 없다 = 결제가 생성된 앱과 API 키의
+      // 앱이 다르다(포털 앱 분리). 도메인이 지갑에선 구 앱으로 열리는데 키는
+      // 신규 앱 것이면 이런 404가 나온다 — diagnostics fingerprints로 대조.
+      console.error(
+        '[Pi] payment not found on EITHER network — app/key mismatch suspected. ' +
+          'The payment was created under a different Pi app than the configured API key.',
+        { paymentId, triedSandbox: sandbox },
+      )
+      throw error
+    }
     console.warn('[Pi] payment exists on the other network; retrying there', {
       paymentId,
       resolvedSandbox: sandbox,
