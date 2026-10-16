@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { piRound } from '@/lib/pi-format'
 import { recordSettlement } from '@/lib/settlement-store'
+import { kvCommand, kvConfigured, netKey } from '@/lib/kv'
 import { payoutSettlementNet } from '@/lib/settlement-payout'
 
 /**
@@ -28,31 +29,17 @@ export type ManualPayRecord = {
   settledAt: string
 }
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
+const useKv = kvConfigured
 
 const TTL_MS = 24 * 60 * 60 * 1000
 /** QR/링크에 남는 pending 청구는 2시간까지만 유효 — 오래된 QR의 재사용(재생)을 차단한다. */
 export const MANUAL_PAY_PENDING_TTL_MS = 2 * 60 * 60 * 1000
-const key = (id: string) => `taxitago:manual-pay:${id}`
+const key = (id: string) => netKey(`taxitago:manual-pay:${id}`)
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoManualPay?: Map<string, ManualPayRecord> }
 function localStore() {
   if (!globalStore.__taxitagoManualPay) globalStore.__taxitagoManualPay = new Map()
   return globalStore.__taxitagoManualPay
-}
-
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
 }
 
 export async function createManualPay(input: {

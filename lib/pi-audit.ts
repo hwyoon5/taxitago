@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
-import { kvCommand, kvConfigured } from '@/lib/kv'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 /**
  * Pi 결제 승인/완료 이벤트 링 버퍼 — Vercel 함수 로그를 열지 않고도
@@ -24,9 +24,9 @@ export type PiAuditEvent = {
 }
 
 const useKv = kvConfigured
-const PI_EVENTS_KEY = 'taxitago:pi-events'
+const PI_EVENTS_KEY = netKey('taxitago:pi-events')
 const MAX_EVENTS = 30
-const filePath = path.join(process.cwd(), 'data', 'pi-events.json')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'pi-events.json'))
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoPiEvents?: PiAuditEvent[] }
 if (!globalStore.__taxitagoPiEvents) globalStore.__taxitagoPiEvents = []

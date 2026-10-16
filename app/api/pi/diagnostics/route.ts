@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { adminActor } from '@/lib/admin-auth'
 import { piPaymentDiagnostics } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
+import { dataNetwork } from '@/lib/kv'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,5 +23,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const diag = await piPaymentDiagnostics(isPiSandboxRequest(request))
-  return NextResponse.json({ ok: true, generatedAt: new Date().toISOString(), ...diag })
+  // dataScope = 이 배포의 장부 네임스페이스(메인넷이면 taxitago:main:*). 결제
+  // 네트워크 판정과 분리해 보여준다 — 둘이 다르면 배포 env 설정을 의심한다.
+  const dedicatedKv = ['TESTNET', 'MAINNET'].filter((suffix) =>
+    Boolean(process.env[`KV_REST_API_URL_${suffix}`] && process.env[`KV_REST_API_TOKEN_${suffix}`]),
+  )
+  return NextResponse.json({
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    dataScope: {
+      network: dataNetwork(),
+      dedicatedKv: dedicatedKv.map((suffix) => suffix.toLowerCase()),
+    },
+    ...diag,
+  })
 }

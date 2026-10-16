@@ -8,20 +8,20 @@ import {
   type SettlementService,
 } from '@/lib/settlement-types'
 import { getAdminWallet } from '@/lib/admin-wallet'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 export { DEFAULT_RATES }
 export type { CommissionRates, SettlementEntry, SettlementService }
 
 type Db = { rates: CommissionRates; entries: SettlementEntry[] }
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
+const useKv = kvConfigured
 
+// 수수료율 설정은 네트워크 공용 운영값, 장부 레코드만 네트워크별로 분리한다.
 const RATES_KEY = 'taxitago:settlement:rates'
-const ENTRIES_KEY = 'taxitago:settlement:entries'
+const ENTRIES_KEY = netKey('taxitago:settlement:entries')
 const MAX_ENTRIES = 2000
-const filePath = path.join(process.cwd(), 'data', 'settlements.json')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'settlements.json'))
 
 let warnedEphemeral = false
 function warnEphemeral() {
@@ -56,18 +56,6 @@ function persistFile() {
   } catch {
     undefined
   }
-}
-
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
 }
 
 async function kvGet<T>(key: string): Promise<T | null> {

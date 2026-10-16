@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
-import { kvCommand, kvConfigured } from '@/lib/kv'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 /**
  * txid → 결제 kind 레지스트리.
@@ -10,9 +10,9 @@ import { kvCommand, kvConfigured } from '@/lib/kv'
  */
 
 const useKv = kvConfigured
-const KINDS_KEY = 'taxitago:payment-kinds'
+const KINDS_KEY = netKey('taxitago:payment-kinds')
 const MAX_ENTRIES = 4000
-const filePath = path.join(process.cwd(), 'data', 'payment-kinds.json')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'payment-kinds.json'))
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoPaymentKinds?: Record<string, string> }
 if (!globalStore.__taxitagoPaymentKinds) globalStore.__taxitagoPaymentKinds = {}

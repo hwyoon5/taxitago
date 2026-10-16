@@ -3,6 +3,7 @@ import { hydrateDispatchFromKv } from '@/lib/dispatch-store'
 import { isPiSandboxEnv } from '@/lib/pi-sandbox'
 import { createA2UPayment } from '@/lib/pi-platform'
 import { markSettlementSettled } from '@/lib/settlement-store'
+import { kvConfigured, kvSetNx, netKey } from '@/lib/kv'
 import type { SettlementEntry } from '@/lib/settlement-types'
 
 /**
@@ -12,24 +13,12 @@ import type { SettlementEntry } from '@/lib/settlement-types'
  * 송금 실패 시 pending으로 남겨 관리자 수동 정산 경로가 받는다.
  */
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
+const useKv = kvConfigured
 
 const inFlight = new Set<string>()
 
 async function claimPayout(refId: string): Promise<boolean> {
-  if (useKv) {
-    const res = await fetch(kvUrl, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(['SET', `taxitago:payout:${refId}`, '1', 'NX', 'PX', 24 * 60 * 60 * 1000]),
-      cache: 'no-store',
-    }).catch(() => null)
-    if (!res) return false
-    const data = (await res.json().catch(() => ({}))) as { result?: string | null }
-    return data.result === 'OK'
-  }
+  if (useKv) return kvSetNx(netKey(`taxitago:payout:${refId}`), 24 * 60 * 60 * 1000)
   if (inFlight.has(refId)) return false
   inFlight.add(refId)
   return true

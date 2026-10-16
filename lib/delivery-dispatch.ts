@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
-import { kvCommand, kvConfigured } from '@/lib/kv'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 /** 등록 → 수락 → 수행(수거 완료·배송 중) → 완료 — 관리자 현황판의 4단계와 동일 순서. */
 export type DeliveryDispatchStatus = 'requested' | 'assigned' | 'in_transit' | 'completed'
@@ -43,11 +43,11 @@ export type DeliveryDispatch = {
   updatedAt: string
 }
 
-const filePath = path.join(process.cwd(), 'data', 'deliveries.json')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'deliveries.json'))
 const useKv = kvConfigured
 
-const jobKey = (id: string) => `taxitago:deliveries:job:${id}`
-const INDEX_KEY = 'taxitago:deliveries:index'
+const jobKey = (id: string) => netKey(`taxitago:deliveries:job:${id}`)
+const INDEX_KEY = netKey('taxitago:deliveries:index')
 
 let warnedEphemeral = false
 function warnEphemeral() {

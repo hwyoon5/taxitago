@@ -1,4 +1,5 @@
 import type { ChatRoom, SafeCallSession } from '@/lib/comms-types'
+import { kvCommand, kvConfigured, netKey } from '@/lib/kv'
 
 type Listener = (payload: string) => void
 
@@ -8,9 +9,7 @@ type CommsDb = {
   listeners: Map<string, Set<Listener>>
 }
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
+const useKv = kvConfigured
 
 export function commsStorageBackend() {
   return useKv ? ('kv' as const) : ('memory' as const)
@@ -23,20 +22,8 @@ function warnEphemeral() {
   console.error('[comms-store] no KV configured on Vercel — ride chat is NOT shared across instances (set KV_REST_API_URL/KV_REST_API_TOKEN)')
 }
 
-const roomKey = (rideId: string) => `taxitago:comms:room:${rideId}`
-const callKey = (rideId: string) => `taxitago:comms:call:${rideId}`
-
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
-}
+const roomKey = (rideId: string) => netKey(`taxitago:comms:room:${rideId}`)
+const callKey = (rideId: string) => netKey(`taxitago:comms:call:${rideId}`)
 
 async function kvGet<T>(key: string): Promise<T | null> {
   const raw = await kvCommand<string | null>(['GET', key])

@@ -1,15 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { isPiWalletAddress, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
-import { kvCommand, kvConfigured } from '@/lib/kv'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 /** 공식 입금지 미등록 시 기본값: PI_PLATFORM_WALLET 환경변수, 없으면 플랫폼 공식 수신지. */
 export const DEFAULT_ADMIN_WALLET = (process.env.PI_PLATFORM_WALLET || '').trim() || PLATFORM_DEPOSIT_WALLET
 
 const useKv = kvConfigured
 
-const WALLET_KEY = 'taxitago:admin:wallet'
-const filePath = path.join(process.cwd(), 'data', 'admin-wallet.json')
+// 수수료 수신지는 네트워크별로 다르다 — 메인넷 전환 시 별도 등록이 필요하다.
+const WALLET_KEY = netKey('taxitago:admin:wallet')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'admin-wallet.json'))
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoAdminWallet?: string }
 

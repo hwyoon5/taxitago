@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
-import { kvCommand, kvConfigured } from '@/lib/kv'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 import { piRound } from '@/lib/pi-format'
 
 /**
@@ -50,9 +50,9 @@ export type ReceivableRecord = {
 }
 
 const useKv = kvConfigured
-const RECEIVABLES_KEY = 'taxitago:receivables'
+const RECEIVABLES_KEY = netKey('taxitago:receivables')
 const MAX_ROWS = 2000
-const filePath = path.join(process.cwd(), 'data', 'receivables.json')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'receivables.json'))
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoReceivables?: ReceivableRecord[] }
 if (!globalStore.__taxitagoReceivables) globalStore.__taxitagoReceivables = []
@@ -256,8 +256,8 @@ export const RESTRICT_DAYS = 7
 export const SUSPEND_POINTS = 60
 export const SUSPEND_DAYS = 30
 
-const PENALTIES_KEY = 'taxitago:receivable-penalties'
-const penaltiesPath = path.join(process.cwd(), 'data', 'receivable-penalties.json')
+const PENALTIES_KEY = netKey('taxitago:receivable-penalties')
+const penaltiesPath = netFilePath(path.join(process.cwd(), 'data', 'receivable-penalties.json'))
 
 const penaltyStore = globalThis as typeof globalThis & { __taxitagoReceivablePenalties?: PenaltyRecord[] }
 if (!penaltyStore.__taxitagoReceivablePenalties) penaltyStore.__taxitagoReceivablePenalties = []

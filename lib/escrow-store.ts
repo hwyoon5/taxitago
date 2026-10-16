@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import type { DriverEarning, EscrowRecord, SettlementReceipt } from '@/lib/escrow-types'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 type EscrowDb = {
   escrows: Map<string, EscrowRecord>
@@ -16,30 +17,16 @@ type PersistShape = {
   earnings?: DriverEarning[]
 }
 
-const persistFile = path.join(process.cwd(), 'data', 'escrow.json')
+const persistFile = netFilePath(path.join(process.cwd(), 'data', 'escrow.json'))
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
-const escrowKvKey = 'taxitago:escrow:state'
+const useKv = kvConfigured
+const escrowKvKey = netKey('taxitago:escrow:state')
 
 let warnedEphemeral = false
 function warnEphemeral() {
   if (warnedEphemeral || !process.env.VERCEL || useKv) return
   warnedEphemeral = true
   console.error('[escrow-store] no KV configured on Vercel — escrow state is NOT shared across instances (set KV_REST_API_URL/KV_REST_API_TOKEN)')
-}
-
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
 }
 
 async function fetchKvState(): Promise<PersistShape | null> {

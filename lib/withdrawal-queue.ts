@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 /** 직원 계정이 이 금액을 초과해 출금/송금을 요청하면 최고 관리자 승인 대기로 전환된다. */
 export const APPROVAL_THRESHOLD_PI = 10
@@ -27,27 +28,13 @@ export type WithdrawalRequest = {
   createdAt: string
 }
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
+const useKv = kvConfigured
 
-const REQUESTS_KEY = 'taxitago:admin:withdrawal-requests'
+const REQUESTS_KEY = netKey('taxitago:admin:withdrawal-requests')
 const MAX_ENTRIES = 200
-const filePath = path.join(process.cwd(), 'data', 'withdrawal-requests.json')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'withdrawal-requests.json'))
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoWithdrawalQueue?: WithdrawalRequest[] }
-
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
-}
 
 function readFileEntries(): WithdrawalRequest[] {
   try {

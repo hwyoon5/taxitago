@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 /**
  * 기사·파트너 수익 출금 신청 장부.
@@ -31,27 +32,13 @@ export type PayoutRequest = {
   createdAt: string
 }
 
-const kvUrl = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '')
-const kvToken = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
-const useKv = Boolean(kvUrl && kvToken)
+const useKv = kvConfigured
 
-const REQUESTS_KEY = 'taxitago:payout-requests'
+const REQUESTS_KEY = netKey('taxitago:payout-requests')
 const MAX_ENTRIES = 300
-const filePath = path.join(process.cwd(), 'data', 'payout-requests.json')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'payout-requests.json'))
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoPayoutRequests?: PayoutRequest[] }
-
-async function kvCommand<T>(command: (string | number)[]): Promise<T | null> {
-  const res = await fetch(kvUrl, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`kv request failed: ${res.status}`)
-  const data = (await res.json()) as { result?: T | null }
-  return data.result ?? null
-}
 
 function readFileEntries(): PayoutRequest[] {
   try {

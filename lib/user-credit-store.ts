@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { piRound } from '@/lib/pi-format'
-import { kvCommand, kvConfigured } from '@/lib/kv'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 export type UserCreditEntry = {
   id: string
@@ -19,14 +19,14 @@ export type UserCreditEntry = {
 }
 
 const useKv = kvConfigured
-const ENTRIES_KEY = 'taxitago:user-credits'
-const BALANCES_KEY = 'taxitago:user-balances'
+const ENTRIES_KEY = netKey('taxitago:user-credits')
+const BALANCES_KEY = netKey('taxitago:user-balances')
 /** 실제 온체인 지갑주소 → Pi uid — 스캐너가 후속 입금의 귀속을 판별할 때 쓴다. */
-const WALLETS_KEY = 'taxitago:user-wallets'
+const WALLETS_KEY = netKey('taxitago:user-wallets')
 const MAX_ENTRIES = 4000
-const filePath = path.join(process.cwd(), 'data', 'user-credits.json')
-const balancesPath = path.join(process.cwd(), 'data', 'user-balances.json')
-const walletsPath = path.join(process.cwd(), 'data', 'user-wallets.json')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'user-credits.json'))
+const balancesPath = netFilePath(path.join(process.cwd(), 'data', 'user-balances.json'))
+const walletsPath = netFilePath(path.join(process.cwd(), 'data', 'user-wallets.json'))
 
 const globalStore = globalThis as typeof globalThis & {
   __taxitagoUserCredits?: UserCreditEntry[]
@@ -331,8 +331,8 @@ export type UserSpendEntry = {
   withdrawnAt?: string
 }
 
-const SPENDS_KEY = 'taxitago:user-spends'
-const spendsPath = path.join(process.cwd(), 'data', 'user-spends.json')
+const SPENDS_KEY = netKey('taxitago:user-spends')
+const spendsPath = netFilePath(path.join(process.cwd(), 'data', 'user-spends.json'))
 
 const spendStore = globalThis as typeof globalThis & { __taxitagoUserSpends?: UserSpendEntry[] }
 

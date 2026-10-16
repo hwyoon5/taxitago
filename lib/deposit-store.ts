@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { piRound } from '@/lib/pi-format'
-import { kvCommand, kvConfigured } from '@/lib/kv'
+import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 export type DepositEntry = {
   id: string
@@ -19,9 +19,9 @@ export type DepositEntry = {
 }
 
 const useKv = kvConfigured
-const ENTRIES_KEY = 'taxitago:deposits'
+const ENTRIES_KEY = netKey('taxitago:deposits')
 const MAX_ENTRIES = 2000
-const filePath = path.join(process.cwd(), 'data', 'deposits.json')
+const filePath = netFilePath(path.join(process.cwd(), 'data', 'deposits.json'))
 
 const globalStore = globalThis as typeof globalThis & { __taxitagoDeposits?: DepositEntry[] }
 if (!globalStore.__taxitagoDeposits) globalStore.__taxitagoDeposits = []
