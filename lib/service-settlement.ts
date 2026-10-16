@@ -56,6 +56,8 @@ export async function handleServicePaymentComplete(input: {
   const partnerId = typeof metadata.partnerId === 'string' ? metadata.partnerId.trim() : ''
   const partnerName = typeof metadata.partnerName === 'string' ? metadata.partnerName.trim() : ''
   const deviceId = typeof metadata.deviceId === 'string' ? metadata.deviceId.trim() : ''
+  // 체인 검증 없이 기록된 모의결제(PI_MOCK_PAY)는 장부에서 실결제와 구분되게 표시.
+  const mockTag = metadata.__mock === true ? '[모의결제] ' : ''
   if (partnerId) await hydrateDispatchFromKv().catch(() => undefined)
   // No linked partner → deterministic platform wallet so the 90/10 split is
   // still recorded instead of leaving the driver leg blank.
@@ -65,7 +67,7 @@ export async function handleServicePaymentComplete(input: {
     service,
     driverId: partnerId || 'platform',
     driverName: partnerName || place || '서비스 파트너',
-    memo: [label || '서비스 결제', deviceId ? `기기 ${deviceId}` : '', place, input.txid ? `txid ${input.txid.slice(0, 10)}` : ''].filter(Boolean).join(' · '),
+    memo: [`${mockTag}${label || '서비스 결제'}`, deviceId ? `기기 ${deviceId}` : '', place, input.txid ? `txid ${input.txid.slice(0, 10)}` : ''].filter(Boolean).join(' · '),
     gross,
     driverWallet,
     channel: 'inapp',

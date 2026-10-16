@@ -93,18 +93,17 @@ async function settleEscrowRideFromPayment(
 }
 
 /**
- * 테스트용 Mock 승인 모드 — 테스트넷(test.* 호스트 등 sandbox 결정)에서만 기본
- * 활성이며 PI_PAYMENT_MOCK=1/0으로 명시 제어한다. 메인넷 결제에는 절대 발동
- * 하지 않는다. Pi Platform 호출이 실패해도 클라이언트에 ok를 돌려 테스트
- * 플로우가 끊기지 않게 한다. 단, 지갑의 만료 판정은 Pi 측 developer_approved
- * 기록이라 mock 응답이 지갑 만료 자체를 막지는 못하며, mock 완료는 정산
- * 장부를 만들지 않는다(진짜 결제 기록 오염 방지).
+ * 테스트용 Mock 승인/완료 모드 — 명시적 PI_PAYMENT_MOCK=1 env + testnet 결정
+ * 둘 다 필요하다(fail-closed 기본값). 미승인·검증 실패를 ok로 돌리는 응답은
+ * 실제 Pi 승인 상태와 1:1이 아니므로 명시적 opt-in 없이는 발동하지 않는다.
+ * 메인넷 결제에는 절대 발동하지 않는다. 단, 지갑의 만료 판정은 Pi 측
+ * developer_approved 기록이라 mock 응답이 지갑 만료 자체를 막지는 못하며,
+ * mock 완료는 정산 장부를 만들지 않는다(진짜 결제 기록 오염 방지).
  */
 function piPaymentMockEnabled(sandbox: boolean) {
+  if (!sandbox) return false
   const flag = (process.env.PI_PAYMENT_MOCK || '').trim().toLowerCase()
-  if (flag === '1' || flag === 'true' || flag === 'yes') return true
-  if (flag === '0' || flag === 'false' || flag === 'no') return false
-  return sandbox
+  return flag === '1' || flag === 'true' || flag === 'yes'
 }
 
 function errorStatus(error: unknown, message: string) {

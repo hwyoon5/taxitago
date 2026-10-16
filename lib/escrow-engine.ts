@@ -155,6 +155,20 @@ async function settleRideSpend(
     return
   }
   if (!isPiSandboxEnv() || !(settledAmount > 0)) return
+  // 검증되지 않은 잠금에 차감 장부를 만들면 실결제 없는 '지출'이 생긴다 —
+  // 폴백 차감은 서버가 /api/pi/complete(또는 명시적 모의결제)로 검증해
+  // payment-kind 레지스트리에 올라간 txid의 잠금에만 허용한다.
+  const verified = lockTxid
+    ? lockTxid.startsWith('balance-') ||
+      Boolean(await (await import('@/lib/payment-kind-store')).paymentKindOf(lockTxid).catch(() => ''))
+    : false
+  if (!verified) {
+    console.warn('[Spend] ride settle skipped: escrow lock txid is not a server-verified payment', {
+      rideId: ride.id,
+      lockTxid: lockTxid || '(none)',
+    })
+    return
+  }
   const uid = ride.passengerUid || ride.passengerId
   const entry = await recordUserSpend({
     txid: `settle-ride-${ride.id}`,

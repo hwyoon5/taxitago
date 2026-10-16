@@ -103,9 +103,9 @@ async function save(record: ManualPayRecord) {
   else localStore().set(record.id, record)
 }
 
-function settlementMemo(record: ManualPayRecord, via: 'pi' | 'manual') {
+function settlementMemo(record: ManualPayRecord, via: 'pi' | 'manual', mock = false) {
   return [
-    via === 'pi' ? '현장 수동 결제(Pi)' : '현장 수동 정산',
+    `${mock ? '[모의결제] ' : ''}${via === 'pi' ? '현장 수동 결제(Pi)' : '현장 수동 정산'}`,
     record.memo || '',
     record.txid ? `txid ${record.txid.slice(0, 10)}` : '',
   ]
@@ -118,13 +118,13 @@ function settlementMemo(record: ManualPayRecord, via: 'pi' | 'manual') {
  * via 'pi'는 플랫폼 지갑 입금분이라 기사에게 net을 A2U 송금하고,
  * via 'manual'은 기사가 현장 수령했으므로 수수료가 플랫폼의 미수금으로 남는다.
  */
-async function bookSettlement(record: ManualPayRecord, via: 'pi' | 'manual') {
+async function bookSettlement(record: ManualPayRecord, via: 'pi' | 'manual', mock = false) {
   const entry = await recordSettlement({
     refId: `ride:manual-${record.id}`,
     service: 'taxi',
     driverId: record.driverId,
     driverName: record.driverName || '현장 기사',
-    memo: settlementMemo(record, via),
+    memo: settlementMemo(record, via, mock),
     gross: record.amount,
     driverWallet: record.driverWallet,
     channel: via === 'pi' ? 'inapp' : 'manual',
@@ -209,6 +209,6 @@ export async function handleManualPayComplete(input: {
   record.txid = input.txid
   record.settledAt = new Date().toISOString()
   await save(record)
-  await bookSettlement(record, 'pi')
+  await bookSettlement(record, 'pi', metadata.__mock === true)
   return record
 }

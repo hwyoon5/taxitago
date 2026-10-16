@@ -999,7 +999,9 @@ const PI_SERVER_TIMEOUT_MS = 45000
 /**
  * Testnet-only mock checkout for environments where window.Pi never loads
  * (PC web, plain mobile browsers). Books the same server-side records a real
- * completion would via /api/pi/mock-pay.
+ * completion would via /api/pi/mock-pay — the server only honors this on a
+ * testnet host with the explicit PI_MOCK_PAY env enabled; otherwise the
+ * request is rejected and the error surfaces as a normal checkout failure.
  */
 async function mockPiCheckout(options: {
   amount: number
