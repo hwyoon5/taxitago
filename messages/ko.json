@@ -272,6 +272,7 @@
   "search.mapSub": "핀을 옮겨 목적지 지정",
   "search.finding": "장소를 찾는 중",
   "search.count": "검색 결과 {count}곳",
+    "search.translated": "한국어 검색 · {q}",
   "search.resultHint": "'{q}' 검색 결과입니다. 같은 주소는 한 번만 보여주고, 주변 시설도 함께 띄워요.",
   "search.none": "검색된 장소가 없어요.",
   "search.parking": "주차장",

@@ -20,6 +20,7 @@ import { PlacePickerScreen } from '@/components/place-picker-map'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
 import { searchPlacesFromApi } from '@/lib/geocode-client'
+import { detectTextLang, translateForSearch } from '@/lib/text-lang'
 import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { isUsableCoord, resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import {
@@ -1202,6 +1203,7 @@ function DestinationSearchModal({
   const [destMapSession, setDestMapSession] = useState(0)
   const [remotePlaces, setRemotePlaces] = useState<PlaceItem[]>([])
   const [searching, setSearching] = useState(false)
+  const [translatedQuery, setTranslatedQuery] = useState('')
   const openDestMap = () => {
     setDestMapSession((value) => value + 1)
     setDestMapOpen(true)
@@ -1214,6 +1216,7 @@ function DestinationSearchModal({
   }, [])
   const keyword = query.trim()
   useEffect(() => {
+    setTranslatedQuery('')
     if (!keyword) {
       setRemotePlaces([])
       setSearching(false)
@@ -1223,30 +1226,42 @@ function DestinationSearchModal({
     setSearching(true)
     const timer = window.setTimeout(() => {
       const seq = ++searchSeq.current
-      void searchPlacesFromApi(keyword)
-        .then((places) => {
-          if (seq !== searchSeq.current) return
-          setRemotePlaces(
-            places
-              .filter((place): place is NonNullable<typeof place> => place != null)
-              .map((place) => ({
-                name: place.name,
-                address: place.address,
-                jibun: place.jibun,
-                category: place.category,
-                kind: place.kind,
-                hint: locationHint(place.address),
-                lat: place.lat,
-                lng: place.lng,
-              })),
-          )
-          setSearching(false)
-        })
-        .catch(() => {
-          if (seq !== searchSeq.current) return
-          setRemotePlaces([])
-          setSearching(false)
-        })
+      void (async () => {
+        // 외국어 입력은 한국어 검색어로 번역해 병행 검색 — 원문 그대로는
+        // 한국 주소 DB에서 결과가 빈약하므로 두 쿼리를 합쳐 보여 준다.
+        let translated = ''
+        if (detectTextLang(keyword) !== 'ko') {
+          translated = (await translateForSearch(keyword, 'ko').catch(() => null))?.translated ?? ''
+          if (translated === keyword) translated = ''
+        }
+        if (seq !== searchSeq.current) return
+        setTranslatedQuery(translated)
+        const queries = translated ? [keyword, translated] : [keyword]
+        const places = (await Promise.all(queries.map((q) => searchPlacesFromApi(q).catch(() => [])))).flat()
+        if (seq !== searchSeq.current) return
+        const seen = new Set<string>()
+        setRemotePlaces(
+          places
+            .filter((place): place is NonNullable<typeof place> => place != null)
+            .filter((place) => {
+              const dedupeKey = `${place.name}|${place.address}`
+              if (seen.has(dedupeKey)) return false
+              seen.add(dedupeKey)
+              return true
+            })
+            .map((place) => ({
+              name: place.name,
+              address: place.address,
+              jibun: place.jibun,
+              category: place.category,
+              kind: place.kind,
+              hint: locationHint(place.address),
+              lat: place.lat,
+              lng: place.lng,
+            })),
+        )
+        setSearching(false)
+      })()
     }, 180)
     return () => {
       window.clearTimeout(timer)
@@ -1302,6 +1317,11 @@ function DestinationSearchModal({
           {keyword ? (
             <div>
               <p className="text-xs font-black text-[#4C1FB8]">{searching ? t('search.finding') : t('search.count', { count: String(results.length) })}</p>
+              {translatedQuery ? (
+                <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#E8F1FA] px-2 py-0.5 text-[11px] font-black text-[#3F74A8]">
+                  {t('search.translated', { q: translatedQuery })}
+                </p>
+              ) : null}
               <p className="mt-1 text-[11px] font-bold text-[#64748B]">{t('search.resultHint', { q: keyword })}</p>
               {!searching && results.length === 0 ? <p className="mt-2 text-xs font-bold text-[#64748B]">{t('search.none')}</p> : null}
               <div className="mt-3 space-y-2">

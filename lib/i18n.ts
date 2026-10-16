@@ -106,6 +106,9 @@ const MESSAGE_TABLE = {
     'voice.useText': '이 내용으로 검색',
     'voice.unsupported': '이 브라우저는 음성 인식을 지원하지 않아요. 직접 입력해 주세요.',
     'voice.failed': '음성을 인식하지 못했어요. 다시 말씀해 주세요.',
+    'voice.langLabel': '말하는 언어',
+    'voice.translating': '한국어로 번역 중…',
+    'voice.translatedSearch': '검색어 · {q}',
   },
   en: {
     'more.notice': 'Notices',
@@ -198,6 +201,9 @@ const MESSAGE_TABLE = {
     'voice.useText': 'Search with this',
     'voice.unsupported': "This browser doesn't support voice recognition. Please type instead.",
     'voice.failed': "Couldn't recognize speech. Please try again.",
+    'voice.langLabel': 'Spoken language',
+    'voice.translating': 'Translating to Korean…',
+    'voice.translatedSearch': 'Search · {q}',
   },
   ja: {
     'more.notice': 'お知らせ',
@@ -290,6 +296,9 @@ const MESSAGE_TABLE = {
     'voice.useText': 'この内容で検索',
     'voice.unsupported': 'このブラウザは音声認識に対応していません。直接入力してください。',
     'voice.failed': '音声を認識できませんでした。もう一度お話しください。',
+    'voice.langLabel': '話す言語',
+    'voice.translating': '韓国語に翻訳中…',
+    'voice.translatedSearch': '検索 · {q}',
   },
   zh: {
     'more.notice': '公告',
@@ -382,6 +391,9 @@ const MESSAGE_TABLE = {
     'voice.useText': '用此内容搜索',
     'voice.unsupported': '此浏览器不支持语音识别，请手动输入。',
     'voice.failed': '未能识别语音，请重试。',
+    'voice.langLabel': '语音语言',
+    'voice.translating': '正在翻译成韩语…',
+    'voice.translatedSearch': '搜索 · {q}',
   },
 } as const
 

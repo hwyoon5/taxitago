@@ -1,4 +1,5 @@
 import { resolveNaverRestCredentials, resolveNaverSearchCredentials } from '@/lib/naver-apigw'
+import { detectTextLang } from '@/lib/text-lang'
 import type { ChatLang } from '@/lib/comms-types'
 
 const CHAT_LANGS: ChatLang[] = ['ko', 'en', 'ja', 'zh']
@@ -8,15 +9,10 @@ export function isChatLang(value: string | null | undefined): value is ChatLang 
 }
 
 /**
- * 채팅 메시지의 언어를 글자 종류로 추정한다.
- * 한글 → ko, 가나(히라가나/가타카나) → ja, 한자 → zh, 그 외 → en.
+ * 채팅 메시지의 언어를 글자 종류로 추정한다 — 감지 규칙의 단일 소스는
+ * 클라이언트도 쓸 수 있는 lib/text-lang.ts다.
  */
-export function detectChatLang(text: string): ChatLang {
-  if (/[가-힯ㄱ-ㅎㅏ-ㅣ]/.test(text)) return 'ko'
-  if (/[぀-ヿ]/.test(text)) return 'ja'
-  if (/[㐀-鿿豈-﫿]/.test(text)) return 'zh'
-  return 'en'
-}
+export const detectChatLang = detectTextLang
 
 const PAPAGO_TARGET: Record<ChatLang, string> = { ko: 'ko', en: 'en', ja: 'ja', zh: 'zh-CN' }
 

@@ -272,6 +272,7 @@
   "search.mapSub": "Move the pin to set destination",
   "search.finding": "Finding places",
   "search.count": "{count} results",
+    "search.translated": "Korean search · {q}",
   "search.resultHint": "Results for '{q}'. Duplicates are hidden and nearby places are included.",
   "search.none": "No places found.",
   "search.parking": "Parking",

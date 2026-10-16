@@ -272,6 +272,7 @@
   "search.mapSub": "移动图钉指定目的地",
   "search.finding": "正在查找地点",
   "search.count": "搜索结果 {count} 处",
+    "search.translated": "韩语搜索 · {q}",
   "search.resultHint": "“{q}”的搜索结果。相同地址只显示一次，并同时显示周边设施。",
   "search.none": "未找到相关地点。",
   "search.parking": "停车场",

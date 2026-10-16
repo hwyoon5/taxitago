@@ -272,6 +272,7 @@
   "search.mapSub": "ピンを動かして目的地を指定",
   "search.finding": "場所を検索中",
   "search.count": "検索結果 {count}件",
+    "search.translated": "韓国語検索 · {q}",
   "search.resultHint": "「{q}」の検索結果です。同じ住所は一度だけ表示し、周辺施設も表示します。",
   "search.none": "見つかりませんでした。",
   "search.parking": "駐車場",
