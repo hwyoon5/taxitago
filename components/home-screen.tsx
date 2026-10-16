@@ -10091,6 +10091,55 @@ function DriverDashboard({
   )
 }
 
+/**
+ * UID/passengerId 실시간 대조용 디버그 배지 — 승객(Pi Browser)과 기사(PC)
+ * 화면 양쪽에 같은 값을 띄워 세션 불일치·권한 충돌을 눈으로 확인한다.
+ *   uid    이 기기의 Pi 인증 UID (Pi.authenticate 결과)
+ *   pid    이 기기의 승객 식별자 (호출 생성 시 ride.passengerId로 들어가는 값)
+ *   ridePid 현재 운행 레코드에 저장된 passengerId — 기사 화면에서는 승객 측 값
+ *   did    이 기기의 기사 식별자(파트너 uid 우선)
+ *   ride   진행 중 운행 id
+ */
+function SessionDebugBadge() {
+  const [info, setInfo] = useState({ uid: '', pid: '', ridePid: '', did: '', ride: '' })
+  useEffect(() => {
+    const read = () => {
+      try {
+        const did = localDriverId(loadPartnerProfile()?.uid)
+        const driverRide = readStoredDriverRide(did)
+        const taxi = readStoredTaxi()
+        setInfo({
+          uid: loadPiIdentity()?.uid || '',
+          pid: localPassengerId(),
+          ridePid: driverRide?.passengerId || '',
+          did,
+          ride: taxi?.rideId || daeriSheetRideId || driverRide?.id || '',
+        })
+      } catch {
+        /* localStorage 접근 실패 시 이전 값 유지 */
+      }
+    }
+    read()
+    const timer = window.setInterval(read, 2000)
+    return () => window.clearInterval(timer)
+  }, [])
+  // 두 화면에서 같은 값인지 눈으로 비교하려면 충분한 길이가 필요 — 앞 6자 + 뒤 8자.
+  const short = (value: string) => {
+    const v = value.trim()
+    if (!v) return '—'
+    return v.length > 16 ? `${v.slice(0, 6)}…${v.slice(-8)}` : v
+  }
+  return (
+    <div className="pointer-events-none fixed left-1 top-[max(4px,env(safe-area-inset-top))] z-[9999] select-none rounded-md bg-black/45 px-1.5 py-1 font-mono text-[9px] leading-[13px] text-white/85">
+      <div>uid {short(info.uid)}</div>
+      <div>pid {short(info.pid)}</div>
+      <div>ridePid {short(info.ridePid)}</div>
+      <div>did {short(info.did)}</div>
+      <div>ride {short(info.ride)}</div>
+    </div>
+  )
+}
+
 export default function HomeScreen() {
   const { t } = useLocale()
   const user = LOCAL_TEST_USER
@@ -10844,6 +10893,7 @@ export default function HomeScreen() {
 
   return (
     <main className="h-dvh overflow-hidden bg-[#E2E8F0] text-[#0F172A]">
+      <SessionDebugBadge />
       <div className="mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden bg-[#F8FAFC] shadow-2xl">
         <header className="relative z-20 shrink-0 border-b border-[#E2E8F0] bg-white px-4 pb-2 pt-[max(0.9rem,env(safe-area-inset-top))]">
           <div className="flex items-center justify-between gap-3">
