@@ -370,9 +370,9 @@ function beaconPiApi(path: PiApiPath | string, body: Record<string, unknown>) {
 /**
  * 결제창이 열린 뒤 첫 승인 요청이 라우트 컴파일(dev)이나 서버리스 콜드
  * 스타트를 겪으면 지갑의 승인 마감(수십 초)이 응답 도착 전에 끝나
- * '결제 준비 중'에서 만료된다 — 결제 흐름 시작 시점에 빈 요청으로
- * approve/complete 라우트를 미리 깨워둔다(400 응답이면 정상 — 서버에
- * 도달해 라우트가 초기화된 것 자체가 목적).
+ * '결제 준비 중'에서 만료된다 — 결제 흐름 시작 시점에 {warmup:true} 마커
+ * 요청으로 approve/complete 라우트를 미리 깨워둔다. 서버는 이를 결제가
+ * 아닌 핑으로 인식해 에러 로그 없이 200을 돌려준다.
  */
 let piApiWarmed = false
 function warmPiPaymentApi() {
@@ -382,7 +382,9 @@ function warmPiPaymentApi() {
     void piApiFetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: '{}',
+      // warmup 마커 — 서버가 이를 결제 요청으로 오인해 'paymentId required'
+      // 에러 로그를 남기지 않도록 명시한다.
+      body: JSON.stringify({ warmup: true }),
       keepalive: true,
       signal: AbortSignal.timeout(10_000),
     })
@@ -1030,7 +1032,8 @@ function runCreatePayment(
     try {
       pi.createPayment(payment, {
         onReadyForServerApproval: (paymentIdArg) => {
-          const paymentId = readPaymentId(paymentIdArg)
+          // SDK 콜백 인자 형태가 달라도 누락되지 않도록 attempt 값으로 보강한다.
+          const paymentId = readPaymentId(paymentIdArg) || attempt.paymentId
           const approvedTxid = txidFromPiPayload(paymentIdArg)
           if (paymentId) attempt.paymentId = paymentId
           if (approvedTxid) attempt.txid = approvedTxid
@@ -1077,8 +1080,8 @@ function runCreatePayment(
             })
         },
         onReadyForServerCompletion: (paymentIdArg, txidArg) => {
-          const paymentId = readPaymentId(paymentIdArg) || readPaymentId(txidArg)
-          const txid = txidFromPiPayload(txidArg) || txidFromPiPayload(paymentIdArg)
+          const paymentId = readPaymentId(paymentIdArg) || readPaymentId(txidArg) || attempt.paymentId
+          const txid = txidFromPiPayload(txidArg) || txidFromPiPayload(paymentIdArg) || attempt.txid
           if (paymentId) attempt.paymentId = paymentId
           if (txid) attempt.txid = txid
           paymentInitiated = true

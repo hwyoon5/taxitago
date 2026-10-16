@@ -121,6 +121,11 @@ export async function handlePiApprove(request: Request) {
     uid?: unknown
     appInstance?: unknown
   } | null
+  // 워밍업 핑 — 클라이언트가 결제 시작 시 콜드 스타트 예방용으로 보내는
+  // {warmup:true} POST를 결제 요청으로 오인해 에러 로그를 남기지 않는다.
+  if (body && (body as Record<string, unknown>).warmup === true) {
+    return corsJson({ ok: true, warmed: true })
+  }
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const claimedUid = typeof body?.uid === 'string' ? body.uid.trim() : ''
   // 클라이언트 SDK가 속한 Pi 앱 인스턴스 — 지갑의 결제 앱과 백엔드 키의 앱이
@@ -336,7 +341,11 @@ export async function handlePiCancel(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     paymentId?: unknown
     sandbox?: unknown
+    warmup?: unknown
   } | null
+  if (body?.warmup === true) {
+    return corsJson({ ok: true, warmed: true })
+  }
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const sandboxHint = requestSandboxHint(body)
   const effectiveSandbox = isPiSandboxRequest(request, sandboxHint)
@@ -392,6 +401,9 @@ export async function handlePiComplete(request: Request) {
     uid?: unknown
     appInstance?: unknown
   } | null
+  if (body && (body as Record<string, unknown>).warmup === true) {
+    return corsJson({ ok: true, warmed: true })
+  }
   const paymentId = typeof body?.paymentId === 'string' ? body.paymentId.trim() : ''
   const txid = typeof body?.txid === 'string' ? body.txid.trim() : ''
   const claimedUid = typeof body?.uid === 'string' ? body.uid.trim() : ''
