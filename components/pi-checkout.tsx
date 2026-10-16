@@ -1174,6 +1174,7 @@ function runCreatePayment(
             })
             .catch((error) => {
               if (settled) return undefined
+              tracePi('complete request failed', { paymentId, txid, error: errorText(error) })
               // 완료 확인에 실패한 결제는 미완료로 남는다 — 다음 결제가 이 건에
               // 막혀 만료되지 않도록 복구 큐에 올려 재시도·정리한다.
               queueIncompleteRecovery(paymentId, txid)

@@ -47,7 +47,7 @@ import LiveStatusLight from '@/components/live-status-light'
 import BroadcastBanner from '@/components/broadcast-banner'
 import { broadcastRegionForCoord } from '@/lib/broadcast-regions'
 import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-contacts'
-import { isRidePayLabel, settleMidTripCancelFee, settleRideFare } from '@/lib/ride-fare'
+import { isRidePayLabel, settleMidTripCancelFee } from '@/lib/ride-fare'
 import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
 import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, refreshMobilityDevices, rentMobilityDevice, returnMobilityDevice } from '@/lib/mobility-devices'
@@ -1937,7 +1937,10 @@ function DestinationSheet({
   const selectedLabel = selectedOption ? t(selectedOption[2] as MessageKey) : ''
   const fare = Number(selectedPrice)
   const place = destination.trim() ? destination : t('search.selectedDest')
-  const billed = isRidePayLabel(selectedService) ? settleRideFare(fare, `dest:${selectedService}:${place}`) : { estimate: fare, actual: fare }
+  // 청구액·화면 표시·서버 정산(escrow.amount = estimatedFare)은 반드시 같은
+  // 값이어야 한다 — settleRideFare의 가상 할증은 결제창과 영수증이 어긋나는
+  // 원인이었으므로 폐기한다.
+  const billed = { estimate: fare, actual: fare }
   const callSelected = () => {
     if (!selectedService) return
     setMatchState('matching')
@@ -2307,8 +2310,11 @@ function TaxiMatchingSheet({
     void fetchFareConfig().then(setFareCfg).catch(() => undefined)
   }, [])
   const fare = ride?.estimatedFare ?? fareCfg.taxi.base
-  const billed = settleRideFare(fare, ride?.id ?? route)
-  const cancelSettlement = settleMidTripCancelFee(phase === 'moving' ? billed.actual : fare, { rate: (fareCfg.cancel?.rate ?? 40) / 100, min: fareCfg.cancel?.min ?? 0.5 })
+  // 결제창 청구액과 정산 영수증이 어긋나던 원인 — 클라이언트만 아는 가상
+  // 할증(settleRideFare의 해시 bump)은 폐기하고, 서버 escrow.amount와 같은
+  // estimatedFare 하나로 청구·표시를 통일한다.
+  const billed = { estimate: fare, actual: fare }
+  const cancelSettlement = settleMidTripCancelFee(fare, { rate: (fareCfg.cancel?.rate ?? 40) / 100, min: fareCfg.cancel?.min ?? 0.5 })
   const [accepting, setAccepting] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
@@ -3536,9 +3542,9 @@ function ServiceSheet({
         (daeriTrip?.waypoints ?? []).map((wp) => wp.address || ''),
       )
     : selectedUsage?.name || t('svc.placeLine', { from: pickupAddress || t('loc.current'), name: translateService(locale, service) })
-  const billed = ride ? settleRideFare(fare, `daeri:${place}`) : { estimate: fare, actual: fare, adjusted: false }
-  const chargeAmount = ride ? billed.actual : fare
-  const cancelSettlement = settleMidTripCancelFee(billed.actual, { rate: (daeriFareCfg.cancel?.rate ?? 40) / 100, min: daeriFareCfg.cancel?.min ?? 0.5 })
+  const billed = { estimate: fare, actual: fare, adjusted: false }
+  const chargeAmount = fare
+  const cancelSettlement = settleMidTripCancelFee(fare, { rate: (daeriFareCfg.cancel?.rate ?? 40) / 100, min: daeriFareCfg.cancel?.min ?? 0.5 })
   const partner =
     ride
       ? {

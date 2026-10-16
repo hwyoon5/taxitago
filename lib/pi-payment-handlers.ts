@@ -473,11 +473,25 @@ export async function handlePiComplete(request: Request) {
 
   const startedAt = Date.now()
   try {
+    // Horizon 교차 검증은 complete 왕복과 병렬로 시작한다 — 최대 ~17초를
+    // 잡아먹는 직렬 대기는 지갑의 완료 창과 클라이언트 타임아웃을 함께 잡아먹는다.
+    const horizonCheck = verifyPiTxidOnChain(txid, effectiveSandbox).then(
+      () => null,
+      (error: unknown) => error,
+    )
     const { payment, info, network } = await completePiPayment(paymentId, txid, effectiveSandbox)
     assertPiPaymentCompleted(payment, paymentId, txid)
-    // Horizon 교차 검증은 결제가 실제 완료된 네트워크에서 한다 — 결제가 반대
-    // 네트워크에 생성됐으면 해석된 sandbox로 조회하면 404로 정상 건을 거부한다.
-    await verifyPiTxidOnChain(txid, network === 'testnet')
+    // Horizon 교차 검증은 결제가 실제 완료된 네트워크에서 확정한다 — 결제가
+    // 반대 네트워크에 생성됐으면 해석된 sandbox로 조회한 404는 재검증해
+    // 정상 건을 거부하지 않는다.
+    const horizonError = await horizonCheck
+    if (horizonError) {
+      if ((network === 'testnet') !== effectiveSandbox) {
+        await verifyPiTxidOnChain(txid, network === 'testnet')
+      } else {
+        throw horizonError
+      }
+    }
     console.log('[Pi] /api/pi/complete verified', { paymentId, txid, ms: Date.now() - startedAt })
     void recordPiEvent({
       kind: 'complete',

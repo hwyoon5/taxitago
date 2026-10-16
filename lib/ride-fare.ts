@@ -1,24 +1,5 @@
 import { piRound } from '@/lib/pi-format'
 
-export type SettledRideFare = {
-  estimate: number
-  actual: number
-  adjusted: boolean
-}
-
-/** Deterministic live fare from the quoted estimate (traffic / distance / time). */
-export function settleRideFare(estimate: number, key: string): SettledRideFare {
-  const normalized = piRound(estimate)
-  let hash = 2166136261
-  for (let i = 0; i < key.length; i += 1) {
-    hash ^= key.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  const bump = (((hash >>> 0) % 28) + 8) / 100
-  const actual = piRound(normalized + bump)
-  return { estimate: normalized, actual, adjusted: actual !== normalized }
-}
-
 export type MidTripCancelSettlement = {
   quoted: number
   cancelFee: number
