@@ -60,6 +60,39 @@ export async function lockRideEscrowFromPayment(
 }
 
 /**
+ * 에스크로 결제 완료가 서버 검증을 통과했는데 이용자 앱에서 completeRideTrip이
+ * 호출되지 않은 경우(지갑 만료 화면·앱 이탈·네트워크 단절로 SDK 완료 콜백이
+ * 유실)를 위한 서버 주도 완료 — 라이드를 'completed'로 전환해 양쪽 모드의
+ * 폴링/SSE가 같은 상태를 즉시 보게 한다. 이미 완료됐거나 정산 불가 상태면
+ * transitionRide의 상태 검사가 걸러낸다(멱등).
+ */
+async function settleEscrowRideFromPayment(
+  paymentId: string,
+  txid: string,
+  metadata: Record<string, unknown> | null | undefined,
+) {
+  if (!metadata || metadata.kind !== 'escrow-lock') return
+  const rideId = typeof metadata.rideId === 'string' ? metadata.rideId.trim() : ''
+  if (!rideId) return
+  const { getRide, hydrateDispatchFromKv } = await import('@/lib/dispatch-store')
+  await hydrateDispatchFromKv()
+  const ride = getRide(rideId)
+  if (!ride?.assignedDriverId || ride.status !== 'assigned' || !ride.readyToSettleAt) return
+  const { transitionRide } = await import('@/lib/ride-machine')
+  const result = await transitionRide({
+    rideId,
+    action: 'complete',
+    driverId: ride.assignedDriverId,
+    proof: { status: 'held', lockTxid: txid, lockPaymentId: paymentId },
+  })
+  if (result.ok) {
+    console.log('[Pi] ride completed via server-side payment settlement', { paymentId, rideId })
+  } else {
+    console.warn('[Pi] server-side ride completion skipped', { paymentId, rideId, error: result.error })
+  }
+}
+
+/**
  * 테스트용 Mock 승인 모드 — 테스트넷(test.* 호스트 등 sandbox 결정)에서만 기본
  * 활성이며 PI_PAYMENT_MOCK=1/0으로 명시 제어한다. 메인넷 결제에는 절대 발동
  * 하지 않는다. Pi Platform 호출이 실패해도 클라이언트에 ok를 돌려 테스트
@@ -482,6 +515,11 @@ export async function handlePiComplete(request: Request) {
       const settledMetadata = info?.metadata ?? fallbackMetadata
       await lockRideEscrowFromPayment(paymentId, txid, settledMetadata).catch((lockError) => {
         console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
+      })
+      // 클라이언트 완료 콜백 유실 대비 — 결제 검증이 끝나면 서버가 라이드를
+      // 완료로 전환해 이용자/기사 양쪽 폴링이 바로 같은 상태를 받는다.
+      await settleEscrowRideFromPayment(paymentId, txid, settledMetadata).catch((err) => {
+        console.error('[Pi] /api/pi/complete ride settle transition failed', { paymentId, err })
       })
       // 요금 계열 결제는 이용자 결제 장부에 결제액을 같은 완료 흐름에서 기록한다 —
       // 서버 조회값(uid·from_address·amount)만 쓰고, txid 멱등이라 콜백 재시도가
