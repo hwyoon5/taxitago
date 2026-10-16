@@ -1,6 +1,6 @@
 'use client'
 
-import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, FileSpreadsheet, Gift, House, LayoutGrid, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { localizedText, translateDeviceStatus, translateService, type MessageKey } from '@/lib/i18n'
@@ -1434,112 +1434,82 @@ function DestinationSearchModal({
   )
 }
 
-function DestinationTaxiLoop({ className }: { className?: string }) {
-  const uid = useId().replace(/:/g, '')
+/** 노란 택시 차체 — 컴팩트 주행 바 TaxiDriveBar가 사용한다. */
+function TaxiCarSvg({ className, style }: { className?: string; style?: CSSProperties }) {
   return (
-    <span className={`pointer-events-none relative isolate overflow-hidden ${className ?? ''}`} aria-hidden>
+    <svg viewBox="0 0 76 44" preserveAspectRatio="xMidYMid meet" className={className} style={style} fill="none">
+      <ellipse cx="38" cy="41.4" rx="22" ry="1.7" fill="#0F172A" opacity="0.26" />
+      <polygon points="62,22 76,19.2 76,28.4 62,26.2" fill="#FEF9C3" opacity="0.42" />
+      <polygon points="10,27 16,20 28,15 48,15 62,21 68,21 70,24 70,32 62,32 56,27 20,27 14,32 8,32 8,29" fill="#CA8A04" />
+      <polygon points="12,26.2 17.5,20.2 28.5,15.8 47.5,15.8 61,21.2 66.6,21.2 68.4,23.8 68.4,30.6 61.5,30.6 55.5,26.2" fill="#FACC15" stroke="#A16207" strokeWidth="1.05" strokeLinejoin="miter" strokeMiterlimit="8" />
+      <polygon points="29,16.2 33.2,10.2 46.8,10.2 54.6,16.2 47.2,16.2 33.4,16.2" fill="#CA8A04" />
+      <polygon points="30.2,16 33.8,11 46.2,11 53.4,16" fill="#0EA5E9" stroke="#0F172A" strokeWidth="0.7" strokeLinejoin="miter" />
+      <polygon points="34.2,11.4 34.2,15.6 39.4,15.6 39.4,11.4" fill="#38BDF8" opacity="0.9" />
+      <polygon points="40.2,11.4 40.2,15.6 51.6,15.6 46.4,11.4" fill="#7DD3FC" opacity="0.88" />
+      <path d="M39.8 11.2V16" stroke="#F8FAFC" strokeWidth="0.85" />
+      <polygon points="35.6,4.6 41.8,4.6 44.2,7.2 44.2,9.8 33.2,9.8 33.2,7.2" fill="#FACC15" stroke="#A16207" strokeWidth="0.85" strokeLinejoin="miter" />
+      <polygon points="34.6,5.4 42.6,5.4 43.4,6.4 34.2,6.4" fill="#FEF08A" />
+      <polygon points="34.4,7.4 43.4,7.4 43.6,8.8 34.2,8.8" fill="#A16207" />
+      <polygon points="63.2,22.2 68.8,22.2 70.2,24.4 70.2,26.8 63.2,25.4" fill="#F8FAFC" stroke="#0F172A" strokeWidth="0.55" strokeLinejoin="miter" />
+      <polygon points="11.6,22.4 16.4,22.4 16.4,24.6 11.2,24.6" fill="#F8FAFC" />
+      <path d="M20 26.4H55.6" stroke="#A16207" strokeWidth="1.15" />
+      <path d="M39.6 16.2V26.4" stroke="#A16207" strokeWidth="0.9" />
+      <polygon points="55.8,16.6 59.6,19.8 57.4,21.6 54.2,18.2" fill="#F8FAFC" opacity="0.85" />
+      <circle cx="22" cy="31.6" r="6.15" fill="#0F172A" />
+      <circle cx="22" cy="31.6" r="4.55" fill="#27272A" />
+      <polygon points="22,28.2 24.9,30.3 23.8,33.7 20.2,33.7 19.1,30.3" fill="#E4E4E7" />
+      <polygon points="22,29.6 23.6,31.1 22.9,33 21.1,33 20.4,31.1" fill="#71717A" />
+      <circle cx="54" cy="31.6" r="6.15" fill="#0F172A" />
+      <circle cx="54" cy="31.6" r="4.55" fill="#27272A" />
+      <polygon points="54,28.2 56.9,30.3 55.8,33.7 52.2,33.7 51.1,30.3" fill="#E4E4E7" />
+      <polygon points="54,29.6 55.6,31.1 54.9,33 52.4,33 52.4,31.1" fill="#71717A" />
+    </svg>
+  )
+}
+
+/**
+ * 목적지 입력·추천 칩 아래, [택시 호출]/[대리운전 부르기] 버튼 바로 위에
+ * 놓이는 컴팩트 주행 바 — 입력창 전폭과 같은 너비, 높이는 구버전 루프의
+ * 2/5 수준(~24px)으로 납작하게. 배경은 단순한 도로면 + 점선 차로만 유지한다.
+ */
+function TaxiDriveBar({ className }: { className?: string }) {
+  return (
+    <div className={`pointer-events-none relative isolate overflow-hidden ${className ?? ''}`} aria-hidden>
       <style>{`
-        @-webkit-keyframes ttTaxiLoopV18 {
-          0% { left: 0; -webkit-transform: translateX(-100%); transform: translateX(-100%); }
-          88% { left: 100%; -webkit-transform: translateX(0); transform: translateX(0); }
-          88.01%, 100% { left: 0; -webkit-transform: translateX(-100%); transform: translateX(-100%); }
-        }
-        @keyframes ttTaxiLoopV18 {
+        @keyframes ttBarLoopV1 {
           0% { left: 0; transform: translateX(-100%); }
           88% { left: 100%; transform: translateX(0); }
           88.01%, 100% { left: 0; transform: translateX(-100%); }
         }
-        @keyframes ttTaxiDashV18 {
-          to { stroke-dashoffset: -28; }
+        @keyframes ttBarDashV1 {
+          to { background-position-x: -18px; }
         }
       `}</style>
-      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 160 56" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id={`tt-search-sky-${uid}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#F0FDFF" />
-            <stop offset="32%" stopColor="#CFFAFE" />
-            <stop offset="62%" stopColor="#A5F3FC" />
-            <stop offset="100%" stopColor="#99F6E4" />
-          </linearGradient>
-          <linearGradient id={`tt-search-hill-${uid}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#6EE7B7" />
-            <stop offset="100%" stopColor="#2DD4BF" />
-          </linearGradient>
-          <linearGradient id={`tt-search-road-${uid}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#64748B" />
-            <stop offset="42%" stopColor="#475569" />
-            <stop offset="100%" stopColor="#1E293B" />
-          </linearGradient>
-          <linearGradient id={`tt-search-curb-${uid}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#FFF7ED" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="#FDBA74" stopOpacity="0.32" />
-          </linearGradient>
-          <radialGradient id={`tt-search-sun-${uid}`} cx="0.72" cy="0.18" r="0.28">
-            <stop offset="0%" stopColor="#FEF08A" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="#FEF08A" stopOpacity="0" />
-          </radialGradient>
-          <linearGradient id={`tt-search-shade-${uid}`} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#F8FAFC" stopOpacity="0.82" />
-            <stop offset="18%" stopColor="#ECFEFF" stopOpacity="0" />
-            <stop offset="82%" stopColor="#0F766E" stopOpacity="0" />
-            <stop offset="100%" stopColor="#0F766E" stopOpacity="0.12" />
-          </linearGradient>
-        </defs>
-        <rect width="160" height="56" fill={`url(#tt-search-sky-${uid})`} />
-        <circle cx="118" cy="12" r="18" fill={`url(#tt-search-sun-${uid})`} />
-        <ellipse cx="26" cy="12" rx="11" ry="4.2" fill="#FFFFFF" opacity="0.9" />
-        <ellipse cx="34" cy="12.8" rx="8" ry="3.4" fill="#F8FAFC" opacity="0.9" />
-        <ellipse cx="92" cy="9.5" rx="9" ry="3.4" fill="#FFFFFF" opacity="0.72" />
-        <ellipse cx="28" cy="30" rx="34" ry="11" fill={`url(#tt-search-hill-${uid})`} opacity="0.5" />
-        <ellipse cx="122" cy="27" rx="40" ry="12" fill="#67E8F9" opacity="0.42" />
-        <ellipse cx="84" cy="32" rx="20" ry="6.5" fill="#FDE68A" opacity="0.36" />
-        <path d="M0 31.5C36 27.5 86 27.5 160 32.5V56H0Z" fill={`url(#tt-search-road-${uid})`} />
-        <path d="M0 31.5C36 27.5 86 27.5 160 32.5V36.2C86 31.4 36 31.4 0 35.2Z" fill={`url(#tt-search-curb-${uid})`} />
-        <path d="M0 47H160" stroke="#FDE68A" strokeOpacity="0.95" strokeWidth="2.1" strokeDasharray="8 6" strokeLinecap="round" style={{ animation: 'ttTaxiDashV18 0.55s linear infinite' }} />
-        <path d="M0 52H160" stroke="#0F172A" strokeOpacity="0.32" strokeWidth="3" />
-        <rect width="160" height="56" fill={`url(#tt-search-shade-${uid})`} />
-      </svg>
-      <span className="absolute inset-y-0 left-0 z-[1] w-4 bg-gradient-to-r from-white to-transparent" />
+      <span className="absolute inset-0 bg-gradient-to-b from-[#475569] via-[#334155] to-[#1E293B]" />
+      <span className="absolute inset-x-0 top-0 h-[2.5px] bg-gradient-to-r from-[#FDBA74]/90 via-[#FDE68A]/60 to-[#FDBA74]/90" />
       <span
-        className="absolute bottom-0 left-0 z-10 h-full w-[76%] max-w-[4.75rem]"
+        className="absolute inset-x-2 top-1/2 h-[2px] -translate-y-1/2 rounded-full"
+        style={{
+          backgroundImage: 'repeating-linear-gradient(90deg, #FDE68A 0 8px, transparent 8px 17px)',
+          animation: 'ttBarDashV1 0.55s linear infinite',
+        }}
+      />
+      <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-[#0F172A]/50" />
+      <span
+        className="absolute inset-y-0 left-0 z-10"
         style={{
           aspectRatio: '76 / 44',
-          animation: 'ttTaxiLoopV18 3.6s linear infinite',
-          WebkitAnimation: 'ttTaxiLoopV18 3.6s linear infinite',
+          animation: 'ttBarLoopV1 3.6s linear infinite',
+          WebkitAnimation: 'ttBarLoopV1 3.6s linear infinite',
           willChange: 'transform',
         }}
       >
-        <svg viewBox="0 0 76 44" preserveAspectRatio="xMidYMid meet" className="block h-full w-full" style={{ filter: 'drop-shadow(0 3px 4px rgba(15,23,42,0.32))' }} fill="none">
-          <ellipse cx="38" cy="41.4" rx="22" ry="1.7" fill="#0F172A" opacity="0.26" />
-          <polygon points="62,22 76,19.2 76,28.4 62,26.2" fill="#FEF9C3" opacity="0.42" />
-          <polygon points="10,27 16,20 28,15 48,15 62,21 68,21 70,24 70,32 62,32 56,27 20,27 14,32 8,32 8,29" fill="#CA8A04" />
-          <polygon points="12,26.2 17.5,20.2 28.5,15.8 47.5,15.8 61,21.2 66.6,21.2 68.4,23.8 68.4,30.6 61.5,30.6 55.5,26.2" fill="#FACC15" stroke="#A16207" strokeWidth="1.05" strokeLinejoin="miter" strokeMiterlimit="8" />
-          <polygon points="29,16.2 33.2,10.2 46.8,10.2 54.6,16.2 47.2,16.2 33.4,16.2" fill="#CA8A04" />
-          <polygon points="30.2,16 33.8,11 46.2,11 53.4,16" fill="#0EA5E9" stroke="#0F172A" strokeWidth="0.7" strokeLinejoin="miter" />
-          <polygon points="34.2,11.4 34.2,15.6 39.4,15.6 39.4,11.4" fill="#38BDF8" opacity="0.9" />
-          <polygon points="40.2,11.4 40.2,15.6 51.6,15.6 46.4,11.4" fill="#7DD3FC" opacity="0.88" />
-          <path d="M39.8 11.2V16" stroke="#F8FAFC" strokeWidth="0.85" />
-          <polygon points="35.6,4.6 41.8,4.6 44.2,7.2 44.2,9.8 33.2,9.8 33.2,7.2" fill="#FACC15" stroke="#A16207" strokeWidth="0.85" strokeLinejoin="miter" />
-          <polygon points="34.6,5.4 42.6,5.4 43.4,6.4 34.2,6.4" fill="#FEF08A" />
-          <polygon points="34.4,7.4 43.4,7.4 43.6,8.8 34.2,8.8" fill="#A16207" />
-          <polygon points="63.2,22.2 68.8,22.2 70.2,24.4 70.2,26.8 63.2,25.4" fill="#F8FAFC" stroke="#0F172A" strokeWidth="0.55" strokeLinejoin="miter" />
-          <polygon points="11.6,22.4 16.4,22.4 16.4,24.6 11.2,24.6" fill="#F8FAFC" />
-          <path d="M20 26.4H55.6" stroke="#A16207" strokeWidth="1.15" />
-          <path d="M39.6 16.2V26.4" stroke="#A16207" strokeWidth="0.9" />
-          <polygon points="55.8,16.6 59.6,19.8 57.4,21.6 54.2,18.2" fill="#F8FAFC" opacity="0.85" />
-          <circle cx="22" cy="31.6" r="6.15" fill="#0F172A" />
-          <circle cx="22" cy="31.6" r="4.55" fill="#27272A" />
-          <polygon points="22,28.2 24.9,30.3 23.8,33.7 20.2,33.7 19.1,30.3" fill="#E4E4E7" />
-          <polygon points="22,29.6 23.6,31.1 22.9,33 21.1,33 20.4,31.1" fill="#71717A" />
-          <circle cx="54" cy="31.6" r="6.15" fill="#0F172A" />
-          <circle cx="54" cy="31.6" r="4.55" fill="#27272A" />
-          <polygon points="54,28.2 56.9,30.3 55.8,33.7 52.2,33.7 51.1,30.3" fill="#E4E4E7" />
-          <polygon points="54,29.6 55.6,31.1 54.9,33 53.1,33 52.4,31.1" fill="#71717A" />
-        </svg>
+        <TaxiCarSvg className="block h-full w-full" style={{ filter: 'drop-shadow(0 2px 3px rgba(15,23,42,0.35))' }} />
       </span>
-    </span>
+    </div>
   )
 }
+
 
 function SearchCard({ destination, onSelect }: { destination: string; onSelect: (value: string) => void }) {
   const { t } = useLocale()
@@ -1609,7 +1579,6 @@ function SearchCard({ destination, onSelect }: { destination: string; onSelect: 
         >
           <Search className="h-5 w-5" />
         </button>
-        <DestinationTaxiLoop className="w-[10.25rem] shrink-0 self-stretch rounded-r-[14px]" />
       </div>
       <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
         <button type="button" onClick={() => select('집')} className={chipClass(destination === '집')}>
@@ -6169,7 +6138,6 @@ function Home({
               >
                 <Search className="h-4 w-4" />
               </button>
-              <DestinationTaxiLoop className="w-[6.75rem] shrink-0 self-stretch overflow-hidden" />
             </div>
           </div>
         </div>
@@ -6190,6 +6158,7 @@ function Home({
             )
           })}
         </div>
+        <TaxiDriveBar className="mt-3 h-[22px] w-full shrink-0 rounded-lg" />
         <div className="mt-3 flex w-full flex-row flex-nowrap gap-2">
           <button
             type="button"
