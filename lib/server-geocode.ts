@@ -1,4 +1,4 @@
-import { ncpGetJson } from '@/lib/naver-apigw'
+import { ncpGetJson, resolveNaverSearchCredentials } from '@/lib/naver-apigw'
 
 const NAVER_NCP_CLIENT_ID = 'svhbb5mbpy'
 const NAVER_NCP_CLIENT_SECRET = 'C3Dvy2Rh0MzRViYxQsnphvO6b9PrhEPe45xTarOD'
@@ -13,6 +13,41 @@ function naverNcpHeaders(): Record<string, string>[] {
   ]
 }
 import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
+
+function cleanEnv(value?: string | null) {
+  return String(value || '')
+    .replace(/^\uFEFF/, '')
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
+}
+
+/**
+ * openapi.naver.com/v1/search/local.json은 NCP 게이트웨이 키가 아니라 네이버
+ * 개발자센터 오픈API 키(X-Naver-Client-Id/Secret)가 필요하다. 검색 전용 env가
+ * 없으면 파파고·구 네이버 키 env도 시도한다 — 같은 앱 키가 통용되는 경우가 많다.
+ */
+function naverSearchHeaderSets(): { headers: Record<string, string>; source: string }[] {
+  const sets: { headers: Record<string, string>; source: string }[] = []
+  const seen = new Set<string>()
+  const push = (id: string, secret: string, source: string) => {
+    if (!id || !secret || seen.has(id)) return
+    seen.add(id)
+    sets.push({
+      source,
+      headers: {
+        Accept: 'application/json',
+        'X-Naver-Client-Id': id,
+        'X-Naver-Client-Secret': secret,
+      },
+    })
+  }
+  const search = resolveNaverSearchCredentials()
+  push(search.keyId, search.secret, 'search')
+  const env = (name: string) => cleanEnv(process.env[name])
+  push(env('NAVER_CLIENT_ID'), env('NAVER_CLIENT_SECRET'), 'naver')
+  push(env('PAPAGO_CLIENT_ID'), env('PAPAGO_CLIENT_SECRET'), 'papago')
+  return sets
+}
 
 function cleanAddress(value: unknown) {
   const text = typeof value === 'string' ? value.trim() : ''
@@ -327,57 +362,58 @@ function categoryLabel(value: unknown) {
   return parts[parts.length - 1] || ''
 }
 
-let localSearchAuthFailed = false
-
 async function forwardNaverLocalSearch(query: string, sort: 'comment' | 'random' = 'comment', notices: string[] = []): Promise<ForwardPlace[]> {
-  if (localSearchAuthFailed) {
-    notices.push('naver local search skipped: previous 401 or 403')
+  const credentialSets = naverSearchHeaderSets()
+  if (!credentialSets.length) {
+    notices.push('naver local search skipped: NAVER_SEARCH_CLIENT_ID/SECRET (또는 NAVER_CLIENT_ID/SECRET) 미설정')
     return []
   }
-  const params = new URLSearchParams({ query, display: '5', start: '1', sort })
+  const params = new URLSearchParams({ query, display: '8', start: '1', sort })
   const url = `https://openapi.naver.com/v1/search/local.json?${params.toString()}`
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: naverNcpHeaders()[0],
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    })
-    if (response.status === 401 || response.status === 403) {
-      localSearchAuthFailed = true
-      notices.push(`naver local search HTTP ${response.status}`)
-      return []
-    }
-    if (!response.ok) {
-      notices.push(`naver local search HTTP ${response.status}`)
-      return []
-    }
-    const payload = (await response.json()) as {
-      items?: Array<{ title?: string; category?: string; roadAddress?: string; address?: string; mapx?: string; mapy?: string }>
-    }
-    return (payload.items || [])
-      .map((item): ForwardPlace | null => {
-        const name = stripMarkup(cleanAddress(item.title) || query)
-        const road = cleanAddress(item.roadAddress)
-        const jibun = cleanAddress(item.address)
-        const address = road || jibun
-        const point = naverLocalPoint(item.mapy, item.mapx)
-        if (!name || !address || !point) return null
-        return {
-          name,
-          address,
-          jibun: road && jibun && jibun !== road ? jibun : '',
-          category: categoryLabel(item.category),
-          lat: point.lat,
-          lng: point.lng,
-          trustName: true,
-        }
+  for (const { headers, source } of credentialSets) {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000),
       })
-      .filter((item): item is ForwardPlace => Boolean(item))
-  } catch (error) {
-    notices.push(`naver local search failed: ${error instanceof Error ? error.message : 'request error'}`)
-    return []
+      if (response.status === 401 || response.status === 403) {
+        notices.push(`naver local search ${source} key HTTP ${response.status}`)
+        continue
+      }
+      if (!response.ok) {
+        notices.push(`naver local search HTTP ${response.status}`)
+        return []
+      }
+      const payload = (await response.json()) as {
+        items?: Array<{ title?: string; category?: string; roadAddress?: string; address?: string; mapx?: string; mapy?: string }>
+      }
+      return (payload.items || [])
+        .map((item): ForwardPlace | null => {
+          const name = stripMarkup(cleanAddress(item.title) || query)
+          const road = cleanAddress(item.roadAddress)
+          const jibun = cleanAddress(item.address)
+          const address = road || jibun
+          const point = naverLocalPoint(item.mapy, item.mapx)
+          if (!name || !address || !point) return null
+          return {
+            name,
+            address,
+            jibun: road && jibun && jibun !== road ? jibun : '',
+            category: categoryLabel(item.category),
+            lat: point.lat,
+            lng: point.lng,
+            trustName: true,
+          }
+        })
+        .filter((item): item is ForwardPlace => Boolean(item))
+    } catch (error) {
+      notices.push(`naver local search failed: ${error instanceof Error ? error.message : 'request error'}`)
+      return []
+    }
   }
+  return []
 }
 
 async function forwardNaverPlaceSearch(query: string): Promise<ForwardPlace[]> {
@@ -696,6 +732,54 @@ function sanitizeSearchQuery(value: string) {
     .replace(/[()[\]{}<>「」『』"'`~!@#$%^&*_=+\\|/;:]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/**
+ * 채팅형·충동형 입력에서 장소 키워드만 남긴다 — "해운대 근처", "역까지 가자",
+ * "공영주차장 알려줘" 같은 충전사·명령어를 떼어 검색 엔진 정확도를 높인다.
+ */
+export function refineDestinationQuery(query: string) {
+  const base = sanitizeSearchQuery(query)
+  if (!base) return { cleaned: '', variants: [] as string[] }
+  const cleaned = base
+    .replace(/^(?:근처|가까운|제일\s?가까운|가장\s?가까운|주변의?|주변)\s+/u, '')
+    .replace(/\s*(?:근처|가까운|가는\s?곳|갈\s?곳|가자|가줘|가\s?주세요|알려줘|알려\s?주세요|찾아줘|찾아\s?주세요|로\s?보내줘)$/u, '')
+    .replace(/(으로|까지|에서|로)$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const primary = cleaned || base
+  return {
+    cleaned: primary,
+    variants: [...new Set([primary, base, primary.replace(/\s+/g, '')])].filter(Boolean).slice(0, 3),
+  }
+}
+
+/** 장소명 축약·별칭 확장 — 검색 엔진이 못 찾는 흔한 줄임말을 공식 명칭으로 보강한다. */
+export function searchQueryAliases(query: string) {
+  return queryAliases(query)
+}
+
+/**
+ * 카카오·네이버 등 이기종 검색 결과를 하나의 순위 있는 목록으로 병합한다.
+ * 같은 주소(공백 무시)거나 같은 이름의 150m 이내 장소는 한 건으로 합치고,
+ * 이름/주소 관련도 순으로 정렬한다 — 주차장 등 부가 결과는 뒤로 민다.
+ */
+export function mergeSearchResults(lists: ForwardPlace[][], query: string) {
+  const kept: ForwardPlace[] = []
+  for (const place of lists.flat()) {
+    if (!Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue
+    if (!place.name && !place.address) continue
+    if (kept.some((hit) => samePlace(hit, place))) continue
+    kept.push(place)
+  }
+  return kept
+    .map((place) => ({ place, score: placeRelevance(place, query) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      const parking = (row: ForwardPlace) => (row.kind === 'parking' || /주차/.test(row.category || '') ? 1 : 0)
+      return parking(a.place) - parking(b.place)
+    })
+    .map((row) => row.place)
 }
 
 export function looksLikeStreetAddress(query: string) {
