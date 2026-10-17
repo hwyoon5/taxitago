@@ -174,6 +174,10 @@ function TrackingScatter({ drivers, users }: { drivers: TrackedDriver[]; users: 
   const maxLng = Math.max(...lngs) + 0.006
   const xAt = (lng: number) => PAD + ((lng - minLng) / Math.max(0.0001, maxLng - minLng)) * (W - PAD * 2)
   const yAt = (lat: number) => H - PAD - ((lat - minLat) / Math.max(0.0001, maxLat - minLat)) * (H - PAD * 2)
+  const idleDrivers = drivers.filter((d) => d.duty !== 'busy').length
+  const busyDrivers = drivers.filter((d) => d.duty === 'busy').length
+  const passengers = users.filter((u) => u.role !== 'partner').length
+  const partners = users.filter((u) => u.role === 'partner').length
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} className="h-64 w-full rounded-xl bg-[#F8FAFC]" role="img" aria-label="실시간 위치 관제 지도">
@@ -199,10 +203,10 @@ function TrackingScatter({ drivers, users }: { drivers: TrackedDriver[]; users: 
         ))}
       </svg>
       <div className="mt-1 flex items-center gap-3 text-[10px] font-bold text-[#94A3B8]">
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#0D9488]" />기사 대기</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#15803D]" />기사 운행</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#4A82B8]" />승객</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#D97706]" />파트너</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#0D9488]" />기사 대기 {idleDrivers}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#15803D]" />기사 운행 {busyDrivers}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#4A82B8]" />승객 {passengers}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#D97706]" />파트너 {partners}</span>
         <span className="ml-auto">위도 {minLat.toFixed(3)}~{maxLat.toFixed(3)} · 경도 {minLng.toFixed(3)}~{maxLng.toFixed(3)}</span>
       </div>
     </div>
@@ -476,10 +480,10 @@ function TrackingMap({
         ) : null}
       </div>
       <div className="mt-1 flex items-center gap-3 text-[10px] font-bold text-[#94A3B8]">
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#0D9488]" />기사 대기</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#15803D]" />기사 운행</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#4A82B8]" />승객</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#D97706]" />파트너</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#0D9488]" />기사 대기 {drivers.filter((d) => d.duty !== 'busy').length}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#15803D]" />기사 운행 {drivers.filter((d) => d.duty === 'busy').length}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#4A82B8]" />승객 {users.filter((u) => u.role !== 'partner').length}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#D97706]" />파트너 {users.filter((u) => u.role === 'partner').length}</span>
         <span className="ml-auto">지도 드래그·줌으로 이동/확대 · 마커 클릭 시 상세</span>
       </div>
     </div>
@@ -695,7 +699,10 @@ export default function AdminLiveDashboard() {
             </div>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               <div className="space-y-2">
-                <p className="text-[11px] font-black text-[#0D9488]">접속 중인 기사</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-black text-[#0D9488]">접속 중인 기사</p>
+                  <span className="rounded-full bg-[#F0FDFA] px-2 py-0.5 text-[11px] font-black text-[#0D9488]">{trackDrivers.length}명</span>
+                </div>
                 {trackDrivers.length ? (
                   trackDrivers.map((driver) => {
                     const status = DRIVER_STATUS[driver.duty] ?? DRIVER_STATUS.offline
@@ -729,7 +736,10 @@ export default function AdminLiveDashboard() {
                 )}
               </div>
               <div className="space-y-2">
-                <p className="text-[11px] font-black text-[#4A82B8]">접속 중인 승객 · 파트너</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-black text-[#4A82B8]">접속 중인 승객 · 파트너</p>
+                  <span className="rounded-full bg-[#E8F1FA] px-2 py-0.5 text-[11px] font-black text-[#4A82B8]">총 {trackUsers.length}명</span>
+                </div>
                 {trackUsers.length ? (
                   trackUsers.map((user) => {
                     const status = user.rideStatus ? USER_STATUS[user.rideStatus] : null
