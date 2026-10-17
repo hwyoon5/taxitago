@@ -3366,7 +3366,9 @@ function ServiceSheet({
   // '요금 올리기' 인라인 입력 — 매칭이 안 될 때 발신인이 상향 재등록한다.
   const [fareBump, setFareBump] = useState<{ id: string; value: string } | null>(null)
   // 미배차 택시/대리 호출의 요금 수동 상향 입력값 — 매칭 시트에서만 사용한다.
-  const [rideFareBump, setRideFareBump] = useState('')
+  // null이 '닫힘', 문자열은 '열림+입력값' — 빈 문자열도 열린 상태로 유지해
+  // 입력란이 지워진 순간 언마운트되는 것(포커스 상실·시트 상태 꼬임)을 막는다.
+  const [rideFareBump, setRideFareBump] = useState<string | null>(null)
   const [rideFareBumpBusy, setRideFareBumpBusy] = useState(false)
   // 요금 상향 입력창이 열려 있는 동안(입력 중·확인 대기 포함)에는 폴링/SSE가
   // '매칭 실패' 화면으로 강제 전환하지 않도록 편집 상태를 추적한다.
@@ -3500,7 +3502,7 @@ function ServiceSheet({
   }
   const submitFareBump = (job: PublicDelivery) => {
     const next = Number(fareBump?.value)
-    if (!Number.isFinite(next) || next <= job.fare) {
+    if (!fareBump?.value.trim() || !Number.isFinite(next) || next <= job.fare) {
       onNotice(t('svc.delivFareUpErr'))
       return
     }
@@ -3519,15 +3521,16 @@ function ServiceSheet({
   // 요금 상향 입력창 닫기 — 이미 unmatched면 미뤄둔 실패 안내를 이때 보인다.
   const closeRideFareBump = () => {
     fareBumpEditingRef.current = false
-    setRideFareBump('')
+    setRideFareBump(null)
     if (dispatchRide?.status === 'unmatched') setDaeriMatchError(t('match.errNoResponse'))
   }
   // [확인]을 눌러야만 요금이 반영되고 서버가 같은 콜로 재배차를 시도한다.
   const submitRideFareBump = () => {
     const target = dispatchRide
     if (!target || rideFareBumpBusy) return
+    // 빈 입력은 무효 — 조용히 에러 없이 무시하지 않고 안내만 띄운다.
     const next = Number(rideFareBump)
-    if (!Number.isFinite(next) || next <= target.estimatedFare) {
+    if (rideFareBump == null || !rideFareBump.trim() || !Number.isFinite(next) || next <= target.estimatedFare) {
       onNotice(t('svc.delivFareUpErr'))
       return
     }
@@ -3536,7 +3539,7 @@ function ServiceSheet({
       .then((updated) => {
         fareBumpEditingRef.current = false
         setDispatchRide(updated)
-        setRideFareBump('')
+        setRideFareBump(null)
         if (updated.status === 'unmatched') {
           setDaeriMatchError(t('match.errNoResponse'))
         } else {
@@ -4054,7 +4057,7 @@ function ServiceSheet({
     setDaeriAccepting(true)
     setDaeriMatchError('')
     fareBumpEditingRef.current = false
-    setRideFareBump('')
+    setRideFareBump(null)
     daeriEndedRef.current = false
     daeriAcceptedRef.current = false
     setDispatchRide(null)
@@ -4231,7 +4234,7 @@ function ServiceSheet({
                     })}
                   </p>
                 ) : null}
-                {rideFareBump ? (
+                {rideFareBump !== null ? (
                   <div className="mt-2 flex items-center gap-2">
                     <input
                       type="number"
@@ -4240,13 +4243,20 @@ function ServiceSheet({
                       min={dispatchRide.estimatedFare}
                       value={rideFareBump}
                       onChange={(event) => setRideFareBump(event.target.value)}
+                      onKeyDown={(event) => {
+                        // Enter는 '확인'과 동일 — 빈 값이면 가드가 안내만 띄운다.
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          submitRideFareBump()
+                        }
+                      }}
                       placeholder={t('svc.delivFareUpPh')}
                       aria-label={t('svc.delivFareUp')}
                       className="w-24 rounded-lg border-2 border-[#BFDBFE] bg-white px-2 py-1.5 text-center text-sm font-black text-[#0F172A] outline-none"
                     />
                     <button
                       type="button"
-                      disabled={rideFareBumpBusy}
+                      disabled={rideFareBumpBusy || !rideFareBump.trim()}
                       onClick={submitRideFareBump}
                       className="rounded-lg bg-[#4A82B8] px-3 py-1.5 text-[11px] font-black text-white disabled:opacity-60"
                     >
@@ -4274,7 +4284,7 @@ function ServiceSheet({
                 daeriRideIdRef.current = ''
                 daeriAcceptedRef.current = false
                 fareBumpEditingRef.current = false
-                setRideFareBump('')
+                setRideFareBump(null)
                 setDaeriMatchError('')
                 setDaeriAccepting(false)
                 if (ride && staleId) {
@@ -5081,14 +5091,21 @@ function ServiceSheet({
                               min={job.fare}
                               value={fareBump.value}
                               onChange={(event) => setFareBump({ id: job.id, value: event.target.value })}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault()
+                                  submitFareBump(job)
+                                }
+                              }}
                               placeholder={t('svc.delivFareUpPh')}
                               aria-label={t('svc.delivFareUp')}
                               className="w-24 rounded-lg border-2 border-[#BFDBFE] bg-white px-2 py-1.5 text-center text-sm font-black text-[#0F172A] outline-none"
                             />
                             <button
                               type="button"
+                              disabled={!fareBump.value.trim()}
                               onClick={() => submitFareBump(job)}
-                              className="rounded-lg bg-[#4A82B8] px-3 py-1.5 text-[11px] font-black text-white"
+                              className="rounded-lg bg-[#4A82B8] px-3 py-1.5 text-[11px] font-black text-white disabled:opacity-60"
                             >
                               {t('common.ok')}
                             </button>
