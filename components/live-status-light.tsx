@@ -33,11 +33,17 @@ export default function LiveStatusLight() {
         const data = (await res.json().catch(() => null)) as {
           ok?: boolean
           matching?: { demand?: number; driversOnline?: number }
+          presence?: { passenger?: number; driver?: number; partner?: number }
         } | null
         if (cancelled || !data?.ok) return
-        const demand = data.matching?.demand ?? 0
-        const drivers = data.matching?.driversOnline ?? 0
-        setLevel(demand >= 3 || (demand >= 1 && drivers === 0) ? 'red' : demand >= 1 ? 'yellow' : 'green')
+        // TEMP(테스트용) — 접속자 수 임계값을 낮춰 소수 인원으로 신호등 색 변화를
+        // 확인한다. 테스트 후 원래 수요 기준 임계값으로 원복할 것:
+        //   const demand = data.matching?.demand ?? 0
+        //   const drivers = data.matching?.driversOnline ?? 0
+        //   setLevel(demand >= 3 || (demand >= 1 && drivers === 0) ? 'red' : demand >= 1 ? 'yellow' : 'green')
+        const users =
+          (data.presence?.passenger ?? 0) + (data.presence?.driver ?? 0) + (data.presence?.partner ?? 0)
+        setLevel(users >= 2 ? 'red' : users >= 1 ? 'yellow' : 'green')
         setLive(true)
       } catch {
         // 마지막 상태를 유지한다 — 신호등은 참고 표시라 실패가 치명적이지 않다.
