@@ -1843,7 +1843,8 @@ function InTripCancelConfirmModal({
           </div>
           <p className="mt-3 text-[11px] font-bold text-[#7F1D1D]">{t('cancel.summary', { p: driverPayout.toFixed(7), w: waived.toFixed(7) })}</p>
         </div>
-        <button type="button" disabled={settling} onClick={onConfirm} className="mt-5 w-full rounded-2xl bg-[#BE123C] py-3.5 font-black text-white disabled:opacity-60">
+        <p className="mt-3 text-[11px] font-bold leading-5 text-[#64748B]">{t('cancel.consent')}</p>
+        <button type="button" disabled={settling} onClick={onConfirm} className="mt-3 w-full rounded-2xl bg-[#BE123C] py-3.5 font-black text-white disabled:opacity-60">
           {settling ? t('cancel.settling') : t('cancel.confirm')}
         </button>
         <button type="button" disabled={settling} onClick={onKeep} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
@@ -3115,7 +3116,10 @@ function TaxiMatchingSheet({
                 {t('match.endReceipt')}
               </button>
             ) : (
-              <RideCompleteCancelBar onCancel={() => setCancelConfirmOpen(true)}>
+              <RideCompleteCancelBar
+                onCancel={() => setCancelConfirmOpen(true)}
+                hint={ride?.boardedAt ? t('svc.hintCancelFee') : t('svc.hintWaitArrive')}
+              >
                 <button type="button" disabled={accepting || !ride?.readyToSettleAt} aria-busy={accepting} onClick={finishPassengerTrip} className="pointer-events-auto w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
                   {accepting ? t('match.paying') : ride?.readyToSettleAt ? t('match.complete') : ride?.boardedAt ? t('match.completeWaitArrive') : t('match.completeWaitBoard')}
                 </button>

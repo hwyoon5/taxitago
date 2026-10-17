@@ -383,7 +383,15 @@ export async function releaseEscrow(
   }
 }
 
-/** Passenger in-trip cancel: pay the cancellation fee to the assigned driver and waive the rest. No driver action. */
+const cancelSettlingRides = new Set<string>()
+
+/**
+ * Passenger in-trip cancel: pay the cancellation fee to the assigned driver and waive the rest. No driver action.
+ *
+ * 감사·대사 안전 순서 — 정산 장부를 송금보다 먼저 기록해 A2U 송금이나 환불이
+ * 실패해도 미정산 채권이 장부에 남아 운영자가 재정산할 수 있다. 재호출은
+ * 멱등: 이미 released/refunded 에스크로면 A2U를 다시 보내지 않는다.
+ */
 export async function settlePassengerCancelFee(rideId: string) {
   syncDispatchFromDisk()
   syncEscrowFromDisk()
@@ -393,98 +401,180 @@ export async function settlePassengerCancelFee(rideId: string) {
   if (!driverId || ride.status !== 'assigned') return { ok: false as const, error: 'not_assigned' }
   const fareConfig = await getFareConfig()
   const settlement = settleMidTripCancelFee(ride.estimatedFare, { rate: (fareConfig.cancel?.rate ?? 40) / 100, min: fareConfig.cancel?.min ?? 0.5 })
-  const cancelService: SettlementService = ride.kind === 'daeri' ? 'daeri' : 'taxi'
-  const cancelRate = (await getCommissionRates().catch(() => null))?.[cancelService] ?? 0
-  const cancelCommission = piRound(settlement.cancelFee * cancelRate / 100)
-  // 취소 수수료에도 동일한 수수료율을 적용 — 기사에게는 net만 송금.
-  const cancelPayout = piRound(settlement.cancelFee - cancelCommission)
-  const target = driverPayoutTarget(driverId)
-  let payoutTxid = `cancel-fee-${rideId.slice(0, 10)}`
-  let cancelPayoutSent = false
-  if (cancelPayout > 0 && !isPiSandboxEnv() && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
-    try {
-      const payment = await createA2UPayment({
-        amount: cancelPayout,
-        memo: '취소 수수료',
-        uid: target.uid,
-        metadata: { kind: 'cancel-fee', rideId, gross: settlement.cancelFee, commission: cancelCommission },
-      })
-      payoutTxid = payment.transaction?.txid || payment.identifier || payoutTxid
-      cancelPayoutSent = true
-    } catch (error) {
-      if (!isPiSandboxEnv()) throw error
+
+  // 이미 정산된 취소 건 — 이중 송금을 막고 이전 결과를 그대로 돌려준다.
+  // 단, 이전 시도에서 면제분 환불만 실패했다면 여기서 재시도한다.
+  const prior = getEscrowByRide(rideId)
+  if (prior?.status === 'released' || prior?.status === 'refunded') {
+    if (prior.status === 'released' && !prior.refundTxid && settlement.waived > 0 && !prior.lockTxid?.startsWith('balance-')) {
+      try {
+        await payPassengerRefund(prior, settlement.waived, '중도 취소 차액 환불')
+        stamp(prior)
+        console.log('[cancel-fee] pending waived refund retried', { rideId, amount: settlement.waived, refundTxid: prior.refundTxid })
+      } catch (error) {
+        console.error('[cancel-fee] waived refund retry failed', { rideId, waived: settlement.waived, error: error instanceof Error ? error.message : 'error' })
+      }
+    }
+    return { ok: true as const, settlement, payoutTxid: prior.payoutTxid || '', duplicate: true as const }
+  }
+
+  // 잠긴 결제가 없는 취소는 공제할 자금이 없다 — 미잠금 에스크로에는 A2U
+  // 송금·환불을 보내지 않는다(플랫폼 지갑의 무담보 출금 방지). 미결제 상태의
+  // 배정 후 취소는 수수료 없이 종료된다.
+  if (!prior || !prior.lockTxid) {
+    console.log('[cancel-fee] skipped: no funded escrow', { rideId, escrowStatus: prior?.status || 'none' })
+    return {
+      ok: true as const,
+      settlement: { ...settlement, cancelFee: 0, waived: settlement.quoted, driverPayout: 0 },
+      payoutTxid: '',
+      unfunded: true as const,
     }
   }
-  const escrow = getEscrowByRide(rideId)
-  const settledAt = nowIso()
-  if (escrow && escrow.status !== 'released') {
-    escrow.payoutWallet = target.wallet
-    escrow.payoutUid = target.uid
-    escrow.payoutTxid = payoutTxid
-    if (settlement.cancelFee > 0) {
-      escrow.status = 'released'
-      escrow.releasedAt = settledAt
-    } else {
-      escrow.status = 'refunded'
-      escrow.refundedAt = settledAt
+
+  // 동시 호출 가드 — 이중 탭·재시도·다중 프로세스가 겹쳐도 정산은 한 번만 진행한다.
+  if (cancelSettlingRides.has(rideId)) {
+    for (let waited = 0; waited < 4000 && cancelSettlingRides.has(rideId); waited += 200) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
     }
-    stamp(escrow)
+    const settled = getEscrowByRide(rideId)
+    if (settled?.status === 'released' || settled?.status === 'refunded' || getRide(rideId)?.status === 'cancelled') {
+      return { ok: true as const, settlement, payoutTxid: settled?.payoutTxid || '', duplicate: true as const }
+    }
+    return { ok: false as const, error: 'settling' }
   }
-  // The locked fare covers more than the cancellation fee — return the waived
-  // remainder to the passenger so nothing is silently kept. 잔액 결제 건은
-  // 온체인 잠금이 없었으므로 A2U가 아니라 아래 잔액 크레딧 환불로 대사한다.
-  const balanceLocked = Boolean(escrow?.lockTxid?.startsWith('balance-'))
-  if (escrow && settlement.waived > 0 && !escrow.refundTxid && !balanceLocked) {
-    await payPassengerRefund(escrow, settlement.waived, '중도 취소 차액 환불')
-    stamp(escrow)
+  cancelSettlingRides.add(rideId)
+  try {
+    const cancelService: SettlementService = ride.kind === 'daeri' ? 'daeri' : 'taxi'
+    const cancelRate = (await getCommissionRates().catch(() => null))?.[cancelService] ?? 0
+    const cancelCommission = piRound(settlement.cancelFee * cancelRate / 100)
+    // 취소 수수료에도 동일한 수수료율을 적용 — 기사에게는 net만 송금.
+    const cancelPayout = piRound(settlement.cancelFee - cancelCommission)
+    const target = driverPayoutTarget(driverId)
+    const driver = getDriver(driverId)
+    const settledAt = nowIso()
+    console.log('[cancel-fee] settle start', {
+      rideId,
+      quoted: settlement.quoted,
+      cancelFee: settlement.cancelFee,
+      waived: settlement.waived,
+      feeRate: settlement.feeRate,
+      minFee: fareConfig.cancel?.min ?? 0.5,
+      commission: cancelCommission,
+      payout: cancelPayout,
+      network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
+    })
+
+    // 장부를 송금보다 먼저 기록한다 — refId 멱등이라 재시도도 1건만 남는다.
+    const cancelEntry = await recordSettlement({
+      refId: `ride:${rideId}:cancel`,
+      service: cancelService,
+      driverId,
+      driverName: target.name,
+      passengerId: ride.passengerId,
+      memo: `취소 수수료 · ${routeLabel(ride)}`,
+      gross: settlement.cancelFee,
+      driverWallet: target.wallet,
+      channel: 'inapp',
+    }).catch((error) => {
+      console.error('[cancel-fee] settlement ledger write failed', { rideId, error: error instanceof Error ? error.message : 'error' })
+      return null
+    })
+
+    let payoutTxid = `cancel-fee-${rideId.slice(0, 10)}`
+    let cancelPayoutSent = false
+    if (cancelPayout > 0 && !isPiSandboxEnv() && target.uid && !target.uid.startsWith('virtual-') && !target.uid.startsWith('driver-')) {
+      try {
+        const payment = await createA2UPayment({
+          amount: cancelPayout,
+          memo: '취소 수수료',
+          uid: target.uid,
+          metadata: { kind: 'cancel-fee', rideId, gross: settlement.cancelFee, commission: cancelCommission },
+        })
+        payoutTxid = payment.transaction?.txid || payment.identifier || payoutTxid
+        cancelPayoutSent = true
+      } catch (error) {
+        // 송금 실패가 취소 자체를 가로막지 않는다 — 장부에 pending으로 남겨
+        // 관리자가 수수료 장부에서 재정산한다.
+        console.error('[cancel-fee] driver payout failed — left pending for reconciliation', { rideId, payout: cancelPayout, error: error instanceof Error ? error.message : 'error' })
+      }
+    }
+    if (cancelPayoutSent && cancelEntry) {
+      await markSettlementSettled(cancelEntry.id, payoutTxid).catch(() => null)
+    }
+
+    const escrow = getEscrowByRide(rideId)
+    if (escrow && escrow.status !== 'released') {
+      escrow.payoutWallet = target.wallet
+      escrow.payoutUid = target.uid
+      escrow.payoutTxid = payoutTxid
+      if (settlement.cancelFee > 0) {
+        escrow.status = 'released'
+        escrow.releasedAt = settledAt
+      } else {
+        escrow.status = 'refunded'
+        escrow.refundedAt = settledAt
+      }
+      stamp(escrow)
+    }
+    // The locked fare covers more than the cancellation fee — return the waived
+    // remainder to the passenger so nothing is silently kept. 잔액 결제 건은
+    // 온체인 잠금이 없었으므로 A2U가 아니라 아래 잔액 크레딧 환불로 대사한다.
+    const balanceLocked = Boolean(escrow?.lockTxid?.startsWith('balance-'))
+    if (escrow && settlement.waived > 0 && !escrow.refundTxid && !balanceLocked) {
+      try {
+        await payPassengerRefund(escrow, settlement.waived, '중도 취소 차액 환불')
+        stamp(escrow)
+      } catch (error) {
+        // 환불 송금 실패 — 의도한 환불액을 남겨 다음 정산 패스에서 재시도한다.
+        escrow.refundAmount = settlement.waived
+        stamp(escrow)
+        console.error('[cancel-fee] waived refund failed — retryable on next settle pass', { rideId, waived: settlement.waived, error: error instanceof Error ? error.message : 'error' })
+      }
+    }
+    saveReceipt({
+      rideId,
+      passengerId: ride.passengerId,
+      driverId,
+      driverName: target.name,
+      route: routeLabel(ride),
+      origin: ride.pickup.address || ride.pickup.label || '출발지',
+      waypoints: waypointLabels(ride),
+      dest: ride.dest.label || ride.dest.address || '목적지',
+      amount: settlement.cancelFee,
+      estimatedFare: ride.estimatedFare,
+      lockTxid: escrow?.lockTxid || '',
+      payoutTxid,
+      payoutWallet: target.wallet,
+      vehicle: driver?.vehicle || '택시',
+      plate: driver?.plate || '',
+      settledAt,
+    })
+    addEarning({
+      id: crypto.randomUUID(),
+      driverId,
+      rideId,
+      amount: settlement.cancelFee,
+      route: routeLabel(ride),
+      status: 'cancelled',
+      at: settledAt,
+    })
+    if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: settledAt })
+    // 잔액 결제 건 — 예상 요금 전액이 이미 차감됐으므로 취소 수수료와의 차액(면제분)을
+    // 크레딧으로 돌려준다. 모의 잠금 등 미차감 건은 취소 수수료를 정산 시점에 차감한다.
+    await settleRideSpend(ride, escrow?.lockTxid, settlement.cancelFee)
+    console.log('[cancel-fee] settle done', {
+      rideId,
+      cancelFee: settlement.cancelFee,
+      waived: settlement.waived,
+      payoutTxid,
+      refundTxid: escrow?.refundTxid || null,
+      payoutPending: !cancelPayoutSent && cancelPayout > 0 && !isPiSandboxEnv(),
+      refundPending: Boolean(escrow && settlement.waived > 0 && !escrow.refundTxid && !balanceLocked),
+    })
+    return { ok: true as const, settlement, payoutTxid }
+  } finally {
+    cancelSettlingRides.delete(rideId)
   }
-  const driver = getDriver(driverId)
-  saveReceipt({
-    rideId,
-    passengerId: ride.passengerId,
-    driverId,
-    driverName: target.name,
-    route: routeLabel(ride),
-    origin: ride.pickup.address || ride.pickup.label || '출발지',
-    waypoints: waypointLabels(ride),
-    dest: ride.dest.label || ride.dest.address || '목적지',
-    amount: settlement.cancelFee,
-    estimatedFare: ride.estimatedFare,
-    lockTxid: escrow?.lockTxid || '',
-    payoutTxid,
-    payoutWallet: target.wallet,
-    vehicle: driver?.vehicle || '택시',
-    plate: driver?.plate || '',
-    settledAt,
-  })
-  addEarning({
-    id: crypto.randomUUID(),
-    driverId,
-    rideId,
-    amount: settlement.cancelFee,
-    route: routeLabel(ride),
-    status: 'cancelled',
-    at: settledAt,
-  })
-  if (driver) saveDriver({ ...driver, status: 'online', lastSeenAt: settledAt })
-  const cancelEntry = await recordSettlement({
-    refId: `ride:${rideId}:cancel`,
-    service: cancelService,
-    driverId,
-    driverName: target.name,
-    passengerId: ride.passengerId,
-    memo: `취소 수수료 · ${routeLabel(ride)}`,
-    gross: settlement.cancelFee,
-    driverWallet: target.wallet,
-    channel: 'inapp',
-  }).catch(() => null)
-  if (cancelPayoutSent && cancelEntry) {
-    await markSettlementSettled(cancelEntry.id, payoutTxid).catch(() => null)
-  }
-  // 잔액 결제 건 — 예상 요금 전액이 이미 차감됐으므로 취소 수수료와의 차액(면제분)을
-  // 크레딧으로 돌려준다. 모의 잠금 등 미차감 건은 취소 수수료를 정산 시점에 차감한다.
-  await settleRideSpend(ride, escrow?.lockTxid, settlement.cancelFee)
-  return { ok: true as const, settlement, payoutTxid }
 }
 
 function passengerRefundTarget(passengerId: string) {

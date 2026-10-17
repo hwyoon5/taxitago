@@ -320,6 +320,7 @@
   "cancel.summary": "ドライバー支給 {p} Pi · 未請求 {w} Pi",
   "cancel.settling": "精算中…",
   "cancel.confirm": "キャンセル料を払って利用キャンセル",
+  "cancel.consent": "確認を押すと上記のキャンセル料ポリシーに同意し、料金の自動控除と残額の返金処理を承認したものとみなされます。",
   "cancel.keep": "運行を続ける",
   "insuff.title": "残高不足",
   "insuff.desc": "保有残高が不足しています。Piをチャージして再度決済してください。",

@@ -320,6 +320,7 @@
   "cancel.summary": "司机结算 {p} Pi · 未收取 {w} Pi",
   "cancel.settling": "结算中…",
   "cancel.confirm": "支付取消费并取消",
+  "cancel.consent": "点击确认即表示您同意上述取消费政策，并授权系统自动扣除手续费并退还剩余金额。",
   "cancel.keep": "继续行程",
   "insuff.title": "余额不足",
   "insuff.desc": "余额不足。请充值Pi后重新支付。",

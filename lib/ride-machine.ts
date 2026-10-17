@@ -235,11 +235,13 @@ async function applyTransition(input: {
       const current = getRide(rideId)
       if (!current) return { ok: true, ride: null, escrow: null, receipt: null }
       if (passengerId && current.passengerId !== passengerId) return fail('forbidden', current)
-      if (input.settleFee && current.status === 'assigned' && current.assignedDriverId) {
+      // 배정 후 승객 취소는 사전 고지된 취소 수수료 정책에 따라 서버가 자동 정산한다 —
+      // 클라이언트의 settleFee 플래그는 하위호환용일 뿐, 수수료 부과 여부는 서버가 상태로 판단한다.
+      if (passengerId && current.status === 'assigned' && current.assignedDriverId) {
         try {
           await settlePassengerCancelFee(rideId)
         } catch (error) {
-          console.error('[cancel] fee settlement failed', error instanceof Error ? error.message : 'error')
+          console.error('[cancel] fee settlement failed', { rideId, error: error instanceof Error ? error.message : 'error' })
         }
       }
       const ride = cancelRide(rideId, passengerId || undefined)

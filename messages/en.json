@@ -320,6 +320,7 @@
   "cancel.summary": "Driver payout {p} Pi · Waived {w} Pi",
   "cancel.settling": "Settling…",
   "cancel.confirm": "Pay cancellation fee and cancel",
+  "cancel.consent": "By confirming, you agree to the cancellation fee policy above and authorize the automatic fee deduction and refund of the remainder.",
   "cancel.keep": "Keep riding",
   "insuff.title": "Insufficient balance",
   "insuff.desc": "Your balance is too low. Charge Pi and pay again.",

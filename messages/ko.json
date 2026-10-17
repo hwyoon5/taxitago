@@ -320,6 +320,7 @@
   "cancel.summary": "기사 지급 {p} Pi · 미청구 {w} Pi",
   "cancel.settling": "정산 중…",
   "cancel.confirm": "취소 수수료 내고 이용 취소",
+  "cancel.consent": "확인을 누르면 위 취소 수수료 정책에 동의하고, 수수료 자동 차감과 잔액 환불 처리를 승인하는 것으로 간주됩니다.",
   "cancel.keep": "운행 계속하기",
   "insuff.title": "잔액 부족",
   "insuff.desc": "보유 잔액이 부족합니다. Pi 충전 후 다시 결제해 주세요.",
