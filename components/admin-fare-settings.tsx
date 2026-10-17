@@ -5,6 +5,7 @@ import { adminHeaders } from '@/lib/admin-key'
 import { useAdminAuth } from '@/components/admin-guard'
 import { DEFAULT_RATES, type CommissionRates, type SettlementService } from '@/lib/settlement-types'
 import { DEFAULT_FARE_CONFIG, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
+import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { ADMIN_PRIVILEGED_POSITIONS } from '@/lib/staff-positions'
 import type { DepositEntry } from '@/lib/deposit-store'
@@ -163,8 +164,29 @@ export default function AdminFareSettings() {
       .finally(() => setBusy(false))
   }
 
+  const saveCancelFee = () => {
+    if (!canEdit || busy) return
+    setBusy(true)
+    void patch({ action: 'cancel-fee', rate: fareDraft.cancel.rate, min: fareDraft.cancel.min, baseCancel: fare.cancel })
+      .then((data) => {
+        if (data?.fare) {
+          setFare(data.fare)
+          setFareDraft(data.fare)
+        }
+        tell('취소 수수료 정책을 저장했습니다. 이후 이용부터 적용됩니다.')
+      })
+      .catch((err) => {
+        if (err instanceof Error && err.message === 'conflict') return onConflict()
+        setError('취소 수수료 설정 저장에 실패했습니다.')
+      })
+      .finally(() => setBusy(false))
+  }
+
   const ratesDirty = SERVICES.some((service) => rateDraft[service] !== rates[service])
   const fareDirty = JSON.stringify(fareDraft) !== JSON.stringify(fare)
+  const cancelDirty = fareDraft.cancel.rate !== fare.cancel.rate || fareDraft.cancel.min !== fare.cancel.min
+  // 현재 초안값으로 택시 기본요금 기준 취소 수수료를 미리 계산해 보여준다.
+  const cancelPreview = settleMidTripCancelFee(fareDraft.taxi.base, { rate: fareDraft.cancel.rate / 100, min: fareDraft.cancel.min })
 
   const ruleEditor = (label: string, key: 'taxi' | 'daeri') => (
     <div className="rounded-xl border-2 border-[#E2E8F0] p-2.5">
@@ -385,7 +407,7 @@ export default function AdminFareSettings() {
       </section>
 
       <section className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4">
-        <p className="text-sm font-black">서비스 요금 · 취소 수수료</p>
+        <p className="text-sm font-black">서비스 요금</p>
         <p className="mt-0.5 text-xs font-bold text-[#64748B]">택시·대리는 기본 요금 + (거리 × km당 요율) + (예상 시간 × 분당 요율)로 산정됩니다.</p>
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {ruleEditor('택시', 'taxi')}
@@ -406,39 +428,6 @@ export default function AdminFareSettings() {
               />
             </label>
           ))}
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <label className="rounded-xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-2.5">
-            <span className="text-[11px] font-black text-[#B45309]">중도 취소 수수료율</span>
-            <div className="mt-1 flex items-center gap-1">
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                disabled={!canEdit}
-                value={fareDraft.cancel.rate}
-                onChange={(event) => setFareDraft((prev) => ({ ...prev, cancel: { ...prev.cancel, rate: Number(event.target.value) } }))}
-                className="w-full rounded-lg border border-[#FDE68A] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#B45309]"
-              />
-              <span className="text-xs font-black text-[#B45309]">%</span>
-            </div>
-          </label>
-          <label className="rounded-xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-2.5">
-            <span className="text-[11px] font-black text-[#B45309]">취소 수수료 최소액</span>
-            <div className="mt-1 flex items-center gap-1">
-              <input
-                type="number"
-                min={0}
-                step={0.01}
-                disabled={!canEdit}
-                value={fareDraft.cancel.min}
-                onChange={(event) => setFareDraft((prev) => ({ ...prev, cancel: { ...prev.cancel, min: Number(event.target.value) } }))}
-                className="w-full rounded-lg border border-[#FDE68A] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#B45309]"
-              />
-              <span className="text-xs font-black text-[#B45309]">Pi</span>
-            </div>
-          </label>
         </div>
         <div className="mt-2 rounded-xl border-2 border-[#BFDBFE] bg-[#E8F1FA] p-2.5">
           <div className="flex items-center justify-between gap-2">
@@ -508,6 +497,57 @@ export default function AdminFareSettings() {
           className="mt-3 w-full rounded-xl bg-[#0F172A] py-2.5 text-xs font-black text-white disabled:opacity-50"
         >
           요금·수수료 설정 저장
+        </button>
+      </section>
+
+      <section className="rounded-2xl border-2 border-[#FDE68A] bg-white p-4">
+        <p className="text-sm font-black">중도 취소 수수료</p>
+        <p className="mt-0.5 text-xs font-bold text-[#64748B]">
+          기사 배정 후 이용자가 취소할 때 부과되는 위약금입니다. 택시·대리운전 호출에 적용되며, 배정 전 취소와 기사 사유 취소에는 부과되지 않습니다.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <label className="rounded-xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-2.5">
+            <span className="text-[11px] font-black text-[#B45309]">중도 취소 수수료율</span>
+            <div className="mt-1 flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                disabled={!canEdit}
+                value={fareDraft.cancel.rate}
+                onChange={(event) => setFareDraft((prev) => ({ ...prev, cancel: { ...prev.cancel, rate: Number(event.target.value) } }))}
+                className="w-full rounded-lg border border-[#FDE68A] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#B45309]"
+              />
+              <span className="text-xs font-black text-[#B45309]">%</span>
+            </div>
+          </label>
+          <label className="rounded-xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-2.5">
+            <span className="text-[11px] font-black text-[#B45309]">취소 수수료 최소액</span>
+            <div className="mt-1 flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                disabled={!canEdit}
+                value={fareDraft.cancel.min}
+                onChange={(event) => setFareDraft((prev) => ({ ...prev, cancel: { ...prev.cancel, min: Number(event.target.value) } }))}
+                className="w-full rounded-lg border border-[#FDE68A] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#B45309]"
+              />
+              <span className="text-xs font-black text-[#B45309]">Pi</span>
+            </div>
+          </label>
+        </div>
+        <p className="mt-2 rounded-xl bg-[#F8FAFC] px-3 py-2 text-[11px] font-bold leading-4 text-[#64748B]">
+          예: 예상 요금 {cancelPreview.quoted.toFixed(2)} Pi 기준 취소 수수료 {cancelPreview.cancelFee.toFixed(2)} Pi 기사 지급 · {cancelPreview.waived.toFixed(2)} Pi 미청구
+        </p>
+        <button
+          type="button"
+          disabled={!canEdit || busy || !cancelDirty}
+          onClick={saveCancelFee}
+          className="mt-3 w-full rounded-xl bg-[#B45309] py-2.5 text-xs font-black text-white disabled:opacity-50"
+        >
+          취소 수수료 정책 저장
         </button>
       </section>
       {notice ? <p className="text-center text-xs font-black text-[#047857]">{notice}</p> : null}

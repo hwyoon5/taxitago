@@ -10,6 +10,7 @@ import { applyThemeMode, loadThemeMode, saveThemeMode, type ThemeMode } from '@/
 import { localizedText, translateService } from '@/lib/i18n'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import { loadPiIdentity } from '@/lib/partner-account'
+import { DEFAULT_FARE_CONFIG, fetchFareConfig, type FareConfig } from '@/lib/fare-config'
 
 const THEME_LABEL: Record<ThemeMode, MessageKey> = {
   light: 'settings.theme.light',
@@ -88,6 +89,24 @@ export function NoticeDetailView({ id, onBack }: { id: string; onBack: () => voi
   )
 }
 
+/** 배정 후 취소에 적용되는 현재 취소 수수료 정책 안내 — 관리자 설정값을 실시간 반영한다. */
+function CancelFeePolicyCard() {
+  const { t } = useLocale()
+  const [fareCfg, setFareCfg] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
+  useEffect(() => {
+    void fetchFareConfig().then(setFareCfg).catch(() => undefined)
+  }, [])
+  return (
+    <div className="rounded-2xl border-2 border-[#FDE68A] bg-[#FFFBEB] p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+      <p className="text-sm font-black text-[#B45309]">{t('fares.cancel.title')}</p>
+      <p className="mt-1 text-xs font-bold leading-5 text-[#92400E]">
+        {t('fares.cancel.desc', { rate: String(fareCfg.cancel.rate), min: String(fareCfg.cancel.min) })}
+      </p>
+      <p className="mt-1.5 text-[11px] font-bold leading-4 text-[#B45309]">{t('fares.cancel.free')}</p>
+    </div>
+  )
+}
+
 export function FaresView({ onBack }: { onBack: () => void }) {
   const { t, locale } = useLocale()
   const rows: { name: string; fare: string; noteKey: MessageKey }[] = [
@@ -111,6 +130,9 @@ export function FaresView({ onBack }: { onBack: () => void }) {
             <p className="shrink-0 text-sm font-black text-[#4C1FB8]">{row.fare}</p>
           </div>
         ))}
+      </div>
+      <div className="mt-3">
+        <CancelFeePolicyCard />
       </div>
     </PageFrame>
   )
@@ -223,6 +245,7 @@ export function SettingsView({ onBack, onNotice }: { onBack: () => void; onNotic
         <Row label={t('settings.push')} caption={t('settings.pushCaption')} value={push} onToggle={() => toggle(t('settings.push'), push, setPush)} />
         <Row label={t('settings.marketing')} caption={t('settings.marketingCaption')} value={marketing} onToggle={() => toggle(t('settings.marketing'), marketing, setMarketing)} />
         <Row label={t('settings.location')} caption={t('settings.locationCaption')} value={location} onToggle={() => toggle(t('settings.location'), location, setLocation)} />
+        <CancelFeePolicyCard />
         <div className="rounded-2xl border-2 border-[#CBD5E1] bg-white p-4 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
           <strong className="block text-sm font-black text-[#0F172A]">{t('settings.theme')}</strong>
           <span className="mt-1 block text-xs font-bold text-[#64748B]">{t('settings.themeCaption')}</span>

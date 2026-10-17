@@ -182,12 +182,15 @@ export async function PATCH(request: Request) {
     baseWallet?: unknown
     baseRates?: unknown
     baseFare?: unknown
+    rate?: unknown
+    min?: unknown
+    baseCancel?: unknown
   } | null
   const action = body?.action
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
 
   // 설정 변경(수수료율·요금·수수료 수취 지갑)은 최고책임자 또는 팀장만 허용된다.
-  const PRIVILEGED_ACTIONS = new Set(['wallet', 'rates', 'fare'])
+  const PRIVILEGED_ACTIONS = new Set(['wallet', 'rates', 'fare', 'cancel-fee'])
   if (typeof action === 'string' && PRIVILEGED_ACTIONS.has(action) && !hasAdminPrivilege(actor)) {
     return NextResponse.json({ error: '설정 변경 권한이 없습니다 (최고책임자 및 팀장만 가능합니다)' }, { status: 403 })
   }
@@ -274,6 +277,21 @@ export async function PATCH(request: Request) {
     }
     const fare = await saveFareConfig((body?.fare ?? {}) as Partial<FareConfig>)
     await recordAudit({ kind: 'fare', actor: actor.staffId, actorName: actor.staffName, reason, before, after: fare }).catch(() => undefined)
+    return NextResponse.json({ ok: true, fare })
+  }
+
+  // 중도 취소 수수료 정책만 단독 변경 — 나머지 요금 필드는 현재값을 유지한다.
+  if (action === 'cancel-fee') {
+    const before = await getFareConfig()
+    const baseCancel = body?.baseCancel as { rate?: unknown; min?: unknown } | undefined
+    // 낙관적 동시성 — 클라이언트가 본 정책과 다르면 409로 거절.
+    if (baseCancel && typeof baseCancel === 'object'
+      && (Number(baseCancel.rate) !== before.cancel.rate || Number(baseCancel.min) !== before.cancel.min)) {
+      return NextResponse.json({ error: 'conflict', fare: before }, { status: 409 })
+    }
+    const merged = normalizeFareConfig({ ...before, cancel: { rate: Number(body?.rate), min: Number(body?.min) } })
+    const fare = await saveFareConfig(merged)
+    await recordAudit({ kind: 'fare', actor: actor.staffId, actorName: actor.staffName, reason, detail: '취소 수수료 정책 변경', before: { cancel: before.cancel }, after: { cancel: fare.cancel } }).catch(() => undefined)
     return NextResponse.json({ ok: true, fare })
   }
 
