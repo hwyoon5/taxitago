@@ -5,23 +5,34 @@ import { recordDeposit } from '@/lib/deposit-store'
 import { uidForWallet } from '@/lib/user-credit-store'
 import { knownServiceTxids } from '@/lib/payment-kind-store'
 import { recordWalletTx } from '@/lib/wallet-history'
-import { isPiSandboxEnv } from '@/lib/pi-sandbox'
+import { dataNetwork } from '@/lib/kv'
+import type { PiNetworkMode } from '@/lib/pi-sandbox'
 
 const SCAN_LIMIT = 60
 
 const TESTNET_HORIZON = 'https://api.testnet.minepi.com'
 const MAINNET_HORIZON = 'https://api.mainnet.minepi.com'
 
+type HorizonPick = { base: string; network: PiNetworkMode | null }
+
 /**
- * 조회할 Horizon 목록 — 결제가 실제 생성된 네트워크(클라이언트 sandbox 힌트
- * 또는 서버 env)를 먼저, 다른 네트워크를 폴백으로 둔다. 서버 env와 클라이언트
- * 빌드가 어긋나도 입금 스캔이 다른 네트워크만 보다가 장부가 멈추는 일을 막는다.
+ * 조회할 Horizon — 네트워크 하나만 쓴다. 양 네트워크를 순회 스캔하면 반대쪽
+ * 체인의 입금이 현재 장부 스코프에 섞여 들어오므로 금지한다(테스트넷↔메인넷
+ * 장부 분리 원칙).
+ * - sandboxHint가 있으면 그 네트워크(호출자가 tx가 올라간 곳을 아는 경우).
+ * - 없으면 장부 스코프(dataNetwork) 네트워크 — 기록이 가는 곳과 조회가 가는
+ *   곳을 항상 일치시킨다.
+ * - PI_HORIZON_URL_TESTNET/_MAINNET → 공용 PI_HORIZON_URL → 공식 호스트 순.
  */
-function horizonBases(sandboxHint?: boolean | null): string[] {
-  const override = (process.env.PI_HORIZON_URL || '').trim()
-  if (override) return [override]
-  const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
-  return sandbox ? [TESTNET_HORIZON, MAINNET_HORIZON] : [MAINNET_HORIZON, TESTNET_HORIZON]
+function horizonPick(sandboxHint?: boolean | null): HorizonPick {
+  const hinted = typeof sandboxHint === 'boolean' ? (sandboxHint ? 'testnet' : 'mainnet') : null
+  const network = hinted ?? dataNetwork()
+  const scoped = (
+    network === 'testnet' ? process.env.PI_HORIZON_URL_TESTNET : process.env.PI_HORIZON_URL_MAINNET
+  )?.trim()
+  const override = scoped || (process.env.PI_HORIZON_URL || '').trim()
+  if (override) return { base: override, network: null }
+  return { base: network === 'testnet' ? TESTNET_HORIZON : MAINNET_HORIZON, network }
 }
 
 type HorizonPayment = {
@@ -56,27 +67,31 @@ export async function scanInboundDeposits(
     console.warn('[Deposit] scan skipped: admin wallet not configured', { adminWallet: adminWallet || '(empty)' })
     return { configured: false, scanned: 0, adminWallet }
   }
-  // 양쪽 Horizon을 모두 스캔한다 — 입금이 어느 네트워크에 있든 장부가 멈추지
-  // 않는다. 계정이 없는 네트워크(404)는 빈 결과로 취급하고, 진짜 장애만 error로.
-  const bases = horizonBases(sandboxHint)
+  // 장부 스코프(dataNetwork)의 네트워크 하나만 스캔한다 — 반대쪽 체인 입금이
+  // 이 스코프 장부에 섞여 들어오는 것을 막는다. 호출자 힌트가 스코프와 다르면
+  // env/클라이언트 네트워크 불일치이므로 경고만 남기고 스코프를 따른다.
+  const scope = dataNetwork()
+  if (typeof sandboxHint === 'boolean' && (sandboxHint ? 'testnet' : 'mainnet') !== scope) {
+    console.warn('[Deposit] scan hint differs from ledger scope; scanning ledger scope only', { hint: sandboxHint, scope })
+  }
+  const pick = horizonPick(null)
+  const bases = [pick.base]
+  const network = pick.network
   const records: HorizonPayment[] = []
   const failedBases: string[] = []
-  for (const base of bases) {
-    const network = base === TESTNET_HORIZON ? 'testnet' : base === MAINNET_HORIZON ? 'mainnet' : 'custom'
-    try {
-      const server = new Horizon.Server(base)
-      const page = await server.payments().forAccount(adminWallet).order('desc').limit(SCAN_LIMIT).call()
-      for (const record of page.records as HorizonPayment[]) {
-        records.push({ ...record, network: network === 'custom' ? undefined : network })
-      }
-    } catch (error) {
-      failedBases.push(base)
-      console.warn('[Deposit] horizon scan failed on one network', { base, adminWallet, error: error instanceof Error ? error.message : String(error) })
+  try {
+    const server = new Horizon.Server(pick.base)
+    const page = await server.payments().forAccount(adminWallet).order('desc').limit(SCAN_LIMIT).call()
+    for (const record of page.records as HorizonPayment[]) {
+      records.push({ ...record, network: network ?? undefined })
     }
+  } catch (error) {
+    failedBases.push(pick.base)
+    console.warn('[Deposit] horizon scan failed', { base: pick.base, adminWallet, error: error instanceof Error ? error.message : String(error) })
   }
   const allFailed = failedBases.length === bases.length
-  if (allFailed) console.error('[Deposit] horizon scan failed on all networks', { adminWallet, bases })
-  // 양쪽 네트워크 결과를 txid로 dedupe한다 — 같은 tx를 두 번 기록하지 않는다.
+  if (allFailed) console.error('[Deposit] horizon scan failed', { adminWallet, base: pick.base, network: scope })
+  // txid로 dedupe한다 — 같은 tx를 두 번 기록하지 않는다.
   const seen = new Set<string>()
   const inbound = records.filter((record) => {
     if (record.type !== 'payment' || record.to !== adminWallet || !record.transaction_hash || !record.from) return false
@@ -121,7 +136,7 @@ export async function scanInboundDeposits(
         amount: deposit.amount,
         memo: deposit.memo,
         status: 'confirmed',
-        network: record.network ?? (isPiSandboxEnv() ? 'testnet' : 'mainnet'),
+        network: record.network ?? dataNetwork(),
       }).catch((error) => console.error('[Deposit] scan wallet-history write failed', { txid: deposit.txid, error }))
       // 사전 충전 폐지 — 입금은 감사 장부에만 기록하고 이용자 잔액 크레딧은
       // 더 이상 부여하지 않는다. 서비스 요금은 종료 시점 Pi 직결제로 정산된다.
@@ -150,7 +165,29 @@ export async function creditInboundDeposit(input: {
     console.warn('[Deposit] creditInboundDeposit skipped: admin wallet not configured', { txid })
     return null
   }
+  const scope = dataNetwork()
+  if (
+    typeof input.sandboxHint === 'boolean' &&
+    (input.sandboxHint ? 'testnet' : 'mainnet') !== scope
+  ) {
+    // 힌트 네트워크가 장부 스코프와 다르면 반대쪽 체인의 tx를 이 스코프 장부에
+    // 쓰게 된다 — 기록하지 않는다.
+    console.warn('[Deposit] creditInboundDeposit skipped: hint network differs from ledger scope', {
+      txid,
+      hint: input.sandboxHint,
+      scope,
+    })
+    return null
+  }
   const op = await fetchInboundPaymentOp(txid, adminWallet, input.sandboxHint)
+  if (op?.network && op.network !== scope) {
+    console.warn('[Deposit] creditInboundDeposit skipped: on-chain network differs from ledger scope', {
+      txid,
+      onchain: op.network,
+      scope,
+    })
+    return null
+  }
   const from = op?.from || (input.fromAddress || '').trim()
   const amount = op?.amount && op.amount > 0 ? op.amount : Number(input.amount) || 0
   const uid =
@@ -187,7 +224,7 @@ export async function creditInboundDeposit(input: {
     amount: deposit.amount,
     memo: deposit.memo,
     status: 'confirmed',
-    network: isPiSandboxEnv() ? 'testnet' : 'mainnet',
+    network: scope,
   }).catch((error) => console.error('[Deposit] wallet history write failed', { txid, error }))
   console.log('[Deposit] inbound credited', { txid, from, amount, uid: deposit.fromUid || uid || '(none)' })
   return deposit
@@ -204,33 +241,31 @@ export async function fetchInboundPaymentOp(
   toWallet: string,
   sandboxHint?: boolean | null,
 ): Promise<{ from: string; amount: number; createdAt?: string; network?: 'testnet' | 'mainnet' } | null> {
-  // 힌트 네트워크를 먼저, 못 찾으면 다른 네트워크도 조회한다 — 트랜잭션이
-  // 어디에 올라갔든 op를 놓치지 않는다.
-  for (const base of horizonBases(sandboxHint)) {
-    try {
-      const res = await fetch(`${base}/transactions/${encodeURIComponent(txid)}/operations?limit=30`, {
-        cache: 'no-store',
-        signal: AbortSignal.timeout(10_000),
-      })
-      if (!res.ok) continue
-      const payload = (await res.json().catch(() => null)) as {
-        _embedded?: { records?: { type?: string; from?: string; to?: string; amount?: string; created_at?: string }[] }
-      } | null
-      const op = payload?._embedded?.records?.find(
-        (record) => record.type === 'payment' && record.to === toWallet && record.from,
-      )
-      if (!op?.from) continue
-      return {
-        from: String(op.from),
-        amount: Number(op.amount),
-        createdAt: typeof op.created_at === 'string' ? op.created_at : undefined,
-        network: base === TESTNET_HORIZON ? 'testnet' : base === MAINNET_HORIZON ? 'mainnet' : undefined,
-      }
-    } catch {
-      continue
+  // 힌트(결제가 생성된 네트워크) 또는 장부 스코프 네트워크 하나만 조회한다 —
+  // 반대쪽 체인의 동일 txid를 찾아 다른 네트워크 장부에 기록하는 것을 막는다.
+  const pick = horizonPick(sandboxHint)
+  try {
+    const res = await fetch(`${pick.base}/transactions/${encodeURIComponent(txid)}/operations?limit=30`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) return null
+    const payload = (await res.json().catch(() => null)) as {
+      _embedded?: { records?: { type?: string; from?: string; to?: string; amount?: string; created_at?: string }[] }
+    } | null
+    const op = payload?._embedded?.records?.find(
+      (record) => record.type === 'payment' && record.to === toWallet && record.from,
+    )
+    if (!op?.from) return null
+    return {
+      from: String(op.from),
+      amount: Number(op.amount),
+      createdAt: typeof op.created_at === 'string' ? op.created_at : undefined,
+      network: pick.network ?? undefined,
     }
+  } catch {
+    return null
   }
-  return null
 }
 
 /**
@@ -246,41 +281,35 @@ export async function checkInboundPayment(input: {
   amount: number
   sandboxHint?: boolean | null
 }): Promise<DepositChainCheck> {
-  // 힌트 네트워크부터 확인하고, 못 찾으면 다른 네트워크도 확인한다 —
-  // 'unknown'이 되는 건 모든 네트워크에서 확인이 불가능할 때뿐이다.
-  let sawDefinitiveMiss = false
-  for (const base of horizonBases(input.sandboxHint)) {
-    const txUrl = `${base}/transactions/${encodeURIComponent(input.txid)}`
-    try {
-      const res = await fetch(txUrl, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
-      if (res.status === 404) {
-        sawDefinitiveMiss = true
-        continue // 이 네트워크에는 없음 — 다른 네트워크에서 찾아본다.
-      }
-      if (!res.ok) continue
-      const tx = (await res.json().catch(() => null)) as { successful?: boolean } | null
-      if (tx?.successful === false) return 'mismatch'
-    } catch {
-      continue
-    }
-    try {
-      const opsUrl = `${txUrl}/operations?limit=30`
-      const res = await fetch(opsUrl, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
-      if (!res.ok) return 'unknown'
-      const payload = (await res.json().catch(() => null)) as {
-        _embedded?: { records?: { type?: string; from?: string; to?: string; amount?: string }[] }
-      } | null
-      const matched = payload?._embedded?.records?.some(
-        (op) =>
-          op.type === 'payment' &&
-          op.to === input.to &&
-          op.from === input.from &&
-          Math.abs(Number(op.amount) - input.amount) < 0.000_001,
-      )
-      return matched ? 'verified' : 'mismatch'
-    } catch {
-      return 'unknown'
-    }
+  // 힌트 네트워크(없으면 장부 스코프) 하나만 확인한다 — 반대쪽 체인의 tx를
+  // 이 스코프 장부의 근거로 쓰지 않기 위함이다.
+  const { base } = horizonPick(input.sandboxHint)
+  const txUrl = `${base}/transactions/${encodeURIComponent(input.txid)}`
+  try {
+    const res = await fetch(txUrl, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
+    if (res.status === 404) return 'mismatch' // 이 네트워크에는 해당 tx가 없다.
+    if (!res.ok) return 'unknown'
+    const tx = (await res.json().catch(() => null)) as { successful?: boolean } | null
+    if (tx?.successful === false) return 'mismatch'
+  } catch {
+    return 'unknown'
   }
-  return sawDefinitiveMiss ? 'mismatch' : 'unknown'
+  try {
+    const opsUrl = `${txUrl}/operations?limit=30`
+    const res = await fetch(opsUrl, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
+    if (!res.ok) return 'unknown'
+    const payload = (await res.json().catch(() => null)) as {
+      _embedded?: { records?: { type?: string; from?: string; to?: string; amount?: string }[] }
+    } | null
+    const matched = payload?._embedded?.records?.some(
+      (op) =>
+        op.type === 'payment' &&
+        op.to === input.to &&
+        op.from === input.from &&
+        Math.abs(Number(op.amount) - input.amount) < 0.000_001,
+    )
+    return matched ? 'verified' : 'mismatch'
+  } catch {
+    return 'unknown'
+  }
 }

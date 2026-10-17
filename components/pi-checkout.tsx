@@ -324,11 +324,20 @@ type PiApiPath = '/api/pi/approve' | '/api/pi/complete' | '/api/pi/cancel'
  * 프리뷰 도메인에서 열리면 상대 경로('/api/pi/approve')가 그쪽 서버로 가서
  * 승인 요청이 우리 백엔드에 아예 도달하지 않는다. 정식 도메인·로컬에서는
  * same-origin을 유지하고, 그 외 호스트에서는 정규 백엔드 오리진으로 고정한다.
- * NEXT_PUBLIC_PI_API_ORIGIN으로 재지정 가능(미설정 시 테스트 배포 도메인).
+ * NEXT_PUBLIC_PI_API_ORIGIN으로 재지정 가능 — 네트워크별로
+ * NEXT_PUBLIC_PI_API_ORIGIN_TESTNET/_MAINNET이 우선한다.
+ * 기본값도 네트워크별로 분리: 테스트넷은 test.taxitago.co.kr,
+ * 메인넷은 taxitago.co.kr — 메인넷 기본값이 테스트 도메인이면 래퍼 앱의
+ * 승인 요청이 테스트넷 백엔드로 새어 영원히 만료된다.
+ * (클라이언트 번들은 NEXT_PUBLIC_*를 정적으로 인라인하므로 동적 키 접근 불가)
  */
 const PI_API_CANONICAL_ORIGIN = (
-  process.env.NEXT_PUBLIC_PI_API_ORIGIN || 'https://test.taxitago.co.kr'
-).trim().replace(/\/+$/, '')
+  (PI_SANDBOX
+    ? (process.env.NEXT_PUBLIC_PI_API_ORIGIN_TESTNET || '').trim()
+    : (process.env.NEXT_PUBLIC_PI_API_ORIGIN_MAINNET || '').trim()) ||
+  (process.env.NEXT_PUBLIC_PI_API_ORIGIN || '').trim() ||
+  (PI_SANDBOX ? 'https://test.taxitago.co.kr' : 'https://taxitago.co.kr')
+).replace(/\/+$/, '')
 const PI_API_CANONICAL_HOST = (() => {
   try {
     return new URL(PI_API_CANONICAL_ORIGIN).hostname.toLowerCase()
@@ -356,11 +365,10 @@ function piApiBaseOrigin() {
   if (PI_SANDBOX) {
     return host === PI_API_CANONICAL_HOST ? '' : PI_API_CANONICAL_ORIGIN
   }
-  if (
-    host === 'taxitago.co.kr' ||
-    host === 'test.taxitago.co.kr' ||
-    host === 'www.taxitago.co.kr'
-  ) {
+  // 메인넷 — 정식 도메인에서는 same-origin, 래퍼/프리뷰 호스트에서는 정식
+  // 백엔드 오리진으로 고정한다. test.* 호스트는 piHostSuggestsSandbox가
+  // sandbox로 강제하므로 이 분기에 도달하지 않는다.
+  if (host === 'taxitago.co.kr' || host === 'www.taxitago.co.kr' || host === PI_API_CANONICAL_HOST) {
     return ''
   }
   return PI_API_CANONICAL_ORIGIN
@@ -707,15 +715,29 @@ const PI_SDK_SRC = 'https://sdk.minepi.com/pi-sdk.js'
  * 샌드박스 포털 앱(sandbox.minepi.com/app/taxitago-2w8q)에는 이 엔드포인트가
  * 없을 수 있어, 미설정이면 포워딩을 생략한다(구 앱 도메인 폴백 없음).
  */
-const PI_APP_STUDIO_LOGIN_URL = (process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL || '').trim()
+// 네트워크별 엔드포인트 env(NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL_TESTNET/
+// _MAINNET)가 있으면 우선한다 — App Studio 앱은 네트워크마다 고유 도메인.
+const PI_APP_STUDIO_LOGIN_URL = (
+  (PI_SANDBOX
+    ? (process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL_TESTNET || '').trim()
+    : (process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL_MAINNET || '').trim()) ||
+  (process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL || '').trim()
+)
 /**
  * 이 SDK가 결제를 생성하는 Pi 앱의 식별자 — 샌드박스 앱(taxitago-2w8q)의
  * Auth client ID(포털에서 공개 값으로 발급). 포털에서 앱이 분리된 경우
  * 백엔드 API 키의 앱과 다르면 승인이 401/404로 끝나므로, 상관관계용으로
  * 승인 요청 body에 함께 실어 보낸다.
+ * 네트워크별 env(NEXT_PUBLIC_PI_APP_ID_TESTNET/_MAINNET) → 공용
+ * NEXT_PUBLIC_PI_APP_ID → 테스트넷 기본값 순. 메인넷에서는 테스트넷 식별자를
+ * 보내지 않도록 기본값을 비운다(서버는 '(unknown)'으로 처리한다).
  */
 const PI_APP_INSTANCE =
-  (process.env.NEXT_PUBLIC_PI_APP_ID || '').trim() || 'Lqzm93E4twPAWjR_CQ3qgMYdWyFbOPYl9e-dxB_u9s8'
+  (PI_SANDBOX
+    ? (process.env.NEXT_PUBLIC_PI_APP_ID_TESTNET || '').trim()
+    : (process.env.NEXT_PUBLIC_PI_APP_ID_MAINNET || '').trim()) ||
+  (process.env.NEXT_PUBLIC_PI_APP_ID || '').trim() ||
+  (PI_SANDBOX ? 'Lqzm93E4twPAWjR_CQ3qgMYdWyFbOPYl9e-dxB_u9s8' : '')
 
 /**
  * authenticate 직후 accessToken을 App Studio 로그인 엔드포인트로 교환한다.

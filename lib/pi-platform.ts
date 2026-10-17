@@ -78,13 +78,24 @@ function resolvePiApiKeys(sandboxHint?: boolean | null): PiKeyChoice[] {
  * 앱으로 인증되지 않아 401이 난다 — /v2/me 검증부(piPlatformApiBase)와
  * 같은 규칙으로 결제 네트워크의 호스트를 고른다.
  * PI_PAYMENTS_API_URL로 전체 경로를, PI_PLATFORM_API_URL로 호스트를 강제 지정 가능.
+ * 네트워크별 오버라이드(…_TESTNET/…_MAINNET)가 공용 env보다 우선한다 —
+ * 단일 공용 값만 있으면 네트워크 전환 시 반대쪽 API 호스트가 남는다.
  */
 function piPaymentsApiBase(sandboxHint?: boolean | null) {
-  const override = (process.env.PI_PAYMENTS_API_URL || '').trim()
-  if (override) return override.replace(/\/+$/, '')
-  const platform = (process.env.PI_PLATFORM_API_URL || '').trim()
-  if (platform) return `${platform.replace(/\/+$/, '')}/v2/payments`
   const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  const suffix = sandbox ? 'TESTNET' : 'MAINNET'
+  const override = (
+    process.env[`PI_PAYMENTS_API_URL_${suffix}`] ||
+    process.env.PI_PAYMENTS_API_URL ||
+    ''
+  ).trim()
+  if (override) return override.replace(/\/+$/, '')
+  const platform = (
+    process.env[`PI_PLATFORM_API_URL_${suffix}`] ||
+    process.env.PI_PLATFORM_API_URL ||
+    ''
+  ).trim()
+  if (platform) return `${platform.replace(/\/+$/, '')}/v2/payments`
   return sandbox ? 'https://api.testnet.minepi.com/v2/payments' : 'https://api.minepi.com/v2/payments'
 }
 
@@ -504,12 +515,17 @@ export function assertPiPaymentCompleted(payment: unknown, paymentId: string, tx
 /**
  * Platform API base — 네트워크별로 분기한다. 테스트넷 토큰을 메인넷
  * api.minepi.com/v2/me로 검증하면 거절돼 테스트 도메인 로그인이 "세션 끊김"으로
- * 실패한다. PI_PLATFORM_API_URL로 강제 지정 가능.
+ * 실패한다. PI_PLATFORM_API_URL_TESTNET/_MAINNET → PI_PLATFORM_API_URL 순으로
+ * 강제 지정 가능.
  */
 function piPlatformApiBase(sandboxHint?: boolean | null) {
-  const override = (process.env.PI_PLATFORM_API_URL || '').trim()
-  if (override) return override.replace(/\/+$/, '')
   const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  const override = (
+    process.env[sandbox ? 'PI_PLATFORM_API_URL_TESTNET' : 'PI_PLATFORM_API_URL_MAINNET'] ||
+    process.env.PI_PLATFORM_API_URL ||
+    ''
+  ).trim()
+  if (override) return override.replace(/\/+$/, '')
   return sandbox ? 'https://api.testnet.minepi.com' : 'https://api.minepi.com'
 }
 
@@ -674,11 +690,14 @@ export async function piPaymentHealth(sandboxHint?: boolean | null) {
 }
 
 function piHorizonUrl(sandboxHint?: boolean | null) {
-  const override = (process.env.PI_HORIZON_URL || '').trim()
-  if (override) return override
   // 결제가 실제 생성된 네트워크를 우선 — 서버 env와 어긋나면 테스트넷
   // txid를 메인넷 Horizon에서 찾다 404로 거부하는 사태가 생긴다.
   const sandbox = typeof sandboxHint === 'boolean' ? sandboxHint : isPiSandboxEnv()
+  const scoped = (
+    sandbox ? process.env.PI_HORIZON_URL_TESTNET : process.env.PI_HORIZON_URL_MAINNET
+  )?.trim()
+  const override = scoped || (process.env.PI_HORIZON_URL || '').trim()
+  if (override) return override
   return sandbox ? 'https://api.testnet.minepi.com' : 'https://api.mainnet.minepi.com'
 }
 

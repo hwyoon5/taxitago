@@ -6,10 +6,14 @@ const MAINNET_HORIZON = 'https://api.mainnet.minepi.com'
 
 /**
  * 네트워크별 공식 Pi(Horizon 호환) API 베이스.
- * PI_HORIZON_URL 커스텀 엔드포인트를 둘 수 있다(자체 Horizon 프록시 등).
+ * PI_HORIZON_URL_TESTNET/_MAINNET 네트워크별 오버라이드가 우선하고, 없으면
+ * 공용 PI_HORIZON_URL → 공식 호스트 순(자체 Horizon 프록시 등).
  */
 export function piHorizonBase(network: PiNetworkMode): string {
-  const override = (process.env.PI_HORIZON_URL || '').trim()
+  const scoped = (
+    network === 'testnet' ? process.env.PI_HORIZON_URL_TESTNET : process.env.PI_HORIZON_URL_MAINNET
+  )?.trim()
+  const override = scoped || (process.env.PI_HORIZON_URL || '').trim()
   if (override) return override
   return network === 'testnet' ? TESTNET_HORIZON : MAINNET_HORIZON
 }

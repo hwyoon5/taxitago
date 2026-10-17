@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolvePiSandbox } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,10 +28,15 @@ export function GET(request: Request) {
     .split(':')[0]
     .toLowerCase()
   const url = new URL(request.url)
-  const isTestnet =
-    host === 'test.taxitago.co.kr' ||
-    host.startsWith('test.') ||
-    url.searchParams.get('pi_network') === 'testnet'
+  // ?pi_network=testnet|mainnet 힌트가 최우선 — 없으면 공용 resolver가
+  // host(테스트 도메인 강제) → env(NEXT_PUBLIC_PI_SANDBOX 체인) → 기본값으로
+  // 판정한다. SDK가 init하는 네트워크와 같은 규칙이라 어느 배포에서든
+  // 실제 앱 네트워크의 검증 키가 내려간다.
+  const networkParam = url.searchParams.get('pi_network')
+  const isTestnet = resolvePiSandbox({
+    hint: networkParam === 'testnet' ? true : networkParam === 'mainnet' ? false : null,
+    host,
+  })
   const key = isTestnet ? TESTNET_VALIDATION_KEY : MAINNET_VALIDATION_KEY
   return new NextResponse(key, {
     status: 200,

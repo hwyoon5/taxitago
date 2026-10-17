@@ -12,8 +12,14 @@ function corsJson(data: unknown, init?: { status?: number }) {
 // App Studio 검증 포워딩 — 앱별 고유 도메인이라 env로만 설정한다.
 // 샌드박스 포털 앱에는 이 엔드포인트가 없을 수 있으므로 미설정이면 생략
 // (구 앱 도메인으로의 스테일 폴백은 제거).
-const PI_APP_STUDIO_LOGIN_URL =
-  (process.env.PI_APP_STUDIO_LOGIN_URL || process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL || '').trim()
+// 네트워크별 env(PI_APP_STUDIO_LOGIN_URL_TESTNET/_MAINNET, NEXT_PUBLIC_ 동명)
+// → 공용 env 순으로 해석한다 — App Studio 앱은 네트워크마다 고유 도메인이다.
+function studioLoginUrl(sandbox: boolean) {
+  const scoped = sandbox
+    ? process.env.PI_APP_STUDIO_LOGIN_URL_TESTNET || process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL_TESTNET
+    : process.env.PI_APP_STUDIO_LOGIN_URL_MAINNET || process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL_MAINNET
+  return (scoped || process.env.PI_APP_STUDIO_LOGIN_URL || process.env.NEXT_PUBLIC_PI_APP_STUDIO_LOGIN_URL || '').trim()
+}
 
 /**
  * Pi 로그인 세션 재검증 — authenticate 직후 발급된 accessToken을 /v2/me로
@@ -44,14 +50,15 @@ export async function POST(request: Request) {
     // "세션 끊김"으로 실패한다.
     const sandbox = isPiSandboxRequest(request)
     const result = await inspectPiAccessToken(accessToken, sandbox)
+    const studioUrl = studioLoginUrl(sandbox)
 
     // App Studio 검증 포워딩 — 응답을 지연시키지 않도록 after()로 백그라운드
     // 처리한다. 직렬로 기다리면 최대 8초가 로그인 응답에 붙어 클라이언트
     // 타임아웃(15s)과 합쳐져 로그인이 느려진다.
     after(async () => {
-      if (!PI_APP_STUDIO_LOGIN_URL) return
+      if (!studioUrl) return
       try {
-        const studioRes = await fetch(PI_APP_STUDIO_LOGIN_URL, {
+        const studioRes = await fetch(studioUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ accessToken }),

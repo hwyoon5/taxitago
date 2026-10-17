@@ -23,7 +23,7 @@ import { checkInboundPayment, scanInboundDeposits } from '@/lib/deposit-scan'
 import { creditUserDeposit, listUserCredits } from '@/lib/user-credit-store'
 import { isDepositPaymentKind, knownServiceTxids, paymentKindOf } from '@/lib/payment-kind-store'
 import { listWalletTxs, recordWalletTx, walletTxTotals } from '@/lib/wallet-history'
-import { isPiSandboxRequest } from '@/lib/pi-sandbox'
+import { dataNetwork } from '@/lib/kv'
 import type { FareConfig } from '@/lib/fare-config'
 import type { CommissionRates, SettlementEntry, SettlementService } from '@/lib/settlement-types'
 
@@ -140,7 +140,7 @@ export async function GET(request: Request) {
         amount: deposit.amount,
         memo: deposit.memo,
         status: deposit.status === 'pending' ? 'pending' : 'confirmed',
-        network: isPiSandboxRequest(request) ? 'testnet' : 'mainnet',
+        network: dataNetwork(),
       }).catch(() => undefined)
     }
     const [refreshed, refreshedTotals] = await Promise.all([listWalletTxs(), walletTxTotals()])
@@ -257,7 +257,7 @@ export async function PATCH(request: Request) {
       amount: deposit.amount,
       memo: deposit.memo || reason,
       status: 'confirmed',
-      network: isPiSandboxRequest(request) ? 'testnet' : 'mainnet',
+      network: dataNetwork(),
     }).catch(() => undefined)
     await recordAudit({ kind: 'deposit', actor: actor.staffId, actorName: actor.staffName, refId: `deposit:${txid}`, reason, detail: `${fromWallet} → ${toWallet} · ${piRound(amount)}Pi · 체인검증:${chainStatus}`, after: { txid, amount: deposit.amount } }).catch(() => undefined)
     return NextResponse.json({ ok: true, deposit, chainStatus, depositTotal: await depositTotals() })

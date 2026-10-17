@@ -14,9 +14,19 @@ import { recordWalletTx } from '@/lib/wallet-history'
 const MIN_FEE_STROOPS = 100_000
 
 function horizonFor(sandbox: boolean) {
-  const url = (process.env.PI_HORIZON_URL || '').trim()
+  // 네트워크별 오버라이드(PI_HORIZON_URL_TESTNET/_MAINNET,
+  // PI_NETWORK_PASSPHRASE_TESTNET/_MAINNET)가 공용 env보다 우선한다 —
+  // 단일 공용 값만 두면 네트워크 전환 시 반대쪽 체인 엔드포인트/패스프레이즈가
+  // 남아 잘못된 체인에 서명·전송되는 사고를 방지한다.
+  const scopedUrl = (
+    sandbox ? process.env.PI_HORIZON_URL_TESTNET : process.env.PI_HORIZON_URL_MAINNET
+  )?.trim()
+  const url = scopedUrl || (process.env.PI_HORIZON_URL || '').trim()
+  const scopedPassphrase = (
+    sandbox ? process.env.PI_NETWORK_PASSPHRASE_TESTNET : process.env.PI_NETWORK_PASSPHRASE_MAINNET
+  )?.trim()
   const passphrase =
-    (process.env.PI_NETWORK_PASSPHRASE || '').trim() || (sandbox ? 'Pi Testnet' : 'Pi Network')
+    scopedPassphrase || (process.env.PI_NETWORK_PASSPHRASE || '').trim() || (sandbox ? 'Pi Testnet' : 'Pi Network')
   if (url) return { url, passphrase }
   return sandbox
     ? { url: 'https://api.testnet.minepi.com', passphrase: 'Pi Testnet' }
