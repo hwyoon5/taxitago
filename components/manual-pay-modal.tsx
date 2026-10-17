@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { toDataURL as qrToDataURL } from 'qrcode'
 import { apiFetch } from '@/lib/app-origin'
+import { MANUAL_PAY_MAX_PI, manualPayAmountError, sanitizeManualPayAmount } from '@/lib/manual-pay-limits'
 
 type ManualPayPublic = {
   id: string
@@ -91,11 +92,19 @@ export default function ManualPayModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, record?.id])
 
+  const amountValue = Number(amount)
+  const amountTooLarge = amount.trim() !== '' && Number.isFinite(amountValue) && amountValue > MANUAL_PAY_MAX_PI
+  const amountErrorText = (reason: 'invalid' | 'too_large' | 'too_precise' | null) =>
+    reason === 'too_large'
+      ? `결제 금액은 최대 ${MANUAL_PAY_MAX_PI} Pi까지 입력할 수 있습니다.`
+      : `결제 금액을 올바르게 입력해 주세요. (0 초과 ~ ${MANUAL_PAY_MAX_PI} Pi)`
+
   const createRequest = () => {
     const value = Number(amount)
     if (!driverId || busy) return
-    if (!Number.isFinite(value) || value <= 0 || value > 10_000) {
-      setError('결제 금액을 올바르게 입력해 주세요. (0 초과)')
+    const invalid = manualPayAmountError(value)
+    if (invalid) {
+      setError(amountErrorText(invalid))
       return
     }
     setBusy(true)
@@ -127,8 +136,9 @@ export default function ManualPayModal({
   const settleDirectly = () => {
     const value = Number(amount)
     if (!driverId || busy) return
-    if (!Number.isFinite(value) || value <= 0) {
-      setError('정산할 금액을 먼저 입력해 주세요.')
+    const invalid = manualPayAmountError(value)
+    if (invalid) {
+      setError(amountErrorText(invalid))
       return
     }
     setBusy(true)
@@ -198,14 +208,24 @@ export default function ManualPayModal({
                 type="number"
                 inputMode="decimal"
                 min="0"
+                max={MANUAL_PAY_MAX_PI}
                 step="0.1"
                 value={amount}
-                onChange={(event) => setAmount(event.target.value)}
+                onChange={(event) => {
+                  // 숫자·소수점 하나·소수부 7자리만 통과시켜 비정상 입력을 차단한다.
+                  setAmount(sanitizeManualPayAmount(event.target.value))
+                  if (error) setError('')
+                }}
                 placeholder="0.0000000"
                 className="w-full text-lg font-black outline-none"
               />
               <span className="shrink-0 text-sm font-black text-[#4C1FB8]">Pi</span>
             </div>
+            {amountTooLarge ? (
+              <p className="mt-1.5 text-xs font-black text-[#DC2626]">
+                {amountErrorText('too_large')}
+              </p>
+            ) : null}
             <input
               value={memo}
               onChange={(event) => setMemo(event.target.value)}

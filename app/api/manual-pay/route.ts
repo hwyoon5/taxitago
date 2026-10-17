@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
 import { cancelManualPay, createManualPay, getManualPay, manualPayPendingExpired, settleManualPayByDriver } from '@/lib/manual-pay-store'
+import { manualPayAmountError } from '@/lib/manual-pay-limits'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const MAX_AMOUNT_PI = 10_000
 
 function publicRecord(record: Awaited<ReturnType<typeof getManualPay>>) {
   if (!record) return null
@@ -39,7 +38,7 @@ export async function POST(request: Request) {
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
   const amount = Number(body?.amount)
   if (!driverId) return NextResponse.json({ error: 'driverId required' }, { status: 400 })
-  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_AMOUNT_PI) {
+  if (manualPayAmountError(amount)) {
     return NextResponse.json({ error: 'invalid_amount' }, { status: 400 })
   }
   const record = await createManualPay({
