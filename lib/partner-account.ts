@@ -304,7 +304,12 @@ export async function syncPartnerLink(profile: PartnerProfile) {
   try {
     await apiFetch('/api/partner/link', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // 메인넷 서버 검증용 — 프로필에 실린 이용자 토큰을 함께 보낸다.
+        // 테스트넷은 토큰 없이도 통과한다(개발 세션 허용).
+        ...(profile.accessToken ? { 'x-pi-access-token': profile.accessToken } : {}),
+      },
       body: JSON.stringify({
         uid: profile.uid,
         username: profile.username,
@@ -323,6 +328,8 @@ export async function syncPartnerLink(profile: PartnerProfile) {
         insuranceDocName: profile.insuranceDocName,
         insuranceDocAt: profile.insuranceDocAt,
         linkedAt: profile.linkedAt,
+        // 헤더가 프록시에서 손실되는 경우에 대비한 body fallback.
+        ...(profile.accessToken ? { accessToken: profile.accessToken } : {}),
       }),
     })
   } catch {

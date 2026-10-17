@@ -3,6 +3,7 @@ import { upsertDriverPresence } from '@/lib/dispatch-engine'
 import { ensureSeedDrivers, flushDispatchPersist } from '@/lib/dispatch-store'
 import { isUsableCoord } from '@/lib/ride-session'
 import { getRegistryUser, isUserLocked } from '@/lib/user-registry'
+import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,6 +21,20 @@ export async function POST(request: Request) {
   // 이용 정지(Lock) 기사는 온라인 전환을 차단한다 — 오프라인 전환은 허용.
   if (online && (await isUserLocked(driverId).catch(() => false))) {
     return NextResponse.json({ error: '관리자에 의해 이용이 정지된 계정입니다.' }, { status: 403 })
+  }
+  // 메인넷은 Pi 인증+KYC 가입을 마친 등록 기사만 온라인 전환할 수 있다 —
+  // 레지스트리 등록 여부로 확인한다(가입 시점 /api/partner/link POST가
+  // 토큰·스코프를 검증했으므로 하트비트마다 토큰을 검증할 필요는 없다).
+  // 테스트넷은 미등록 개발 uid도 온라인 전환을 허용해 매칭 테스트를 막지 않는다.
+  if (online && !isPiSandboxRequest(request)) {
+    const piUid = typeof body?.piUid === 'string' ? body.piUid.trim() : ''
+    const registered = await getRegistryUser(piUid || driverId).catch(() => null)
+    if (!registered || registered.withdrawnAt) {
+      return NextResponse.json(
+        { error: 'Pi 계정 연동 및 기사 등록 후 이용해 주세요.', registrationRequired: true },
+        { status: 403 },
+      )
+    }
   }
   const driver = upsertDriverPresence({
     id: driverId,

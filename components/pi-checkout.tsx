@@ -50,7 +50,13 @@ export const PI_SANDBOX = resolvePiSandbox({
   host: typeof window === 'undefined' ? null : window.location.hostname,
 })
 
-const PI_AUTH_SCOPES = ['username', 'payments'] as const
+/**
+ * 인증 스코프 — 메인넷은 'wallet_address'를 추가로 요청한다. 이 스코프는 KYC와
+ * 메인넷 이전을 마친 계정만 부여할 수 있어 "KYC 인증 통과 계정" 게이트의
+ * 실용적 근거가 된다. 테스트넷은 지갑 미보유 개발 계정이 많으므로 요청하지
+ * 않는다 — 요청하면 지갑 없는 테스트 계정이 인증 단계에서 튕긴다.
+ */
+const piAuthScopes = () => (PI_SANDBOX ? ['username', 'payments'] : ['username', 'payments', 'wallet_address'])
 
 let initialized = false
 let authPromise: Promise<unknown> | null = null
@@ -160,7 +166,7 @@ function authenticatePi(pi: PiSdk) {
     // Fire-and-forget: if the SDK awaits this callback before resolving
     // authenticate, a leftover incomplete payment would stall every checkout
     // behind a /api/pi/complete round-trip.
-    const pending = pi.authenticate([...PI_AUTH_SCOPES], (payment) => {
+    const pending = pi.authenticate(piAuthScopes(), (payment) => {
       void onIncompletePaymentFound(payment)
     })
     const watchdog = new Promise<never>((_, reject) => {
@@ -172,7 +178,7 @@ function authenticatePi(pi: PiSdk) {
     })
     authPromise = Promise.race([pending, watchdog])
       .then((auth) => {
-        logPi('log', 'authenticate ok', { scopes: PI_AUTH_SCOPES, auth })
+        logPi('log', 'authenticate ok', { scopes: piAuthScopes(), auth })
         return auth
       })
       .catch((error) => {
@@ -847,6 +853,9 @@ export type PiSession = {
   wallet: string
   /** Pi authenticate 결과의 이용자 토큰 — 서버가 /v2/me로 재검증하는 자격증명. */
   accessToken?: string
+  /** 지갑 주소가 인증 결과에서 실제로 내려온 경우 true — false면
+   *  uid로 만든 합성 주소이며 메인넷 KYC 게이트를 통과하지 못한다. */
+  walletVerified?: boolean
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -873,12 +882,13 @@ export function parsePiAuthResult(auth: unknown): PiSession | null {
   const uid = pickString(user, ['uid', 'user_uid', 'id']) || pickString(root, ['uid'])
   if (!uid) return null
   const username = pickString(user, ['username', 'user_name', 'name']) || pickString(root, ['username']) || uid
-  const wallet =
+  const realWallet =
     pickString(user, ['walletAddress', 'wallet_address', 'wallet']) ||
-    pickString(root, ['walletAddress', 'wallet_address', 'wallet']) ||
-    walletFromPiUid(uid)
+    pickString(asRecord(user?.credentials), ['wallet_address', 'walletAddress', 'wallet']) ||
+    pickString(root, ['walletAddress', 'wallet_address', 'wallet'])
+  const wallet = realWallet || walletFromPiUid(uid)
   const accessToken = pickString(root, ['accessToken', 'access_token']) || undefined
-  return { uid, username, wallet, accessToken }
+  return { uid, username, wallet, accessToken, walletVerified: Boolean(realWallet) }
 }
 
 /** Pi Sign-in: returns unique UID + wallet for partner profile / settlement. */
@@ -903,6 +913,12 @@ export async function signInWithPi(): Promise<PiSession> {
     const auth = await withTimeout(authenticatePi(pi), PI_AUTH_TIMEOUT_MS, 'Pi.authenticate')
     const session = parsePiAuthResult(auth)
     if (!session) throw new Error('파이 계정 UID를 받지 못했습니다.')
+    // 메인넷 KYC 강제 — wallet_address 스코프는 KYC·메인넷 이전 완료 계정에만
+    // 부여된다. 지갑 주소가 안 내려오면 스코프가 거절된 것이므로 가입/이용을
+    // 막고 안내한다(테스트넷은 지갑 없는 개발 계정을 허용하므로 검사 안 함).
+    if (!PI_SANDBOX && !session.walletVerified) {
+      throw new Error('Pi KYC 인증이 완료된 계정만 이용할 수 있습니다. Pi 앱에서 KYC와 메인넷 이전을 완료한 뒤 다시 로그인해 주세요.')
+    }
     // App Studio 검증: 발급 토큰을 App Studio 로그인 엔드포인트로 즉시 교환
     // (실패 시 서버 /api/pi/auth 경유 포워딩이 이어서 시도한다).
     if (session.accessToken) void loginPiAppStudio(session.accessToken)

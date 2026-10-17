@@ -534,11 +534,14 @@ export type PiTokenInspection = {
   /** 'ok' — 토큰 유효 · 'invalid' — 401/403으로 명시적 거절(만료/위조)
    *  'unreachable' — /v2/me 장애·타임아웃·미구현·파싱 실패로 판정 불가 */
   status: 'ok' | 'invalid' | 'unreachable'
+  /** /v2/me 응답의 부여 스코프 — 'wallet_address'는 KYC+메인넷 이전을
+   *  마친 계정에만 부여되므로 메인넷 KYC 게이트의 서버측 프록시로 쓴다. */
+  scopes: string[]
 }
 
 export async function inspectPiAccessToken(accessToken: string, sandboxHint?: boolean | null): Promise<PiTokenInspection> {
   const token = accessToken.trim()
-  if (!token) return { uid: null, status: 'invalid' }
+  if (!token) return { uid: null, status: 'invalid', scopes: [] }
   const base = piPlatformApiBase(sandboxHint)
   try {
     const res = await fetch(`${base}/v2/me`, {
@@ -548,14 +551,26 @@ export async function inspectPiAccessToken(accessToken: string, sandboxHint?: bo
     })
     if (!res.ok) {
       console.warn('[Pi] access token rejected', { status: res.status, base })
-      return { uid: null, status: res.status === 401 || res.status === 403 ? 'invalid' : 'unreachable' }
+      return { uid: null, status: res.status === 401 || res.status === 403 ? 'invalid' : 'unreachable', scopes: [] }
     }
-    const data = (await res.json().catch(() => null)) as { uid?: unknown } | null
+    const data = (await res.json().catch(() => null)) as {
+      uid?: unknown
+      credentials?: unknown
+      user?: unknown
+    } | null
     const uid = typeof data?.uid === 'string' && data.uid.trim() ? data.uid.trim() : null
-    return uid ? { uid, status: 'ok' } : { uid: null, status: 'unreachable' }
+    const scopeList = (value: unknown): string[] => {
+      if (!value || typeof value !== 'object') return []
+      const raw = (value as { scopes?: unknown }).scopes
+      return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string') : []
+    }
+    const scopes = scopeList(data?.credentials).length
+      ? scopeList(data?.credentials)
+      : scopeList(data?.user && typeof data.user === 'object' ? (data.user as { credentials?: unknown }).credentials : null)
+    return uid ? { uid, status: 'ok', scopes } : { uid: null, status: 'unreachable', scopes: [] }
   } catch (error) {
     console.error('[Pi] access token verification failed', { base, ...describeError(error) })
-    return { uid: null, status: 'unreachable' }
+    return { uid: null, status: 'unreachable', scopes: [] }
   }
 }
 

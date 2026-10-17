@@ -29,12 +29,39 @@ export async function POST(request: Request) {
     insuranceDocName?: unknown
     insuranceDocAt?: unknown
     linkedAt?: unknown
+    accessToken?: unknown
   } | null
   const uid = typeof body?.uid === 'string' ? body.uid.trim() : ''
   const username = typeof body?.username === 'string' ? body.username.trim() : ''
   const wallet = typeof body?.wallet === 'string' ? body.wallet.trim() : ''
   if (!uid || !wallet) {
     return NextResponse.json({ error: 'uid and wallet required' }, { status: 400 })
+  }
+  // 가입·동기화 인증 — 메인넷은 KYC 완료 계정(wallet_address 스코프)만
+  // 기사/파트너로 등록할 수 있다(fail-closed). 테스트넷은 /api/rides와
+  // 동일하게 uid 존재만으로 통과시킨다 — 오래된 개발 토큰 때문에
+  // 가입·호출·매칭 테스트가 인증 오류로 막히지 않게 한다.
+  const sandbox = isPiSandboxRequest(request)
+  if (!sandbox) {
+    const token =
+      request.headers.get('x-pi-access-token')?.trim() ||
+      (typeof body?.accessToken === 'string' ? body.accessToken.trim() : '')
+    if (!token) {
+      return NextResponse.json({ error: 'Pi 계정 연동 및 로그인 후 이용해 주세요.' }, { status: 401 })
+    }
+    const inspection = await inspectPiAccessToken(token, sandbox)
+    if (inspection.status !== 'ok' || inspection.uid !== uid) {
+      return NextResponse.json(
+        { error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' },
+        { status: 401 },
+      )
+    }
+    if (!inspection.scopes.includes('wallet_address')) {
+      return NextResponse.json(
+        { error: 'Pi KYC 인증이 완료된 계정만 기사·파트너로 등록할 수 있습니다.', kycRequired: true },
+        { status: 403 },
+      )
+    }
   }
   // 이용 정지(Lock) 계정은 연동·로그인 동기화 자체를 차단한다.
   const locked = await findLockedUser(uid, wallet).catch(() => null)

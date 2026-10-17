@@ -26,6 +26,7 @@ import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveF
 import { isUsableCoord, resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import {
   appendSettlementEntry,
+  hasPiCallCredential,
   loadPartnerProfile,
   loadPiIdentity,
   partnerVehicle,
@@ -7468,7 +7469,11 @@ function PartnerSignupModal({
   const photoInput = useRef<HTMLInputElement>(null)
   const insuranceDocInput = useRef<HTMLInputElement>(null)
   const skipVehicle = role === '기사' && serviceType === '대리운전'
-  const canSubmit = Boolean(session) && name.trim() && phoneVerified && (role === '기사' ? skipVehicle || (vehicleName.trim() && plateNumber.trim()) : vehicleName.trim())
+  // 메인넷은 KYC 완료 계정(실지갑 부여 + 토큰 세션)만 가입을 허용한다 —
+  // signInWithPi가 이미 차단하지만, 토큰 없는 구형 저장 세션으로 폼에
+  // 진입한 경우를 여기서 한 번 더 막는다. 테스트넷은 uid만 있으면 통과.
+  const sessionQualified = Boolean(session) && (PI_SANDBOX || (hasPiCallCredential(session) && session?.walletVerified === true))
+  const canSubmit = sessionQualified && name.trim() && phoneVerified && (role === '기사' ? skipVehicle || (vehicleName.trim() && plateNumber.trim()) : vehicleName.trim())
 
   const startPiLogin = async () => {
     if (signing) return
@@ -7809,6 +7814,19 @@ function PartnerSignupModal({
                 </button>
               </div>
             </div>
+            {session && !sessionQualified ? (
+              <div className="mt-3 rounded-2xl border-2 border-[#F59E0B]/40 bg-[#FFFBEB] p-3 text-xs font-bold leading-5 text-[#92400E]">
+                메인넷에서는 KYC 인증이 완료된 Pi 계정만 등록할 수 있습니다. Pi 로그인을 다시 진행해 주세요.
+                <button
+                  type="button"
+                  onClick={() => void startPiLogin()}
+                  disabled={signing}
+                  className="mt-2 w-full rounded-xl bg-[#4A82B8] py-2 font-black text-white disabled:opacity-70"
+                >
+                  {signing ? 'Pi Sign-in 중…' : 'Pi 계정 다시 로그인'}
+                </button>
+              </div>
+            ) : null}
             {formError ? <p className="mt-3 text-sm font-bold text-[#B91C1C]">{formError}</p> : null}
             <button type="button" onClick={submit} disabled={!canSubmit} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(74,130,184,0.35)] disabled:cursor-not-allowed disabled:opacity-40">
               파이 계정으로 등록 완료
@@ -10936,9 +10954,11 @@ export default function HomeScreen() {
    * 계정 연동 모달로 보낸다. 서버도 동일 자격을 /v2/me로 재검증한다.
    */
   const requirePiForCall = () => {
-    // 로그인된 계정(Pi 세션 또는 파트너/기사 프로필)이면 권한과 무관하게
-    // 승객 호출을 허용한다 — uid가 전혀 없는 익명 상태만 연동 모달로 보낸다.
-    if (loadPiIdentity()?.uid) return true
+    const identity = loadPiIdentity()
+    // 메인넷은 서버가 토큰+KYC 스코프까지 검증하므로 토큰 없는 세션(구형
+    // 저장본)은 호출 전에 재로그인으로 보낸다 — 서버 401보다 빠른 안내.
+    // 테스트넷은 uid만 있으면 통과시켜 개발·테스트 계정을 막지 않는다.
+    if (identity?.uid && (PI_SANDBOX || hasPiCallCredential(identity))) return true
     showNotice(t('toast.needLogin'))
     setHeaderModal('account')
     return false

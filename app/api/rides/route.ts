@@ -75,6 +75,15 @@ export async function POST(request: Request) {
     if (!allowed) {
       return NextResponse.json({ error: 'Pi 인증이 만료되었거나 확인되지 않았습니다. 다시 로그인해 주세요.' }, { status: 401 })
     }
+    // 메인넷 KYC 강제 — wallet_address 스코프는 KYC·메인넷 이전을 마친 계정에만
+    // 부여된다. 미부여 토큰은 재로그인(새 스코프 동의)으로 해소된다.
+    // (이 블록은 !sandbox일 때만 실행된다.)
+    if (!inspection.scopes.includes('wallet_address')) {
+      return NextResponse.json(
+        { error: 'Pi KYC 인증이 완료된 계정만 이용할 수 있습니다. 다시 로그인해 주세요.', kycRequired: true },
+        { status: 403 },
+      )
+    }
   }
   // 이용 정지(Lock) 계정은 호출을 만들 수 없다.
   if (await isUserLocked(piUid).catch(() => false)) {
