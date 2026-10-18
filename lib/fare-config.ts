@@ -22,12 +22,19 @@ export type SurchargeWindow = {
   endHour: number
 }
 
+/** 유료도로 통행료 정책 — Naver Directions summary.tollFare(원)를 Pi로 환산하는 비율. */
+export type TollPolicy = {
+  /** 1 Pi에 대응하는 원화 금액 — 통행료(원) ÷ krwPerPi = 통행료(Pi). */
+  krwPerPi: number
+}
+
 export type FareConfig = {
   taxi: FareRule
   daeri: FareRule
   flatBase: Record<FlatServiceId, number>
   cancel: CancelFeePolicy
   night: SurchargeWindow
+  toll: TollPolicy
 }
 
 export const DEFAULT_FARE_CONFIG: FareConfig = {
@@ -37,6 +44,9 @@ export const DEFAULT_FARE_CONFIG: FareConfig = {
   cancel: { rate: 40, min: 0.5 },
   // 공지된 정책과 동일 — 심야 0시~4시 기본 요금 1.2배.
   night: { rate: 20, startHour: 0, endHour: 4 },
+  // 기본요금 2.1 Pi ≈ 택시 기본요금 4,800원 기준으로 1 Pi ≈ 2,300원 가정.
+  // 실제 환율이 달라지면 관리자 설정에서 조정한다.
+  toll: { krwPerPi: 2300 },
 }
 
 export const FLAT_SERVICE_LABEL: Record<FlatServiceId, string> = {
@@ -72,7 +82,17 @@ export function normalizeFareConfig(input: Partial<FareConfig> | null | undefine
       startHour: Math.min(23, Math.max(0, Math.floor(num(input?.night?.startHour, DEFAULT_FARE_CONFIG.night.startHour)))),
       endHour: Math.min(24, Math.max(0, Math.floor(num(input?.night?.endHour, DEFAULT_FARE_CONFIG.night.endHour)))),
     },
+    toll: {
+      // 0이면 나눗셈이 깨지므로 하한 1원을 둔다.
+      krwPerPi: Math.max(1, num(input?.toll?.krwPerPi, DEFAULT_FARE_CONFIG.toll.krwPerPi)),
+    },
   }
+}
+
+/** 원화 통행료(길찾기 API tollFare)를 Pi로 환산한다. */
+export function tollFareToPi(tollKrw: number, config: FareConfig): number {
+  if (!Number.isFinite(tollKrw) || tollKrw <= 0) return 0
+  return piRound(tollKrw / Math.max(1, config.toll.krwPerPi))
 }
 
 /**

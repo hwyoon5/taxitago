@@ -112,24 +112,41 @@ function parseNaverDrivingPath(payload: unknown): RoutePoint[] {
   return picked.length >= 2 ? picked : []
 }
 
-export type DrivingRouteSummary = { path: RoutePoint[]; durationMin: number | null }
+export type DrivingRouteSummary = {
+  path: RoutePoint[]
+  durationMin: number | null
+  /** 유료도로 예상 통행료(원) — Naver summary.tollFare. 미제공 프로바이더(OSRM 등)는 null. */
+  tollFare: number | null
+  /** 국토부 택시 요금 추정치(원) — Naver summary.taxiFare. 참고용으로만 보존. */
+  taxiFare: number | null
+}
 
-const EMPTY_ROUTE: DrivingRouteSummary = { path: [], durationMin: null }
+const EMPTY_ROUTE: DrivingRouteSummary = { path: [], durationMin: null, tollFare: null, taxiFare: null }
 
-// Naver Directions 응답의 route.<option>[0].summary.duration(ms)에서 예상 소요 시간을 읽는다.
-function parseNaverDurationMin(payload: unknown): number | null {
-  if (!payload || typeof payload !== 'object') return null
+// Naver Directions 응답의 route.<option>[0].summary에서 duration(ms)과
+// 통행료·택시요금 추정치(원)를 함께 읽는다.
+function parseNaverSummary(payload: unknown): Pick<DrivingRouteSummary, 'durationMin' | 'tollFare' | 'taxiFare'> {
+  const empty = { durationMin: null, tollFare: null, taxiFare: null }
+  if (!payload || typeof payload !== 'object') return empty
   const root = payload as { route?: Record<string, unknown>; result?: { route?: Record<string, unknown> } }
   const route = root.route || root.result?.route
-  if (!route) return null
+  if (!route) return empty
   for (const value of Object.values(route)) {
     const legs = Array.isArray(value) ? value : value ? [value] : []
     for (const leg of legs) {
-      const ms = Number((leg as { summary?: { duration?: unknown } })?.summary?.duration)
-      if (Number.isFinite(ms) && ms > 0) return ms / 60000
+      const summary = (leg as { summary?: { duration?: unknown; tollFare?: unknown; taxiFare?: unknown } })?.summary
+      if (!summary) continue
+      const ms = Number(summary.duration)
+      const toll = Number(summary.tollFare)
+      const taxi = Number(summary.taxiFare)
+      return {
+        durationMin: Number.isFinite(ms) && ms > 0 ? ms / 60000 : null,
+        tollFare: Number.isFinite(toll) && toll >= 0 ? Math.round(toll) : null,
+        taxiFare: Number.isFinite(taxi) && taxi > 0 ? Math.round(taxi) : null,
+      }
     }
   }
-  return null
+  return empty
 }
 
 async function drivingRouteNaver(origin: RoutePoint, dest: RoutePoint, via: RoutePoint[] = []): Promise<DrivingRouteSummary> {
@@ -160,7 +177,7 @@ async function drivingRouteNaver(origin: RoutePoint, dest: RoutePoint, via: Rout
         if (!response.ok) continue
         const payload = await response.json()
         const points = parseNaverDrivingPath(payload)
-        if (points.length >= 3) return { path: points, durationMin: parseNaverDurationMin(payload) }
+        if (points.length >= 3) return { path: points, ...parseNaverSummary(payload) }
       } catch {
         continue
       }
@@ -186,7 +203,8 @@ async function drivingRouteOsrm(origin: RoutePoint, dest: RoutePoint, via: Route
     if (!Array.isArray(coords)) return EMPTY_ROUTE
     const path = coords.map(parseLngLatPair).filter((item): item is RoutePoint => Boolean(item))
     const seconds = Number(payload.routes?.[0]?.duration)
-    return { path, durationMin: Number.isFinite(seconds) && seconds > 0 ? seconds / 60 : null }
+    // OSRM은 통행료 메타데이터를 제공하지 않는다 — null은 '미산출'을 뜻한다.
+    return { path, durationMin: Number.isFinite(seconds) && seconds > 0 ? seconds / 60 : null, tollFare: null, taxiFare: null }
   } catch {
     return EMPTY_ROUTE
   }
@@ -209,6 +227,10 @@ async function drivingRouteLegsOnServer(chain: RoutePoint[]): Promise<DrivingRou
   const stitched: RoutePoint[] = []
   let durationMin = 0
   let hasDuration = false
+  let tollFare = 0
+  let hasToll = false
+  let taxiFare = 0
+  let hasTaxi = false
   for (let index = 1; index < chain.length; index += 1) {
     const leg = await drivingRouteSummaryOnServer(chain[index - 1], chain[index])
     if (leg.path.length < 2) return EMPTY_ROUTE
@@ -219,8 +241,21 @@ async function drivingRouteLegsOnServer(chain: RoutePoint[]): Promise<DrivingRou
       durationMin += leg.durationMin
       hasDuration = true
     }
+    if (leg.tollFare != null) {
+      tollFare += leg.tollFare
+      hasToll = true
+    }
+    if (leg.taxiFare != null) {
+      taxiFare += leg.taxiFare
+      hasTaxi = true
+    }
   }
-  return { path: stitched, durationMin: hasDuration ? durationMin : null }
+  return {
+    path: stitched,
+    durationMin: hasDuration ? durationMin : null,
+    tollFare: hasToll ? tollFare : null,
+    taxiFare: hasTaxi ? taxiFare : null,
+  }
 }
 
 export async function drivingRouteSummaryOnServer(

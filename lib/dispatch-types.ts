@@ -35,6 +35,10 @@ export type RideRequestRecord = {
   estimatedFare: number
   /** 기피 지역 판정 시 예상 요금에 포함된 할증액(Pi) — 0이면 미적용. */
   avoidSurchargePi?: number
+  /** 경로의 유료도로 예상 통행료(Pi) — estimatedFare에 이미 포함된 값. 0이면 무료 구간. */
+  tollPi?: number
+  /** 길찾기 API가 돌려준 원화 통행료(표시·감사용). null/없음이면 미산출. */
+  tollKrw?: number | null
   /** 길찾기 API 기준 예상 소요 시간(분) — 정체 추가 요금의 지연 판별 기준. */
   expectedMinutes?: number | null
   status: RideStatus
@@ -163,6 +167,10 @@ export type PublicRide = {
   estimatedFare: number
   /** 기피 지역 판정으로 부과된 할증액(Pi) — estimatedFare에 이미 포함된 값. */
   avoidSurchargePi?: number
+  /** 유료도로 예상 통행료(Pi) — estimatedFare에 이미 포함된 값. */
+  tollPi?: number
+  /** 길찾기 API 원화 통행료(표시용) — 미산출이면 null. */
+  tollKrw?: number | null
   expectedMinutes?: number | null
   status: RideStatus
   offerExpiresAt: string | null

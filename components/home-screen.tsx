@@ -926,6 +926,7 @@ type RideReceipt = {
   fare: string
   estimatedFare?: string
   trafficSurcharge?: string
+  toll?: string
   vehicle: string
   date: string
   distance: string
@@ -951,6 +952,10 @@ function receiptFromSettlement(item: SettlementReceipt): RideReceipt {
     trafficSurcharge:
       item.trafficSurcharge && item.trafficSurcharge > 0
         ? `+${item.trafficSurcharge.toFixed(7)} Pi${item.trafficDelayMinutes ? ` (예상 대비 +${item.trafficDelayMinutes}분 지연)` : ''}`
+        : undefined,
+    toll:
+      item.tollPi && item.tollPi > 0
+        ? `+${item.tollPi.toFixed(7)} Pi${item.tollKrw ? ` (약 ${item.tollKrw.toLocaleString('ko-KR')}원)` : ''}`
         : undefined,
     vehicle: '택시',
     date: new Date(item.settledAt).toLocaleString('ko-KR'),
@@ -2607,7 +2612,8 @@ function TaxiMatchingSheet({
   // 할증(settleRideFare의 해시 bump)은 폐기하고, 서버 escrow.amount와 같은
   // estimatedFare 하나로 청구·표시를 통일한다.
   const billed = { estimate: fare, actual: fare }
-  const cancelSettlement = settleMidTripCancelFee(fare, { rate: (fareCfg.cancel?.rate ?? 40) / 100, min: fareCfg.cancel?.min ?? 0.5 })
+  // 취소 수수료는 운임 기준 — 예상 통행료(미주행 구간)는 수수료 기준에서 제외한다.
+  const cancelSettlement = settleMidTripCancelFee(Math.max(0, fare - Number(ride?.tollPi || 0)), { rate: (fareCfg.cancel?.rate ?? 40) / 100, min: fareCfg.cancel?.min ?? 0.5 })
   const [accepting, setAccepting] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
@@ -3139,6 +3145,9 @@ function TaxiMatchingSheet({
             {ride ? <p className="mt-1 text-xs font-black text-[#4C1FB8]">{t('match.estFare', { v: ride.estimatedFare.toFixed(7) })}</p> : null}
             {Number(ride?.avoidSurchargePi || 0) > 0 ? (
               <p className="mt-1 text-[11px] font-bold text-[#B45309]">{t('match.surcharge', { v: Number(ride?.avoidSurchargePi).toFixed(7) })}</p>
+            ) : null}
+            {Number(ride?.tollPi || 0) > 0 ? (
+              <p className="mt-1 text-[11px] font-bold text-[#0D9488]">{t('match.tollNote', { v: Number(ride?.tollPi).toFixed(2) })}</p>
             ) : null}
             {ride?.pendingOffer ? (
               <p className="mt-2 text-sm font-bold text-[#4C1FB8]">{t('match.offered', { name: ride.pendingOffer.driverName })}</p>
@@ -3923,7 +3932,7 @@ function ServiceSheet({
     : selectedUsage?.name || t('svc.placeLine', { from: pickupAddress || t('loc.current'), name: translateService(locale, service) })
   const billed = { estimate: fare, actual: fare, adjusted: false }
   const chargeAmount = fare
-  const cancelSettlement = settleMidTripCancelFee(fare, { rate: (daeriFareCfg.cancel?.rate ?? 40) / 100, min: daeriFareCfg.cancel?.min ?? 0.5 })
+  const cancelSettlement = settleMidTripCancelFee(Math.max(0, fare - Number(dispatchRide?.tollPi || 0)), { rate: (daeriFareCfg.cancel?.rate ?? 40) / 100, min: daeriFareCfg.cancel?.min ?? 0.5 })
   const partner =
     ride
       ? {
@@ -4536,6 +4545,9 @@ function ServiceSheet({
                     {t('svc.delivFareUp')}
                   </button>
                 </div>
+                {Number(dispatchRide.tollPi || 0) > 0 ? (
+                  <p className="mt-1.5 text-[10px] font-bold text-[#0D9488]">{t('match.tollNote', { v: Number(dispatchRide.tollPi).toFixed(2) })}</p>
+                ) : null}
                 {dispatchRide.waitUntil && (dispatchRide.status === 'searching' || dispatchRide.status === 'offered') ? (
                   <p className="mt-1.5 text-[10px] font-bold text-[#94A3B8]">
                     {t('daeri.waitLeft', {
@@ -6930,6 +6942,9 @@ function ReceiptModal({ ride, onClose, onNotice, onLostItem }: { ride: RideRecei
           {ride.trafficSurcharge ? (
             <p className="mt-1 text-[11px] font-bold text-[#FDE68A]">{t('receipt.surcharge', { amount: ride.trafficSurcharge })}</p>
           ) : null}
+          {ride.toll ? (
+            <p className="mt-1 text-[11px] font-bold text-[#99F6E4]">{t('receipt.toll', { amount: ride.toll })}</p>
+          ) : null}
           <p className="mt-2 text-xs font-black text-[#E8DCFF]">{t('receipt.method', { method: ride.method === 'Pi 월렛' ? t('receipt.methodPi') : ride.method })}</p>
         </div>
         <div className="mt-4 min-w-0 overflow-hidden rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
@@ -7096,6 +7111,10 @@ function receiptFromRideHistory(ride: PublicRide): RideReceipt {
     dest,
     fare: `${paid.toFixed(7)} Pi`,
     estimatedFare: `${ride.estimatedFare.toFixed(7)} Pi`,
+    toll:
+      Number(ride.tollPi || 0) > 0
+        ? `+${Number(ride.tollPi).toFixed(7)} Pi${ride.tollKrw ? ` (약 ${ride.tollKrw.toLocaleString('ko-KR')}원)` : ''}`
+        : undefined,
     vehicle: ride.kind === 'daeri' ? '대리' : '택시',
     date: new Date(ride.updatedAt).toLocaleString('ko-KR'),
     distance: '-',
@@ -9091,6 +9110,11 @@ function DriverOfferWatcher({
               기피 지역 할증 +{Number(incoming.avoidSurchargePi).toFixed(7)} Pi 적용 — 추가 수익이 붙은 콜입니다.
             </p>
           ) : null}
+          {Number(incoming.tollPi || 0) > 0 ? (
+            <p className="mt-1.5 rounded-lg bg-[#F0FDFA] px-2.5 py-1.5 text-[11px] font-black text-[#0D9488]">
+              유료도로 통행료 {Number(incoming.tollPi).toFixed(2)} Pi 포함 — 정산 금액에 별도 항목으로 반영됩니다.
+            </p>
+          ) : null}
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
               disabled={busy}
@@ -10209,6 +10233,9 @@ function DriverDashboard({
               </div>
               <p className="shrink-0 text-sm font-black text-[#4C1FB8]">{(activeRide.escrow?.amount ?? activeRide.estimatedFare).toFixed(7)} Pi</p>
             </div>
+            {Number(activeRide.tollPi || 0) > 0 ? (
+              <p className="mt-1.5 text-[10px] font-bold text-[#0D9488]">유료도로 통행료 {Number(activeRide.tollPi).toFixed(2)} Pi 포함 — 정산 시 별도 항목으로 기록됩니다.</p>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -10495,6 +10522,11 @@ function DriverDashboard({
           {Number(incoming.avoidSurchargePi || 0) > 0 ? (
             <p className="mt-1.5 rounded-lg bg-[#FEF3C7] px-2.5 py-1.5 text-[11px] font-black text-[#B45309]">
               기피 지역 할증 +{Number(incoming.avoidSurchargePi).toFixed(7)} Pi 적용 — 추가 수익이 붙은 콜입니다.
+            </p>
+          ) : null}
+          {Number(incoming.tollPi || 0) > 0 ? (
+            <p className="mt-1.5 rounded-lg bg-[#F0FDFA] px-2.5 py-1.5 text-[11px] font-black text-[#0D9488]">
+              유료도로 통행료 {Number(incoming.tollPi).toFixed(2)} Pi 포함 — 정산 금액에 별도 항목으로 반영됩니다.
             </p>
           ) : null}
           <div className="mt-4 grid grid-cols-2 gap-2">

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { drivingPathOnServer } from '@/lib/server-directions'
+import { drivingRouteSummaryOnServer } from '@/lib/server-directions'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,9 +34,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'start and dest lat/lng required' }, { status: 400 })
   }
   try {
-    const path = await drivingPathOnServer({ lat: startLat, lng: startLng }, { lat: destLat, lng: destLng }, waypoints)
-    return NextResponse.json({ path })
+    const summary = await drivingRouteSummaryOnServer({ lat: startLat, lng: startLng }, { lat: destLat, lng: destLng }, waypoints)
+    // tollFare(원)/durationMin은 길찾기 제공자가 줄 때만 채워진다 — null이면 미산출.
+    return NextResponse.json({ path: summary.path, tollFare: summary.tollFare, taxiFare: summary.taxiFare, durationMin: summary.durationMin })
   } catch {
-    return NextResponse.json({ path: [] })
+    return NextResponse.json({ path: [], tollFare: null, taxiFare: null, durationMin: null })
   }
 }

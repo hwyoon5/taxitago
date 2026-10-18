@@ -54,7 +54,7 @@ function auditTrailFor(entry: SettlementEntry, audit: AuditEntry[]) {
  */
 export function buildSettlementCsv(entries: SettlementEntry[], audit: AuditEntry[], deposits: DepositEntry[] = []) {
   const lines: string[] = []
-  lines.push(row(['정산 ID', '운행/결제 참조', '서비스', '승객 ID', '기사 ID', '기사명', '내용', '결제 금액(Pi)', '수수료율(%)', '플랫폼 수수료(Pi)', '기사 순지급(Pi)', '기사 지갑', '관리자 지갑', '정산 상태', '생성 일시', '정산 완료 일시', '조정 이력']))
+  lines.push(row(['정산 ID', '운행/결제 참조', '서비스', '승객 ID', '기사 ID', '기사명', '내용', '결제 금액(Pi)', '기본 운임(Pi)', '통행료(Pi)', '통행료(원)', '수수료율(%)', '플랫폼 수수료(Pi)', '기사 순지급(Pi)', '기사 지갑', '관리자 지갑', '정산 상태', '생성 일시', '정산 완료 일시', '조정 이력']))
   for (const entry of entries) {
     lines.push(row([
       entry.id,
@@ -65,6 +65,9 @@ export function buildSettlementCsv(entries: SettlementEntry[], audit: AuditEntry
       entry.driverName,
       entry.memo,
       pi(entry.gross),
+      entry.tollPi ? pi(entry.gross - entry.tollPi) : pi(entry.gross),
+      entry.tollPi ? pi(entry.tollPi) : '',
+      entry.tollKrw ?? '',
       entry.rate,
       pi(entry.commission),
       pi(entry.net),

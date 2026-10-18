@@ -186,6 +186,8 @@ export default function PartnerStatSheet({
               ) : details.map((item, index) => {
                 const amount = Number(item?.amount)
                 const safeAmount = Number.isFinite(amount) ? amount : 0
+                const tollPi = Number(item?.tollPi)
+                const safeToll = Number.isFinite(tollPi) && tollPi > 0 ? tollPi : 0
                 const at = text(item?.at)
                 const time = at ? new Date(at) : null
                 return (
@@ -196,6 +198,11 @@ export default function PartnerStatSheet({
                   </div>
                   <p className="mt-1.5 text-base font-normal leading-snug text-slate-900">{text(item?.route)}</p>
                   <p className={`mt-1 text-base font-semibold ${accent.amount}`}>{item?.status === 'completed' || safeAmount > 0 ? `+${safeAmount.toFixed(7)} Pi` : '정산 없음'}</p>
+                  {safeToll > 0 ? (
+                    <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                      기본 운임 {(safeAmount - safeToll).toFixed(7)} Pi + 유료도로 통행료 {safeToll.toFixed(7)} Pi
+                    </p>
+                  ) : null}
                 </li>
                 )
               })}

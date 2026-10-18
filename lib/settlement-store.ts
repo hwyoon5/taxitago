@@ -153,6 +153,8 @@ export async function recordSettlement(input: {
   gross: number
   passengerId?: string
   driverWallet?: string
+  tollPi?: number
+  tollKrw?: number
   channel?: SettlementEntry['channel']
 }): Promise<SettlementEntry | null> {
   if (!input.refId || !Number.isFinite(input.gross) || input.gross <= 0) return null
@@ -180,6 +182,8 @@ export async function recordSettlement(input: {
     rate,
     commission,
     net: piRound(input.gross - commission),
+    tollPi: Number.isFinite(input.tollPi) && (input.tollPi ?? 0) > 0 ? input.tollPi : undefined,
+    tollKrw: Number.isFinite(input.tollKrw) && (input.tollKrw ?? 0) > 0 ? input.tollKrw : undefined,
     status: 'pending',
     channel: input.channel,
     settledAt: '',

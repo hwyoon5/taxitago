@@ -490,6 +490,30 @@ export default function AdminFareSettings() {
               : '현재 시간대별 할증이 꺼져 있습니다.'}
           </p>
         </div>
+        <div className="mt-2 rounded-xl border-2 border-[#99F6E4] bg-[#F0FDFA] p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-black text-[#0F766E]">유료도로 통행료 환산</span>
+            <span className="text-[10px] font-bold text-[#0D9488]">길찾기 통행료(원) → Pi 변환율</span>
+          </div>
+          <label className="mt-1.5 block">
+            <span className="text-[10px] font-bold text-[#0D9488]">1 Pi당 원화 환산율</span>
+            <div className="mt-0.5 flex items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                step={100}
+                disabled={!canEdit}
+                value={fareDraft.toll?.krwPerPi ?? DEFAULT_FARE_CONFIG.toll.krwPerPi}
+                onChange={(event) => setFareDraft((prev) => ({ ...prev, toll: { krwPerPi: Number(event.target.value) } }))}
+                className="w-full rounded-lg border border-[#99F6E4] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#0D9488]"
+              />
+              <span className="text-xs font-black text-[#0D9488]">원/Pi</span>
+            </div>
+          </label>
+          <p className="mt-1.5 text-[10px] font-bold leading-4 text-[#0D9488]">
+            유료도로 통행료 {((fareDraft.toll?.krwPerPi ?? 2300) * 1).toLocaleString('ko-KR')}원 ≈ 1 Pi — 경로 탐색 시 산출된 통행료가 이 비율로 견적·정산에 자동 합산됩니다.
+          </p>
+        </div>
         <button
           type="button"
           disabled={!canEdit || busy || !fareDirty}

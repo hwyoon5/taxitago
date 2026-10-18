@@ -285,11 +285,18 @@ export async function releaseEscrow(
   // 시간대별 할증 — 실측 거리로 재산정할 때도 승차 시각 기준 할증률을 곱한다.
   // 실측이 없어 예상 요금을 그대로 쓰는 경우에는 견적 산정 시 이미 반영돼 있다.
   const nightRate = timeSurchargeRate(fareConfig, ride.boardedAt ? new Date(ride.boardedAt) : new Date())
+  // 유료도로 통행료 — 견적 시 서버가 산출해 estimatedFare(=에스크로 잠금액)에 이미
+  // 포함된 값이다. 실측 거리로 운임을 재산정할 때는 운임만 새로 계산하므로
+  // 통행료를 별도 항목으로 다시 더한다(예상 요금을 그대로 쓰는 경로는
+  // escrow.amount에 이미 포함 → 이중 합산 방지).
+  const tollPi = Number.isFinite(ride.tollPi) && (ride.tollPi ?? 0) > 0 ? Number(ride.tollPi) : 0
   const baseAmount =
     validMeasured != null
-      ? piRound(estimateTaxiFarePi(validMeasured, fareConfig, ride.kind) * (1 + nightRate))
+      ? piRound(estimateTaxiFarePi(validMeasured, fareConfig, ride.kind) * (1 + nightRate) + tollPi)
       : escrow.amount
   const settleAmount = piRound(baseAmount + trafficSurcharge)
+  // 기본 운임 부분 — 총액에서 통행료를 뺀 값(정체·기피 할증은 운임에 포함).
+  const fareBase = piRound(settleAmount - tollPi)
 
   // 플랫폼 수수료 분리 — 기사에게는 수수료 공제 후 net만 송금하고,
   // 수수료는 승객 결제가 입금된 플랫폼 지갑에 그대로 남는다.
@@ -336,6 +343,9 @@ export async function releaseEscrow(
     dest: ride.dest.label || ride.dest.address || '목적지',
     amount: settleAmount,
     estimatedFare: ride.estimatedFare,
+    fareBase,
+    tollPi: tollPi || undefined,
+    tollKrw: ride.tollKrw ?? null,
     trafficSurcharge,
     trafficDelayMinutes: Math.round(delayMin * 10) / 10,
     expectedMinutes: Math.round(expectedMin * 10) / 10,
@@ -354,6 +364,8 @@ export async function releaseEscrow(
     rideId,
     amount: escrow.amount,
     route: receipt.route,
+    fareBase,
+    tollPi: tollPi || undefined,
     status: 'completed',
     at: receipt.settledAt,
   })
@@ -364,9 +376,11 @@ export async function releaseEscrow(
     driverId,
     driverName: target.name,
     passengerId: ride.passengerId,
-    memo: receipt.route,
+    memo: tollPi > 0 ? `${receipt.route} · 통행료 ${piRound(tollPi)} Pi 포함` : receipt.route,
     gross: escrow.amount,
     driverWallet: target.wallet,
+    tollPi: tollPi || undefined,
+    tollKrw: ride.tollKrw ?? undefined,
     channel: 'inapp',
   }).catch(() => null)
   // net 송금이 온체인에서 확인됐으면 장부도 즉시 '정산 완료'로 마감하고
@@ -400,7 +414,9 @@ export async function settlePassengerCancelFee(rideId: string) {
   const driverId = ride.assignedDriverId
   if (!driverId || ride.status !== 'assigned') return { ok: false as const, error: 'not_assigned' }
   const fareConfig = await getFareConfig()
-  const settlement = settleMidTripCancelFee(ride.estimatedFare, { rate: (fareConfig.cancel?.rate ?? 40) / 100, min: fareConfig.cancel?.min ?? 0.5 })
+  // 수수료 기준 금액은 운임만 — 예상 통행료(미주행 구간)에는 위약금을 얹지 않는다.
+  const fareQuoted = piRound(ride.estimatedFare - Math.max(0, ride.tollPi ?? 0))
+  const settlement = settleMidTripCancelFee(fareQuoted, { rate: (fareConfig.cancel?.rate ?? 40) / 100, min: fareConfig.cancel?.min ?? 0.5 })
 
   // 이미 정산된 취소 건 — 이중 송금을 막고 이전 결과를 그대로 돌려준다.
   // 단, 이전 시도에서 면제분 환불만 실패했다면 여기서 재시도한다.

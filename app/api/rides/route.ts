@@ -7,7 +7,7 @@ import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { avoidSurchargePi, avoidZoneScore, hydrateAvoidFromKv } from '@/lib/avoid-zone-store'
 import { isUsableCoord } from '@/lib/ride-session'
 import { getFareConfig } from '@/lib/fare-config-server'
-import { timeSurchargeRate } from '@/lib/fare-config'
+import { timeSurchargeRate, tollFareToPi } from '@/lib/fare-config'
 import { piRound } from '@/lib/pi-format'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
@@ -131,6 +131,11 @@ export async function POST(request: Request) {
     routeSummary && Number.isFinite(routeSummary.durationMin)
       ? (routeSummary.durationMin as number)
       : etaMinutesFromKm(fareQuote.routeKm)
+  // 유료도로 통행료 — 길찾기 API의 tollFare(원)를 설정 환산율(원/Pi)로 Pi로 변환해
+  // 견적에 합산한다. 제공자가 통행료를 주지 않으면(OSRM 폴백 등) 0으로 둔다.
+  const tollKrw = routeSummary?.tollFare != null && routeSummary.tollFare > 0 ? routeSummary.tollFare : null
+  const tollPi = tollKrw ? tollFareToPi(tollKrw, config) : 0
+  if (tollPi > 0) console.log('[dispatch] toll fare added to quote', { tollKrw, tollPi })
   // 기피 지역 할증 — 목적지 격자의 누적 거절/타임아웃/미배차율이 임계 이상이면
   // 견적에 할증을 얹어 기사 수락 유인을 만든다.
   const zone = avoidZoneScore(dest)
@@ -156,8 +161,10 @@ export async function POST(request: Request) {
     pickup,
     waypoints,
     dest,
-    estimatedFare: piRound(quoted + avoidPi),
+    estimatedFare: piRound(quoted + avoidPi + tollPi),
     avoidSurchargePi: avoidPi,
+    tollPi,
+    tollKrw,
     expectedMinutes,
     waitMinutes,
   })

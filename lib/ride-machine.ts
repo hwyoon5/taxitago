@@ -134,6 +134,8 @@ export async function transitionRide(input: {
     waypoints?: RidePointSnapshot[]
     dest?: RidePointSnapshot
     estimatedFare?: unknown
+    tollPi?: unknown
+    tollKrw?: unknown
     expectedMinutes?: unknown
     kind?: unknown
     boardedAt?: unknown
@@ -171,6 +173,8 @@ async function applyTransition(input: {
     waypoints?: RidePointSnapshot[]
     dest?: RidePointSnapshot
     estimatedFare?: unknown
+    tollPi?: unknown
+    tollKrw?: unknown
     expectedMinutes?: unknown
     kind?: unknown
     boardedAt?: unknown
@@ -189,6 +193,8 @@ async function applyTransition(input: {
         waypoints: toPoints(snapshot.waypoints),
         dest: toPoint(snapshot.dest),
         estimatedFare: typeof snapshot.estimatedFare === 'number' ? snapshot.estimatedFare : undefined,
+        tollPi: typeof snapshot.tollPi === 'number' && Number.isFinite(snapshot.tollPi) ? snapshot.tollPi : undefined,
+        tollKrw: typeof snapshot.tollKrw === 'number' && Number.isFinite(snapshot.tollKrw) ? snapshot.tollKrw : undefined,
         expectedMinutes: typeof snapshot.expectedMinutes === 'number' && Number.isFinite(snapshot.expectedMinutes) ? snapshot.expectedMinutes : undefined,
         kind: snapshot.kind === 'daeri' ? ('daeri' as const) : undefined,
         boardedAt: typeof snapshot.boardedAt === 'string' ? snapshot.boardedAt : null,

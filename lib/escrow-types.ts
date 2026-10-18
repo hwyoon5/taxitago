@@ -40,6 +40,12 @@ export type SettlementReceipt = {
   dest: string
   amount: number
   estimatedFare: number
+  /** 기본 운임 부분(Pi) — amount에서 유료도로 통행료를 뺀 값(정체 할증·기피 할증 포함). */
+  fareBase?: number
+  /** 유료도로 통행료(Pi) — amount에 이미 포함된 별도 항목. */
+  tollPi?: number
+  /** 길찾기 API가 산출한 원화 통행료(표시·감사용). */
+  tollKrw?: number | null
   /** 정체 추가 요금(Pi) — 실제 운행 시간이 예상보다 기준치 이상 늦을 때만 산정. */
   trafficSurcharge?: number
   /** 예상 대비 지연 시간(분, 0 이상). */
@@ -62,6 +68,10 @@ export type DriverEarning = {
   rideId: string
   amount: number
   route: string
+  /** 통행료를 뺀 운임 부분(Pi) — amount = fareBase + tollPi. */
+  fareBase?: number
+  /** 유료도로 통행료 항목(Pi) — amount에 포함. */
+  tollPi?: number
   status: 'completed' | 'cancelled'
   at: string
 }

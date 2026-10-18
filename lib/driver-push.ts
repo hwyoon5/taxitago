@@ -26,6 +26,8 @@ type PushPayload = {
     dest: { lat: number; lng: number; address?: string; label?: string }
     estimatedFare: number
     avoidSurchargePi?: number
+    tollPi?: number
+    tollKrw?: number | null
   }
 }
 

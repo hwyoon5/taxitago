@@ -17,6 +17,10 @@ export type SettlementEntry = {
   rate: number
   commission: number
   net: number
+  /** gross에 포함된 유료도로 통행료 항목(Pi) — 0/없음이면 무료 구간. */
+  tollPi?: number
+  /** 길찾기 API가 산출한 원화 통행료(표시·감사용). */
+  tollKrw?: number
   status: 'pending' | 'settled'
   /**
    * inapp — 승객이 플랫폼 지갑으로 Pi 결제 → 플랫폼이 기사에게 net을 송금해야 함.

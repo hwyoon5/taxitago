@@ -592,6 +592,11 @@ export default function AdminSettlements() {
               <p className="mt-1.5 text-xs font-black">{entry.driverName || entry.driverId} <span className="font-bold text-[#64748B]">· {entry.memo}</span></p>
               <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] font-bold text-[#64748B]">
                 <span>결제 {pi(entry.gross)} · 수수료 {entry.rate}% = <strong className="text-[#4C1FB8]">{pi(entry.commission)}</strong> · 기사 {pi(entry.net)}</span>
+                {entry.tollPi ? (
+                  <span className="rounded-full bg-[#F0FDFA] px-2 py-0.5 text-[10px] font-black text-[#0D9488]">
+                    통행료 {pi(entry.tollPi)}{entry.tollKrw ? ` (${entry.tollKrw.toLocaleString('ko-KR')}원)` : ''}
+                  </span>
+                ) : null}
                 <div className="flex shrink-0 items-center gap-1.5">
                   {entry.status === 'pending' ? (
                     <button
@@ -812,6 +817,10 @@ export default function AdminSettlements() {
           onClose={() => setDetail(null)}
           rows={[
             { label: '총 수익 (기사 매출)', value: pi(detail.gross) },
+            ...(detail.tollPi ? [
+              { label: '기본 운임 (통행료 제외)', value: pi(detail.gross - detail.tollPi) },
+              { label: '유료도로 통행료', value: `${pi(detail.tollPi)}${detail.tollKrw ? ` (약 ${detail.tollKrw.toLocaleString('ko-KR')}원)` : ''}` },
+            ] : []),
             { label: '수수료율', value: `${(detail.rate * 100).toFixed(1)}%` },
             { label: '플랫폼 수수료', value: pi(detail.commission) },
             { label: '기사 정산액', value: pi(detail.net) },
