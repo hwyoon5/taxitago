@@ -249,6 +249,8 @@ export async function sendDriverPresence(input: {
   phone?: string
   altDriverId?: string
   serviceType?: string
+  serviceRoles?: string[]
+  deliveryVehicles?: string[]
   vehicleTiers?: string[]
 }) {
   if (!isUsableCoord(input.lat, input.lng)) return
@@ -259,7 +261,15 @@ export async function sendDriverPresence(input: {
   })
 }
 
-export async function updateDriverProfile(input: { driverId: string; name?: string; vehicle?: string; plate?: string; vehicleTiers?: string[] }) {
+export async function updateDriverProfile(input: {
+  driverId: string
+  name?: string
+  vehicle?: string
+  plate?: string
+  vehicleTiers?: string[]
+  serviceRoles?: string[]
+  deliveryVehicles?: string[]
+}) {
   const driverId = input.driverId.trim()
   if (!driverId) return null
   try {

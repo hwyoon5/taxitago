@@ -1,6 +1,7 @@
 import { listDrivers, syncDispatchFromDisk } from '@/lib/dispatch-store'
 import { haversineKm } from '@/lib/dispatch-geo'
 import { sendDriverPush } from '@/lib/driver-push'
+import { driverDeliveryEligible } from '@/lib/partner-services'
 import type { DeliveryDispatch } from '@/lib/delivery-dispatch'
 
 const DELIVERY_PUSH_NEAR_KM = 8
@@ -15,7 +16,9 @@ export function notifyNearbyDeliveryDrivers(job: DeliveryDispatch) {
     syncDispatchFromDisk()
     const pickup = { lat: Number(job.pickupLat), lng: Number(job.pickupLng) }
     for (const driver of listDrivers()) {
-      if (driver.status !== 'online' || driver.serviceType !== '택배' || driver.virtual) continue
+      // 택배 역할 + 차량 체급 자격 — 겸직 기사는 serviceRoles, 전업은 serviceType으로 판정.
+      if (driver.status !== 'online' || driver.virtual) continue
+      if (!driverDeliveryEligible(driver, job)) continue
       if (!Number.isFinite(driver.lat) || haversineKm(driver, pickup) > DELIVERY_PUSH_NEAR_KM) continue
       void sendDriverPush(driver.id, {
         type: 'delivery',

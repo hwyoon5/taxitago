@@ -3,7 +3,7 @@ import { adminActor, isAdminRequest } from '@/lib/admin-auth'
 import { recordAudit } from '@/lib/audit-store'
 import { getPartnerLink, listPartnerLinks, upsertPartnerLink, type PartnerLinkRecord } from '@/lib/partner-ledger-server'
 import { listRegistryUsers, upsertRegistryUser, type RegistryUser } from '@/lib/user-registry'
-import { ALL_PARTNER_SERVICE_TYPES } from '@/lib/partner-services'
+import { ALL_PARTNER_SERVICE_TYPES, normalizeDeliveryVehicles, normalizeServiceRoles } from '@/lib/partner-services'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,6 +21,8 @@ function registryToLink(user: RegistryUser): PartnerLinkRecord {
     plate: user.plate,
     region: user.region,
     serviceType: user.serviceType,
+    serviceRoles: user.serviceRoles,
+    deliveryVehicles: user.deliveryVehicles,
     insuranceCompany: user.insuranceCompany,
     insurancePolicyNo: user.insurancePolicyNo,
     insuranceExpiresAt: user.insuranceExpiresAt,
@@ -71,6 +73,8 @@ export async function POST(request: Request) {
     uid?: unknown
     role?: unknown
     serviceType?: unknown
+    serviceRoles?: unknown
+    deliveryVehicles?: unknown
     name?: unknown
     phone?: unknown
     vehicle?: unknown
@@ -118,6 +122,11 @@ export async function POST(request: Request) {
     plate: text(body?.plate, previous?.plate) || '',
     region: text(body?.region, previous?.region) || '',
     serviceType,
+    // 겸직 승인(수행 서비스)·택배 차량 체급은 관리자가 이 폼에서 지정한다 —
+    // 미전송 시 기존 권한을 보존한다.
+    serviceRoles:
+      body?.serviceRoles !== undefined ? normalizeServiceRoles(body.serviceRoles, serviceType) : previous?.serviceRoles,
+    deliveryVehicles: body?.deliveryVehicles !== undefined ? normalizeDeliveryVehicles(body.deliveryVehicles) : previous?.deliveryVehicles,
     insuranceCompany: text(body?.insuranceCompany, previous?.insuranceCompany) || '',
     insurancePolicyNo: text(body?.insurancePolicyNo, previous?.insurancePolicyNo) || '',
     insuranceExpiresAt: text(body?.insuranceExpiresAt, previous?.insuranceExpiresAt) || '',

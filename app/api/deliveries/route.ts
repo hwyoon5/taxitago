@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createDeliveryDispatch, listAssignedByDriver, listDeliveriesByOwner, listOpenDeliveries, publicDelivery, setDeliveryPhotoCount, sweepExpiredDeliveries } from '@/lib/delivery-dispatch'
 import { sanitizeAttachments, saveAttachments } from '@/lib/attachment-store'
 import { notifyNearbyDeliveryDrivers } from '@/lib/delivery-push'
+import { driverDeliveryEligible } from '@/lib/partner-services'
+import { getRegistryUser } from '@/lib/user-registry'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -19,6 +21,14 @@ export async function GET(request: Request) {
   // 발신인 본인 목록(전체 상태) — 기사용 오픈 목록과 분기한다.
   if (ownerId) {
     return NextResponse.json({ ok: true, jobs: (await listDeliveriesByOwner(ownerId)).map((job) => publicDelivery(job, ownerId)) })
+  }
+  // 기사 매칭 풀 — 등록 계정이면 겸직 역할·허용 차량 체급에 맞는 콜만 내린다.
+  // 레지스트리에 없는 단말(테스트넷 개발 기기)은 기존처럼 전체 목록을 돌려준다.
+  const forDriver = params.get('forDriver')?.trim()
+  if (forDriver) {
+    const user = await getRegistryUser(forDriver).catch(() => null)
+    const jobs = (await listOpenDeliveries()).filter((job) => (user ? driverDeliveryEligible(user, job) : true))
+    return NextResponse.json({ ok: true, jobs: jobs.map((job) => publicDelivery(job)) })
   }
   return NextResponse.json({ ok: true, jobs: (await listOpenDeliveries()).map((job) => publicDelivery(job)) })
 }

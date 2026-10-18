@@ -36,7 +36,7 @@ import {
   syncPartnerLink,
   uploadInsuranceDoc,
 } from '@/lib/partner-account'
-import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-services'
+import { facilityUnitLabel, facilityUnitPlaceholder, normalizeServiceRoles, partnerServesDelivery } from '@/lib/partner-services'
 import { facilityTypeToDeviceKind, type DeviceSpec } from '@/lib/device-types'
 import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
@@ -8222,6 +8222,9 @@ function PartnerSignupModal({
   // 기사·파트너 중 한 가지 역할만 가질 수 있다(서버도 409로 같은 규칙을 강제).
   const [lockedRole, setLockedRole] = useState<'기사' | '파트너' | null>(null)
   const [serviceType, setServiceType] = useState<'택시' | '대리운전' | '택배'>('택시')
+  // 겸직(Multi-role) — 주 서비스 외에 병행할 기사 서비스. 택배 겸직 시 허용 체급을 함께 고른다.
+  const [extraRoles, setExtraRoles] = useState<string[]>([])
+  const [deliveryVehicles, setDeliveryVehicles] = useState<string[]>([])
   const [facilityType, setFacilityType] = useState<'주차' | '자전거' | '킥보드' | 'EV 충전'>('주차')
   const [facilitySpec, setFacilitySpec] = useState<DeviceSpec | null>(null)
   const [name, setName] = useState('')
@@ -8242,7 +8245,9 @@ function PartnerSignupModal({
   const [submitted, setSubmitted] = useState(false)
   const photoInput = useRef<HTMLInputElement>(null)
   const insuranceDocInput = useRef<HTMLInputElement>(null)
-  const skipVehicle = role === '기사' && serviceType === '대리운전'
+  // 택배를 수행하는 기사(주 서비스 또는 겸직)는 배송 차량 정보가 필요하다 —
+  // 대리운전이라도 택배 겸직이면 차량명·번호를 입력받는다.
+  const skipVehicle = role === '기사' && serviceType === '대리운전' && !extraRoles.includes('택배')
   // 메인넷은 KYC 완료 계정(실지갑 부여 + 토큰 세션)만 가입을 허용한다 —
   // signInWithPi가 이미 차단하지만, 토큰 없는 구형 저장 세션으로 폼에
   // 진입한 경우를 여기서 한 번 더 막는다. 테스트넷은 uid만 있으면 통과.
@@ -8306,6 +8311,11 @@ function PartnerSignupModal({
       plate: role === '기사' && skipVehicle ? '' : plateNumber.trim(),
       region: region.trim() || '서울',
       serviceType: role === '기사' ? serviceType : facilityType,
+      // 겸직 — 주 서비스는 항상 포함. 택배 역할이 있을 때만 체급을 저장한다
+      // (미선택 = 서류·소형 소화물 콜만 수락, 택배 전업은 체크 전부 = 전 체급).
+      serviceRoles: role === '기사' ? normalizeServiceRoles(extraRoles, serviceType) : [],
+      deliveryVehicles:
+        role === '기사' && (serviceType === '택배' || extraRoles.includes('택배')) ? deliveryVehicles : [],
       vehicleTiers: role === '기사' && serviceType === '택시' ? vehicleTiers : [],
       insuranceCompany: insuranceCompany.trim(),
       insurancePolicyNo: insurancePolicyNo.trim(),
@@ -8455,6 +8465,54 @@ function PartnerSignupModal({
                       {item}
                     </button>
                   ))}
+                </div>
+                <div className="mt-3 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-3">
+                  <p className="text-xs font-black text-[#334155]">서비스 겸직 설정 (선택)</p>
+                  <p className="mt-1 text-[11px] font-bold text-[#8b8495]">
+                    주 서비스 외에 병행할 업무를 고르세요 — 유휴 시간에 겸직 서비스 콜도 받을 수 있습니다. 겸직 권한·차량 체급은 관리자가 조정할 수 있습니다.
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {(['택시', '대리운전', '택배'] as const)
+                      .filter((item) => item !== serviceType)
+                      .map((item) => {
+                        const checked = extraRoles.includes(item)
+                        return (
+                          <button
+                            key={item}
+                            type="button"
+                            onClick={() => setExtraRoles((prev) => (checked ? prev.filter((r) => r !== item) : [...prev, item]))}
+                            className={`rounded-xl border-2 py-2.5 text-xs font-black ${checked ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
+                          >
+                            {item} 겸직
+                          </button>
+                        )
+                      })}
+                  </div>
+                  {serviceType === '택배' || extraRoles.includes('택배') ? (
+                    <div className="mt-3 border-t border-[#DBEAFE] pt-3">
+                      <p className="text-xs font-black text-[#334155]">택배 차량 체급</p>
+                      <p className="mt-1 text-[11px] font-bold text-[#8b8495]">
+                        보유·수행 가능한 차량을 모두 선택하세요. 미선택 시 승용차로 소화 가능한 서류·소형 콜만 배정됩니다.
+                      </p>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {DELIVERY_VEHICLES.map((vehicle) => {
+                          const checked = deliveryVehicles.includes(vehicle)
+                          return (
+                            <button
+                              key={vehicle}
+                              type="button"
+                              onClick={() =>
+                                setDeliveryVehicles((prev) => (checked ? prev.filter((v) => v !== vehicle) : [...prev, vehicle]))
+                              }
+                              className={`rounded-xl border-2 py-2.5 text-xs font-black ${checked ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
+                            >
+                              {vehicle}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -9375,6 +9433,8 @@ function DriverOfferWatcher({
         piUid: partner?.uid,
         phone: partner?.phone || memberPhone(),
         serviceType: partner?.serviceType,
+        serviceRoles: partner?.serviceRoles,
+        deliveryVehicles: partner?.deliveryVehicles,
         vehicleTiers: partner?.vehicleTiers,
       }).then(() => {
         delay = document.visibilityState === 'visible' ? 12000 : 20000
@@ -9879,6 +9939,8 @@ function DriverDashboard({
         piUid: partner?.uid,
         phone: partner?.phone || memberPhone(),
         serviceType: partner?.serviceType,
+        serviceRoles: partner?.serviceRoles,
+        deliveryVehicles: partner?.deliveryVehicles,
         vehicleTiers: partner?.vehicleTiers,
       }).then(() => {
         delay = document.visibilityState === 'visible' ? 12000 : 20000
@@ -10166,13 +10228,13 @@ function DriverDashboard({
   }, [driverId, online, deliveryJob, noteActivity])
 
   useEffect(() => {
-    if (!online || partner?.serviceType !== '택배') {
+    if (!online || !partnerServesDelivery(partner)) {
       setOpenDeliveries([])
       return
     }
     let stopped = false
     const pull = () => {
-      void fetchOpenDeliveries().then((jobs) => {
+      void fetchOpenDeliveries(driverId).then((jobs) => {
         if (!stopped) setOpenDeliveries(jobs)
       }).catch(() => undefined)
     }
@@ -10188,12 +10250,12 @@ function DriverDashboard({
       window.clearInterval(timer)
       navigator.serviceWorker?.removeEventListener('message', onPush)
     }
-  }, [online, partner?.serviceType])
+  }, [online, driverId, partner?.serviceType, partner?.serviceRoles, partner?.deliveryVehicles])
 
   // 수거지가 기사 현재 위치 반경 안으로 들어온 택배 — 실시간 팝업 + 알림음.
   const DELIVERY_NEAR_KM = 3
   useEffect(() => {
-    if (!online || partner?.serviceType !== '택배') return
+    if (!online || !partnerServesDelivery(partner)) return
     for (const job of openDeliveries) {
       if (deliveryNearSeen.current.has(job.id)) continue
       if (!isUsableCoord(job.pickupLat, job.pickupLng)) continue
@@ -10204,11 +10266,11 @@ function DriverDashboard({
       alertDriverOffer(`delivery-near:${job.id}`)
       break
     }
-  }, [openDeliveries, online, lat, lng, partner?.serviceType])
+  }, [openDeliveries, online, lat, lng, partner?.serviceType, partner?.serviceRoles])
 
   // 수락한 택배는 서버에 남는다 — 새로고침·재진입 시 배정 건을 복원한다.
   useEffect(() => {
-    if (!driverId || partner?.serviceType !== '택배') return
+    if (!driverId || !partnerServesDelivery(partner)) return
     let stopped = false
     const pull = () => {
       void fetchAcceptedDeliveries(driverId).then((jobs) => {
@@ -10221,7 +10283,7 @@ function DriverDashboard({
       stopped = true
       window.clearInterval(timer)
     }
-  }, [driverId, partner?.serviceType])
+  }, [driverId, partner?.serviceType, partner?.serviceRoles])
 
   const acceptDeliveryJob = (job: PublicDelivery) => {
     const fleet = partnerVehicle(partner)
@@ -10703,7 +10765,7 @@ function DriverDashboard({
             <DeliveryContactCard job={activeDelivery} onChat={setDeliveryChatPeer} />
           </div>
         </section>
-      ) : partner?.serviceType === '택배' ? (
+      ) : partnerServesDelivery(partner) ? (
         <section className="mt-4 rounded-[26px] border-2 border-[#BBF7D0] bg-white p-5 text-center">
           <p className="font-bold text-[#0F172A]">대기 중인 배송 건이 없습니다</p>
           <p className="mt-1 text-xs font-medium text-[#64748B]">고객이 택배를 신청하면 발신인·수신인 연락처가 여기에 표시됩니다.</p>
@@ -10734,7 +10796,7 @@ function DriverDashboard({
           <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">터치하면 채팅이 바로 열립니다</p>
         </button>
       ) : null}
-      {partner?.serviceType === '택배' && openDeliveries.length ? (
+      {partnerServesDelivery(partner) && openDeliveries.length ? (
         <section className="mt-2 space-y-2 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
           <p className="text-xs font-bold text-[#4A82B8]">실시간 택배 요청 {openDeliveries.length}건</p>
           {openDeliveries.slice(0, 5).map((job) => {
@@ -10783,7 +10845,7 @@ function DriverDashboard({
           })}
         </section>
       ) : null}
-      {partner?.serviceType === '택배' && acceptedDelivery ? (
+      {partnerServesDelivery(partner) && acceptedDelivery ? (
         <section className="mt-2 rounded-2xl border-2 border-[#4A82B8] bg-[#E8F1FA] p-4">
           <p className="text-xs font-bold text-[#4A82B8]">배차된 택배 · 연락처</p>
           <p className="mt-2 text-sm font-black text-[#0F172A]">{acceptedDelivery.pickupAddress} → {acceptedDelivery.destAddress}</p>

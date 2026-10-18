@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { kvCommand, kvConfigured } from '@/lib/kv'
 import { normalizeVehicleTiers } from '@/lib/ride-tiers'
+import { normalizeDeliveryVehicles, normalizeServiceRoles } from '@/lib/partner-services'
 
 /**
  * 가입자 레지스트리 — Pi uid 기준의 영속 사용자 디렉터리.
@@ -21,6 +22,10 @@ export type RegistryUser = {
   plate?: string
   region?: string
   serviceType?: string
+  /** 겸직(Multi-role) 수행 서비스 — 택시 기사의 택배 병행 등. 없으면 serviceType 단일 역할. */
+  serviceRoles?: string[]
+  /** 택배 수행 시 관리자·본인이 지정한 허용 차량 체급 — 매칭 풀 필터의 근거. */
+  deliveryVehicles?: string[]
   /** 기사가 제공 가능한 차량 등급 목록('모범'·'대형'·'펫동반') — 매칭 티어 필터의 근거. */
   vehicleTiers?: string[]
   insuranceCompany?: string
@@ -119,6 +124,8 @@ export async function upsertRegistryUser(input: {
   plate?: string
   region?: string
   serviceType?: string
+  serviceRoles?: string[]
+  deliveryVehicles?: string[]
   vehicleTiers?: string[]
   insuranceCompany?: string
   insurancePolicyNo?: string
@@ -143,6 +150,13 @@ export async function upsertRegistryUser(input: {
     plate: text(input.plate, prev?.plate),
     region: text(input.region, prev?.region),
     serviceType: text(input.serviceType, prev?.serviceType),
+    // 겸직·체급은 배열 필드 — 클라이언트가 명시적으로 보냈을 때만 교체하고,
+    // 미전송(구형 경로)이면 이전 등록값을 보존한다.
+    serviceRoles:
+      input.serviceRoles !== undefined
+        ? normalizeServiceRoles(input.serviceRoles, text(input.serviceType, prev?.serviceType))
+        : prev?.serviceRoles,
+    deliveryVehicles: input.deliveryVehicles !== undefined ? normalizeDeliveryVehicles(input.deliveryVehicles) : prev?.deliveryVehicles,
     vehicleTiers: normalizeVehicleTiers(input.vehicleTiers !== undefined ? input.vehicleTiers : prev?.vehicleTiers),
     insuranceCompany: text(input.insuranceCompany, prev?.insuranceCompany),
     insurancePolicyNo: text(input.insurancePolicyNo, prev?.insurancePolicyNo),

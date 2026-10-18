@@ -12,15 +12,22 @@ import {
   ALL_PARTNER_SERVICE_TYPES,
   DRIVER_SERVICE_TYPES,
   PARTNER_FACILITY_TYPES,
+  effectiveServiceRoles,
   facilityUnitLabel,
   facilityUnitPlaceholder,
+  normalizeServiceRoles,
   vehicleRequiredFor,
 } from '@/lib/partner-services'
+import { DELIVERY_VEHICLES } from '@/lib/delivery-fare'
 
 type FormState = {
   uid: string
   role: '기사' | '파트너'
   serviceType: string
+  /** 겸직 승인 — 주 서비스(serviceType) 외에 수행 가능한 기사 서비스 목록. */
+  serviceRoles: string[]
+  /** 택배 수행 시 허용 차량 체급 — 비어 있으면 소화물(서류·소형)만 수락 가능. */
+  deliveryVehicles: string[]
   name: string
   phone: string
   vehicle: string
@@ -38,6 +45,8 @@ const EMPTY_FORM: FormState = {
   uid: '',
   role: '기사',
   serviceType: '택시',
+  serviceRoles: ['택시'],
+  deliveryVehicles: [],
   name: '',
   phone: '',
   vehicle: '',
@@ -185,7 +194,9 @@ export default function AdminPartners() {
   }
 
   // 역할·서비스에 따른 필수 입력 — 사용자 가입 폼(home-screen.tsx)과 동일 규칙.
-  const needsVehicle = form.role === '기사' && vehicleRequiredFor(form.serviceType)
+  // 택배 겸직 기사는 대리운전이라도 배송 차량 정보가 필요하다.
+  const needsVehicle =
+    form.role === '기사' && (vehicleRequiredFor(form.serviceType) || form.serviceRoles.includes('택배'))
   const canSubmit = Boolean(
     form.name.trim() &&
       form.phone.trim() &&
@@ -204,6 +215,8 @@ export default function AdminPartners() {
     // 대리운전 기사는 차량 정보를 저장하지 않는다 — 사용자 가입 레코드와 동일 형태.
     const payload = {
       ...form,
+      serviceRoles: form.role === '기사' ? normalizeServiceRoles(form.serviceRoles, form.serviceType) : [],
+      deliveryVehicles: form.role === '기사' && form.serviceRoles.includes('택배') ? form.deliveryVehicles : [],
       vehicle: form.role === '파트너' || needsVehicle ? form.vehicle : '',
       plate: form.role === '파트너' ? form.plate : needsVehicle ? form.plate : '',
       baseUpdatedAt: editBase,
@@ -254,6 +267,8 @@ export default function AdminPartners() {
       uid: row.uid,
       role: row.role === '파트너' ? '파트너' : '기사',
       serviceType: row.serviceType || '택시',
+      serviceRoles: normalizeServiceRoles(row.serviceRoles, row.serviceType || '택시'),
+      deliveryVehicles: Array.isArray(row.deliveryVehicles) ? [...row.deliveryVehicles] : [],
       name: row.name || '',
       phone: row.phone || '',
       vehicle: row.vehicle || '',
@@ -296,7 +311,8 @@ export default function AdminPartners() {
                 setForm((f) => {
                   const role = e.target.value === '파트너' ? ('파트너' as const) : ('기사' as const)
                   const options: readonly string[] = role === '파트너' ? PARTNER_FACILITY_TYPES : DRIVER_SERVICE_TYPES
-                  return { ...f, role, serviceType: options.includes(f.serviceType) ? f.serviceType : options[0] }
+                  const serviceType = options.includes(f.serviceType) ? f.serviceType : options[0]
+                  return { ...f, role, serviceType, serviceRoles: normalizeServiceRoles(f.serviceRoles, serviceType) }
                 })
               }
               className={input}
@@ -307,12 +323,81 @@ export default function AdminPartners() {
           </div>
           <div>
             <label className={label}>{form.role === '파트너' ? '등록 서비스(시설)' : '서비스'}</label>
-            <select value={form.serviceType} onChange={(e) => setForm((f) => ({ ...f, serviceType: e.target.value }))} className={input}>
+            <select
+              value={form.serviceType}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, serviceType: e.target.value, serviceRoles: normalizeServiceRoles(f.serviceRoles, e.target.value) }))
+              }
+              className={input}
+            >
               {(form.role === '파트너' ? PARTNER_FACILITY_TYPES : DRIVER_SERVICE_TYPES).map((type) => (
                 <option key={type} value={type}>{type}</option>
               ))}
             </select>
           </div>
+          {form.role === '기사' ? (
+            <div className="col-span-2 rounded-2xl border-2 border-[#DBEAFE] bg-[#F8FAFC] p-3">
+              <p className="text-[11px] font-black text-[#1D4ED8]">서비스 겸직 승인 (Multi-role)</p>
+              <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">
+                체크한 서비스의 콜만 이 파트너의 매칭 풀·수락에 허용됩니다. 주 서비스는 항상 포함됩니다.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {DRIVER_SERVICE_TYPES.map((type) => {
+                  const primary = type === form.serviceType
+                  const checked = primary || form.serviceRoles.includes(type)
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      disabled={primary}
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          serviceRoles: checked ? f.serviceRoles.filter((r) => r !== type) : [...f.serviceRoles, type],
+                        }))
+                      }
+                      className={`rounded-xl border-2 px-3 py-2 text-[11px] font-black ${
+                        checked ? 'border-[#4C1FB8] bg-[#4C1FB8] text-white' : 'border-[#CBD5E1] bg-white text-[#475569]'
+                      } ${primary ? 'cursor-not-allowed opacity-70' : ''}`}
+                    >
+                      {type}
+                      {primary ? ' · 주' : ''}
+                    </button>
+                  )
+                })}
+              </div>
+              {form.serviceRoles.includes('택배') || form.serviceType === '택배' ? (
+                <div className="mt-3 border-t border-[#DBEAFE] pt-3">
+                  <p className="text-[11px] font-black text-[#334155]">수행 가능 택배 차량 체급</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">
+                    선택한 체급의 콜만 수락할 수 있습니다. 미선택이면 서류·소형 소화물 콜만 열립니다.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {DELIVERY_VEHICLES.map((vehicle) => {
+                      const checked = form.deliveryVehicles.includes(vehicle)
+                      return (
+                        <button
+                          key={vehicle}
+                          type="button"
+                          onClick={() =>
+                            setForm((f) => ({
+                              ...f,
+                              deliveryVehicles: checked ? f.deliveryVehicles.filter((v) => v !== vehicle) : [...f.deliveryVehicles, vehicle],
+                            }))
+                          }
+                          className={`rounded-xl border-2 px-3 py-2 text-[11px] font-black ${
+                            checked ? 'border-[#4C1FB8] bg-[#F8F5FF] text-[#4C1FB8]' : 'border-[#CBD5E1] bg-white text-[#475569]'
+                          }`}
+                        >
+                          {vehicle}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div>
             <label className={label}>{form.role === '파트너' ? '대표자 성함 *' : '이름 *'}</label>
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="홍길동" className={input} />
@@ -424,10 +509,12 @@ export default function AdminPartners() {
           <span className="flex items-center gap-2">
             <AdminExportButton
               filename="taxitago-partners"
-              headers={['구분', '서비스', '이름', '전화번호', '차량/업체', '번호', '지역', 'Pi 지갑', 'UID', 'Pi 계정', '보험사', '증권번호', '보험 만료일', '보험 서류', '비고', '등록일', '수정일']}
+              headers={['구분', '서비스', '겸직', '택배 체급', '이름', '전화번호', '차량/업체', '번호', '지역', 'Pi 지갑', 'UID', 'Pi 계정', '보험사', '증권번호', '보험 만료일', '보험 서류', '비고', '등록일', '수정일']}
               rows={filtered.map((row) => [
                 row.role === '파트너' ? '파트너' : '기사',
                 row.serviceType || '택시',
+                row.role === '파트너' ? '' : effectiveServiceRoles(row).join('+'),
+                row.role === '파트너' || !effectiveServiceRoles(row).includes('택배') ? '' : (row.deliveryVehicles ?? []).join('+'),
                 row.name || '',
                 row.phone || '',
                 row.vehicle || '',
@@ -500,6 +587,11 @@ export default function AdminPartners() {
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${row.role === '파트너' ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#DBEAFE] text-[#1D4ED8]'}`}>
                         {row.role === '파트너' ? `${row.serviceType || ''} 파트너` : `${row.serviceType || '택시'} 기사`}
                       </span>
+                      {effectiveServiceRoles(row).length > 1 ? (
+                        <span className="mt-1 block rounded-full bg-[#FEF3C7] px-2 py-0.5 text-center text-[10px] font-black text-[#B45309]">
+                          겸직 {effectiveServiceRoles(row).join('+')}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-2 py-2.5 font-black">{row.name || '-'}</td>
                     <td className="px-2 py-2.5 font-bold">{row.phone || '-'}</td>
@@ -568,6 +660,16 @@ export default function AdminPartners() {
           rows={[
             { label: '구분', value: detail.role === '파트너' ? '파트너' : '기사' },
             { label: '등록 서비스', value: detail.serviceType || '택시' },
+            { label: '겸직 승인 서비스', value: detail.role === '파트너' ? '(해당 없음)' : effectiveServiceRoles(detail).join(' · ') || detail.serviceType || '택시' },
+            {
+              label: '택배 차량 체급',
+              value:
+                detail.role === '파트너' || !effectiveServiceRoles(detail).includes('택배')
+                  ? '(해당 없음)'
+                  : detail.deliveryVehicles?.length
+                    ? detail.deliveryVehicles.join(' · ')
+                    : '소화물(서류·소형)만',
+            },
             { label: '이름', value: detail.name || '(없음)' },
             { label: '전화번호', value: detail.phone || '(없음)', copy: Boolean(detail.phone) },
             { label: 'Pi UID', value: detail.uid, copy: true },

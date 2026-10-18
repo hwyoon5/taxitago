@@ -7,6 +7,7 @@ import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 import { removeDriverPushSubscription } from '@/lib/driver-push'
 import { recordAudit } from '@/lib/audit-store'
 import { normalizeVehicleTiers } from '@/lib/ride-tiers'
+import { normalizeDeliveryVehicles, normalizeServiceRoles } from '@/lib/partner-services'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -24,6 +25,8 @@ export async function POST(request: Request) {
     plate?: unknown
     region?: unknown
     serviceType?: unknown
+    serviceRoles?: unknown
+    deliveryVehicles?: unknown
     vehicleTiers?: unknown
     insuranceCompany?: unknown
     insurancePolicyNo?: unknown
@@ -96,8 +99,13 @@ export async function POST(request: Request) {
     plate: text(body?.plate, previous?.plate),
     region: text(body?.region, previous?.region),
     serviceType: text(body?.serviceType, previous?.serviceType),
-    // 차량 등급은 배열 필드 — 클라이언트가 명시적으로 보냈을 때만 교체하고,
+    // 겸직·체급·차량 등급은 배열 필드 — 클라이언트가 명시적으로 보냈을 때만 교체하고,
     // 미전송(구형 클라이언트)이면 이전 등록값을 보존한다.
+    serviceRoles:
+      body?.serviceRoles !== undefined
+        ? normalizeServiceRoles(body.serviceRoles, text(body?.serviceType, previous?.serviceType))
+        : previous?.serviceRoles,
+    deliveryVehicles: body?.deliveryVehicles !== undefined ? normalizeDeliveryVehicles(body.deliveryVehicles) : previous?.deliveryVehicles,
     vehicleTiers:
       body?.vehicleTiers !== undefined ? normalizeVehicleTiers(body.vehicleTiers) : normalizeVehicleTiers(previous?.vehicleTiers),
     insuranceCompany: text(body?.insuranceCompany, previous?.insuranceCompany),

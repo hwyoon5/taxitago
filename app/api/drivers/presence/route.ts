@@ -54,6 +54,8 @@ export async function POST(request: Request) {
     phone: typeof body?.phone === 'string' ? body.phone : undefined,
     altDriverId: typeof body?.altDriverId === 'string' ? body.altDriverId.trim() : undefined,
     serviceType: registeredUser?.serviceType || (typeof body?.serviceType === 'string' ? body.serviceType.trim() : undefined),
+    serviceRoles: registeredUser?.serviceRoles ?? (Array.isArray(body?.serviceRoles) ? (body.serviceRoles as string[]) : undefined),
+    deliveryVehicles: registeredUser?.deliveryVehicles ?? (Array.isArray(body?.deliveryVehicles) ? (body.deliveryVehicles as string[]) : undefined),
     vehicleTiers: registeredUser?.vehicleTiers ?? (Array.isArray(body?.vehicleTiers) ? (body.vehicleTiers as string[]) : undefined),
   })
   await flushDispatchPersist()

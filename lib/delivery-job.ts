@@ -153,8 +153,9 @@ export async function progressDelivery(id: string, driverId: string, action: 'pi
   return data.job
 }
 
-export async function fetchOpenDeliveries() {
-  const res = await apiFetch('/api/deliveries/')
+/** 기사 매칭 풀 — driverId를 넘기면 겸직 역할·허용 차량 체급에 맞는 콜만 받는다. */
+export async function fetchOpenDeliveries(driverId?: string) {
+  const res = await apiFetch(`/api/deliveries/${driverId ? `?forDriver=${encodeURIComponent(driverId)}` : ''}`)
   const data = (await res.json().catch(() => null)) as { jobs?: PublicDelivery[] } | null
   if (!res.ok) return []
   return data?.jobs ?? []

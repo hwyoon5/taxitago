@@ -22,6 +22,7 @@ import { sendDriverPush } from '@/lib/driver-push'
 import { recordZoneOutcome } from '@/lib/avoid-zone-store'
 import { resolveNetworkMode } from '@/lib/pi-sandbox'
 import { driverServesTier, normalizeRideTier, normalizeVehicleTiers } from '@/lib/ride-tiers'
+import { effectiveServiceRoles, normalizeDeliveryVehicles, normalizeServiceRoles } from '@/lib/partner-services'
 import { presenceLocation } from '@/lib/presence-store'
 import {
   AUTO_BOARD_DEBOUNCE_MS,
@@ -115,11 +116,13 @@ function prematchEligible(driver: DriverRecord, activeRide: RideRequestRecord) {
   return Number.isFinite(km) && km <= PREMATCH_RADIUS_KM
 }
 
-/** 콜 종류별 기사 자격 — 대리 콜은 대리 기사에게만, 택시 콜은 택시(또는
- *  레거시 미등록) 기사에게만 간다. 시설형 파트너·택배 기사는 승객 콜 제외. */
+/** 콜 종류별 기사 자격 — 겸직(serviceRoles)을 포함한 실효 역할로 판정한다.
+ *  대리 콜은 대리 역할, 택시 콜은 택시 역할이 있는 기사에게만 간다.
+ *  시설형 파트너는 승객 콜 제외. 미등록(레거시) 기사는 택시로 간주. */
 function driverMatchesRideKind(driver: DriverRecord, kind: RideRequestRecord['kind']) {
-  if (kind === 'daeri') return driver.serviceType === '대리운전'
-  return !driver.serviceType || driver.serviceType === '택시'
+  const roles = effectiveServiceRoles(driver)
+  if (kind === 'daeri') return roles.includes('대리운전')
+  return !driver.serviceType || roles.includes('택시')
 }
 
 function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: number) {
@@ -877,20 +880,27 @@ export function getDriverOffer(driverId: string) {
   return matched
 }
 
-export function rememberDriverVehicle(driverId: string, info: { name?: string; vehicle?: string; plate?: string; vehicleTiers?: string[] }) {
+export function rememberDriverVehicle(
+  driverId: string,
+  info: { name?: string; vehicle?: string; plate?: string; vehicleTiers?: string[]; serviceRoles?: string[]; deliveryVehicles?: string[] },
+) {
   const current = getDriver(driverId)
   if (!current) return null
   const name = info.name?.trim()
   const vehicle = info.vehicle?.trim()
   const plate = info.plate?.trim()
   const vehicleTiers = info.vehicleTiers !== undefined ? normalizeVehicleTiers(info.vehicleTiers) : undefined
-  if (!name && !vehicle && !plate && vehicleTiers === undefined) return current
+  const serviceRoles = info.serviceRoles !== undefined ? normalizeServiceRoles(info.serviceRoles, current.serviceType) : undefined
+  const deliveryVehicles = info.deliveryVehicles !== undefined ? normalizeDeliveryVehicles(info.deliveryVehicles) : undefined
+  if (!name && !vehicle && !plate && vehicleTiers === undefined && serviceRoles === undefined && deliveryVehicles === undefined) return current
   return saveDriver({
     ...current,
     name: name || current.name,
     vehicle: vehicle || current.vehicle,
     plate: plate || current.plate,
     ...(vehicleTiers !== undefined ? { vehicleTiers } : {}),
+    ...(serviceRoles !== undefined ? { serviceRoles } : {}),
+    ...(deliveryVehicles !== undefined ? { deliveryVehicles } : {}),
     lastSeenAt: nowIso(),
   })
 }
@@ -971,6 +981,8 @@ export function upsertDriverPresence(input: {
   phone?: string
   altDriverId?: string
   serviceType?: string
+  serviceRoles?: string[]
+  deliveryVehicles?: string[]
   vehicleTiers?: string[]
 }) {
   syncDispatchFromDisk()
@@ -1019,7 +1031,12 @@ export function upsertDriverPresence(input: {
     piUid: input.piUid?.trim() || current?.piUid,
     phone: input.phone?.trim() || current?.phone,
     serviceType: input.serviceType?.trim() || current?.serviceType,
-    // 등급은 배열 필드 — 비트가 값을 실어오면 교체하고, 없으면 기존 등록값 유지.
+    // 겸직·체급·등급은 배열 필드 — 비트가 값을 실어오면 교체하고, 없으면 기존 등록값 유지.
+    serviceRoles:
+      input.serviceRoles !== undefined
+        ? normalizeServiceRoles(input.serviceRoles, input.serviceType?.trim() || current?.serviceType)
+        : current?.serviceRoles,
+    deliveryVehicles: input.deliveryVehicles !== undefined ? normalizeDeliveryVehicles(input.deliveryVehicles) : current?.deliveryVehicles,
     vehicleTiers: input.vehicleTiers !== undefined ? normalizeVehicleTiers(input.vehicleTiers) : current?.vehicleTiers,
   }
   const saved = saveDriver(next)

@@ -1,6 +1,7 @@
 import { apiFetch } from '@/lib/app-origin'
 import { updateDriverProfile } from '@/lib/dispatch-client'
 import { normalizeVehicleTiers } from '@/lib/ride-tiers'
+import { normalizeDeliveryVehicles, normalizeServiceRoles } from '@/lib/partner-services'
 
 export type PiIdentity = {
   uid: string
@@ -29,6 +30,10 @@ export type PartnerProfile = PiIdentity & {
   detail: string
   region: string
   serviceType?: string
+  /** 겸직(Multi-role) 수행 서비스 — serviceType 외에 택시·대리운전·택배를 병행할 때 기록. */
+  serviceRoles?: string[]
+  /** 택배 수행 시 허용 차량 체급(오토바이·다마스·1톤 트럭) — 미설정은 서비스별 기본 규칙. */
+  deliveryVehicles?: string[]
   /** 택시 기사가 추가로 제공 가능한 차량 등급('모범'·'대형'·'펫동반') — '일반'은 기본 포함. */
   vehicleTiers?: string[]
   vehicle?: string
@@ -136,6 +141,8 @@ export function loadPartnerProfile(): PartnerProfile | null {
     detail: textOf(raw.detail),
     region: textOf(raw.region),
     serviceType: textOf(raw.serviceType),
+    serviceRoles: normalizeServiceRoles(raw.serviceRoles, textOf(raw.serviceType)),
+    deliveryVehicles: normalizeDeliveryVehicles(raw.deliveryVehicles),
     vehicleTiers: normalizeVehicleTiers(raw.vehicleTiers),
     vehicle: textOf(raw.vehicle),
     plate: textOf(raw.plate),
@@ -326,6 +333,8 @@ export async function syncPartnerLink(profile: PartnerProfile) {
         plate: profile.plate,
         region: profile.region,
         serviceType: profile.serviceType,
+        serviceRoles: normalizeServiceRoles(profile.serviceRoles, profile.serviceType),
+        deliveryVehicles: normalizeDeliveryVehicles(profile.deliveryVehicles),
         vehicleTiers: normalizeVehicleTiers(profile.vehicleTiers),
         insuranceCompany: profile.insuranceCompany,
         insurancePolicyNo: profile.insurancePolicyNo,
@@ -349,6 +358,8 @@ export type PartnerProfilePatch = {
   detail: string
   vehicle?: string
   plate?: string
+  serviceRoles?: string[]
+  deliveryVehicles?: string[]
   vehicleTiers?: string[]
   insuranceCompany?: string
   insurancePolicyNo?: string
@@ -372,6 +383,8 @@ export async function updatePartnerProfile(patch: PartnerProfilePatch): Promise<
     detail: patch.detail.trim(),
     vehicle: patch.vehicle?.trim() ?? current.vehicle,
     plate: patch.plate?.trim() ?? current.plate,
+    serviceRoles: patch.serviceRoles !== undefined ? normalizeServiceRoles(patch.serviceRoles, current.serviceType) : current.serviceRoles,
+    deliveryVehicles: patch.deliveryVehicles !== undefined ? normalizeDeliveryVehicles(patch.deliveryVehicles) : current.deliveryVehicles,
     vehicleTiers: patch.vehicleTiers !== undefined ? normalizeVehicleTiers(patch.vehicleTiers) : current.vehicleTiers,
     insuranceCompany: patch.insuranceCompany?.trim() ?? current.insuranceCompany,
     insurancePolicyNo: patch.insurancePolicyNo?.trim() ?? current.insurancePolicyNo,
@@ -383,7 +396,15 @@ export async function updatePartnerProfile(patch: PartnerProfilePatch): Promise<
   const fleet = partnerVehicle(next)
   await Promise.all([
     syncPartnerLink(next),
-    updateDriverProfile({ driverId: next.uid, name: next.name, vehicle: fleet.vehicle, plate: fleet.plate, vehicleTiers: next.vehicleTiers }),
+    updateDriverProfile({
+      driverId: next.uid,
+      name: next.name,
+      vehicle: fleet.vehicle,
+      plate: fleet.plate,
+      vehicleTiers: next.vehicleTiers,
+      serviceRoles: next.serviceRoles,
+      deliveryVehicles: next.deliveryVehicles,
+    }),
   ])
   return next
 }

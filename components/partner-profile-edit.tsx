@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { partnerVehicle, updatePartnerProfile, uploadInsuranceDoc, type PartnerProfile } from '@/lib/partner-account'
-import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-services'
+import {
+  DRIVER_SERVICE_TYPES,
+  deliveryVehicleAllowance,
+  effectiveServiceRoles,
+  facilityUnitLabel,
+  facilityUnitPlaceholder,
+  normalizeServiceRoles,
+} from '@/lib/partner-services'
+import { DELIVERY_VEHICLES } from '@/lib/delivery-fare'
 import { EXTRA_VEHICLE_TIERS, normalizeVehicleTiers } from '@/lib/ride-tiers'
 import { facilityTypeToDeviceKind, type DeviceSpec, type DeviceTelemetry } from '@/lib/device-types'
 import FacilitySpecForm from '@/components/facility-spec-form'
@@ -31,7 +39,8 @@ function PartnerProfileEditForm({
   onDone: (message: string) => void
 }) {
   const isDriver = profile.role === '기사'
-  const needsVehicle = isDriver && profile.serviceType !== '대리운전'
+  // 택배를 수행하는 기사(주 서비스 또는 겸직)는 배송 차량 정보가 필요하다.
+  const needsVehicle = isDriver && (profile.serviceType !== '대리운전' || effectiveServiceRoles(profile).includes('택배'))
   const initialFleet = partnerVehicle(profile)
   const [name, setName] = useState(str(profile.name))
   const [phone, setPhone] = useState(str(profile.phone))
@@ -39,6 +48,11 @@ function PartnerProfileEditForm({
   const [plateNumber, setPlateNumber] = useState(initialFleet.plate)
   // 추가 제공 등급 — 택시 기사만 해당. '일반' 콜은 등급 무관하게 기본 배차.
   const [vehicleTiers, setVehicleTiers] = useState<string[]>(() => normalizeVehicleTiers(profile.vehicleTiers))
+  // 겸직 — 주 서비스를 제외한 병행 서비스. 택배 겸직 시 허용 차량 체급을 함께 편집한다.
+  const [extraRoles, setExtraRoles] = useState<string[]>(() =>
+    effectiveServiceRoles(profile).filter((role) => role !== profile.serviceType),
+  )
+  const [deliveryVehicles, setDeliveryVehicles] = useState<string[]>(() => deliveryVehicleAllowance(profile))
   const [region, setRegion] = useState(str(profile.region))
   const [insuranceCompany, setInsuranceCompany] = useState(profile.insuranceCompany ?? '')
   const [insurancePolicyNo, setInsurancePolicyNo] = useState(profile.insurancePolicyNo ?? '')
@@ -124,6 +138,9 @@ function PartnerProfileEditForm({
         vehicle: isDriver ? (needsVehicle ? vehicleName.trim() : '') : vehicleName.trim(),
         plate: isDriver ? (needsVehicle ? plateNumber.trim() : '') : plateNumber.trim(),
         vehicleTiers: isDriver && profile.serviceType === '택시' ? vehicleTiers : [],
+        serviceRoles: isDriver ? normalizeServiceRoles(extraRoles, profile.serviceType) : [],
+        deliveryVehicles:
+          isDriver && (profile.serviceType === '택배' || extraRoles.includes('택배')) ? deliveryVehicles : [],
         insuranceCompany: insuranceCompany.trim(),
         insurancePolicyNo: insurancePolicyNo.trim(),
         insuranceExpiresAt: insuranceExpiresAt.trim(),
@@ -238,6 +255,54 @@ function PartnerProfileEditForm({
                     )
                   })}
                 </div>
+              </div>
+            ) : null}
+            {isDriver ? (
+              <div className="mt-3 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-3">
+                <p className="text-xs font-black text-[#334155]">서비스 겸직 설정</p>
+                <p className="mt-1 text-[11px] font-bold text-[#8b8495]">
+                  주 서비스({str(profile.serviceType) || '택시'}) 외에 병행할 업무를 고르세요 — 유휴 시간에 겸직 서비스 콜도 받을 수 있습니다.
+                </p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {DRIVER_SERVICE_TYPES.filter((item) => item !== profile.serviceType).map((item) => {
+                    const checked = extraRoles.includes(item)
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setExtraRoles((prev) => (checked ? prev.filter((r) => r !== item) : [...prev, item]))}
+                        className={`rounded-xl border-2 py-2.5 text-xs font-black ${checked ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
+                      >
+                        {item} 겸직
+                      </button>
+                    )
+                  })}
+                </div>
+                {profile.serviceType === '택배' || extraRoles.includes('택배') ? (
+                  <div className="mt-3 border-t border-[#DBEAFE] pt-3">
+                    <p className="text-xs font-black text-[#334155]">택배 차량 체급</p>
+                    <p className="mt-1 text-[11px] font-bold text-[#8b8495]">
+                      보유·수행 가능한 차량을 모두 선택하세요. 미선택 시 승용차로 소화 가능한 서류·소형 콜만 배정됩니다.
+                    </p>
+                    <div className="mt-2 grid grid-cols-3 gap-2">
+                      {DELIVERY_VEHICLES.map((vehicle) => {
+                        const checked = deliveryVehicles.includes(vehicle)
+                        return (
+                          <button
+                            key={vehicle}
+                            type="button"
+                            onClick={() =>
+                              setDeliveryVehicles((prev) => (checked ? prev.filter((v) => v !== vehicle) : [...prev, vehicle]))
+                            }
+                            className={`rounded-xl border-2 py-2.5 text-xs font-black ${checked ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
+                          >
+                            {vehicle}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {!isDriver ? (

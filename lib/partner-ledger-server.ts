@@ -10,6 +10,10 @@ export type PartnerLinkRecord = {
   plate?: string
   region?: string
   serviceType?: string
+  /** 겸직 수행 서비스 — serviceType 외에 택시·대리운전·택배를 병행할 때 기록. */
+  serviceRoles?: string[]
+  /** 택배 수행 시 허용 차량 체급(오토바이·다마스·1톤 트럭). */
+  deliveryVehicles?: string[]
   /** 택시 기사가 추가로 제공 가능한 차량 등급('모범'·'대형'·'펫동반') — '일반'은 기본 포함. */
   vehicleTiers?: string[]
   insuranceCompany?: string
