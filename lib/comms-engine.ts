@@ -2,6 +2,8 @@ import { createHash } from 'crypto'
 import { getDriver, getRide, nowIso } from '@/lib/dispatch-store'
 import { getChatRoom, getSafeCall, publishRide, saveChatRoom, saveSafeCall } from '@/lib/comms-store'
 import { detectChatLang, translateChatAll, translateChatText } from '@/lib/chat-translate'
+import { getRegistryUser } from '@/lib/user-registry'
+import { complianceGate } from '@/lib/compliance-store'
 import type { CallSignal, CallSignalKind, ChatLang, ChatMessage, ChatRoom, CommsRole, PublicChatRoom, PublicSafeCall, SafeCallSession } from '@/lib/comms-types'
 
 function hashSecret(value: string) {
@@ -33,7 +35,9 @@ export async function openRideComms(rideId: string) {
     return { room: existingRoom, call }
   }
   const ride = getRide(rideId)
-  if (!ride?.assignedDriverId) return null
+  // 활성 배차('assigned')에서만 방을 연다 — 취소·완료·미매칭 건에 방을 새로
+  // 만들거나 아카이브된 세션을 부활시키지 않는다.
+  if (!ride?.assignedDriverId || ride.status !== 'assigned') return null
   const createdAt = nowIso()
   const intro = await translateChatAll('안녕하세요. 배차된 기사입니다. 곧 도착할게요.')
   const room = await saveChatRoom({
@@ -93,17 +97,46 @@ export async function archiveRideComms(rideId: string, reason: 'completed' | 'ca
   }
 }
 
-async function assertMember(rideId: string, actorId: string, role: CommsRole) {
+/**
+ * 라이드가 이미 종료 상태인데 통신 세션(방·통화)이 열린 채 남았으면 즉시
+ * 아카이브/해제한다 — 아카이브 호출 누락이나 서버리스 스냅샷 복원으로 생긴
+ * 좀비 세션을 접근 경로에서 지연 보정한다. 'unmatched'는 취소와 동일하게 정리.
+ */
+async function settleTerminalComms(rideId: string) {
+  const ride = getRide(rideId)
+  if (!ride) return
+  if (ride.status === 'completed') await archiveRideComms(rideId, 'completed')
+  else if (ride.status === 'cancelled' || ride.status === 'unmatched') await archiveRideComms(rideId, 'cancelled')
+}
+
+/**
+ * 기사 측 통신 권한 — 자격 인증 미승인·반려 계정은 채팅·안심번호를 차단한다.
+ * 레지스트리에 없는 단말(테스트넷 개발 기기)은 presence 게이트와 같이 허용.
+ */
+async function assertDriverCompliant(driverId: string) {
+  const user = await getRegistryUser(driverId).catch(() => null)
+  if (!user || user.withdrawnAt) return { ok: true as const }
+  const gate = await complianceGate(user).catch(() => null)
+  if (gate && !gate.ok) return { ok: false as const, error: 'compliance' }
+  return { ok: true as const }
+}
+
+async function assertMember(rideId: string, actorId: string, role: CommsRole, opts: { skipCompliance?: boolean } = {}) {
   const ride = getRide(rideId)
   if (ride) {
     if (role === 'passenger' && ride.passengerId !== actorId) return { ok: false as const, error: 'forbidden' }
     if (role === 'driver' && ride.assignedDriverId !== actorId) return { ok: false as const, error: 'forbidden' }
-    return { ok: true as const }
+  } else {
+    const room = await getChatRoom(rideId)
+    if (!room) return { ok: false as const, error: 'not_found' }
+    if (role === 'passenger' && room.passengerId !== actorId) return { ok: false as const, error: 'forbidden' }
+    if (role === 'driver' && room.driverId !== actorId) return { ok: false as const, error: 'forbidden' }
   }
-  const room = await getChatRoom(rideId)
-  if (!room) return { ok: false as const, error: 'not_found' }
-  if (role === 'passenger' && room.passengerId !== actorId) return { ok: false as const, error: 'forbidden' }
-  if (role === 'driver' && room.driverId !== actorId) return { ok: false as const, error: 'forbidden' }
+  // 기사 자격 인증 게이트 — 멤버십 확인 후 적용한다(승객 읽기·쓰기는 영향 없음).
+  if (role === 'driver' && !opts.skipCompliance) {
+    const compliant = await assertDriverCompliant(actorId)
+    if (!compliant.ok) return compliant
+  }
   return { ok: true as const }
 }
 
@@ -132,6 +165,7 @@ async function backfillTranslations(room: ChatRoom, lang: ChatLang) {
 export async function listChatMessages(rideId: string, actorId: string, role: CommsRole, after?: string, lang?: ChatLang) {
   const gate = await assertMember(rideId, actorId, role)
   if (!gate.ok) return gate
+  await settleTerminalComms(rideId)
   const room = (await getChatRoom(rideId)) ?? (await openRideComms(rideId))?.room
   if (!room) return { ok: false as const, error: 'not_found' }
   if (lang) await backfillTranslations(room, lang)
@@ -142,6 +176,7 @@ export async function listChatMessages(rideId: string, actorId: string, role: Co
 export async function postChatMessage(input: { rideId: string; actorId: string; role: CommsRole; text: string }) {
   const gate = await assertMember(input.rideId, input.actorId, input.role)
   if (!gate.ok) return { ok: false as const, error: gate.error, message: null as ChatMessage | null }
+  await settleTerminalComms(input.rideId)
   const room = (await getChatRoom(input.rideId)) ?? (await openRideComms(input.rideId))?.room
   if (!room) return { ok: false as const, error: 'not_found', message: null }
   if (room.status !== 'open') return { ok: false as const, error: 'archived', message: null }
@@ -210,6 +245,7 @@ export function publicSafeCall(session: SafeCallSession, role: CommsRole): Publi
 export async function startSafeCall(input: { rideId: string; actorId: string; role: CommsRole; realPhone?: string }) {
   const gate = await assertMember(input.rideId, input.actorId, input.role)
   if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
+  await settleTerminalComms(input.rideId)
   const session = (await getSafeCall(input.rideId)) ?? (await openRideComms(input.rideId))?.call
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   if (session.status === 'released') return { ok: false as const, error: 'released', call: publicSafeCall(session, input.role) }
@@ -232,6 +268,7 @@ export async function startSafeCall(input: { rideId: string; actorId: string; ro
 export async function appendCallSignal(input: { rideId: string; actorId: string; role: CommsRole; kind: CallSignalKind; payload: string }) {
   const gate = await assertMember(input.rideId, input.actorId, input.role)
   if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
+  await settleTerminalComms(input.rideId)
   const session = await getSafeCall(input.rideId)
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   if (session.status === 'released') return { ok: false as const, error: 'released', call: publicSafeCall(session, input.role) }
@@ -254,6 +291,7 @@ export async function appendCallSignal(input: { rideId: string; actorId: string;
 export async function answerSafeCall(rideId: string, actorId: string, role: CommsRole) {
   const gate = await assertMember(rideId, actorId, role)
   if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
+  await settleTerminalComms(rideId)
   const session = await getSafeCall(rideId)
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   if (session.status === 'released') return { ok: false as const, error: 'released', call: publicSafeCall(session, role) }
@@ -265,7 +303,8 @@ export async function answerSafeCall(rideId: string, actorId: string, role: Comm
 }
 
 export async function hangupSafeCall(rideId: string, actorId: string, role: CommsRole) {
-  const gate = await assertMember(rideId, actorId, role)
+  // 종료 동작은 자격 인증 상태와 무관하게 허용 — 세션을 닫지 못하게 막지 않는다.
+  const gate = await assertMember(rideId, actorId, role, { skipCompliance: true })
   if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
   const session = await getSafeCall(rideId)
   if (!session) return { ok: false as const, error: 'not_found', call: null }
@@ -281,6 +320,7 @@ export async function hangupSafeCall(rideId: string, actorId: string, role: Comm
 export async function getPublicSafeCall(rideId: string, actorId: string, role: CommsRole) {
   const gate = await assertMember(rideId, actorId, role)
   if (!gate.ok) return { ok: false as const, error: gate.error, call: null as PublicSafeCall | null }
+  await settleTerminalComms(rideId)
   const session = (await getSafeCall(rideId)) ?? (await openRideComms(rideId))?.call
   if (!session) return { ok: false as const, error: 'not_found', call: null }
   return { ok: true as const, call: publicSafeCall(session, role) }

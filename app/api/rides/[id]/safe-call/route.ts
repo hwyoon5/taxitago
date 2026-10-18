@@ -48,7 +48,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             realPhone: typeof body?.realPhone === 'string' ? body.realPhone : undefined,
           })
   if (!result.ok) {
-    return NextResponse.json({ error: result.error, call: result.call }, { status: result.error === 'not_found' ? 404 : 409 })
+    const status = result.error === 'not_found' ? 404 : result.error === 'forbidden' || result.error === 'compliance' ? 403 : 409
+    return NextResponse.json({ error: result.error, call: result.call }, { status })
   }
   return NextResponse.json({ ok: true, call: result.call })
 }

@@ -33,7 +33,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!actorId || !role) return NextResponse.json({ error: 'actorId and role required' }, { status: 400 })
   const result = await postChatMessage({ rideId: id, actorId, role, text })
   if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: result.error === 'archived' ? 409 : 400 })
+    const status = result.error === 'archived' ? 409 : result.error === 'forbidden' || result.error === 'compliance' ? 403 : 400
+    return NextResponse.json({ error: result.error }, { status })
   }
   return NextResponse.json({ ok: true, message: result.message, room: result.room })
 }

@@ -6,6 +6,8 @@ import { flushEscrowPersist, hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { hydrateAvoidFromKv } from '@/lib/avoid-zone-store'
 import { rideTransitionErrorMessage, transitionRide } from '@/lib/ride-machine'
 import { normalizeRideTier } from '@/lib/ride-tiers'
+import { getRegistryUser } from '@/lib/user-registry'
+import { complianceGate } from '@/lib/compliance-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -57,6 +59,21 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: 'action required' }, { status: 400 })
   }
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv(), hydrateAvoidFromKv()])
+  // 자격 인증 게이트 — 미승인·반려 계정은 presence가 막히기 직전의 오퍼도
+  // 수락하지 못한다(45초 stale 윈도우 방어). 미등록 테스트넷 단말은 허용.
+  const acceptDriverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
+  if ((action === 'accept' || action === 'device-accept') && acceptDriverId) {
+    const regUser = await getRegistryUser(acceptDriverId).catch(() => null)
+    if (regUser && !regUser.withdrawnAt) {
+      const gate = await complianceGate(regUser).catch(() => null)
+      if (gate && !gate.ok) {
+        return NextResponse.json(
+          { error: '자격 인증이 완료돼야 콜을 수락할 수 있습니다.', complianceRequired: true },
+          { status: 403 },
+        )
+      }
+    }
+  }
   if (action === 'device-accept') {
     const result = confirmMatchOnDevice(
       id,
