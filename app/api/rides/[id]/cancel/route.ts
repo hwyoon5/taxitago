@@ -6,11 +6,12 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
-  const body = (await request.json().catch(() => null)) as { passengerId?: unknown; settleFee?: unknown } | null
+  const body = (await request.json().catch(() => null)) as { passengerId?: unknown; settleFee?: unknown; denyBoard?: unknown } | null
   const passengerId = typeof body?.passengerId === 'string' ? body.passengerId : undefined
   const settleFee = body?.settleFee === true
+  const denyBoard = body?.denyBoard === true
   try {
-    const result = await transitionRide({ rideId: id, action: 'cancel', passengerId, settleFee })
+    const result = await transitionRide({ rideId: id, action: 'cancel', passengerId, settleFee, denyBoard })
     if (!result.ok) {
       return NextResponse.json(
         { error: rideTransitionErrorMessage(result.error) },

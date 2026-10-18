@@ -40,6 +40,32 @@ function beatMemory(id: string, role: PresenceRole, now: number, loc?: { lat?: n
 
 export type PresenceDetail = { id: string; lastSeen: number; lat?: number; lng?: number }
 
+/** 특정 이용자의 마지막 위치·비트 시각 — 자동 탑승 감지처럼 승객 좌표를 서버에서 읽을 때 사용.
+ *  온라인 창을 벗어난(오래된) 엔트리는 null을 반환한다. */
+export async function presenceLocation(role: PresenceRole, id: string): Promise<PresenceDetail | null> {
+  const key = id.trim()
+  if (!key) return null
+  const now = Date.now()
+  if (kvConfigured) {
+    try {
+      const raw = await kvCommand<string | null>(['HGET', `${DETAIL_PREFIX}${role}`, key])
+      if (raw) {
+        const entry = JSON.parse(raw) as { lastSeen?: number; lat?: number; lng?: number }
+        if (typeof entry.lastSeen === 'number' && now - entry.lastSeen <= ONLINE_WINDOW_MS) {
+          return { id: key, lastSeen: entry.lastSeen, lat: entry.lat, lng: entry.lng }
+        }
+        return null
+      }
+      return null
+    } catch {
+      // KV 실패 시 이 인스턴스 메모리 값으로라도 확인한다.
+    }
+  }
+  const entry = memStore()[role].users.get(key)
+  if (!entry || now - entry.at > ONLINE_WINDOW_MS) return null
+  return { id: key, lastSeen: entry.at, lat: entry.lat, lng: entry.lng }
+}
+
 /** 앱 하트비트 1건 기록 — KV(ZSET+HASH) 우선, 장애·미설정 시 인스턴스 메모리로 집계. */
 export async function beatPresence(id: string, role: PresenceRole, loc?: { lat?: number; lng?: number }): Promise<void> {
   const now = Date.now()

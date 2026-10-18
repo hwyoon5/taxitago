@@ -50,6 +50,18 @@ export type RideRequestRecord = {
   readyToSettleAt?: string | null
   /** 탑승 이후 실제 주행 거리(km) — 기사 presence/앱 오도미터 누적값, 정산 시 실측 요금 기준. */
   actualKm?: number | null
+  /** 탑승 인증 경로 — 'auto'는 승객·기사 GPS 동행 감지로 서버가 스탬프,
+   *  'driver'는 기사 수동 확인, 'passenger'는 승객 수동 확인(레거시). */
+  boardedVia?: 'auto' | 'driver' | 'passenger' | null
+  /** 승객이 '탑승 여부 확인' 팝업에서 직접 '예'를 눌러 확정한 시각(ISO). */
+  boardConfirmedAt?: string | null
+  /** 승객이 탑승을 부인해 취소·분쟁 처리된 누적 횟수 — 기사 임의 탑승 처리 감시 지표. */
+  boardDisputes?: number
+  /** 마지막 탑승 부인 시각(ISO). */
+  lastBoardDisputeAt?: string | null
+  /** 자동 탑승 감지가 조건(승객·기사 근접+차량 이동)을 처음 만족한 시각 —
+   *  AUTO_BOARD_DEBOUNCE_MS 이상 조건이 유지되면 boardedAt을 스탬프한다. */
+  autoBoardSince?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -161,6 +173,12 @@ export type PublicRide = {
   readyToSettleAt: string | null
   /** 탑승 이후 실제 주행 거리(km) — 정산 시 실측 요금 산출에 사용. */
   actualKm?: number | null
+  /** 탑승 인증 경로 — 'auto'는 승객·기사 GPS 동행 감지, 'driver'는 기사 수동 확인. */
+  boardedVia?: 'auto' | 'driver' | 'passenger' | null
+  /** 승객이 탑승 확인 팝업에서 '예'를 눌러 확정한 시각(ISO). */
+  boardConfirmedAt?: string | null
+  /** 승객 탑승 부인(분쟁 취소) 누적 횟수 — 기사 임의 탑승 처리 감시 지표. */
+  boardDisputes?: number
   createdAt: string
   updatedAt: string
 }
@@ -170,3 +188,15 @@ export const MATCH_RADIUS_KM = 25
 export const DRIVER_STALE_MS = 45_000
 /** 운행 중인 기사가 현재 목적지에 이 거리(km) 이내로 들어오면 다음 콜을 사전 배차받을 수 있다. */
 export const PREMATCH_RADIUS_KM = 1.5
+
+/** 자동 탑승 감지 — 기사 GPS 비트에서 승객·차량이 이 거리(km) 안에 있어야 한다. */
+export const AUTO_BOARD_PROXIMITY_KM = 0.15
+/** 자동 탑승 감지 — 차량이 이 속도(km/h) 이상으로 움직이기 시작해야 한다(도착 대기·주차 오탐 방지). */
+export const AUTO_BOARD_MIN_SPEED_KMH = 8
+/** 자동 탑승 감지 — 근접+주행 조건이 이 시간(ms) 이상 지속되면 탑승을 확정한다(단발 GPS 튐 방지). */
+export const AUTO_BOARD_DEBOUNCE_MS = 20_000
+/** 자동 탑승 감지 — 승객 위치 신선도 상한(ms). 이 시간 이상 오래된 승객 좌표는 증거로 쓰지 않는다. */
+export const AUTO_BOARD_PAX_MAX_AGE_MS = 75_000
+/** 자동 탑승 감지 — 속도 계산에 쓸 수 있는 최소/최대 샘플 간격(ms). 너무 짧으면 GPS 잡음, 너무 길면 평균 왜곡. */
+export const AUTO_BOARD_MIN_DT_MS = 3_000
+export const AUTO_BOARD_MAX_DT_MS = 120_000

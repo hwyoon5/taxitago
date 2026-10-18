@@ -222,11 +222,11 @@ export async function bumpRideFare(rideId: string, passengerId: string, fare: nu
   return data.ride
 }
 
-export async function cancelRideRequest(rideId: string, passengerId: string, options?: { settleFee?: boolean }) {
+export async function cancelRideRequest(rideId: string, passengerId: string, options?: { settleFee?: boolean; denyBoard?: boolean }) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/cancel/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ passengerId, settleFee: options?.settleFee === true }),
+    body: JSON.stringify({ passengerId, settleFee: options?.settleFee === true, denyBoard: options?.denyBoard === true }),
   })
   const data = await readJson<{ ride?: PublicRide | null; error?: string; missing?: boolean }>(res).catch(() => null)
   if (res.status === 404 || data?.missing) return null

@@ -20,6 +20,7 @@ import {
 } from '@/lib/escrow-store'
 import { processPassengerRefund, releaseEscrow, settlePassengerCancelFee, toPublicEscrow } from '@/lib/escrow-engine'
 import { archiveRideComms } from '@/lib/comms-engine'
+import { recordAudit } from '@/lib/audit-store'
 import type { PublicRide, RideRequestRecord } from '@/lib/dispatch-types'
 import type { PublicEscrow, SettlementReceipt } from '@/lib/escrow-types'
 
@@ -121,6 +122,9 @@ export async function transitionRide(input: {
   passengerId?: string
   driverId?: string
   settleFee?: boolean
+  /** 승객이 '탑승 여부 확인' 팝업에서 미탑승을 선택한 취소 —
+   *  취소 수수료를 면제하고 탑승 판정을 분쟁으로 기록한다. */
+  denyBoard?: boolean
   proof?: RideEscrowProof
   actualKm?: number
   onsitePayId?: string
@@ -157,6 +161,7 @@ async function applyTransition(input: {
   passengerId?: string
   driverId?: string
   settleFee?: boolean
+  denyBoard?: boolean
   proof?: RideEscrowProof
   actualKm?: number
   onsitePayId?: string
@@ -235,9 +240,31 @@ async function applyTransition(input: {
       const current = getRide(rideId)
       if (!current) return { ok: true, ride: null, escrow: null, receipt: null }
       if (passengerId && current.passengerId !== passengerId) return fail('forbidden', current)
+      // 승객이 '탑승 여부 확인' 팝업에서 미탑승을 선택한 건 — 취소 수수료를
+      // 면제하고 탑승 판정을 분쟁으로 기록해 기사 임의 탑승 처리를 감시한다.
+      const disputed =
+        input.denyBoard === true && !!passengerId && current.status === 'assigned' && !!current.boardedAt
+      if (disputed) {
+        current.boardDisputes = (current.boardDisputes ?? 0) + 1
+        current.lastBoardDisputeAt = new Date().toISOString()
+        current.autoBoardSince = null
+        console.log('[board-dispute] passenger denied boarding', {
+          rideId,
+          driverId: current.assignedDriverId,
+          via: current.boardedVia,
+          boardedAt: current.boardedAt,
+        })
+        void recordAudit({
+          kind: 'ride',
+          actor: passengerId,
+          refId: rideId,
+          reason: '승객 미탑승 신고 — 탑승 확인 부인',
+          detail: `driver=${current.assignedDriverId || '-'} via=${current.boardedVia || '-'} boardedAt=${current.boardedAt || '-'}`,
+        }).catch(() => undefined)
+      }
       // 배정 후 승객 취소는 사전 고지된 취소 수수료 정책에 따라 서버가 자동 정산한다 —
       // 클라이언트의 settleFee 플래그는 하위호환용일 뿐, 수수료 부과 여부는 서버가 상태로 판단한다.
-      if (passengerId && current.status === 'assigned' && current.assignedDriverId) {
+      if (!disputed && passengerId && current.status === 'assigned' && current.assignedDriverId) {
         try {
           await settlePassengerCancelFee(rideId)
         } catch (error) {

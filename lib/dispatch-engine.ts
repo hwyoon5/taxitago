@@ -21,7 +21,14 @@ import {
 import { sendDriverPush } from '@/lib/driver-push'
 import { recordZoneOutcome } from '@/lib/avoid-zone-store'
 import { resolveNetworkMode } from '@/lib/pi-sandbox'
+import { presenceLocation } from '@/lib/presence-store'
 import {
+  AUTO_BOARD_DEBOUNCE_MS,
+  AUTO_BOARD_MAX_DT_MS,
+  AUTO_BOARD_MIN_DT_MS,
+  AUTO_BOARD_MIN_SPEED_KMH,
+  AUTO_BOARD_PAX_MAX_AGE_MS,
+  AUTO_BOARD_PROXIMITY_KM,
   DRIVER_STALE_MS,
   MATCH_RADIUS_KM,
   OFFER_TIMEOUT_MS,
@@ -89,6 +96,9 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
     boardedAt: ride.boardedAt ?? null,
     actualKm: ride.actualKm ?? null,
     readyToSettleAt: ride.readyToSettleAt ?? null,
+    boardedVia: ride.boardedVia ?? null,
+    boardConfirmedAt: ride.boardConfirmedAt ?? null,
+    boardDisputes: ride.boardDisputes ?? 0,
     createdAt: ride.createdAt,
     updatedAt: ride.updatedAt,
   }
@@ -436,6 +446,10 @@ export function markRideProgress(
   if (ride.status !== 'assigned') return { ok: false as const, error: ride.status, ride }
   if (step === 'boarded') {
     if (!ride.boardedAt) ride.boardedAt = nowIso()
+    // 승객이 직접 탑승을 확인한 증거 — 자동/기사 판정과 별개로 확정 시각을 남긴다.
+    ride.boardConfirmedAt = nowIso()
+    ride.boardedVia ??= 'passenger'
+    ride.autoBoardSince = null
   } else if (!ride.boardedAt) {
     return { ok: false as const, error: 'not_boarded', ride }
   } else if (!ride.readyToSettleAt) {
@@ -460,6 +474,10 @@ export function markRideProgressByDriver(rideId: string, driverId: string, step:
   }
   if (step === 'boarded') {
     if (!ride.boardedAt) ride.boardedAt = nowIso()
+    // 수동 확인은 GPS 자동 감지 이전의 폴백 경로 — 승객 앱의 탑승 여부
+    // 확인 팝업이 착오·임의 조작을 사후에 걸러낸다.
+    ride.boardedVia ??= 'driver'
+    ride.autoBoardSince = null
   } else if (!ride.boardedAt) {
     return { ok: false as const, error: 'not_boarded', ride }
   } else if (!ride.readyToSettleAt) {
@@ -836,6 +854,68 @@ export function rememberDriverVehicle(driverId: string, info: { name?: string; v
   })
 }
 
+/**
+ * 자동 탑승 감지 — 기사 presence 비트마다 호출된다.
+ * 배정된 콜에서 ①차량이 실제 주행 속도로 이동하고 ②승객의 최신 위치가 차량
+ * 근접권(AUTO_BOARD_PROXIMITY_KM) 안이면, 조건이 AUTO_BOARD_DEBOUNCE_MS 이상
+ * 지속됐을 때 boardedAt을 서버가 스탬프한다 — 기사 수동 버튼 없이 요금 시계가
+ * 열리고 승객 앱은 SSE/폴링으로 즉시 '운행 중' 상태를 받는다.
+ * 기사가 버튼으로 먼저 처리한 건(착오 포함)은 boardedVia='driver'로 남고
+ * 승객 앱의 '탑승 여부 확인' 팝업이 사후 안전장치가 된다.
+ */
+export async function evaluateAutoBoard(
+  rideId: string,
+  driverId: string,
+  prev: { lat: number; lng: number; lastSeenAt: string },
+  next: { lat: number; lng: number },
+) {
+  const ride = getRide(rideId)
+  if (!ride || ride.status !== 'assigned' || ride.boardedAt) return
+  const now = Date.now()
+  // 샘플 간격이 너무 짧으면 GPS 잡음이, 너무 길면 평균 왜곡이 속도를 오염시킨다.
+  const dtMs = now - Date.parse(prev.lastSeenAt)
+  let speedKmh = 0
+  let moving = false
+  if (Number.isFinite(dtMs) && dtMs >= AUTO_BOARD_MIN_DT_MS && dtMs <= AUTO_BOARD_MAX_DT_MS) {
+    speedKmh = (haversineKm(prev, next) / dtMs) * 3_600_000
+    moving = speedKmh >= AUTO_BOARD_MIN_SPEED_KMH
+  }
+  // 승객 좌표는 presence 비트(passengerUid 우선, 기기 id 폴백)에서만 읽는다 —
+  // 기사 단말이 보낸 좌표는 승객 위치의 증거로 쓸 수 없다.
+  let paxNear = false
+  if (moving) {
+    const ids = [...new Set([ride.passengerUid, ride.passengerId].map((v) => (v ?? '').trim()).filter(Boolean))]
+    for (const id of ids) {
+      const pax = await presenceLocation('passenger', id).catch(() => null)
+      if (!pax || !Number.isFinite(pax.lat) || !Number.isFinite(pax.lng)) continue
+      if (now - pax.lastSeen > AUTO_BOARD_PAX_MAX_AGE_MS) continue
+      if (haversineKm({ lat: pax.lat as number, lng: pax.lng as number }, next) <= AUTO_BOARD_PROXIMITY_KM) {
+        paxNear = true
+        break
+      }
+    }
+  }
+  if (!(moving && paxNear)) {
+    if (ride.autoBoardSince) {
+      ride.autoBoardSince = null
+      stamp(ride)
+    }
+    return
+  }
+  if (!ride.autoBoardSince) {
+    ride.autoBoardSince = new Date(now).toISOString()
+    stamp(ride)
+    return
+  }
+  if (now - Date.parse(ride.autoBoardSince) < AUTO_BOARD_DEBOUNCE_MS) return
+  ride.boardedAt = new Date(now).toISOString()
+  ride.boardedVia = 'auto'
+  ride.autoBoardSince = null
+  console.log('[auto-board] boarding stamped', { rideId: ride.id, driverId, speedKmh: Math.round(speedKmh) })
+  const saved = stamp(ride)
+  if (saved.assignedDriverId) publishDriverLive(saved.assignedDriverId)
+}
+
 export function upsertDriverPresence(input: {
   id: string
   name?: string
@@ -864,6 +944,11 @@ export function upsertDriverPresence(input: {
         )
       : undefined
   const hasAssignedRide = !!assignedRide
+  // 자동 탑승 감지 — 배정 직후 승객·차량이 함께 움직이기 시작하면 서버가
+  // boardedAt을 스탬프한다(기사 수동 버튼 없이 요금 시계 개시).
+  if (input.status !== 'offline' && assignedRide && !assignedRide.boardedAt && current) {
+    void evaluateAutoBoard(assignedRide.id, input.id, current, input).catch(() => undefined)
+  }
   // 서버 측 주행 거리계 — presence 비트마다 탑승 이후 실제 이동 거리를 누적한다.
   // 최대 3km/비트를 넘는 점프는 GPS 튐으로 보고 버린다(20s 비트 기준 ~540km/h).
   if (assignedRide?.boardedAt && current && Number.isFinite(current.lat) && Number.isFinite(input.lat)) {

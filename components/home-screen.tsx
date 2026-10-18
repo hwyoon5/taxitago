@@ -60,6 +60,7 @@ import {
   bumpRideFare,
   cancelRideRequest,
   completeRideTrip,
+  markRideProgress,
   markRideProgressAsDriver,
   createRideRequest,
   fetchActiveRide,
@@ -159,6 +160,26 @@ function legacyPassengerId() {
     return stored !== localPassengerId() ? stored : ''
   } catch {
     return ''
+  }
+}
+
+/**
+ * '탑승 여부 확인' 팝업의 승객 응답 — '예' 확정은 운행 건별로 한 번만 묻기 위해
+ * 세션에 기록한다. '아니요'는 취소·분쟁으로 이어져 시트가 닫히므로 기록 불요.
+ */
+function isBoardAcked(rideId: string) {
+  try {
+    return window.sessionStorage.getItem(`taxitago:board-ack:${rideId}`) === '1'
+  } catch {
+    return false
+  }
+}
+
+function markBoardAcked(rideId: string) {
+  try {
+    window.sessionStorage.setItem(`taxitago:board-ack:${rideId}`, '1')
+  } catch {
+    undefined
   }
 }
 
@@ -1856,6 +1877,48 @@ function InTripCancelConfirmModal({
   )
 }
 
+/**
+ * 사후 안전장치 — 서버가 탑승을 스탬프한 뒤(자동 GPS 감지든 기사 수동 확인이든)
+ * 승객에게 즉시 진위를 묻는다. '아니요'는 denyBoard 취소로 이어져 요금 시계가
+ * 멈추고 취소 수수료 없이 환불되며, 서버에 분쟁 지표가 남는다.
+ */
+function BoardingConfirmModal({
+  autoDetected,
+  busy,
+  onYes,
+  onNo,
+}: {
+  autoDetected: boolean
+  busy: boolean
+  onYes: () => void
+  onNo: () => void
+}) {
+  const { t } = useLocale()
+  return (
+    <div className="pointer-events-auto fixed inset-0 z-[130] flex items-end bg-[#1e293b]/55 sm:items-center sm:p-4">
+      <section className="pointer-events-auto mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#E8F1FA]">
+          <Car className="h-7 w-7 text-[#4A82B8]" />
+        </div>
+        <h2 className="mt-3 text-2xl font-black text-[#0F172A]">{t('board.check.title')}</h2>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">{t('board.check.body')}</p>
+        {autoDetected ? (
+          <p className="mt-3 rounded-2xl bg-[#F0F9FF] px-4 py-2.5 text-[11px] font-bold leading-5 text-[#0369A1]">
+            {t('board.check.auto')}
+          </p>
+        ) : null}
+        <button type="button" disabled={busy} onClick={onYes} className="mt-4 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white disabled:opacity-60">
+          {busy ? t('board.check.confirming') : t('board.check.yes')}
+        </button>
+        <button type="button" disabled={busy} onClick={onNo} className="mt-3 w-full rounded-2xl border-2 border-[#BE123C] bg-[#FFF1F2] py-3.5 font-black text-[#BE123C] disabled:opacity-60">
+          {t('board.check.no')}
+        </button>
+      </section>
+    </div>
+  )
+}
+
 function RideCompleteCancelBar({
   children,
   onCancel,
@@ -2464,6 +2527,7 @@ function TaxiMatchingSheet({
   const [accepting, setAccepting] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
+  const [boardCheckBusy, setBoardCheckBusy] = useState(false)
   const settledRef = useRef(false)
   const payingRef = useRef(false)
   // 취소/종료된 세션 표시 — 취소 중 늦게 도착하는 create 응답이 좀비 콜을 남기지 않도록 한다.
@@ -2718,6 +2782,43 @@ function TaxiMatchingSheet({
     if (rideId) void cancelRideRequest(rideId, passengerIdRef.current || localPassengerId()).catch(() => undefined)
     onActivity?.(matched ? t('match.actCancelDispatch') : t('match.actCancelCall'), route)
     onNotice(matched ? t('match.noticeCancelDispatch') : t('match.noticeCancelCall'))
+    onEnd?.()
+    onClose()
+  }
+
+  // 탑승 여부 확인 팝업 — 서버가 boardedAt을 스탬프한 순간(자동 감지든 기사
+  // 수동 확인이든) 승객에게 진위를 묻는다. '예'는 확정 증거를 남기고, '아니요'는
+  // denyBoard 취소로 요금 시계를 멈추고 수수료 없이 환불한다.
+  const showBoardCheck = Boolean(ride && ride.status === 'assigned' && ride.boardedAt && !isBoardAcked(ride.id))
+  const confirmBoarded = () => {
+    const current = ride
+    if (!current?.id || boardCheckBusy) return
+    markBoardAcked(current.id)
+    setBoardCheckBusy(true)
+    void markRideProgress(current.id, passengerIdRef.current || localPassengerId(), 'boarded')
+      .then((next) => setRide(next))
+      .catch(() => undefined)
+      .finally(() => setBoardCheckBusy(false))
+  }
+  const denyBoarded = async () => {
+    const current = ride
+    if (!current?.id || boardCheckBusy) return
+    setBoardCheckBusy(true)
+    try {
+      await cancelRideRequest(current.id, passengerIdRef.current || localPassengerId(), { denyBoard: true })
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : t('match.noticeCancelErr'))
+      setBoardCheckBusy(false)
+      return
+    }
+    endedRef.current = true
+    taxiSheetRideId = ''
+    rideIdRef.current = ''
+    matchedRef.current = false
+    writeStoredTaxi(null)
+    setBoardCheckBusy(false)
+    onActivity?.(t('cancel.title'), t('board.check.denyNotice'))
+    onNotice(t('board.check.denyNotice'))
     onEnd?.()
     onClose()
   }
@@ -3168,6 +3269,14 @@ function TaxiMatchingSheet({
           onConfirm={() => void confirmInTripCancel()}
         />
       ) : null}
+      {showBoardCheck ? (
+        <BoardingConfirmModal
+          autoDetected={ride?.boardedVia === 'auto'}
+          busy={boardCheckBusy}
+          onYes={confirmBoarded}
+          onNo={() => void denyBoarded()}
+        />
+      ) : null}
     </div>
   )
 }
@@ -3579,6 +3688,7 @@ function ServiceSheet({
   const rideStage: 'arriving' | 'moving' = dispatchRide?.boardedAt || dispatchRide?.readyToSettleAt ? 'moving' : 'arriving'
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelSettling, setCancelSettling] = useState(false)
+  const [boardCheckBusy, setBoardCheckBusy] = useState(false)
   const cancelLockRef = useRef(false)
   const [preparingOpen, setPreparingOpen] = useState(false)
   const [callOpen, setCallOpen] = useState(false)
@@ -4120,6 +4230,43 @@ function ServiceSheet({
       setCancelSettling(false)
       onClose()
     }
+  }
+
+  // 탑승 여부 확인 팝업 — 서버가 boardedAt을 스탬프한 순간(자동 감지든 기사
+  // 수동 확인이든) 승객에게 진위를 묻는다. '아니요'는 denyBoard 취소로 요금
+  // 시계를 멈추고 수수료 없이 환불한다.
+  const showBoardCheck = Boolean(
+    phase === 'assigned' && dispatchRide && dispatchRide.status === 'assigned' && dispatchRide.boardedAt && !isBoardAcked(dispatchRide.id),
+  )
+  const confirmBoarded = () => {
+    const current = dispatchRide
+    if (!current?.id || boardCheckBusy) return
+    markBoardAcked(current.id)
+    setBoardCheckBusy(true)
+    void markRideProgress(current.id, daeriPassengerIdRef.current || localPassengerId(), 'boarded')
+      .then((next) => setDispatchRide(next))
+      .catch(() => undefined)
+      .finally(() => setBoardCheckBusy(false))
+  }
+  const denyBoarded = async () => {
+    const current = dispatchRide
+    if (!current?.id || boardCheckBusy) return
+    setBoardCheckBusy(true)
+    try {
+      await cancelRideRequest(current.id, daeriPassengerIdRef.current || localPassengerId(), { denyBoard: true })
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : t('match.noticeCancelErr'))
+      setBoardCheckBusy(false)
+      return
+    }
+    daeriEndedRef.current = true
+    daeriSheetRideId = ''
+    daeriRideIdRef.current = ''
+    daeriAcceptedRef.current = false
+    setBoardCheckBusy(false)
+    onActivity?.(t('cancel.title'), t('board.check.denyNotice'))
+    onNotice(t('board.check.denyNotice'))
+    onClose()
   }
   return (
     <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-[90] flex touch-none items-stretch overflow-hidden bg-[#241d35]/45">
@@ -4915,6 +5062,14 @@ function ServiceSheet({
           settling={cancelSettling}
           onKeep={() => setCancelConfirmOpen(false)}
           onConfirm={() => void confirmInTripCancel()}
+        />
+      ) : null}
+      {showBoardCheck ? (
+        <BoardingConfirmModal
+          autoDetected={dispatchRide?.boardedVia === 'auto'}
+          busy={boardCheckBusy}
+          onYes={confirmBoarded}
+          onNo={() => void denyBoarded()}
         />
       ) : null}
       {assignNoticeOpen && ride && dispatchRide?.assignedDriver ? (
@@ -9729,7 +9884,7 @@ function DriverDashboard({
               ? '목적지 도착이 확인됐어요. 요금이 확정됐습니다 — 아래에서 정산을 진행해 주세요.'
               : activeRide.boardedAt
                 ? '운행 중이에요. 목적지에 도착하면 [목적지 도착]을 눌러 요금을 확정해 주세요.'
-                : '승객이 탑승하면 [탑승 확인]을 눌러 운행을 시작해 주세요.'}
+                : '승객과 함께 출발하면 위치 정보로 운행이 자동 시작돼요. 승객 화면이 꺼져 있으면 [탑승 확인]으로 시작할 수 있어요.'}
           </p>
           {queuedRide ? (
             <p className="mt-2 rounded-lg bg-[#DBEAFE] px-2.5 py-1.5 text-[11px] font-black text-[#1D4ED8]">
