@@ -13,6 +13,7 @@ const AUDIT_LABEL: Record<string, string> = {
   settle: '정산 처리',
   'settle-all': '일괄 정산',
   adjust: '수동 보정',
+  assets: '에스크로·자산 보정',
   reconcile: '내역 동기화',
   wallet: '지갑 주소 변경',
   deposit: '입금 기록',

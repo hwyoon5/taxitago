@@ -226,6 +226,11 @@ export function getEscrowByRide(rideId: string) {
   return id ? db().escrows.get(id) ?? null : null
 }
 
+/** 관리자 자산 대시보드용 전체 에스크로 목록 — 최신순. */
+export function listAllEscrows() {
+  return [...db().escrows.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
 export function saveReceipt(receipt: SettlementReceipt) {
   db().receipts.set(receipt.rideId, receipt)
   persist()

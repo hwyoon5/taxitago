@@ -7,6 +7,7 @@ import { useAdminAuth } from '@/components/admin-guard'
 import { getAdminKey } from '@/lib/admin-key'
 import AdminPartners from '@/components/admin-partners'
 import AdminSettlements from '@/components/admin-settlements'
+import AdminAssets from '@/components/admin-assets'
 import AdminPayouts from '@/components/admin-payouts'
 import AdminBroadcasts from '@/components/admin-broadcasts'
 import AdminFareSettings from '@/components/admin-fare-settings'
@@ -53,7 +54,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'partners', 'compliance', 'devices', 'fare', 'ledger', 'receivable', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
+const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'partners', 'compliance', 'devices', 'fare', 'ledger', 'assets', 'receivable', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
@@ -67,6 +68,7 @@ const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
   devices: '기기 관리',
   fare: '수수료 설정',
   ledger: '정산 내역',
+  assets: '에스크로·자산',
   receivable: '미수금',
   payouts: '출금 요청',
   coupons: '쿠폰 관리',
@@ -106,7 +108,7 @@ const ADMIN_MENU_GROUPS: {
     card: 'border-[#BBF7D0] bg-[#F0FDF4]',
     heading: 'text-[#15803D]',
     active: 'bg-[#15803D] text-white shadow-[0_6px_14px_rgba(21,128,61,0.3)]',
-    tabs: ['fare', 'ledger', 'receivable', 'payouts'],
+    tabs: ['fare', 'ledger', 'assets', 'receivable', 'payouts'],
   },
   {
     id: 'support',
@@ -613,6 +615,8 @@ export default function AdminSupportDesk() {
         <AdminFareSettings />
       ) : view === 'ledger' ? (
         <AdminSettlements />
+      ) : view === 'assets' ? (
+        <AdminAssets />
       ) : view === 'receivable' ? (
         <AdminReceivables />
       ) : view === 'payouts' ? (
