@@ -21,6 +21,7 @@ import AdminDevices from '@/components/admin-devices'
 import AdminBlacklist from '@/components/admin-blacklist'
 import AdminFds from '@/components/admin-fds'
 import AdminB2b from '@/components/admin-b2b'
+import AdminEv from '@/components/admin-ev'
 import AdminCoupons from '@/components/admin-coupons'
 import AdminAnalytics from '@/components/admin-analytics'
 import AdminLiveDashboard from '@/components/admin-live'
@@ -56,7 +57,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'fds', 'partners', 'compliance', 'devices', 'fare', 'ledger', 'assets', 'receivable', 'payouts', 'b2b', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
+const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'fds', 'partners', 'compliance', 'devices', 'ev', 'fare', 'ledger', 'assets', 'receivable', 'payouts', 'b2b', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
@@ -69,6 +70,7 @@ const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
   partners: '기사·파트너',
   compliance: '자격 인증',
   devices: '기기 관리',
+  ev: 'EV 충전',
   fare: '수수료 설정',
   ledger: '정산 내역',
   assets: '에스크로·자산',
@@ -102,7 +104,7 @@ const ADMIN_MENU_GROUPS: {
     card: 'border-[#BFDBFE] bg-[#E8F1FA]',
     heading: 'text-[#1D4ED8]',
     active: 'bg-[#4A82B8] text-white shadow-[0_6px_14px_rgba(74,130,184,0.35)]',
-    tabs: ['live', 'report', 'partners', 'compliance', 'devices', 'shift'],
+    tabs: ['live', 'report', 'partners', 'compliance', 'devices', 'ev', 'shift'],
   },
   {
     id: 'finance',
@@ -615,6 +617,8 @@ export default function AdminSupportDesk() {
         <AdminUsers />
       ) : view === 'devices' ? (
         <AdminDevices />
+      ) : view === 'ev' ? (
+        <AdminEv />
       ) : view === 'fare' ? (
         <AdminFareSettings />
       ) : view === 'ledger' ? (

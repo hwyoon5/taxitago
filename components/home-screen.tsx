@@ -43,6 +43,8 @@ import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, tierBaseFarePi, tierFareRate, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { cancelEvChargeSession, completeEvChargeSession, createEvChargeSession, fetchEvChargeSession, lockEvChargeSession, type EvChargeSession } from '@/lib/ev-charge-client'
+import EvBookingPanel from '@/components/ev-booking-panel'
+import type { EvBooking, EvStationAvailability } from '@/lib/ev-booking-client'
 import { DELIVERY_VEHICLES, deliveryDistanceFeePi, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, progressDelivery, publishDelivery, relistDelivery, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
@@ -3620,6 +3622,9 @@ function ServiceSheet({
   const [evBusy, setEvBusy] = useState(false)
   const [evKwhInput, setEvKwhInput] = useState('')
   const evSettledLoggedRef = useRef('')
+  // EV 충전 예약·대기열 — 차례가 온 예약(notified)이 세션 생성 시 자동 연결된다.
+  const evBookingRef = useRef<EvBooking | null>(null)
+  const [evAvail, setEvAvail] = useState<EvStationAvailability[]>([])
   const evUserId = () => daeriPassengerIdRef.current || localPassengerId()
   const [courier, setCourier] = useState<{ name: string; vehicle: string; plate: string; phone?: string } | null>(null)
   const deliveryServerId = useRef('')
@@ -4025,6 +4030,7 @@ function ServiceSheet({
     }
   })
   const selectedUsage = catalog.find((item) => item.id === selectedItem) ?? catalog[0]
+  const evAvailById = service === 'EV 충전' ? Object.fromEntries(evAvail.map((row) => [row.stationId, row])) : {}
   const packageOption = getPackageSize(packageSize)
   const deliveryKm =
     deliveryPickupPoint && deliveryDestPoint ? haversineKm(deliveryPickupPoint, deliveryDestPoint) : 0
@@ -4163,6 +4169,11 @@ function ServiceSheet({
         providerId: spot?.id,
         providerName: spot?.brand || spot?.name,
         perKwhPi: Number.isFinite(spotRate) && spotRate > 0 ? spotRate : undefined,
+        // 차례가 온 예약 건이 있으면 함께 보내 세션에 연결한다(서버가 차례·소유 검증).
+        bookingId:
+          evBookingRef.current?.status === 'notified' && evBookingRef.current.stationId === (spot?.id || selectedItem)
+            ? evBookingRef.current.id
+            : undefined,
       })
       setEvSession(session)
       // 멱등 복귀 — 이전에 예치금이 이미 잠긴 세션이면 결제 단계를 건너뛰고
@@ -4172,8 +4183,10 @@ function ServiceSheet({
         onNotice(t('ev.started'))
       }
       return session.status === 'charging' ? 'charging' : 'pending'
-    } catch {
-      onNotice(t('ev.errSession'))
+    } catch (error) {
+      // 슬롯이 찬 충전소는 예약·대기열로 안내한다(게이트 거절은 일반 오류와 구분).
+      const code = error instanceof Error ? error.message : ''
+      onNotice(code === 'station_busy' || code === 'booking_not_due' ? t('evb.busy') : t('ev.errSession'))
       return false
     } finally {
       setEvBusy(false)
@@ -5415,6 +5428,23 @@ function ServiceSheet({
                         {item.battery != null ? (
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${batteryTone}`}>{t('device.battery')} {item.battery}%</span>
                         ) : null}
+                        {service === 'EV 충전' && evAvailById[item.id] ? (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                              evAvailById[item.id].occupiedNow < evAvailById[item.id].slots
+                                ? 'bg-[#ECFDF5] text-[#047857]'
+                                : evAvailById[item.id].queueDepth > 0
+                                  ? 'bg-[#FFFBEB] text-[#B45309]'
+                                  : 'bg-[#FEF2F2] text-[#B91C1C]'
+                            }`}
+                          >
+                            {evAvailById[item.id].occupiedNow < evAvailById[item.id].slots
+                              ? t('evb.slotFree', { f: String(evAvailById[item.id].slots - evAvailById[item.id].occupiedNow), s: String(evAvailById[item.id].slots) })
+                              : evAvailById[item.id].queueDepth > 0
+                                ? t('evb.queueN', { n: String(evAvailById[item.id].queueDepth) })
+                                : t('evb.slotBusy')}
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                     <span className="shrink-0 text-xs font-black text-[#7046dc]">{item.rate || '—'}</span>
@@ -5424,6 +5454,28 @@ function ServiceSheet({
             </div>
             {vehicle && selectedItem.startsWith('device-') && !selectedRentable ? (
               <p className="text-center text-sm font-black text-[#9F1239]">{t('svc.rentBlockedShort')}</p>
+            ) : null}
+            {service === 'EV 충전' ? (
+              <EvBookingPanel
+                stations={catalog.map((item) => ({
+                  id: item.id,
+                  name: item.name,
+                  powerKw: Number(String(item.extra ?? '').match(/(\d+(?:\.\d+)?)\s*kW/i)?.[1]) || undefined,
+                  providerName: item.brand,
+                }))}
+                selectedId={selectedItem}
+                userId={evUserId()}
+                userUid={loadPiIdentity()?.uid}
+                onBookingChange={(next) => {
+                  evBookingRef.current = next
+                }}
+                onAvailability={setEvAvail}
+                onStartCharging={(booking) => {
+                  if (booking.stationId !== selectedItem) setSelectedItem(booking.stationId)
+                  void startService(true)
+                }}
+                onNotice={onNotice}
+              />
             ) : null}
             <PaymentHandler
               service={service}

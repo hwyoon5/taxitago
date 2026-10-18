@@ -23,8 +23,14 @@ export async function POST(request: Request) {
     providerId: typeof body?.providerId === 'string' ? body.providerId : undefined,
     providerName: typeof body?.providerName === 'string' ? body.providerName : undefined,
     perKwhPi: typeof body?.perKwhPi === 'number' && Number.isFinite(body.perKwhPi) ? body.perKwhPi : undefined,
+    bookingId: typeof body?.bookingId === 'string' ? body.bookingId : undefined,
   })
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error, queueDepth: 'queueDepth' in result ? result.queueDepth : undefined },
+      { status: result.error === 'station_busy' || result.error === 'booking_not_due' ? 409 : 400 },
+    )
+  }
   return NextResponse.json({ ok: true, session: result.session, deduped: result.deduped === true })
 }
 

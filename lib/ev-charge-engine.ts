@@ -9,6 +9,7 @@ import { getPartnerLink } from '@/lib/partner-ledger-server'
 import { recordReceivable } from '@/lib/receivable-store'
 import { addEarning, saveReceipt } from '@/lib/escrow-store'
 import { getEvSession, listEvSessions, saveEvSession, syncEvChargeFromDisk } from '@/lib/ev-charge-store'
+import { evSessionGate, linkEvSessionToBooking, onEvSessionEnded, onEvSessionLocked } from '@/lib/ev-booking'
 import type { EvChargeSession, EvMeterSource } from '@/lib/ev-charge-types'
 
 const nowIso = () => new Date().toISOString()
@@ -58,6 +59,8 @@ export async function createEvSession(input: {
   providerName?: string
   /** 충전기 목록에 표시된 kWh 단가 — 없으면 관리자 설정 단가. */
   perKwhPi?: number
+  /** 예약 체크인으로 시작하는 세션이면 예약 id — 서버가 소유·차례를 검증한다. */
+  bookingId?: string
 }) {
   syncEvChargeFromDisk()
   const userId = clip(input.userId, 80)
@@ -65,6 +68,20 @@ export async function createEvSession(input: {
   // 진행 중 세션이 있으면 새로 만들지 않고 기존 건을 돌려준다(멱등).
   const open = listEvSessions(userId).find((item) => item.status === 'pending' || item.status === 'charging')
   if (open) return { ok: true as const, session: open, deduped: true as const }
+  // 스마트 밸런싱 게이트 — 슬롯이 꽉 찬 충전소는 차례가 온 예약자만 세션을
+  // 열 수 있다. 슬롯이 비면 예약 없이도 즉시 이용 가능(대기열 무의미).
+  const chargerId = clip(input.chargerId, 80) || 'ev-charger'
+  const gate = evSessionGate(chargerId, userId)
+  if (!gate.allow) {
+    return { ok: false as const, error: 'station_busy' as const, queueDepth: gate.queueDepth, session: null }
+  }
+  const requestedBooking = clip(input.bookingId, 60)
+  // 명시 예약이 있으면 그 건을 검증해 연결하고, 없으면 차례가 온 본인 예약을 자동 연결한다.
+  const bookingId = gate.booking && (!requestedBooking || requestedBooking === gate.booking.id) ? gate.booking.id : null
+  // 차례가 오지 않은(또는 남의) 예약으로 체크인하려는 요청은 명시적으로 거절한다.
+  if (requestedBooking && !bookingId) {
+    return { ok: false as const, error: 'booking_not_due' as const, session: null }
+  }
   const config = await getFareConfig()
   const rate = num(input.perKwhPi)
   const perKwhPi = piRound(rate != null && rate > 0 ? rate : config.evCharging.perKwh)
@@ -79,7 +96,7 @@ export async function createEvSession(input: {
     userUid: clip(input.userUid, 80) || undefined,
     userWallet: clip(input.userWallet, 80) || undefined,
     userPhone: clip(input.userPhone, 30) || undefined,
-    chargerId: clip(input.chargerId, 80) || 'ev-charger',
+    chargerId,
     chargerName: clip(input.chargerName, 80) || 'EV 충전기',
     powerKw: num(input.powerKw) ?? undefined,
     providerId: providerId || undefined,
@@ -96,6 +113,14 @@ export async function createEvSession(input: {
     createdAt,
     updatedAt: createdAt,
   })
+  // 차례가 온 예약과 세션을 연결 — 잠금(lock)이 완료되면 예약이 'active'가 된다.
+  if (bookingId) {
+    const linked = linkEvSessionToBooking(session, bookingId, userId)
+    if (linked) {
+      session.bookingId = linked.id
+      saveEvSession(session)
+    }
+  }
   return { ok: true as const, session }
 }
 
@@ -113,7 +138,10 @@ export async function lockEvSession(
   syncEvChargeFromDisk()
   const session = getEvSession(sessionId)
   if (!session) return { ok: false as const, error: 'not_found', session: null }
-  if (session.status === 'charging' || session.status === 'settled') return { ok: true as const, session }
+  if (session.status === 'charging' || session.status === 'settled') {
+    if (session.status === 'charging') onEvSessionLocked(session)
+    return { ok: true as const, session }
+  }
   if (session.status !== 'pending') return { ok: false as const, error: 'invalid_state', session }
   const paymentId = proof.paymentId?.trim() || ''
   const txid = proof.txid?.trim() || ''
@@ -131,6 +159,7 @@ export async function lockEvSession(
   session.lockTxid = txid
   session.heldAt = nowIso()
   session.startedAt = session.heldAt
+  onEvSessionLocked(session)
   return { ok: true as const, session: stamp(session) }
 }
 
@@ -341,6 +370,7 @@ export async function settleEvSession(
     session.endedAt = session.endedAt || settledAt
     session.settledAt = settledAt
     stamp(session)
+    onEvSessionEnded(session)
 
     // 제공자 수익 내역 + 이용자 영수증 — 기존 정산 영수증 구조를 재사용한다.
     addEarning({
@@ -404,7 +434,9 @@ export async function cancelEvSession(sessionId: string, userId: string) {
   }
   if (session.status === 'pending') {
     session.status = 'cancelled'
-    return { ok: true as const, session: stamp(session) }
+    const cancelled = stamp(session)
+    onEvSessionEnded(cancelled)
+    return { ok: true as const, session: cancelled }
   }
   // 잠금 후 미충전 취소 — 예치금 전액 환불.
   try {
@@ -417,5 +449,7 @@ export async function cancelEvSession(sessionId: string, userId: string) {
   session.status = 'refunded'
   session.endedAt = nowIso()
   session.settledAt = session.endedAt
-  return { ok: true as const, session: stamp(session) }
+  const refunded = stamp(session)
+  onEvSessionEnded(refunded)
+  return { ok: true as const, session: refunded }
 }

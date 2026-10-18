@@ -20,6 +20,7 @@ export function createEvChargeSession(input: {
   providerId?: string
   providerName?: string
   perKwhPi?: number
+  bookingId?: string
 }) {
   return call<{ ok: boolean; session: EvChargeSession; deduped?: boolean }>('/api/ev/session', {
     method: 'POST',

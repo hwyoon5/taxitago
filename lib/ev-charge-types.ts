@@ -18,6 +18,8 @@ export type EvChargeSession = {
   userPhone?: string
   chargerId: string
   chargerName: string
+  /** 연결된 충전 예약 건 — 예약 체크인으로 시작된 세션에만 있다. */
+  bookingId?: string
   /** 충전기 출력(kW) — CPO 실측이 없을 때 경과시간 추정의 근거. */
   powerKw?: number
   /** 제공자(CPO/파트너) — 파트너 충전기면 uid, 시드 충전기면 비어 플랫폼 정산. */
