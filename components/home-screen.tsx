@@ -41,6 +41,7 @@ import { facilityTypeToDeviceKind, type DeviceSpec } from '@/lib/device-types'
 import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, tierBaseFarePi, tierFareRate, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
+import { cancelEvChargeSession, completeEvChargeSession, createEvChargeSession, fetchEvChargeSession, lockEvChargeSession, type EvChargeSession } from '@/lib/ev-charge-client'
 import { DELIVERY_VEHICLES, deliveryDistanceFeePi, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, progressDelivery, publishDelivery, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
@@ -2221,7 +2222,7 @@ function DestinationSheet({
   destination: string
   onClose: () => void
   onNotice: (message: string) => void
-  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string) => void
+  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string, refund?: { amount: number; txid: string; label: string }) => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
 }) {
   const { t } = useLocale()
@@ -2565,7 +2566,7 @@ function TaxiMatchingSheet({
   pickupAddress: string
   onClose: () => void
   onNotice: (message: string) => void
-  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string) => void
+  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string, refund?: { amount: number; txid: string; label: string }) => void
   onAskReview: (target: RideReviewTarget) => void
   onReceipt: (ride: RideReceipt) => void
   onActivity?: (label: string, detail: string) => void
@@ -3593,7 +3594,7 @@ function ServiceSheet({
   onClose: () => void
   onNotice: (message: string) => void
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
-  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string) => void
+  onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string, refund?: { amount: number; txid: string; label: string }) => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
   daeriTrip?: DaeriTrip | null
@@ -3606,6 +3607,12 @@ function ServiceSheet({
   const { t, locale } = useLocale()
   const IS_TEST_MODE = true
   const [phase, setPhase] = useState<'idle' | 'matching' | 'assigned'>(initialPhase)
+  // EV 충전 선결제 세션 — 예치금 잠금 → 실측 kWh 정산 → 차액 자동 환불.
+  const [evSession, setEvSession] = useState<EvChargeSession | null>(null)
+  const [evBusy, setEvBusy] = useState(false)
+  const [evKwhInput, setEvKwhInput] = useState('')
+  const evSettledLoggedRef = useRef('')
+  const evUserId = () => daeriPassengerIdRef.current || localPassengerId()
   const [courier, setCourier] = useState<{ name: string; vehicle: string; plate: string; phone?: string } | null>(null)
   const deliveryServerId = useRef('')
   const [dispatchRide, setDispatchRide] = useState<PublicRide | null>(null)
@@ -4076,6 +4083,122 @@ function ServiceSheet({
       })
       .catch(() => undefined)
   }
+  /**
+   * EV 충전 선결제 예치 세션 생성 — 예치금·단가는 서버가 요금 설정과
+   * 충전기 표시 단가로 계산해 세션에 고정한다. 반환값은 세션 생성 성공 여부.
+   */
+  const startEvCharge = async (): Promise<'pending' | 'charging' | false> => {
+    if (evBusy || evSession) return evSession?.status === 'charging' ? 'charging' : 'pending'
+    setEvBusy(true)
+    try {
+      const identity = loadPiIdentity()
+      const spot = selectedUsage
+      const spotRate = Number(String(spot?.rate ?? '').match(/(\d+(?:\.\d+)?)/)?.[1])
+      const spotPower = Number(String(spot?.extra ?? '').match(/(\d+(?:\.\d+)?)\s*kW/i)?.[1])
+      const session = await createEvChargeSession({
+        userId: evUserId(),
+        userUid: identity?.uid,
+        userWallet: identity?.wallet,
+        userPhone: memberPhone(),
+        chargerId: spot?.id || selectedItem,
+        chargerName: spot?.name || 'EV 충전기',
+        powerKw: Number.isFinite(spotPower) && spotPower > 0 ? spotPower : undefined,
+        providerId: spot?.id,
+        providerName: spot?.brand || spot?.name,
+        perKwhPi: Number.isFinite(spotRate) && spotRate > 0 ? spotRate : undefined,
+      })
+      setEvSession(session)
+      // 멱등 복귀 — 이전에 예치금이 이미 잠긴 세션이면 결제 단계를 건너뛰고
+      // 충전 화면으로 바로 복귀한다.
+      if (session.status === 'charging') {
+        setPhase('assigned')
+        onNotice(t('ev.started'))
+      }
+      return session.status === 'charging' ? 'charging' : 'pending'
+    } catch {
+      onNotice(t('ev.errSession'))
+      return false
+    } finally {
+      setEvBusy(false)
+    }
+  }
+  /**
+   * 예치금 결제 완료 — /api/pi/complete의 서버 후킹이 세션을 잠그고,
+   * 클라이언트는 명시 잠금을 시도한 뒤 서버 후킹 지연에 대비해 짧게 폴링한다.
+   */
+  const onEvDepositPaid = (result: { paymentId?: string; txid?: string }) => {
+    const session = evSession
+    if (!session || !result.paymentId || !result.txid) return
+    const confirm = (next: EvChargeSession) => {
+      setEvSession(next)
+      setPhase('assigned')
+      onNotice(t('ev.started'))
+      onActivity?.('EV 충전 시작', `${next.chargerName} · 예치 ${next.depositPi.toFixed(2)} Pi`)
+    }
+    void lockEvChargeSession(session.id, { userId: evUserId(), paymentId: result.paymentId, txid: result.txid })
+      .then(confirm)
+      .catch(async () => {
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          const latest = await fetchEvChargeSession(session.id, evUserId()).catch(() => null)
+          if (latest && latest.status !== 'pending') return confirm(latest)
+        }
+        onNotice(t('ev.lockErr'))
+      })
+  }
+  /** 정산 확정된 세션을 거래 내역·활동 로그에 기록한다 — 차액 환불은 별도 +행. */
+  const noteEvSettled = (s: EvChargeSession) => {
+    setEvSession(s)
+    if (s.status !== 'settled' && s.status !== 'refunded') return
+    if (evSettledLoggedRef.current === s.id) return
+    evSettledLoggedRef.current = s.id
+    const paid = s.finalPi ?? s.depositPi
+    const proof = { paymentId: s.lockPaymentId || `pay-${s.id}`, txid: s.lockTxid || `lock-${s.id}` }
+    onSettle(
+      paid,
+      place,
+      `${service} 이용`,
+      s.depositPi,
+      proof,
+      undefined,
+      (s.refundPi ?? 0) > 0
+        ? { amount: s.refundPi ?? 0, txid: s.refundTxid || `refund-${s.id}`, label: t('ev.refundLabel') }
+        : undefined,
+    )
+    onActivity?.('EV 충전 완료', `${s.chargerName} · ${s.finalKwh ?? 0} kWh · ${paid.toFixed(2)} Pi`)
+  }
+  /** 충전 종료 — 서버가 실측 kWh로 정산하고 차액을 자동 환불한다. */
+  const endEvCharge = () => {
+    const session = evSession
+    if (!session || evBusy) return
+    setEvBusy(true)
+    const manual = Number(evKwhInput)
+    void completeEvChargeSession(session.id, {
+      userId: evUserId(),
+      ...(Number.isFinite(manual) && manual > 0 ? { kwh: manual } : {}),
+    })
+      .then(noteEvSettled)
+      .catch(() => onNotice(t('ev.errSettle')))
+      .finally(() => setEvBusy(false))
+  }
+  /** 세션 취소 — 미잠금이면 자금 이동 없이 종료, 잠금 후 미충전이면 전액 환불. */
+  const cancelEvCharge = () => {
+    const session = evSession
+    if (!session) return
+    void cancelEvChargeSession(session.id, evUserId()).then(setEvSession).catch(() => undefined)
+  }
+  /** 서버 측 비동기 갱신(CPO 계량·타임아웃 환불)을 폴링으로 흡수한다. */
+  const refreshEvSession = async (id: string) => {
+    const latest = await fetchEvChargeSession(id, evUserId()).catch(() => null)
+    if (!latest) return
+    if (latest.status === 'settled' || latest.status === 'refunded') {
+      noteEvSettled(latest)
+      return
+    }
+    setEvSession(latest)
+    // 서버 후킹이 먼저 잠갔는데 화면이 결제 단계에 남아 있으면 충전 화면으로 진행.
+    if (latest.status === 'charging') setPhase((p) => (p === 'matching' ? 'assigned' : p))
+  }
   const startService = async (scanned?: boolean, consented?: boolean) => {
     if (service === '택배' || ride) {
       if (service === '택배') {
@@ -4198,6 +4321,7 @@ function ServiceSheet({
       // 서버가 대여 전이를 검증한다 — 다른 이용자가 먼저 대여했으면 실패한다.
       const rented = await rentMobilityDevice(device.serial, daeriPassengerIdRef.current || localPassengerId()).catch(() => null)
       if (!rented) {
+
         void refreshMobilityDevices()
         // 미수금 페널티 이용 제한 — 제한 사유와 해제 시각을 이용자에게 알린다.
         const lastError = rentalLastError()
@@ -4213,6 +4337,14 @@ function ServiceSheet({
         return
       }
       rentalSerialRef.current = device.serial
+    }
+    // EV 충전 — 선결제 예치 세션을 먼저 연다. 예치금이 플랫폼 에스크로에
+    // 잠긴 뒤(결제 검증) 충전이 시작되고, 종료 시 실측 kWh로 정산·차액 환불된다.
+    if (service === 'EV 충전' && !evSession) {
+      const evStatus = await startEvCharge()
+      if (!evStatus) return
+      // 잠금된 세션으로 복귀한 경우 — startEvCharge가 'assigned'로 전환했다.
+      if (evStatus === 'charging') return
     }
     setPhase('matching')
     onActivity?.(t(selfServe ? 'svc.actUseStart' : 'svc.actCall', { name: translateService(locale, service) }), place)
@@ -4356,6 +4488,16 @@ function ServiceSheet({
       window.clearInterval(timer)
     }
   }, [service, phase])
+
+  // EV 충전 세션은 CPO 계량 보고가 서버에서 비동기로 갱신된다 —
+  // 충전 중에는 세션 상태를 폴링한다.
+  useEffect(() => {
+    if (!evSession || evSession.status !== 'charging') return
+    const timer = window.setInterval(() => {
+      void refreshEvSession(evSession.id)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [evSession?.id, evSession?.status])
 
   const confirmAssignment = () => {
     daeriAcceptedRef.current = true
@@ -4541,7 +4683,37 @@ function ServiceSheet({
             ) : null}
             {daeriMatchError ? <p className="mt-2 text-xs font-bold text-[#B91C1C]">{daeriMatchError}</p> : null}
             <div className="relative z-30 mt-3 space-y-3 pointer-events-auto">
-            {IS_TEST_MODE ? (
+            {service === 'EV 충전' && !ride ? (
+              <div className="rounded-2xl border-2 border-[#BFDBFE] bg-white p-3 text-left">
+                <p className="text-[11px] font-black text-[#1D4ED8]">{t('ev.depositTitle')}</p>
+                <p className="mt-1 text-[10px] font-bold leading-4 text-[#64748B]">
+                  {evSession
+                    ? t('ev.depositHint', { deposit: evSession.depositPi.toFixed(2), rate: evSession.perKwhPi.toFixed(2) })
+                    : t('ev.preparing')}
+                </p>
+                {evSession?.status === 'pending' ? (
+                  <PiCheckoutButton
+                    amount={evSession.depositPi}
+                    memo={`EV 충전 예치금 ${evSession.depositPi.toFixed(2)} Pi`}
+                    metadata={{
+                      kind: 'ev-deposit',
+                      evSessionId: evSession.id,
+                      label: 'EV 충전 예치금',
+                      place,
+                      partnerId: evSession.providerId || undefined,
+                      partnerName: evSession.providerName || undefined,
+                      deviceId: evSession.chargerId,
+                    }}
+                    advanceOnApproval={false}
+                    className="mt-2.5 w-full rounded-xl bg-[#4A82B8] py-3 text-sm font-black text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]"
+                    onPaid={onEvDepositPaid}
+                    onFailed={(error) => onNotice(describePiUserMessage(error))}
+                  >
+                    {t('ev.payDeposit', { v: evSession.depositPi.toFixed(2) })}
+                  </PiCheckoutButton>
+                ) : null}
+              </div>
+            ) : IS_TEST_MODE ? (
               <button
                 type="button"
                 disabled={ride ? daeriAccepting || !dispatchRide : false}
@@ -4667,6 +4839,8 @@ function ServiceSheet({
                 if (ride && staleId) {
                   void cancelRideRequest(staleId, daeriPassengerIdRef.current || localPassengerId()).catch(() => undefined)
                 }
+                // EV 세션은 결제 전이면 무결제 종료, 잠금 후면 예치금 전액 환불.
+                cancelEvCharge()
                 releaseRental()
                 onActivity?.(selfServe ? t('cancel.title') : t('match.actCancelCall'), place)
                 onClose()
@@ -4680,6 +4854,91 @@ function ServiceSheet({
         )}
         {!more && phase === 'assigned' && selfServe && (
           <div className="mt-5 space-y-3">
+            {service === 'EV 충전' && evSession ? (
+              evSession.status === 'settled' || evSession.status === 'refunded' ? (
+                <div className="rounded-[24px] border-2 border-[#BBF7D0] bg-[#F0FDF4] p-4">
+                  <p className="text-xs font-black text-[#15803D]">{t('ev.receiptTitle')}</p>
+                  <div className="mt-2 space-y-1.5 text-[11px] font-bold text-[#334155]">
+                    <p className="flex justify-between"><span>{t('ev.rowDeposit')}</span><span className="font-black">{evSession.depositPi.toFixed(2)} Pi</span></p>
+                    <p className="flex justify-between">
+                      <span>{t('ev.rowKwh')}</span>
+                      <span className="font-black">
+                        {(evSession.finalKwh ?? 0).toFixed(2)} kWh
+                        <span className="ml-1 font-bold text-[#94A3B8]">
+                          ({evSession.meterSource === 'cpo' ? t('ev.meterCpo') : evSession.meterSource === 'manual' ? t('ev.meterManual') : t('ev.meterEstimate')})
+                        </span>
+                      </span>
+                    </p>
+                    <p className="flex justify-between"><span>{t('ev.rowRate')}</span><span className="font-black">{evSession.perKwhPi.toFixed(2)} Pi/kWh</span></p>
+                    <p className="flex justify-between border-t border-[#BBF7D0] pt-1.5 text-[13px]"><span>{t('ev.rowFinal')}</span><span className="font-black text-[#0F172A]">{(evSession.finalPi ?? 0).toFixed(2)} Pi</span></p>
+                    {(evSession.refundPi ?? 0) > 0 ? (
+                      <p className="flex justify-between text-[#15803D]"><span>{t('ev.rowRefund')}</span><span className="font-black">+{(evSession.refundPi ?? 0).toFixed(2)} Pi</span></p>
+                    ) : null}
+                    {(evSession.deficitPi ?? 0) > 0 ? (
+                      <p className="flex justify-between text-[#B45309]"><span>{t('ev.rowDeficit')}</span><span className="font-black">{(evSession.deficitPi ?? 0).toFixed(2)} Pi</span></p>
+                    ) : null}
+                  </div>
+                  {evSession.refundTxid ? <p className="mt-2 font-mono text-[9px] font-bold text-[#94A3B8]">refund tx: {evSession.refundTxid.slice(0, 24)}…</p> : null}
+                  <button type="button" onClick={onClose} className="mt-3 w-full rounded-xl bg-[#15803D] py-3 text-sm font-black text-white">
+                    {t('common.ok')}
+                  </button>
+                </div>
+              ) : (
+                <div className="rounded-[24px] border-2 border-[#BFDBFE] bg-[#E8F1FA] p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black text-[#1D4ED8]">{t('ev.chargingTitle')}</p>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-[#4A82B8]">{evSession.status === 'charging' ? t('sheet.charging') : t('ev.preparing')}</span>
+                  </div>
+                  <p className="mt-2 text-lg font-black text-[#0F172A]">{evSession.chargerName}</p>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="rounded-2xl bg-white px-3 py-3">
+                      <p className="text-[10px] font-bold text-[#8b8495]">{t('ev.rowDeposit')}</p>
+                      <p className="mt-1 text-sm font-black text-[#0F172A]">{evSession.depositPi.toFixed(2)} Pi</p>
+                    </div>
+                    <div className="rounded-2xl bg-white px-3 py-3">
+                      <p className="text-[10px] font-bold text-[#8b8495]">{t('ev.rowRate')}</p>
+                      <p className="mt-1 text-sm font-black text-[#4A82B8]">{evSession.perKwhPi.toFixed(2)}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white px-3 py-3">
+                      <p className="text-[10px] font-bold text-[#8b8495]">{t('ev.rowKwh')}</p>
+                      <p className="mt-1 text-sm font-black text-[#0F172A]">{evSession.meteredKwh != null ? `${evSession.meteredKwh.toFixed(2)}` : '—'}</p>
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step={0.1}
+                    value={evKwhInput}
+                    onChange={(event) => setEvKwhInput(event.target.value)}
+                    placeholder={t('ev.kwhPh')}
+                    className="mt-3 w-full rounded-xl border-2 border-[#BFDBFE] bg-white px-3 py-2.5 text-sm font-black outline-none focus:border-[#4A82B8]"
+                  />
+                  <button
+                    type="button"
+                    disabled={evBusy}
+                    onClick={endEvCharge}
+                    className="mt-3 w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-bold text-white shadow-[0_10px_22px_rgba(74,130,184,0.28)] disabled:opacity-60"
+                  >
+                    {evBusy ? t('common.loading') : t('ev.endBtn')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={evBusy}
+                    onClick={() => {
+                      cancelEvCharge()
+                      releaseRental()
+                      onClose()
+                    }}
+                    className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-black text-[#475569] disabled:opacity-60"
+                  >
+                    {t('ev.cancelBtn')}
+                  </button>
+                  <p className="mt-2 text-center text-[11px] font-bold text-[#64748B]">{t('ev.endHint')}</p>
+                </div>
+              )
+            ) : (
+            <>
             <div className="rounded-[24px] border-2 border-[#E0D4FF] bg-[#F8F5FF] p-4">
               <p className="text-xs font-black text-[#4C1FB8]">{t('sheet.usageInfo', { service: serviceLabel })}</p>
               <p className="mt-2 text-lg font-black text-[#0F172A]">{selectedUsage?.name}</p>
@@ -4740,6 +4999,8 @@ function ServiceSheet({
               {vehicle ? t('svc.doneReturn') : settleTiming === 'qr_auto' ? t('svc.doneAuto') : settleTiming === 'postpaid' ? t('svc.donePost') : t('match.complete')}
             </PiCheckoutButton>
             <p className="text-center text-[11px] font-bold text-[#64748B]">{t('svc.doneHint')}</p>
+            </>
+            )}
           </div>
         )}
         {!more && phase === 'assigned' && !selfServe && (
@@ -11174,6 +11435,7 @@ export default function HomeScreen() {
     estimated: number | undefined,
     proof: { paymentId: string; txid: string; payee?: string },
     rideId?: string,
+    refund?: { amount: number; txid: string; label: string },
   ) => {
     if (!proof.paymentId || !proof.txid) {
       console.error('[Pi] blocked local receipt without Pi payment proof')
@@ -11188,6 +11450,12 @@ export default function HomeScreen() {
     const ts = Date.now()
     const payee = (proof.payee || '').trim() || undefined
     setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at}`, place, at, ts, estimated, txid: proof.txid, payee }, ...items])
+    // 예치금 차액 환불 등 결제와 별도 legs가 있는 건 — 환불을 +금액 행으로
+    // 거래 내역에 남겨 예치·실요금·환불이 모두 보이게 한다.
+    if (refund && refund.amount > 0 && refund.txid && !isSettledPayment(refund.txid)) {
+      markSettledPayment(refund.txid)
+      setTransactions((items) => [{ label: refund.label, amount: refund.amount, detail: `${place} · ${at}`, place, at, ts: ts + 1, txid: refund.txid }, ...items])
+    }
     recordActivity(label.includes('취소') ? '취소 수수료 결제' : '결제 완료', `${label} · ${amount.toFixed(7)} Pi · ${place}`)
     setPaymentDone({ amount, place, estimated, paymentId: proof.paymentId, txid: proof.txid, payee })
     emitLedgerChange()

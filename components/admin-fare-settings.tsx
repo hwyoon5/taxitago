@@ -569,6 +569,51 @@ export default function AdminFareSettings() {
               : '현재 시간대별 할증이 꺼져 있습니다.'}
           </p>
         </div>
+        <div className="mt-2 rounded-xl border-2 border-[#BBF7D0] bg-[#F0FDF4] p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-black text-[#15803D]">EV 충전 선결제 예치</span>
+            <span className="text-[10px] font-bold text-[#16A34A]">예치금 = kWh 단가 × 기준 충전량</span>
+          </div>
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+            <label className="block">
+              <span className="text-[10px] font-bold text-[#16A34A]">기본 kWh 단가</span>
+              <div className="mt-0.5 flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  disabled={!canEdit}
+                  value={fareDraft.evCharging?.perKwh ?? DEFAULT_FARE_CONFIG.evCharging.perKwh}
+                  onChange={(event) =>
+                    setFareDraft((prev) => ({ ...prev, evCharging: { ...(prev.evCharging ?? DEFAULT_FARE_CONFIG.evCharging), perKwh: Number(event.target.value) } }))
+                  }
+                  className="w-full rounded-lg border border-[#BBF7D0] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#16A34A]"
+                />
+                <span className="shrink-0 text-xs font-black text-[#16A34A]">Pi/kWh</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold text-[#16A34A]">예치 기준 충전량</span>
+              <div className="mt-0.5 flex items-center gap-1">
+                <input
+                  type="number"
+                  min={1}
+                  step={5}
+                  disabled={!canEdit}
+                  value={fareDraft.evCharging?.depositKwh ?? DEFAULT_FARE_CONFIG.evCharging.depositKwh}
+                  onChange={(event) =>
+                    setFareDraft((prev) => ({ ...prev, evCharging: { ...(prev.evCharging ?? DEFAULT_FARE_CONFIG.evCharging), depositKwh: Number(event.target.value) } }))
+                  }
+                  className="w-full rounded-lg border border-[#BBF7D0] bg-white px-2 py-1.5 text-xs font-black outline-none focus:border-[#16A34A]"
+                />
+                <span className="shrink-0 text-xs font-black text-[#16A34A]">kWh</span>
+              </div>
+            </label>
+          </div>
+          <p className="mt-1.5 text-[10px] font-bold leading-4 text-[#16A34A]">
+            예치금 {((fareDraft.evCharging?.perKwh ?? 0.15) * (fareDraft.evCharging?.depositKwh ?? 30)).toFixed(2)} Pi를 충전 시작 시 플랫폼 에스크로에 잠그고, 종료 시 실측 kWh 확정 요금과의 차액을 이용자에게 자동 환불합니다. 충전기별 단가가 표시된 곳은 그 단가가 우선합니다.
+          </p>
+        </div>
         <div className="mt-2 rounded-xl border-2 border-[#99F6E4] bg-[#F0FDFA] p-2.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-black text-[#0F766E]">유료도로 통행료 환산</span>

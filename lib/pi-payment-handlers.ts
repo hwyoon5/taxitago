@@ -631,6 +631,11 @@ export async function handlePiComplete(request: Request) {
       await lockRideEscrowFromPayment(paymentId, txid, settledMetadata).catch((lockError) => {
         console.error('[Pi] /api/pi/complete escrow lock failed', { paymentId, lockError })
       })
+      // EV 충전 예치금 결제 — 검증된 결제 완료 시점에 세션을 'charging'으로 잠근다.
+      const { lockEvSessionFromPayment } = await import('@/lib/ev-charge-engine')
+      await lockEvSessionFromPayment(paymentId, txid, settledMetadata).catch((lockError) => {
+        console.error('[Pi] /api/pi/complete ev-deposit lock failed', { paymentId, lockError })
+      })
       // 클라이언트 완료 콜백 유실 대비 — 결제 검증이 끝나면 서버가 라이드를
       // 완료로 전환해 이용자/기사 양쪽 폴링이 바로 같은 상태를 받는다.
       await settleEscrowRideFromPayment(paymentId, txid, settledMetadata).catch((err) => {
@@ -639,7 +644,7 @@ export async function handlePiComplete(request: Request) {
       // 요금 계열 결제는 이용자 결제 장부에 결제액을 같은 완료 흐름에서 기록한다 —
       // 서버 조회값(uid·from_address·amount)만 쓰고, txid 멱등이라 콜백 재시도가
       // 이중 기록하지 않는다. 사전 충전 잔액 차감이 아니라 직결제 영수증 기록이다.
-      const FARE_KINDS = new Set(['service-pay', 'manual-settle', 'escrow-lock'])
+      const FARE_KINDS = new Set(['service-pay', 'manual-settle', 'escrow-lock', 'ev-deposit'])
       if (metaKind && FARE_KINDS.has(metaKind)) {
         const { recordUserSpend } = await import('@/lib/user-credit-store')
         await recordUserSpend({

@@ -37,6 +37,14 @@ export type TierRate = {
   base?: number
 }
 
+/** EV 충전 정산 정책 — kWh 단가와 선결제 예치 기준 충전량. */
+export type EvChargePolicy = {
+  /** kWh당 요금(Pi) — 충전기별 단가가 표시되면 그 값이 세션에 우선 고정된다. */
+  perKwh: number
+  /** 선결제 예치금 산정 기준 충전량(kWh) — 예치금 = perKwh × depositKwh(최소 flatBase.ev). */
+  depositKwh: number
+}
+
 export type FareConfig = {
   taxi: FareRule
   daeri: FareRule
@@ -46,6 +54,8 @@ export type FareConfig = {
   toll: TollPolicy
   /** 택시 호출 시 승객이 고른 등급별 할증 — 대리운전·플랫 서비스에는 미적용. */
   tiers: Record<RideTier, TierRate>
+  /** EV 충전 선결제 예치·실측 정산 정책. */
+  evCharging: EvChargePolicy
 }
 
 export const DEFAULT_FARE_CONFIG: FareConfig = {
@@ -65,6 +75,8 @@ export const DEFAULT_FARE_CONFIG: FareConfig = {
     '대형': { rate: 130 },
     '펫동반': { rate: 110 },
   },
+  // kWh당 0.15 Pi(≈345원, 2300원/Pi 기준) × 예치 기준 30kWh = 예치금 4.5 Pi.
+  evCharging: { perKwh: 0.15, depositKwh: 30 },
 }
 
 export const FLAT_SERVICE_LABEL: Record<FlatServiceId, string> = {
@@ -114,6 +126,10 @@ export function normalizeFareConfig(input: Partial<FareConfig> | null | undefine
     toll: {
       // 0이면 나눗셈이 깨지므로 하한 1원을 둔다.
       krwPerPi: Math.max(1, num(input?.toll?.krwPerPi, DEFAULT_FARE_CONFIG.toll.krwPerPi)),
+    },
+    evCharging: {
+      perKwh: Math.max(0, num(input?.evCharging?.perKwh, DEFAULT_FARE_CONFIG.evCharging.perKwh)),
+      depositKwh: Math.max(1, num(input?.evCharging?.depositKwh, DEFAULT_FARE_CONFIG.evCharging.depositKwh)),
     },
   }
 }
