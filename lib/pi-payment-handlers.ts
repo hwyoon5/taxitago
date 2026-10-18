@@ -644,7 +644,23 @@ export async function handlePiComplete(request: Request) {
       // 요금 계열 결제는 이용자 결제 장부에 결제액을 같은 완료 흐름에서 기록한다 —
       // 서버 조회값(uid·from_address·amount)만 쓰고, txid 멱등이라 콜백 재시도가
       // 이중 기록하지 않는다. 사전 충전 잔액 차감이 아니라 직결제 영수증 기록이다.
-      const FARE_KINDS = new Set(['service-pay', 'manual-settle', 'escrow-lock', 'ev-deposit'])
+      // B2B 법인 인보이스 결제 — 체인 검증을 통과한 뒤 서버 조회 금액이
+      // 청구 총액 이상일 때만 인보이스를 'paid'로 마감한다(미납·부분납 무시).
+      if (metaKind === 'b2b-invoice') {
+        const { settleB2bInvoiceFromPayment } = await import('@/lib/b2b-store')
+        await settleB2bInvoiceFromPayment({
+          paymentId,
+          txid,
+          // 금액은 Pi Platform이 돌려준 결제 원본(info)만 신뢰한다 — 서버 조회가
+          // 실패해 클라이언트 주장 fallback만 남은 경우 미납으로 처리해 인보이스를
+          // 마감하지 않는다(fail-closed).
+          amount: typeof info?.amount === 'number' ? info.amount : null,
+          metadata: settledMetadata,
+        }).catch((settleError) => {
+          console.error('[Pi] /api/pi/complete b2b invoice settle failed', { paymentId, settleError })
+        })
+      }
+      const FARE_KINDS = new Set(['service-pay', 'manual-settle', 'escrow-lock', 'ev-deposit', 'b2b-invoice'])
       if (metaKind && FARE_KINDS.has(metaKind)) {
         const { recordUserSpend } = await import('@/lib/user-credit-store')
         await recordUserSpend({

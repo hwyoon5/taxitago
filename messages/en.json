@@ -312,7 +312,7 @@
   "search.mapSub": "Move the pin to set destination",
   "search.finding": "Finding places",
   "search.count": "{count} results",
-    "search.translated": "Korean search · {q}",
+  "search.translated": "Korean search · {q}",
   "search.translateTo": "Translate to",
   "search.translating": "Translating…",
   "search.translateFailed": "No translator configured — searching the original text",
@@ -926,5 +926,8 @@
   "svc.delivCompleteBtn": "Delivered",
   "svc.delivPickupNotice": "Picked up — now in transit",
   "svc.delivDoneNotice": "Delivery completed",
-  "svc.delivLiveWait": "Waiting for the driver's location signal"
+  "svc.delivLiveWait": "Waiting for the driver's location signal",
+  "match.b2bHint": "Billed to your company monthly invoice — no personal payment needed",
+  "svc.delivB2bMark": "Bill to company invoice",
+  "svc.delivB2bBadge": "Company billing"
 }

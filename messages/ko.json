@@ -312,7 +312,7 @@
   "search.mapSub": "핀을 옮겨 목적지 지정",
   "search.finding": "장소를 찾는 중",
   "search.count": "검색 결과 {count}곳",
-    "search.translated": "한국어 검색 · {q}",
+  "search.translated": "한국어 검색 · {q}",
   "search.translateTo": "번역할 언어",
   "search.translating": "번역 중…",
   "search.translateFailed": "번역기가 설정되지 않아 원문으로 검색해요",
@@ -926,5 +926,8 @@
   "svc.delivCompleteBtn": "배송 완료",
   "svc.delivPickupNotice": "택배 수거 완료 — 배송 중이에요",
   "svc.delivDoneNotice": "택배 배송이 완료됐어요",
-  "svc.delivLiveWait": "기사 위치 신호를 기다리는 중이에요"
+  "svc.delivLiveWait": "기사 위치 신호를 기다리는 중이에요",
+  "match.b2bHint": "법인 월말 청구 대상 운행입니다 — 개인 결제 없이 완료 처리됩니다",
+  "svc.delivB2bMark": "법인 월말 청구로 처리",
+  "svc.delivB2bBadge": "법인 청구"
 }

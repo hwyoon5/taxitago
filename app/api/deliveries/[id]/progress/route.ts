@@ -24,5 +24,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   // 발신인 상태 알림 — 수거 완료(배송 시작)/배송 완료 시점에 웹 푸시.
   void notifyDeliveryProgress(result.job, next === 'in_transit' ? 'picked_up' : 'delivered').catch(() => undefined)
+  // B2B 법인 이용 내역 — 배송 완료 시점에 월말 청구 원천으로 집계한다.
+  if (next === 'completed' && result.job.b2bOrgId && result.job.ownerId) {
+    const { recordB2bUsage } = await import('@/lib/b2b-store')
+    void recordB2bUsage({
+      orgId: result.job.b2bOrgId,
+      memberUid: result.job.ownerId,
+      service: 'delivery',
+      refId: `delivery:${result.job.id}`,
+      label: `${result.job.packageLabel} · ${result.job.pickupAddress} → ${result.job.destAddress}`,
+      grossPi: result.job.fare,
+    }).catch(() => undefined)
+  }
   return NextResponse.json({ ok: true, job: publicDelivery(result.job, driverId) })
 }

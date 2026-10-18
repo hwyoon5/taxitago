@@ -28,7 +28,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
   // 결제 수단·완료 표시 — txid는 서버가 검증한 결제만 인정한다.
+  // 'b2b_invoice'는 이 건이 법인 과금으로 태깅된 경우만 허용한다.
   const method = body?.paymentMethod
+  if (method === 'b2b_invoice') {
+    if (!existing.b2bOrgId) {
+      return NextResponse.json({ error: '법인 과금 대상이 아닌 배송 건입니다.' }, { status: 403 })
+    }
+    await markDeliveryPayment(id, ownerId, 'b2b_invoice', null)
+  }
   if (method === 'prepay_pi' || method === 'onsite_qr') {
     const txid = typeof body?.paymentTxid === 'string' ? body.paymentTxid.trim() : ''
     if (method === 'prepay_pi' && !txid) {

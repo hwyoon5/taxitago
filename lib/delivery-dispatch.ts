@@ -40,8 +40,10 @@ export type DeliveryDispatch = {
   driverPlate: string | null
   /** 물품 첨부 사진 수 — 원본은 attachment-store에 id 기준으로 보관. */
   photoCount?: number
-  /** 배송비 결제 수단 — 'prepay_pi' 선결제 | 'onsite_qr' 현장 QR | null 미선택. */
-  paymentMethod?: 'prepay_pi' | 'onsite_qr' | null
+  /** 배송비 결제 수단 — 'prepay_pi' 선결제 | 'onsite_qr' 현장 QR | 'b2b_invoice' 법인 월말 청구 | null 미선택. */
+  paymentMethod?: 'prepay_pi' | 'onsite_qr' | 'b2b_invoice' | null
+  /** B2B 법인 과금 태그 — 소속원 발송은 법인 월말 청구로 집계된다. */
+  b2bOrgId?: string | null
   /** 서버 검증을 통과한 결제 txid — 라우트에서 paymentKindOf 확인 후 기록. */
   paymentTxid?: string | null
   paidAt?: string | null
@@ -259,7 +261,7 @@ export async function setDeliveryPhotoCount(id: string, count: number) {
 }
 
 /** 배송비 결제 수단/완료 기록 — 발신인 소유 건만. 배정 후에도 결제 표시는 허용한다. */
-export async function markDeliveryPayment(id: string, ownerId: string, method: 'prepay_pi' | 'onsite_qr', txid: string | null) {
+export async function markDeliveryPayment(id: string, ownerId: string, method: 'prepay_pi' | 'onsite_qr' | 'b2b_invoice', txid: string | null) {
   const job = await getJob(id)
   if (!job) return { ok: false as const, error: 'not_found' as const, job: null }
   if (job.ownerId && job.ownerId !== ownerId) return { ok: false as const, error: 'forbidden' as const, job: null }
@@ -435,6 +437,8 @@ export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
     driverPlate: job.driverPlate,
     photoCount: job.photoCount ?? 0,
     paymentMethod: job.paymentMethod ?? null,
+    // 법인 과금 태그 — 발신인(owner) 본인에게만 노출해 '법인 청구' 표시에 쓴다.
+    b2bBilled: owner ? Boolean(job.b2bOrgId) : false,
     paidAt: job.paidAt ?? null,
     expiresAt: job.expiresAt ?? null,
     expiredAt: job.expiredAt ?? null,

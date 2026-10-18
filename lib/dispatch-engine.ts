@@ -107,6 +107,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
     boardedVia: ride.boardedVia ?? null,
     boardConfirmedAt: ride.boardConfirmedAt ?? null,
     boardDisputes: ride.boardDisputes ?? 0,
+    b2bBilled: Boolean(ride.b2bOrgId),
     createdAt: ride.createdAt,
     updatedAt: ride.updatedAt,
   }
@@ -348,6 +349,7 @@ export function createRideAndMatch(input: {
   passengerId: string
   passengerUid?: string
   passengerPhone?: string
+  b2bOrgId?: string | null
   pickup: RideRequestRecord['pickup']
   waypoints?: RideRequestRecord['waypoints']
   dest: RideRequestRecord['dest']

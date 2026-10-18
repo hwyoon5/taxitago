@@ -6,6 +6,7 @@ import { driverDeliveryEligible } from '@/lib/partner-services'
 import { getRegistryUser } from '@/lib/user-registry'
 import { complianceGate } from '@/lib/compliance-store'
 import { fdsBlockStatus, recordFdsSignal } from '@/lib/fds-store'
+import { b2bOrgForMember } from '@/lib/b2b-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -57,6 +58,8 @@ export async function POST(request: Request) {
     }
     void recordFdsSignal('ride-flood', { actorId: ownerIdRaw, detail: `택배 등록 · ${pickupAddress} → ${destAddress}` }).catch(() => undefined)
   }
+  // B2B 법인 소속원 발송 — 활성 법인이면 월말 청구 대상으로 태깅한다.
+  const b2b = ownerIdRaw ? await b2bOrgForMember(ownerIdRaw).catch(() => null) : null
   const createdAt = new Date().toISOString()
   const job = await createDeliveryDispatch({
     id: typeof body?.id === 'string' && body.id.trim() ? body.id.trim() : crypto.randomUUID(),
@@ -67,6 +70,7 @@ export async function POST(request: Request) {
     senderPhone: typeof body?.senderPhone === 'string' ? body.senderPhone : '',
     recipientPhone: typeof body?.recipientPhone === 'string' ? body.recipientPhone : '',
     ownerId: typeof body?.ownerId === 'string' ? body.ownerId.trim().slice(0, 80) : '',
+    b2bOrgId: b2b?.org.id || null,
     pickupLat: Number.isFinite(Number(body?.pickupLat)) ? Number(body?.pickupLat) : null,
     pickupLng: Number.isFinite(Number(body?.pickupLng)) ? Number(body?.pickupLng) : null,
     destLat: Number.isFinite(Number(body?.destLat)) ? Number(body?.destLat) : null,

@@ -312,7 +312,7 @@
   "search.mapSub": "ピンを動かして目的地を指定",
   "search.finding": "場所を検索中",
   "search.count": "検索結果 {count}件",
-    "search.translated": "韓国語検索 · {q}",
+  "search.translated": "韓国語検索 · {q}",
   "search.translateTo": "翻訳先",
   "search.translating": "翻訳中…",
   "search.translateFailed": "翻訳機能が未設定のため原文で検索します",
@@ -926,5 +926,8 @@
   "svc.delivCompleteBtn": "配達完了",
   "svc.delivPickupNotice": "集荷完了 — 配送中です",
   "svc.delivDoneNotice": "配達が完了しました",
-  "svc.delivLiveWait": "ドライバーの位置信号を待っています"
+  "svc.delivLiveWait": "ドライバーの位置信号を待っています",
+  "match.b2bHint": "法人月末請求の対象運行です — 個人決済なしで完了します",
+  "svc.delivB2bMark": "法人月末請求で処理",
+  "svc.delivB2bBadge": "法人請求"
 }

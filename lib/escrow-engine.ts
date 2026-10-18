@@ -22,6 +22,7 @@ import {
 import type { DriverEarning, DriverEarningsStats, EarningsPeriodRow, EscrowRecord, PublicEscrow, SettlementReceipt } from '@/lib/escrow-types'
 import { notifyDriverSettled } from '@/lib/push-events'
 import { FDS_SMALL_ESCROW_PI, recordFdsSignal } from '@/lib/fds-store'
+import { recordB2bUsage } from '@/lib/b2b-store'
 
 function stamp(record: EscrowRecord) {
   record.updatedAt = nowIso()
@@ -148,6 +149,8 @@ async function settleRideSpend(
   lockTxid: string | null | undefined,
   settledAmount: number,
 ) {
+  // 법인 과금 잠금은 개인 지출 장부를 건드리지 않는다 — 청구는 인보이스로 간다.
+  if (lockTxid?.startsWith('b2b:')) return
   const spends = await listUserSpends().catch(() => [])
   const spend = spends.find(
     (entry) => (lockTxid && entry.txid === lockTxid) || entry.txid === `balance-ride-${ride.id}`,
@@ -262,6 +265,15 @@ export async function releaseEscrow(
   if (!ride.readyToSettleAt) return { ok: false as const, error: 'passenger_not_ready', escrow, receipt: null }
   escrow = await ensureSettlementEscrow(rideId, driverId, proof)
   if (escrow?.status === 'released') return { ok: true as const, escrow, receipt: getReceipt(rideId) }
+  // B2B 법인 과금 운행 — 승객 개인 결제 잠금 없이 정산을 진행한다.
+  // 요금은 법인 월말 청구 인보이스로 회수하고 기사 정산은 플랫폼이 선지급한다.
+  if (ride.b2bOrgId && escrow && escrow.status === 'pending' && !escrow.lockTxid) {
+    escrow.status = 'held'
+    escrow.lockTxid = `b2b:${ride.b2bOrgId}`
+    escrow.lockPaymentId = `b2b:${ride.b2bOrgId}`
+    escrow.heldAt = nowIso()
+    stamp(escrow)
+  }
   if (!escrow || escrow.status !== 'held') {
     return { ok: false as const, error: 'escrow_not_held', escrow, receipt: null }
   }
@@ -405,6 +417,19 @@ export async function releaseEscrow(
   // 기사 정산 완료 웹 푸시 — 에스크로가 해제돼 장부가 마감된 시점에 알린다.
   if (settleEntry) {
     void notifyDriverSettled(driverId, receipt.route || '운행', settleEntry.net).catch(() => undefined)
+  }
+  // B2B 법인 이용 내역 — 월말 합산 청구서의 원천 데이터(멱등 refId).
+  // 법인 잠금(b2b:)으로 정산된 건만 집계한다 — 소속원이 개인 결제로 실제
+  // 에스크로를 잠근 예외 건을 법인에 이중 청구하지 않는다.
+  if (ride.b2bOrgId && settleEntry && escrow.lockTxid === `b2b:${ride.b2bOrgId}`) {
+    void recordB2bUsage({
+      orgId: ride.b2bOrgId,
+      memberUid: ride.passengerId,
+      service: ride.kind === 'daeri' ? 'daeri' : 'taxi',
+      refId: `ride:${rideId}`,
+      label: receipt.route || '법인 운행',
+      grossPi: settleEntry.gross,
+    }).catch(() => undefined)
   }
   return { ok: true as const, escrow, receipt }
   } finally {

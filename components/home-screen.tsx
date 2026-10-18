@@ -3045,7 +3045,7 @@ function TaxiMatchingSheet({
       if (settledRef.current) return
       settledRef.current = true
       // 서버 정산 영수증 금액이 있으면 그것이 권위 — 실측 거리·정체 할증이 반영된 값.
-      onSettle(settled && settled > 0 ? settled : amount, route, '택시 결제', billed.estimate, { paymentId, txid }, ride?.id)
+      onSettle(settled && settled > 0 ? settled : amount, route, ride?.b2bBilled ? '법인 청구' : '택시 결제', billed.estimate, { paymentId, txid }, ride?.id)
     }
     const releasePayLock = () => {
       payingRef.current = false
@@ -3070,7 +3070,9 @@ function TaxiMatchingSheet({
     const timeout = window.setTimeout(() => abort.abort(), 90_000)
     void (async () => {
       let proof: { paymentId: string; txid: string } | undefined
-      if (ride.escrow?.status !== 'held' && ride.escrow?.status !== 'released') {
+      // 법인 월말 청구 운행은 개인 결제를 건너뛴다 — 서버가 이용 내역을
+      // 법인 인보이스로 집계하고 기사 정산은 플랫폼이 선지급한다.
+      if (!ride.b2bBilled && ride.escrow?.status !== 'held' && ride.escrow?.status !== 'released') {
         // 이용 종료 시점 Pi SDK 직결제 — 승객 지갑에서 플랫폼 에스크로로 결제되고,
         // 서버가 완료 검증 후 수수료 공제·기사 정산을 기록한다.
         proof = await startPiCheckout({
@@ -3413,7 +3415,7 @@ function TaxiMatchingSheet({
             ) : (
               <RideCompleteCancelBar
                 onCancel={() => setCancelConfirmOpen(true)}
-                hint={ride?.boardedAt ? t('svc.hintCancelFee') : t('svc.hintWaitArrive')}
+                hint={ride?.b2bBilled ? t('match.b2bHint') : ride?.boardedAt ? t('svc.hintCancelFee') : t('svc.hintWaitArrive')}
               >
                 <button type="button" disabled={accepting || !ride?.readyToSettleAt} aria-busy={accepting} onClick={finishPassengerTrip} className="pointer-events-auto w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
                   {accepting ? t('match.paying') : ride?.readyToSettleAt ? t('match.complete') : ride?.boardedAt ? t('match.completeWaitArrive') : t('match.completeWaitBoard')}
@@ -5174,6 +5176,52 @@ function ServiceSheet({
                     : t('svc.hintCancelFee')
                 }
               >
+                {dispatchRide?.b2bBilled ? (
+                  <button
+                    type="button"
+                    disabled={!dispatchRide?.readyToSettleAt || daeriAccepting}
+                    className="w-full rounded-2xl bg-[#4A82B8] py-4 text-lg font-black text-white shadow-[0_12px_24px_rgba(74,130,184,0.4)] disabled:opacity-60"
+                    onClick={() => {
+                      // 법인 월말 청구 운행 — 개인 결제 없이 서버 완료 처리만 한다.
+                      const paid = rideStage === 'moving' ? billed.actual : fare
+                      const snapshot = dispatchRide
+                      const rideId = snapshot?.id || daeriRideIdRef.current
+                      const driverId = snapshot?.assignedDriver?.id
+                      if (!rideId || !driverId) return
+                      setDaeriAccepting(true)
+                      daeriSheetRideId = ''
+                      const abort = new AbortController()
+                      const timeout = window.setTimeout(() => abort.abort(), 60_000)
+                      const attempt = (): Promise<{ ride?: PublicRide }> =>
+                        completeRideTrip(rideId, driverId, snapshot ?? undefined, { signal: abort.signal })
+                      const retry = (left: number): Promise<{ ride?: PublicRide }> =>
+                        attempt().catch((error) =>
+                          left > 0
+                            ? new Promise<{ ride?: PublicRide }>((resolve) => window.setTimeout(resolve, 2000)).then(() =>
+                                retry(left - 1),
+                              )
+                            : Promise.reject(error),
+                        )
+                      void retry(2)
+                        .then((completed) => {
+                          if (completed.ride) setDispatchRide(completed.ride)
+                          const txid = completed.ride?.escrow?.lockTxid || `b2b:${rideId}`
+                          onSettle(paid, place, '법인 청구', billed.estimate, { paymentId: txid, txid }, rideId)
+                          onAskReview(partner)
+                        })
+                        .catch((error) => {
+                          console.error('[daeri] b2b ride complete failed', error)
+                          onNotice(t('match.errSettle'))
+                        })
+                        .finally(() => {
+                          window.clearTimeout(timeout)
+                          setDaeriAccepting(false)
+                        })
+                    }}
+                  >
+                    {daeriAccepting ? t('match.paying') : t('match.complete')}
+                  </button>
+                ) : (
                 <PiCheckoutButton
                   amount={rideStage === 'moving' ? billed.actual : fare}
                   memo={`${service} ${(rideStage === 'moving' ? billed.actual : fare)} Pi`}
@@ -5238,6 +5286,7 @@ function ServiceSheet({
                 >
                   {t('match.complete')}
                 </PiCheckoutButton>
+                )}
               </RideCompleteCancelBar>
               )
             ) : (
@@ -5761,6 +5810,8 @@ function ServiceSheet({
                         ) : null}
                         {job.paidAt ? (
                           <span className="rounded-full bg-[#D1FAE5] px-2 py-0.5 text-[10px] font-black text-[#047857]">{t('svc.delivPaid')}</span>
+                        ) : job.paymentMethod === 'b2b_invoice' ? (
+                          <span className="rounded-full bg-[#DBEAFE] px-2 py-0.5 text-[10px] font-black text-[#1D4ED8]">{t('svc.delivB2bBadge')}</span>
                         ) : job.paymentMethod === 'onsite_qr' ? (
                           <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-black text-[#B45309]">{t('svc.delivPayOnsite')}</span>
                         ) : null}
@@ -5902,7 +5953,20 @@ function ServiceSheet({
                     {/* 결제는 기사 배정 이후에만 열린다 — 등록 시점엔 콜만 올라간다. */}
                     {(job.status === 'assigned' || job.status === 'in_transit') && !job.paidAt ? (
                       <div className="mt-2 space-y-2">
-                        {!job.paymentMethod ? (
+                        {job.b2bBilled && job.paymentMethod !== 'b2b_invoice' ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void runDeliveryMutation((ownerId) => updateDelivery(job.id, ownerId, { paymentMethod: 'b2b_invoice' }))
+                                .then(upsertMyDelivery)
+                                .catch((error) => onNotice(error instanceof Error ? error.message : t('match.errSettle')))
+                            }
+                            className="w-full rounded-xl border-2 border-dashed border-[#BFDBFE] bg-white py-2 text-[11px] font-black text-[#1D4ED8]"
+                          >
+                            {t('svc.delivB2bMark')}
+                          </button>
+                        ) : null}
+                        {!job.b2bBilled && !job.paymentMethod ? (
                           <button
                             type="button"
                             onClick={() => setDeliveryPayJob(job)}
@@ -6022,7 +6086,23 @@ function ServiceSheet({
               {deliveryDetail.paidAt ? (
                 <span className="inline-block rounded-full bg-[#D1FAE5] px-3 py-1 text-[11px] font-black text-[#047857]">{t('svc.delivPaid')}</span>
               ) : deliveryDetail.status === 'assigned' || deliveryDetail.status === 'in_transit' ? (
-                !deliveryDetail.paymentMethod ? (
+                deliveryDetail.b2bBilled && deliveryDetail.paymentMethod !== 'b2b_invoice' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const job = deliveryDetail
+                      setDeliveryDetail(null)
+                      void runDeliveryMutation((ownerId) => updateDelivery(job.id, ownerId, { paymentMethod: 'b2b_invoice' }))
+                        .then(upsertMyDelivery)
+                        .catch((error) => onNotice(error instanceof Error ? error.message : t('match.errSettle')))
+                    }}
+                    className="w-full rounded-xl bg-[#1D4ED8] py-2.5 text-xs font-black text-white"
+                  >
+                    {t('svc.delivB2bMark')}
+                  </button>
+                ) : deliveryDetail.paymentMethod === 'b2b_invoice' ? (
+                  <span className="inline-block rounded-full bg-[#DBEAFE] px-3 py-1 text-[11px] font-black text-[#1D4ED8]">{t('svc.delivB2bBadge')}</span>
+                ) : !deliveryDetail.paymentMethod ? (
                   <button
                     type="button"
                     onClick={() => { setDeliveryPayJob(deliveryDetail); setDeliveryDetail(null) }}

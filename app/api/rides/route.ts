@@ -13,6 +13,7 @@ import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 import { isUserLocked } from '@/lib/user-registry'
 import { fdsBlockStatus, recordFdsSignal } from '@/lib/fds-store'
+import { b2bOrgForMember } from '@/lib/b2b-store'
 import { normalizeRideTier } from '@/lib/ride-tiers'
 
 export const runtime = 'nodejs'
@@ -107,6 +108,10 @@ export async function POST(request: Request) {
   }
   // 호출 시도 자체를 시그널로 적재 — 단시간 반복 호출(콜 플러드) 룰이 평가한다.
   void recordFdsSignal('ride-flood', { actorId: passengerId, detail: `${pickup.address || ''} → ${dest.address || ''}` }).catch(() => undefined)
+  // B2B 법인 소속원 — 활성 법인 소속이면 이 운행은 법인 월말 청구로 집계되고
+  // 승객 개인 결제(에스크로 잠금)를 건너뛴다.
+  const b2b = await b2bOrgForMember(passengerId).catch(() => null)
+  const b2bOrgId = b2b?.org.id || null
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv(), hydrateAvoidFromKv()])
   const existing = listRides().find(
     (ride) =>
@@ -177,6 +182,7 @@ export async function POST(request: Request) {
     passengerId,
     passengerUid: piUid,
     passengerPhone: passengerPhone || undefined,
+    b2bOrgId,
     pickup,
     waypoints,
     dest,

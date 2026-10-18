@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { BadgeCheck, Briefcase, Car, ChevronRight, CircleUserRound, Copy, Gift, MonitorSmartphone, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
+import { BadgeCheck, Briefcase, Building2, Car, ChevronRight, CircleUserRound, Copy, Gift, MonitorSmartphone, ShieldCheck, Store, ToggleRight, UserRound, WalletCards } from 'lucide-react'
+import B2bPortal from '@/components/b2b-portal'
 import PartnerStatSheet from '@/components/partner-stat-sheet'
 import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
@@ -178,6 +179,8 @@ export default function MyPage({
   const [editOpen, setEditOpen] = useState(false)
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false)
   const [memberPhoneValue, setMemberPhoneValue] = useState('')
+  const [b2bMember, setB2bMember] = useState(false)
+  const [b2bOpen, setB2bOpen] = useState(false)
   const [historyRows, setHistoryRows] = useState<HistoryEntry[]>([])
   const [histTime, setHistTime] = useState<HistoryTimeFilter>('all')
   const [histType, setHistType] = useState<HistoryTypeFilter>('all')
@@ -213,6 +216,24 @@ export default function MyPage({
     setPiUid(loadPiIdentity()?.uid?.trim() || '')
     setMemberPhoneValue(memberPhone())
   }, [username])
+
+  // B2B 법인 소속 여부 — 소속이면 '법인 포털' 카드를 노출한다.
+  useEffect(() => {
+    if (!piUid) {
+      setB2bMember(false)
+      return
+    }
+    let cancelled = false
+    void fetch(`/api/b2b/portal?uid=${encodeURIComponent(piUid)}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data: { member?: boolean } | null) => {
+        if (!cancelled) setB2bMember(Boolean(data?.member))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [piUid])
 
   const notify = (message: string) => {
     onNotice?.(message)
@@ -416,6 +437,23 @@ export default function MyPage({
             </span>
           </div>
         </section>
+
+        {b2bMember ? (
+          <section className="mt-3 rounded-[24px] border-2 border-[#BFDBFE] bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
+            <button type="button" onClick={() => setB2bOpen(true)} className="flex w-full items-center justify-between gap-3 text-left">
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#E8F1FA] text-[#4A82B8]">
+                  <Building2 className="h-5 w-5" />
+                </span>
+                <span>
+                  <span className="block text-sm font-black text-[#0F172A]">법인 포털</span>
+                  <span className="mt-0.5 block text-[11px] font-bold text-[#64748B]">B2B 이용 내역 · 합산 청구서 · 소속원</span>
+                </span>
+              </div>
+              <ChevronRight className="h-4 w-4 text-[#4A82B8]" />
+            </button>
+          </section>
+        ) : null}
 
         <section className="mt-3 overflow-hidden rounded-[24px] border-2 border-[#EDE5FF] bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
           <button type="button" onClick={() => setInviteLaunchOpen(true)} className="flex w-full items-start justify-between gap-3 text-left">
@@ -714,6 +752,7 @@ export default function MyPage({
       ) : null}
       {statSheet ? <PartnerStatSheet kind={statSheet} onClose={() => setStatSheet(null)} /> : null}
       {inviteLaunchOpen ? <InviteLaunchModal onClose={() => setInviteLaunchOpen(false)} /> : null}
+      {b2bOpen && piUid ? <B2bPortal uid={piUid} onClose={() => setB2bOpen(false)} onNotice={notify} /> : null}
       {editOpen && partnerProfile ? (
         <PartnerProfileEditModal
           profile={partnerProfile}

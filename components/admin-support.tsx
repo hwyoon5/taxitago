@@ -20,6 +20,7 @@ import AdminAuditLog from '@/components/admin-audit-log'
 import AdminDevices from '@/components/admin-devices'
 import AdminBlacklist from '@/components/admin-blacklist'
 import AdminFds from '@/components/admin-fds'
+import AdminB2b from '@/components/admin-b2b'
 import AdminCoupons from '@/components/admin-coupons'
 import AdminAnalytics from '@/components/admin-analytics'
 import AdminLiveDashboard from '@/components/admin-live'
@@ -55,7 +56,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'fds', 'partners', 'compliance', 'devices', 'fare', 'ledger', 'assets', 'receivable', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
+const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'fds', 'partners', 'compliance', 'devices', 'fare', 'ledger', 'assets', 'receivable', 'payouts', 'b2b', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
@@ -73,6 +74,7 @@ const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
   assets: '에스크로·자산',
   receivable: '미수금',
   payouts: '출금 요청',
+  b2b: '법인·B2B',
   coupons: '쿠폰 관리',
   notice: '공지 방송',
   staff: '직원 관리',
@@ -110,7 +112,7 @@ const ADMIN_MENU_GROUPS: {
     card: 'border-[#BBF7D0] bg-[#F0FDF4]',
     heading: 'text-[#15803D]',
     active: 'bg-[#15803D] text-white shadow-[0_6px_14px_rgba(21,128,61,0.3)]',
-    tabs: ['fare', 'ledger', 'assets', 'receivable', 'payouts'],
+    tabs: ['fare', 'ledger', 'assets', 'receivable', 'payouts', 'b2b'],
   },
   {
     id: 'support',
@@ -623,6 +625,8 @@ export default function AdminSupportDesk() {
         <AdminReceivables />
       ) : view === 'payouts' ? (
         <AdminPayouts />
+      ) : view === 'b2b' ? (
+        <AdminB2b />
       ) : view === 'coupons' ? (
         <AdminCoupons />
       ) : view === 'notice' ? (

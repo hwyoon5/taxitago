@@ -32,6 +32,8 @@ export type RideRequestRecord = {
   passengerUid?: string
   /** 승객이 인증한 연락처 — 기사 '전화하기'(tel:) 직통 연결에 사용. */
   passengerPhone?: string
+  /** B2B 법인 과금 태그 — 소속원 호출은 개인 결제 없이 법인 월말 청구로 집계된다. */
+  b2bOrgId?: string | null
   pickup: GeoPoint
   waypoints?: GeoPoint[]
   dest: GeoPoint
@@ -204,6 +206,8 @@ export type PublicRide = {
   boardConfirmedAt?: string | null
   /** 승객 탑승 부인(분쟁 취소) 누적 횟수 — 기사 임의 탑승 처리 감시 지표. */
   boardDisputes?: number
+  /** 법인 월말 청구 대상 운행 — true면 승객 앱이 개인 결제를 건너뛴다. */
+  b2bBilled?: boolean
   createdAt: string
   updatedAt: string
 }

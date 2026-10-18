@@ -120,7 +120,9 @@ export type PublicDelivery = {
   driverLive?: { lat: number; lng: number; heading: number; at: string } | null
   senderPhone?: string
   photoCount?: number
-  paymentMethod?: 'prepay_pi' | 'onsite_qr' | null
+  paymentMethod?: 'prepay_pi' | 'onsite_qr' | 'b2b_invoice' | null
+  /** 법인 월말 청구 대상 — 발신인(owner)에게만 노출. */
+  b2bBilled?: boolean
   paidAt?: string | null
   recipientPhone?: string
 }

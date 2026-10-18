@@ -312,7 +312,7 @@
   "search.mapSub": "移动图钉指定目的地",
   "search.finding": "正在查找地点",
   "search.count": "搜索结果 {count} 处",
-    "search.translated": "韩语搜索 · {q}",
+  "search.translated": "韩语搜索 · {q}",
   "search.translateTo": "翻译成",
   "search.translating": "翻译中…",
   "search.translateFailed": "未配置翻译服务，将按原文搜索",
@@ -926,5 +926,8 @@
   "svc.delivCompleteBtn": "送达完成",
   "svc.delivPickupNotice": "已取件，配送中",
   "svc.delivDoneNotice": "配送已完成",
-  "svc.delivLiveWait": "正在等待司机的位置信号"
+  "svc.delivLiveWait": "正在等待司机的位置信号",
+  "match.b2bHint": "此行程计入公司月结账单 — 无需个人支付",
+  "svc.delivB2bMark": "计入公司月结账单",
+  "svc.delivB2bBadge": "公司月结"
 }
