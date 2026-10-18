@@ -62,6 +62,9 @@ export type RideRequestRecord = {
   /** 자동 탑승 감지가 조건(승객·기사 근접+차량 이동)을 처음 만족한 시각 —
    *  AUTO_BOARD_DEBOUNCE_MS 이상 조건이 유지되면 boardedAt을 스탬프한다. */
   autoBoardSince?: string | null
+  /** 안심귀가 공유 링크 토큰 — `/track/<token>` 공개 페이지가 이 값으로 라이드를 읽는다.
+   *  승객 요청으로만 생성되며 PublicRide에는 노출하지 않는다. */
+  shareToken?: string | null
   createdAt: string
   updatedAt: string
 }

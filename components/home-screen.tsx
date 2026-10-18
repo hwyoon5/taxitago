@@ -1919,6 +1919,90 @@ function BoardingConfirmModal({
   )
 }
 
+/**
+ * 안심귀가 공유 모달 — 서버가 발급한 /track/<token> 공개 링크를 지인에게 보낸다.
+ * Web Share API가 있으면 시스템 공유시트(카카오톡·문자 포함)를 열고,
+ * 없으면 클립보드 복사로 폴백한다.
+ */
+function SafeRideShareModal({
+  url,
+  driverName,
+  vehicle,
+  plate,
+  onClose,
+  onNotice,
+}: {
+  url: string
+  driverName: string
+  vehicle: string
+  plate: string
+  onClose: () => void
+  onNotice: (message: string) => void
+}) {
+  const { t } = useLocale()
+  const shareText = `${t('share.safe.title')} — ${vehicle} ${plate} (${driverName})`.trim()
+  const sendShare = async () => {
+    const data: ShareData = { title: t('share.safe.title'), text: shareText, url }
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share(data)
+        return
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+      }
+    }
+    // Web Share를 쓸 수 없는 환경은 링크 복사로 폴백한다.
+    await copyShareLink()
+  }
+  const copyShareLink = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url)
+        onNotice(t('share.safe.copied'))
+        return
+      }
+    } catch {
+      /* 폴백으로 계속 */
+    }
+    try {
+      const area = document.createElement('textarea')
+      area.value = url
+      area.setAttribute('readonly', '')
+      area.style.position = 'fixed'
+      area.style.left = '-9999px'
+      document.body.appendChild(area)
+      area.select()
+      document.execCommand('copy')
+      document.body.removeChild(area)
+      onNotice(t('share.safe.copied'))
+    } catch {
+      onNotice(t('share.safe.fail'))
+    }
+  }
+  return (
+    <div className="pointer-events-auto fixed inset-0 z-[130] flex items-end bg-[#1e293b]/55 sm:items-center sm:p-4" onClick={onClose}>
+      <section className="pointer-events-auto mx-auto w-full max-w-md rounded-t-[30px] bg-white p-5 text-center shadow-2xl sm:rounded-[30px]" onClick={(event) => event.stopPropagation()}>
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#E8F1FA]">
+          <Share2 className="h-7 w-7 text-[#4A82B8]" />
+        </div>
+        <h2 className="mt-3 text-2xl font-black text-[#0F172A]">{t('share.safe.title')}</h2>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[#334155]">{t('share.safe.desc')}</p>
+        <div className="mt-4 rounded-2xl bg-[#F8FAFC] px-4 py-3">
+          <p className="text-xs font-black text-[#0F172A]">{vehicle} {plate} · {driverName}</p>
+          <p className="mt-1 break-all text-[11px] font-bold leading-4 text-[#64748B]">{url}</p>
+        </div>
+        <button type="button" onClick={() => void sendShare()} className="mt-4 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white">
+          {t('share.safe.send')}
+        </button>
+        <button type="button" onClick={() => void copyShareLink()} className="mt-3 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3.5 font-black text-[#475569]">
+          {t('share.safe.copy')}
+        </button>
+      </section>
+    </div>
+  )
+}
+
 function RideCompleteCancelBar({
   children,
   onCancel,
@@ -2823,6 +2907,32 @@ function TaxiMatchingSheet({
     onClose()
   }
 
+  // 안심귀가 공유 — 서버가 발급한 공개 링크(/track/<token>)로 지인이
+  // 차량 정보·실시간 위치를 확인한다. 같은 콜은 같은 링크를 재사용한다.
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareUrl, setShareUrl] = useState('')
+  const [shareBusy, setShareBusy] = useState(false)
+  const openSafeShare = async () => {
+    const rideId = ride?.id
+    if (!rideId || shareBusy) return
+    setShareBusy(true)
+    try {
+      const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passengerId: passengerIdRef.current || localPassengerId() }),
+      })
+      const data = (await res.json().catch(() => null)) as { token?: string; error?: string } | null
+      if (!res.ok || !data?.token) throw new Error(data?.error || 'share failed')
+      setShareUrl(`${window.location.origin}/track/${data.token}`)
+      setShareOpen(true)
+    } catch {
+      onNotice(t('share.safe.fail'))
+    } finally {
+      setShareBusy(false)
+    }
+  }
+
   const confirmInTripCancel = async () => {
     if (cancelSettling || payingRef.current) return
     payingRef.current = true
@@ -3143,6 +3253,17 @@ function TaxiMatchingSheet({
                   {t('match.safeCall')}
                 </button>
               ) : null}
+              {ride?.id ? (
+                <button
+                  type="button"
+                  disabled={shareBusy}
+                  onClick={() => void openSafeShare()}
+                  className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#BFDBFE] bg-[#EFF6FF] py-3 text-sm font-black text-[#4A82B8] disabled:opacity-60"
+                >
+                  <Share2 className="h-4 w-4" />
+                  {t('share.safe.button')}
+                </button>
+              ) : null}
             </div>
             <div className="mt-4 space-y-2">
               {/* 탑승/도착 확인은 기사 모드에서 진행 — 이용자 화면은 서버 운행
@@ -3275,6 +3396,16 @@ function TaxiMatchingSheet({
           busy={boardCheckBusy}
           onYes={confirmBoarded}
           onNo={() => void denyBoarded()}
+        />
+      ) : null}
+      {shareOpen && shareUrl ? (
+        <SafeRideShareModal
+          url={shareUrl}
+          driverName={driver.name}
+          vehicle={driver.vehicle}
+          plate={driver.plate}
+          onClose={() => setShareOpen(false)}
+          onNotice={onNotice}
         />
       ) : null}
     </div>
@@ -4268,6 +4399,32 @@ function ServiceSheet({
     onNotice(t('board.check.denyNotice'))
     onClose()
   }
+
+  // 안심귀가 공유 — 서버가 발급한 공개 링크(/track/<token>)로 지인이
+  // 차량 정보·실시간 위치를 확인한다. 같은 콜은 같은 링크를 재사용한다.
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareUrl, setShareUrl] = useState('')
+  const [shareBusy, setShareBusy] = useState(false)
+  const openSafeShare = async () => {
+    const rideId = dispatchRide?.id
+    if (!rideId || shareBusy) return
+    setShareBusy(true)
+    try {
+      const res = await fetch(`/api/rides/${encodeURIComponent(rideId)}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passengerId: daeriPassengerIdRef.current || localPassengerId() }),
+      })
+      const data = (await res.json().catch(() => null)) as { token?: string; error?: string } | null
+      if (!res.ok || !data?.token) throw new Error(data?.error || 'share failed')
+      setShareUrl(`${window.location.origin}/track/${data.token}`)
+      setShareOpen(true)
+    } catch {
+      onNotice(t('share.safe.fail'))
+    } finally {
+      setShareBusy(false)
+    }
+  }
   return (
     <div className="fixed inset-x-0 bottom-0 top-[var(--app-header-offset)] z-[90] flex touch-none items-stretch overflow-hidden bg-[#241d35]/45">
       <div className="mx-auto flex h-[calc(100dvh-var(--app-header-offset))] max-h-[calc(100dvh-var(--app-header-offset))] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-white shadow-[0_-16px_40px_rgba(36,27,56,0.2)]">
@@ -4590,6 +4747,17 @@ function ServiceSheet({
                 <ShieldCheck className="h-4 w-4" />
                 {t('match.safeCall')}
               </button>
+              {dispatchRide?.id ? (
+                <button
+                  type="button"
+                  disabled={shareBusy}
+                  onClick={() => void openSafeShare()}
+                  className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#BFDBFE] bg-[#EFF6FF] py-3 text-sm font-black text-[#4A82B8] disabled:opacity-60"
+                >
+                  <Share2 className="h-4 w-4" />
+                  {t('share.safe.button')}
+                </button>
+              ) : null}
             </div>
             {/* 탑승/도착 확인은 기사 모드에서 진행 — 이용자 화면은 서버 운행
                 기록(boardedAt → readyToSettleAt)을 폴링·SSE로 따라간다. */}
@@ -5070,6 +5238,16 @@ function ServiceSheet({
           busy={boardCheckBusy}
           onYes={confirmBoarded}
           onNo={() => void denyBoarded()}
+        />
+      ) : null}
+      {shareOpen && shareUrl ? (
+        <SafeRideShareModal
+          url={shareUrl}
+          driverName={partner.name}
+          vehicle={partner.vehicle}
+          plate={partner.plate}
+          onClose={() => setShareOpen(false)}
+          onNotice={onNotice}
         />
       ) : null}
       {assignNoticeOpen && ride && dispatchRide?.assignedDriver ? (
