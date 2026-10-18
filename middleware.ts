@@ -40,6 +40,17 @@ export function middleware(request: NextRequest) {
     url.pathname = '/api/deliveries/'
     return NextResponse.rewrite(url)
   }
+  if (pathname === '/api/trips') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/api/trips/'
+    return NextResponse.rewrite(url)
+  }
+  const tripAction = pathname.match(/^\/api\/trips\/([^/]+)\/(activate|cancel)$/)
+  if (tripAction) {
+    const url = request.nextUrl.clone()
+    url.pathname = `/api/trips/${tripAction[1]}/${tripAction[2]}/`
+    return NextResponse.rewrite(url)
+  }
   const rideAction = pathname.match(/^\/api\/rides\/([^/]+)\/(cancel|progress|abandon|complete)$/)
   if (rideAction) {
     const url = request.nextUrl.clone()
@@ -65,5 +76,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/geocode', '/api/pi/approve', '/api/pi/complete', '/api/pi/auth', '/api/escrow/lock', '/api/partner/link', '/api/drivers/active', '/api/drivers/earnings', '/api/drivers/insights', '/api/deliveries', '/api/deliveries/:id', '/api/deliveries/:id/accept', '/api/rides/:id/cancel', '/api/rides/:id/progress', '/api/rides/:id/abandon', '/api/rides/:id/complete', '/api/naver-maps/upstream/:path*'],
+  matcher: ['/api/geocode', '/api/pi/approve', '/api/pi/complete', '/api/pi/auth', '/api/escrow/lock', '/api/partner/link', '/api/drivers/active', '/api/drivers/earnings', '/api/drivers/insights', '/api/deliveries', '/api/deliveries/:id', '/api/deliveries/:id/accept', '/api/trips', '/api/trips/:id/activate', '/api/trips/:id/cancel', '/api/rides/:id/cancel', '/api/rides/:id/progress', '/api/rides/:id/abandon', '/api/rides/:id/complete', '/api/naver-maps/upstream/:path*'],
 }

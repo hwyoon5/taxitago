@@ -3,6 +3,7 @@ import { isUsableCoord } from '@/lib/ride-session'
 import type { DriverPenaltyInfo, PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
 import type { PartnerInsights } from '@/lib/partner-insights'
+import type { Trip, TripLeg } from '@/lib/trip-planner'
 
 async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T
@@ -557,6 +558,65 @@ export async function fetchDriverInsights(driverId: string, altDriverId?: string
   const data = await readJson<{ insights?: PartnerInsights; error?: string }>(res)
   if (!res.ok || !data.insights) return null
   return data.insights
+}
+
+// ── 통합 여정 플래너 (Trip Planner) ────────────────────────────────
+
+export async function fetchMyTrips(ownerId: string) {
+  const res = await apiFetch(`/api/trips/?ownerId=${encodeURIComponent(ownerId)}`, { cache: 'no-store' })
+  const data = await readJson<{ trips?: Trip[] }>(res)
+  if (!res.ok || !Array.isArray(data.trips)) return [] as Trip[]
+  return data.trips
+}
+
+export async function createTripPlan(input: { departAt?: string | null; legs: Partial<TripLeg>[] }) {
+  const credential = piSessionCredential()
+  if (!credential) throw new Error(PI_AUTH_REQUIRED_MESSAGE)
+  const res = await apiFetch('/api/trips', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Pi-Uid': credential.uid,
+      ...(credential.accessToken ? { 'X-Pi-Access-Token': credential.accessToken } : {}),
+    },
+    body: JSON.stringify({ ownerId: credential.uid, ...input }),
+  })
+  const data = await readJson<{ trip?: Trip; error?: string }>(res)
+  if (!res.ok || !data.trip) throw new Error(data.error || '여정을 만들지 못했어요.')
+  return data.trip
+}
+
+export async function activateTrip(tripId: string, legId?: string) {
+  const credential = piSessionCredential()
+  if (!credential) throw new Error(PI_AUTH_REQUIRED_MESSAGE)
+  const res = await apiFetch(`/api/trips/${encodeURIComponent(tripId)}/activate/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Pi-Uid': credential.uid,
+      ...(credential.accessToken ? { 'X-Pi-Access-Token': credential.accessToken } : {}),
+    },
+    body: JSON.stringify({ ownerId: credential.uid, leg: legId ?? undefined, passengerUid: credential.uid }),
+  })
+  const data = await readJson<{ trip?: Trip; error?: string }>(res)
+  if (!res.ok || !data.trip) throw new Error(data.error || '여정을 실행하지 못했어요.')
+  return data.trip
+}
+
+export async function cancelTripById(tripId: string) {
+  const credential = piSessionCredential()
+  if (!credential) throw new Error(PI_AUTH_REQUIRED_MESSAGE)
+  const res = await apiFetch(`/api/trips/${encodeURIComponent(tripId)}/cancel/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Pi-Uid': credential.uid,
+    },
+    body: JSON.stringify({ ownerId: credential.uid }),
+  })
+  const data = await readJson<{ trip?: Trip; error?: string }>(res)
+  if (!res.ok || !data.trip) throw new Error(data.error || '여정을 취소하지 못했어요.')
+  return data.trip
 }
 
 export async function fetchRideReceipt(rideId: string) {

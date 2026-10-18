@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, FileSpreadsheet, Gift, House, Languages, LayoutGrid, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, ScanLine, Search, Share2, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, FileSpreadsheet, Gift, House, Languages, LayoutGrid, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, Route, ScanLine, Search, Share2, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { APP_LOCALES, localizedText, translateDeviceStatus, translateService, type AppLocale, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -98,6 +98,7 @@ import PartnerProfileEditModal from '@/components/partner-profile-edit'
 import { PartnerTabScreen } from '@/components/partner-dashboard'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
 import PartnerInsightsSheet from '@/components/partner-insights-sheet'
+import TripPlannerSheet from '@/components/trip-planner-sheet'
 import PayoutRequestSheet from '@/components/payout-request-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
 import RideChat from '@/components/ride-chat'
@@ -7136,6 +7137,8 @@ function Home({
   onOpenMap,
   destSearchTick = 0,
   recentUse = null,
+  onOpenPlanner,
+  onOpenTrial,
   onQrPaid,
 }: {
   destination: string
@@ -7157,6 +7160,10 @@ function Home({
   onOpenMap: () => void
   destSearchTick?: number
   recentUse?: RecentUse | null
+  /** 통합 여정 플래너 — 루트가 시트를 띄운다. */
+  onOpenPlanner?: () => void
+  /** 이용자 체험판(택시/대리) — 루트가 PassengerTrialDemo를 띄운다. */
+  onOpenTrial?: (kind: PassengerTrialKind) => void
   /** QR 현장 결제 완료 — 루트의 settlePiLedger로 지갑 차감·내역을 기록한다. */
   onQrPaid?: (record: { driverName: string; amount: number; memo: string }, proof: { paymentId: string; txid: string }) => void
 }) {
@@ -7397,6 +7404,43 @@ function Home({
               ))}
             </div>
           </div>
+          {onOpenPlanner ? (
+            <button
+              type="button"
+              onClick={onOpenPlanner}
+              className="mt-2 flex w-full items-center justify-between rounded-[22px] bg-[#0F172A] px-4 py-3 text-left shadow-[0_8px_16px_rgba(15,23,42,0.18)] transition active:scale-[0.99]"
+            >
+              <span>
+                <span className="block text-[12px] font-black text-white">{t('trip.open')}</span>
+                <span className="mt-0.5 block text-[10px] font-bold text-[#93C5FD]">{t('trip.openDesc')}</span>
+              </span>
+              <Route className="h-5 w-5 shrink-0 text-[#93C5FD]" />
+            </button>
+          ) : null}
+          {onOpenTrial ? (
+            <div className="mt-2 rounded-[22px] border-2 border-[#DBEAFE] bg-[#EFF6FF] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-black text-[#1D4ED8]">{t('trial.section')}</p>
+                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[9px] font-black text-[#1D4ED8]">{t('trial.badge')}</span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenTrial('taxi')}
+                  className="rounded-2xl bg-white py-2.5 text-[12px] font-black text-[#1D4ED8] shadow-sm transition active:scale-[0.98]"
+                >
+                  {t('trial.taxi')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenTrial('daeri')}
+                  className="rounded-2xl bg-white py-2.5 text-[12px] font-black text-[#1D4ED8] shadow-sm transition active:scale-[0.98]"
+                >
+                  {t('trial.daeri')}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
         {recentUse ? (
           <button type="button" onClick={() => onReceipt(receiptFromRecent(recentUse))} className="mt-3 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
@@ -9474,9 +9518,10 @@ function PartnerTrialNav({ phase }: { phase: 'pickup' | 'moving' }) {
   )
 }
 
-function PartnerTrialDemo({ onClose, onNotice }: { onClose: () => void; onNotice: (message: string) => void }) {
-  const [phase, setPhase] = useState<'waiting' | 'incoming' | 'pickup' | 'moving' | 'settle'>('waiting')
+function PartnerTrialDemo({ onClose, onNotice, onRequireLogin }: { onClose: () => void; onNotice: (message: string) => void; onRequireLogin: () => void }) {
+  const [phase, setPhase] = useState<'waiting' | 'incoming' | 'pickup' | 'moving' | 'settle' | 'stats'>('waiting')
   const [callKey, setCallKey] = useState(0)
+  const [loginGate, setLoginGate] = useState(false)
   const fare = 3.8
 
   useEffect(() => {
@@ -9485,16 +9530,26 @@ function PartnerTrialDemo({ onClose, onNotice }: { onClose: () => void; onNotice
     return () => window.clearTimeout(timer)
   }, [phase, callKey])
 
+  const step = phase === 'waiting' || phase === 'incoming' ? 1 : phase === 'pickup' || phase === 'moving' ? 2 : 3
+  const stepLabel = step === 1 ? '콜 화면' : step === 2 ? '내비게이션 미리보기' : '수익·인사이트 맛보기'
+
   return (
     <div className="fixed inset-0 z-[96] flex items-end justify-center bg-[#1e1033]/55 sm:items-center sm:p-4">
-      <section className="flex h-[min(96dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-[#F8FAFC] shadow-2xl sm:h-[min(92dvh,820px)] sm:rounded-[32px]">
+      <section className="relative flex h-[min(96dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-[#F8FAFC] shadow-2xl sm:h-[min(92dvh,820px)] sm:rounded-[32px]">
         <header className="shrink-0 border-b border-[#FDE68A] bg-[#FFFBEB] px-5 pb-3 pt-3">
           <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#FCD34D]" />
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-black tracking-wide text-[#B45309]">기사/파트너 체험판</p>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] font-black tracking-wide text-[#B45309]">기사/파트너 체험판</p>
+                <span className="rounded-full bg-[#FDE68A] px-2 py-0.5 text-[10px] font-black text-[#92400E]">단계 {step}/3 · {stepLabel}</span>
+              </div>
               <h2 className="mt-0.5 text-xl font-black text-[#0F172A]">미리보기 · 파이 계정으로 정식 등록</h2>
-              <p className="mt-1 text-xs font-bold text-[#92400E]">체험은 화면만 보여 줍니다. 실제 정산은 Pi Sign-in 후 UID·지갑이 연결되어야 합니다.</p>
+              <div className="mt-2 flex gap-1.5" aria-hidden="true">
+                {[1, 2, 3].map((n) => (
+                  <span key={n} className={`h-1 flex-1 rounded-full ${n <= step ? 'bg-[#F59E0B]' : 'bg-[#FDE68A]'}`} />
+                ))}
+              </div>
             </div>
             <button type="button" onClick={onClose} className="rounded-full bg-white p-2 text-[#334155] shadow-sm" aria-label="체험판 닫기">
               <X className="h-5 w-5" />
@@ -9562,7 +9617,7 @@ function PartnerTrialDemo({ onClose, onNotice }: { onClose: () => void; onNotice
           ) : null}
           {phase === 'settle' ? (
             <section className="rounded-[26px] border-2 border-[#99F6E4] bg-white p-5 shadow-[0_10px_24px_rgba(15,118,110,0.12)]">
-              <p className="text-xs font-black text-[#0F766E]">가상 정산</p>
+              <p className="text-xs font-black text-[#0F766E]">3단계 · 가상 정산</p>
               <h3 className="mt-1 text-xl font-black text-[#0F172A]">이번 운행 수익</h3>
               <p className="mt-3 text-3xl font-black text-[#0F766E]">+{fare.toFixed(1)} Pi</p>
               <ul className="mt-4 space-y-2 text-sm font-bold text-[#475569]">
@@ -9573,18 +9628,265 @@ function PartnerTrialDemo({ onClose, onNotice }: { onClose: () => void; onNotice
               <p className="mt-4 text-xs font-bold leading-5 text-[#64748B]">이 금액은 데모용이며 실제 지갑에 입금되지 않습니다.</p>
               <button
                 type="button"
-                onClick={() => {
-                  onNotice('체험판을 마쳤습니다. 실제 콜·정산은 파이 계정으로 파트너 등록해 주세요.')
-                  onClose()
-                }}
+                onClick={() => setPhase('stats')}
                 className="mt-5 w-full rounded-2xl bg-[#0F766E] py-3.5 text-base font-black text-white"
+              >
+                수익·인사이트 보기
+              </button>
+            </section>
+          ) : null}
+          {phase === 'stats' ? (
+            <div>
+              <PartnerTrialStats />
+              <div className="mt-4 rounded-[26px] border-2 border-[#FDE68A] bg-[#FFFBEB] p-4">
+                <p className="text-sm font-bold leading-6 text-[#92400E]">체험판을 마쳤습니다. 실제 콜·정산은 파이 계정으로 파트너 등록해 주세요.</p>
+                <button
+                  type="button"
+                  onClick={() => setLoginGate(true)}
+                  className="mt-3 w-full rounded-2xl bg-[#EA580C] py-3.5 text-base font-black text-white"
+                >
+                  파이 로그인으로 파트너 시작
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onNotice('체험판을 마쳤습니다. 실제 콜·정산은 파이 계정으로 파트너 등록해 주세요.')
+                    onClose()
+                  }}
+                  className="mt-2 w-full rounded-2xl border-2 border-[#FDE68A] bg-white py-3 text-sm font-black text-[#92400E]"
+                >
+                  체험 종료
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        {loginGate ? (
+          <div className="absolute inset-0 z-10 flex items-end justify-center bg-[#1e1033]/60 sm:items-center" onClick={() => setLoginGate(false)}>
+            <section className="mx-auto w-full max-w-md rounded-t-[32px] bg-white p-5 shadow-2xl sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
+              <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+              <p className="text-xs font-black text-[#EA580C]">파이 로그인 필요</p>
+              <h3 className="mt-1 text-xl font-black text-[#0F172A]">실제 정산과 콜 수락은 파이 계정 로그인이 필요합니다</h3>
+              <p className="mt-2 text-sm font-bold leading-6 text-[#475569]">Pi Sign-in으로 기사 UID·지갑을 연결하면 실제 콜 수신과 정산이 시작됩니다.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginGate(false)
+                  onRequireLogin()
+                }}
+                className="mt-4 w-full rounded-2xl bg-[#4A82B8] py-3.5 text-base font-black text-white"
+              >
+                Pi 로그인하기
+              </button>
+              <button
+                type="button"
+                onClick={() => setLoginGate(false)}
+                className="mt-2 w-full rounded-2xl border-2 border-[#E2E8F0] bg-white py-3 text-sm font-black text-[#475569]"
+              >
+                나중에
+              </button>
+            </section>
+          </div>
+        ) : null}
+      </section>
+    </div>
+  )
+}
+
+type PassengerTrialKind = 'taxi' | 'daeri'
+
+const PASSENGER_TRIAL = {
+  pickups: ['해운대 해수욕장', '광안리 해변로', '부산역 KTX'],
+  dests: ['서면 롯데백화점', '김해국제공항', '남포동 BIFF 광장'],
+}
+
+function PassengerTrialDemo({ kind, onClose, onRequireLogin }: { kind: PassengerTrialKind; onClose: () => void; onRequireLogin: () => void }) {
+  const daeri = kind === 'daeri'
+  const [phase, setPhase] = useState<'input' | 'matching' | 'assigned' | 'quote'>('input')
+  const [pickup, setPickup] = useState(PASSENGER_TRIAL.pickups[0])
+  const [dest, setDest] = useState(PASSENGER_TRIAL.dests[0])
+  const [loginGate, setLoginGate] = useState(false)
+  const km = 7.4
+  const eta = 21
+  const fare = daeri ? 4.6 : 3.8
+
+  useEffect(() => {
+    if (phase !== 'matching') return
+    const timer = window.setTimeout(() => setPhase('assigned'), 1800)
+    return () => window.clearTimeout(timer)
+  }, [phase])
+
+  const step = phase === 'input' ? 1 : phase === 'matching' || phase === 'assigned' ? 2 : 3
+  const stepLabel = step === 1 ? '위치 입력' : step === 2 ? '기사 매칭' : '요금·경로 안내'
+
+  return (
+    <div className="fixed inset-0 z-[96] flex items-end justify-center bg-[#1e1033]/55 sm:items-center sm:p-4">
+      <section className="relative flex h-[min(96dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-[#F8FAFC] shadow-2xl sm:h-[min(92dvh,820px)] sm:rounded-[32px]">
+        <header className="shrink-0 border-b border-[#BFDBFE] bg-[#EFF6FF] px-5 pb-3 pt-3">
+          <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#93C5FD]" />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] font-black tracking-wide text-[#1D4ED8]">{daeri ? '대리운전 부르기 체험판' : '택시 호출 체험판'}</p>
+                <span className="rounded-full bg-[#DBEAFE] px-2 py-0.5 text-[10px] font-black text-[#1D4ED8]">단계 {step}/3 · {stepLabel}</span>
+              </div>
+              <h2 className="mt-0.5 text-xl font-black text-[#0F172A]">{daeri ? '대리 기사 호출 미리보기' : '택시 호출 미리보기'}</h2>
+              <div className="mt-2 flex gap-1.5" aria-hidden="true">
+                {[1, 2, 3].map((n) => (
+                  <span key={n} className={`h-1 flex-1 rounded-full ${n <= step ? 'bg-[#3B82F6]' : 'bg-[#DBEAFE]'}`} />
+                ))}
+              </div>
+            </div>
+            <button type="button" onClick={onClose} className="rounded-full bg-white p-2 text-[#334155] shadow-sm" aria-label="체험판 닫기">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {phase === 'input' ? (
+            <section className="rounded-[26px] border-2 border-[#BFDBFE] bg-white p-5 shadow-[0_10px_24px_rgba(59,130,246,0.12)]">
+              <p className="text-xs font-black text-[#1D4ED8]">1단계 · 가상 출발지/목적지</p>
+              <h3 className="mt-1 text-lg font-black text-[#0F172A]">어디로 갈까요?</h3>
+              <p className="mt-1 text-xs font-bold text-[#64748B]">{daeri ? '내 차가 있는 위치와 귀가할 주소를 골라 보세요.' : '탑승 위치와 목적지를 골라 보세요. 실제 위치가 아닌 예시 장소입니다.'}</p>
+              <p className="mt-4 text-[11px] font-black text-[#475569]">{daeri ? '차량 위치' : '출발지'}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {PASSENGER_TRIAL.pickups.map((spot) => (
+                  <button
+                    key={spot}
+                    type="button"
+                    onClick={() => setPickup(spot)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-black ${pickup === spot ? 'bg-[#3B82F6] text-white' : 'border border-[#CBD5E1] bg-white text-[#475569]'}`}
+                  >
+                    {spot}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3 text-[11px] font-black text-[#475569]">목적지</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {PASSENGER_TRIAL.dests.map((spot) => (
+                  <button
+                    key={spot}
+                    type="button"
+                    onClick={() => setDest(spot)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-black ${dest === spot ? 'bg-[#0F766E] text-white' : 'border border-[#CBD5E1] bg-white text-[#475569]'}`}
+                  >
+                    {spot}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setPhase('matching')}
+                className="mt-5 w-full rounded-2xl bg-[#3B82F6] py-3.5 text-base font-black text-white"
+              >
+                {daeri ? '대리 기사 부르기' : '택시 호출하기'}
+              </button>
+            </section>
+          ) : null}
+          {phase === 'matching' ? (
+            <div className="rounded-[26px] border-2 border-[#BFDBFE] bg-white p-5 text-center shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
+              <span className="inline-flex animate-pulse rounded-full bg-[#DBEAFE] px-3 py-1 text-[11px] font-black text-[#1D4ED8]">매칭 중</span>
+              <h3 className="mt-4 text-lg font-black text-[#0F172A]">근처 {daeri ? '대리 ' : ''}기사를 찾는 중이에요</h3>
+              <p className="mt-2 text-sm font-bold leading-6 text-[#64748B]">{pickup} → {dest} 요청을 가상 기사들에게 보내고 있어요.</p>
+            </div>
+          ) : null}
+          {phase === 'assigned' ? (
+            <section className="rounded-[26px] border-2 border-[#BBF7D0] bg-white p-5 shadow-[0_10px_24px_rgba(21,128,61,0.12)]">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-black text-[#15803D]">2단계 · 매칭 완료</p>
+                <span className="rounded-full bg-[#DCFCE7] px-2.5 py-1 text-[10px] font-black text-[#15803D]">가상 배정</span>
+              </div>
+              <h3 className="mt-2 text-lg font-black text-[#0F172A]">{daeri ? '대리 기사님이 출발했어요' : '기사님이 오고 있어요'}</h3>
+              <div className="mt-3 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3.5">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#DBEAFE] text-lg font-black text-[#1D4ED8]">{daeri ? '김' : '박'}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-black text-[#0F172A]">{daeri ? '김도현 대리 기사' : '박민수 기사'} · 평점 4.9</p>
+                    <p className="mt-0.5 text-xs font-bold text-[#64748B]">{daeri ? '도보 접근 중 · 고객님 차량 운행' : '쏘나타 · 부산 12가 3456'}</p>
+                  </div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-[#15803D] shadow-sm">3분 도착</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPhase('quote')}
+                className="mt-4 w-full rounded-2xl bg-[#15803D] py-3.5 text-base font-black text-white"
+              >
+                요금·경로 확인하기
+              </button>
+            </section>
+          ) : null}
+          {phase === 'quote' ? (
+            <section className="rounded-[26px] border-2 border-[#BFDBFE] bg-white p-5 shadow-[0_10px_24px_rgba(59,130,246,0.12)]">
+              <p className="text-xs font-black text-[#1D4ED8]">3단계 · 요금·경로 안내</p>
+              <h3 className="mt-1 text-lg font-black text-[#0F172A]">예상 요금 {fare.toFixed(1)} Pi</h3>
+              <p className="mt-1 text-sm font-bold text-[#64748B]">{pickup} → {dest}</p>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+                  <p className="text-[10px] font-black text-[#64748B]">거리</p>
+                  <p className="mt-1 text-base font-black text-[#0F172A]">{km.toFixed(1)} km</p>
+                </div>
+                <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+                  <p className="text-[10px] font-black text-[#64748B]">예상 시간</p>
+                  <p className="mt-1 text-base font-black text-[#0F172A]">{eta}분</p>
+                </div>
+                <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+                  <p className="text-[10px] font-black text-[#64748B]">도착 예정</p>
+                  <p className="mt-1 text-base font-black text-[#0F172A]">18:{daeri ? '44' : '32'}</p>
+                </div>
+              </div>
+              <div className="relative mt-3 overflow-hidden rounded-2xl border-2 border-[#334155] bg-[#0F172A] p-3.5 text-white">
+                <p className="text-[10px] font-black tracking-wide text-[#93C5FD]">경로 미리보기 · 체험</p>
+                <p className="mt-2 text-sm font-black">해운대해변로 → 수영로 → 가야대로</p>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15">
+                  <div className="h-full w-1/4 rounded-full bg-[#38BDF8]" />
+                </div>
+                <p className="mt-2 text-[11px] font-bold text-[#CBD5E1]">1.2km 직진 후 우회전 · 나머지 {eta - 3}분</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLoginGate(true)}
+                className="mt-4 w-full rounded-2xl bg-[#3B82F6] py-3.5 text-base font-black text-white"
+              >
+                Pi 결제로 실제 이용하기
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-2 w-full rounded-2xl border-2 border-[#CBD5E1] bg-white py-3 text-sm font-black text-[#475569]"
               >
                 체험 종료
               </button>
             </section>
           ) : null}
-          <PartnerTrialStats />
         </div>
+        {loginGate ? (
+          <div className="absolute inset-0 z-10 flex items-end justify-center bg-[#1e1033]/60 sm:items-center" onClick={() => setLoginGate(false)}>
+            <section className="mx-auto w-full max-w-md rounded-t-[32px] bg-white p-5 shadow-2xl sm:rounded-[32px]" onClick={(event) => event.stopPropagation()}>
+              <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#d8d2e0]" />
+              <p className="text-xs font-black text-[#1D4ED8]">파이 로그인 필요</p>
+              <h3 className="mt-1 text-xl font-black text-[#0F172A]">실제 정산과 콜 수락은 파이 계정 로그인이 필요합니다</h3>
+              <p className="mt-2 text-sm font-bold leading-6 text-[#475569]">지금까지 본 화면은 미리보기입니다. Pi Sign-in 후 실제 호출·결제가 가능합니다.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginGate(false)
+                  onRequireLogin()
+                }}
+                className="mt-4 w-full rounded-2xl bg-[#3B82F6] py-3.5 text-base font-black text-white"
+              >
+                Pi 로그인하기
+              </button>
+              <button
+                type="button"
+                onClick={() => setLoginGate(false)}
+                className="mt-2 w-full rounded-2xl border-2 border-[#E2E8F0] bg-white py-3 text-sm font-black text-[#475569]"
+              >
+                나중에
+              </button>
+            </section>
+          </div>
+        ) : null}
       </section>
     </div>
   )
@@ -11619,6 +11921,7 @@ export default function HomeScreen() {
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null)
   const [selectedService, setSelectedService] = useState<string | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [plannerOpen, setPlannerOpen] = useState(false)
   const [daeriSetupOpen, setDaeriSetupOpen] = useState(false)
   const [daeriTrip, setDaeriTrip] = useState<DaeriTrip | null>(null)
   const [deliveryJob, setDeliveryJob] = useState<DeliveryJob | null>(null)
@@ -11646,6 +11949,7 @@ export default function HomeScreen() {
   const [headerModal, setHeaderModal] = useState<'account' | null>(null)
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
   const [partnerTrialOpen, setPartnerTrialOpen] = useState(false)
+  const [passengerTrial, setPassengerTrial] = useState<PassengerTrialKind | null>(null)
   const [driverGateOpen, setDriverGateOpen] = useState(false)
   const [isDriverRegistered, setIsDriverRegistered] = useState(false)
   const [isPartnerRegistered, setIsPartnerRegistered] = useState(false)
@@ -11718,6 +12022,19 @@ export default function HomeScreen() {
   const showNotice = (message: string) => {
     setNotice(message)
     window.setTimeout(() => setNotice(''), 2200)
+  }
+
+  // 체험판 로그인 게이트 — 가상 화면이 실제 정산·콜 단계에 도달했을 때만 호출된다.
+  const runTrialLogin = async () => {
+    try {
+      const session = await signInWithPi()
+      savePiIdentity(session)
+      setIsPiLinked(true)
+      saveIsPiLinked(true)
+      showNotice(t('toast.piLogin', { uid: session.uid.slice(0, 8) }))
+    } catch (error) {
+      showNotice(describePiUserMessage(error))
+    }
   }
   const recordActivity = (label: string, detail: string) => {
     const entry: ActivityEntry = { id: crypto.randomUUID(), at: formatPiTime(), ts: Date.now(), label, detail }
@@ -12446,6 +12763,8 @@ export default function HomeScreen() {
             onService={openService}
             onReceipt={setReceiptRide}
             onOpenMap={openPickupMap}
+            onOpenPlanner={() => setPlannerOpen(true)}
+            onOpenTrial={setPassengerTrial}
             destSearchTick={destSearchTick}
             recentUse={recentUse}
             onQrPaid={(record, proof) =>
@@ -12561,7 +12880,8 @@ export default function HomeScreen() {
             onDone={showNotice}
           />
         )}
-        {partnerTrialOpen ? <PartnerTrialDemo onClose={() => setPartnerTrialOpen(false)} onNotice={showNotice} /> : null}
+        {partnerTrialOpen ? <PartnerTrialDemo onClose={() => setPartnerTrialOpen(false)} onNotice={showNotice} onRequireLogin={runTrialLogin} /> : null}
+        {passengerTrial ? <PassengerTrialDemo kind={passengerTrial} onClose={() => setPassengerTrial(null)} onRequireLogin={runTrialLogin} /> : null}
         {driverGateOpen ? (
           <DriverNeedSignupModal
             onClose={() => setDriverGateOpen(false)}
@@ -12592,6 +12912,35 @@ export default function HomeScreen() {
               setSelectedService('대리운전')
             }}
             onRequireRoute={setRouteAlert}
+          />
+        ) : null}
+        {plannerOpen ? (
+          <TripPlannerSheet
+            originLat={origin.lat}
+            originLng={origin.lng}
+            originAddress={origin.address}
+            ownerId={localPassengerId()}
+            onClose={() => setPlannerOpen(false)}
+            onNotice={showNotice}
+            onRideStarted={(ride) => {
+              // 여정의 택시 다리가 실행되면 기존 매칭 시트로 이어 붙인다.
+              const trip: ActiveTrip = {
+                originLat: ride.pickup.lat,
+                originLng: ride.pickup.lng,
+                originAddress: ride.pickup.address || ride.pickup.label || origin.address,
+                waypoints: ride.waypoints ?? [],
+                destLat: ride.dest.lat,
+                destLng: ride.dest.lng,
+                destAddress: ride.dest.address || '',
+                destLabel: ride.dest.label || ride.dest.address || '',
+              }
+              taxiSheetRideId = ride.id
+              writeStoredTaxi({ rideId: ride.id, trip })
+              setActiveTrip(trip)
+              setPlannerOpen(false)
+              setSelectedService('택시')
+              setTab('홈')
+            }}
           />
         ) : null}
         {moreOpen ? (
