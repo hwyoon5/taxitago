@@ -2,8 +2,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
-/** 등록 → 수락 → 수행(수거 완료·배송 중) → 완료 — 관리자 현황판의 4단계와 동일 순서. */
-export type DeliveryDispatchStatus = 'requested' | 'assigned' | 'in_transit' | 'completed'
+/** 등록 → 수락 → 수행(수거 완료·배송 중) → 완료 — 관리자 현황판의 4단계와 동일 순서.
+ *  'expired'는 미매칭 만료 — 매칭 마감(expiresAt)까지 수락 기사가 없으면 자동 전환된다. */
+export type DeliveryDispatchStatus = 'requested' | 'assigned' | 'in_transit' | 'completed' | 'expired'
+
+/** 즉시 배송(예약 없음) 콜의 매칭 제한 시간 — 이 시간 안에 수락이 없으면 만료. */
+export const DELIVERY_MATCH_TIMEOUT_MS = 2 * 60 * 60 * 1000
 
 export type DeliveryDispatch = {
   id: string
@@ -41,6 +45,14 @@ export type DeliveryDispatch = {
   paidAt?: string | null
   createdAt: string
   updatedAt: string
+  /** 매칭 마감 — 예약 수거 시각이 있으면 그 시각, 없으면 등록 + DELIVERY_MATCH_TIMEOUT_MS. */
+  expiresAt?: string
+  /** 미매칭 만료 전이 시각. */
+  expiredAt?: string | null
+  /** 이 건을 복사해 만든 재등록 건 id — 이력 추적용. */
+  relistedTo?: string | null
+  /** 어떤 만료/완료 건에서 복사됐는지 — 재등록 건에만 달린다. */
+  relistedFrom?: string | null
 }
 
 const filePath = netFilePath(path.join(process.cwd(), 'data', 'deliveries.json'))
@@ -139,10 +151,41 @@ async function kvListJobs(): Promise<DeliveryDispatch[]> {
   return jobs
 }
 
+/** 매칭 마감 계산 — 미래의 예약 수거 시각이 마감, 없으면 등록 시점 + 제한 시간. */
+function matchDeadline(job: Pick<DeliveryDispatch, 'scheduledAt' | 'createdAt'>) {
+  const scheduled = job.scheduledAt ? Date.parse(job.scheduledAt) : NaN
+  if (Number.isFinite(scheduled) && scheduled > Date.now()) return new Date(scheduled).toISOString()
+  const created = Date.parse(job.createdAt || '')
+  return new Date((Number.isFinite(created) ? created : Date.now()) + DELIVERY_MATCH_TIMEOUT_MS).toISOString()
+}
+
+/** 기한이 지난 'requested' 건을 'expired'로 전이 — 읽기·목록 경로에서 게으르게 수행한다. */
+async function expireIfDue(job: DeliveryDispatch | null) {
+  if (!job || job.status !== 'requested') return job
+  const deadline = job.expiresAt || matchDeadline(job)
+  if (!job.expiresAt) job.expiresAt = deadline
+  if (Date.parse(deadline) > Date.now()) return job
+  job.status = 'expired'
+  job.expiredAt = new Date().toISOString()
+  job.updatedAt = job.expiredAt
+  await saveJob(job)
+  return job
+}
+
 async function getJob(id: string) {
-  if (useKv) return kvGetJob(id)
-  syncFromDisk()
-  return db().jobs.get(id) ?? null
+  let job: DeliveryDispatch | null
+  if (useKv) job = await kvGetJob(id)
+  else {
+    syncFromDisk()
+    job = db().jobs.get(id) ?? null
+  }
+  return expireIfDue(job)
+}
+
+/** 전체 목록을 훑어 기한 지난 미배차 건을 일괄 만료 — GET 목록 라우트가 호출한다. */
+export async function sweepExpiredDeliveries() {
+  const jobs = await listJobs()
+  for (const job of jobs) await expireIfDue(job)
 }
 
 async function saveJob(job: DeliveryDispatch) {
@@ -168,6 +211,8 @@ export async function createDeliveryDispatch(input: Omit<DeliveryDispatch, 'stat
     driverName: null,
     driverVehicle: null,
     driverPlate: null,
+    expiresAt: matchDeadline(input),
+    expiredAt: null,
     updatedAt: input.createdAt,
   }
   await saveJob(job)
@@ -190,11 +235,14 @@ export async function updateDeliveryDispatch(id: string, ownerId: string, patch:
   const job = await getJob(id)
   if (!job) return { ok: false as const, error: 'not_found' as const, job: null }
   if (job.ownerId && job.ownerId !== ownerId) return { ok: false as const, error: 'forbidden' as const, job: null }
+  if (job.status === 'expired') return { ok: false as const, error: 'expired' as const, job }
   if (job.status !== 'requested') return { ok: false as const, error: 'already_assigned' as const, job }
   const editable = ['pickupAddress', 'pickupLat', 'pickupLng', 'destAddress', 'destLat', 'destLng', 'packageLabel', 'vehicle', 'packageSize', 'fare', 'senderPhone', 'recipientPhone', 'scheduledAt', 'driverNote'] as const
   for (const key of editable) {
     if (key in patch) (job as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key]
   }
+  // 예약 수거 시각을 바꾸면 매칭 마감도 함께 갱신 — 과거로 돌린 경우 즉시 만료 대상.
+  if ('scheduledAt' in patch) job.expiresAt = matchDeadline(job)
   job.updatedAt = new Date().toISOString()
   await saveJob(job)
   return { ok: true as const, job }
@@ -223,12 +271,12 @@ export async function markDeliveryPayment(id: string, ownerId: string, method: '
   return { ok: true as const, job }
 }
 
-/** 미배차 건 삭제 — 발신인 취소. */
+/** 미배차·만료 건 삭제 — 발신인 취소 또는 만료 이력 정리. */
 export async function deleteDeliveryDispatch(id: string, ownerId: string) {
   const job = await getJob(id)
   if (!job) return { ok: false as const, error: 'not_found' as const }
   if (job.ownerId && job.ownerId !== ownerId) return { ok: false as const, error: 'forbidden' as const }
-  if (job.status !== 'requested') return { ok: false as const, error: 'already_assigned' as const }
+  if (job.status !== 'requested' && job.status !== 'expired') return { ok: false as const, error: 'already_assigned' as const }
   if (useKv) {
     await kvDeleteJob(id)
   } else {
@@ -250,7 +298,7 @@ export async function listAllDeliveries() {
   return (await listJobs()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
 }
 
-const DELIVERY_STAGE_ORDER: Record<DeliveryDispatchStatus, number> = { requested: 0, assigned: 1, in_transit: 2, completed: 3 }
+const DELIVERY_STAGE_ORDER: Record<DeliveryDispatchStatus, number> = { requested: 0, assigned: 1, in_transit: 2, completed: 3, expired: 3 }
 
 /** 배정 기사의 진행 표시 — assigned → in_transit → completed 순방향만 허용한다. */
 export async function progressDeliveryDispatch(id: string, driverId: string, next: 'in_transit' | 'completed') {
@@ -275,7 +323,7 @@ export async function acceptDeliveryDispatch(id: string, driver: { driverId: str
   if (!job) return { ok: false as const, error: 'not_found', job: null }
   if (job.status !== 'requested') {
     if (job.status === 'assigned' && job.driverId === driver.driverId) return { ok: true as const, job }
-    return { ok: false as const, error: 'already_assigned', job }
+    return { ok: false as const, error: job.status === 'expired' ? 'expired' : 'already_assigned', job }
   }
   job.status = 'assigned'
   job.driverId = driver.driverId
@@ -286,6 +334,71 @@ export async function acceptDeliveryDispatch(id: string, driver: { driverId: str
   job.updatedAt = new Date().toISOString()
   await saveJob(job)
   return { ok: true as const, job }
+}
+
+/**
+ * 만료·완료 건의 재등록 — 주소·물품·연락처·사진을 그대로 복사한 새 'requested' 건을
+ * 만들고 원본에 relistedTo를 남긴다. 요금·예약 시각은 patch로 덮을 수 있다.
+ * 사진 원본은 attachment-store에서 새 id로 복사된다.
+ */
+export async function relistDeliveryDispatch(
+  id: string,
+  ownerId: string,
+  patch?: { fare?: number; scheduledAt?: string | null },
+) {
+  const job = await getJob(id)
+  if (!job) return { ok: false as const, error: 'not_found' as const, job: null, relisted: null }
+  if (job.ownerId && job.ownerId !== ownerId) return { ok: false as const, error: 'forbidden' as const, job, relisted: null }
+  if (job.status !== 'expired' && job.status !== 'completed') {
+    return { ok: false as const, error: 'invalid_state' as const, job, relisted: null }
+  }
+  const fare = typeof patch?.fare === 'number' && Number.isFinite(patch.fare) && patch.fare > 0 ? patch.fare : job.fare
+  const scheduledRaw = typeof patch?.scheduledAt === 'string' ? Date.parse(patch.scheduledAt) : NaN
+  const scheduledAt = Number.isFinite(scheduledRaw) && scheduledRaw > Date.now() ? new Date(scheduledRaw).toISOString() : null
+  const now = new Date().toISOString()
+  const next: DeliveryDispatch = {
+    id: crypto.randomUUID(),
+    ownerId: job.ownerId,
+    pickupAddress: job.pickupAddress,
+    pickupLat: job.pickupLat ?? null,
+    pickupLng: job.pickupLng ?? null,
+    destAddress: job.destAddress,
+    destLat: job.destLat ?? null,
+    destLng: job.destLng ?? null,
+    scheduledAt,
+    vehicle: job.vehicle,
+    packageSize: job.packageSize,
+    packageLabel: job.packageLabel,
+    fare,
+    senderPhone: job.senderPhone,
+    recipientPhone: job.recipientPhone,
+    driverNote: job.driverNote,
+    status: 'requested',
+    driverId: null,
+    driverName: null,
+    driverPhone: null,
+    driverVehicle: null,
+    driverPlate: null,
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: matchDeadline({ scheduledAt, createdAt: now }),
+    expiredAt: null,
+    relistedFrom: job.id,
+  }
+  // 첨부 사진은 엔티티 id 기준으로 저장된다 — 새 id로 내용을 복사해 옮긴다.
+  if ((job.photoCount ?? 0) > 0) {
+    const { getAttachments, saveAttachments } = await import('@/lib/attachment-store')
+    const photos = await getAttachments(job.id).catch(() => [])
+    if (photos.length) {
+      const saved = await saveAttachments(next.id, photos.map((p) => ({ name: p.name, mime: p.mime, dataUrl: p.dataUrl }))).catch(() => [])
+      next.photoCount = saved.length
+    }
+  }
+  await saveJob(next)
+  job.relistedTo = next.id
+  job.updatedAt = now
+  await saveJob(job)
+  return { ok: true as const, job, relisted: next }
 }
 
 export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
@@ -312,6 +425,8 @@ export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
     photoCount: job.photoCount ?? 0,
     paymentMethod: job.paymentMethod ?? null,
     paidAt: job.paidAt ?? null,
+    expiresAt: job.expiresAt ?? null,
+    expiredAt: job.expiredAt ?? null,
     // 발신·수신 연락처 — 배정된 기사(mine)와 등록한 발신인(owner) 본인에게만 노출.
     senderPhone: (job.status !== 'requested' && mine) || owner ? job.senderPhone : '',
     recipientPhone: (job.status !== 'requested' && mine) || owner ? job.recipientPhone : '',

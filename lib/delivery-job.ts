@@ -105,7 +105,10 @@ export type PublicDelivery = {
   createdAt?: string
   packageLabel: string
   fare: number
-  status: 'requested' | 'assigned' | 'in_transit' | 'completed'
+  status: 'requested' | 'assigned' | 'in_transit' | 'completed' | 'expired'
+  /** 매칭 마감(예약 수거 시각 또는 등록+제한 시간) — 이 시각까지 미수락이면 expired. */
+  expiresAt?: string | null
+  expiredAt?: string | null
   /** 발신인이 남긴 기사 요청 메모. */
   driverNote?: string
   driverName: string | null
@@ -188,6 +191,18 @@ export async function updateDelivery(id: string, ownerId: string, patch: Record<
   })
   const data = (await res.json().catch(() => null)) as { job?: PublicDelivery; error?: string } | null
   if (!res.ok || !data?.job) throw new Error(data?.error || '택배 정보를 수정하지 못했어요.')
+  return data.job
+}
+
+/** 만료·완료 건 재등록 — 주소·물품·사진을 서버가 복사한 새 요청 건을 만든다. */
+export async function relistDelivery(id: string, ownerId: string, patch?: { fare?: number; scheduledAt?: string | null }) {
+  const res = await apiFetch(`/api/deliveries/${encodeURIComponent(id)}/relist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ownerId, ...(patch ?? {}) }),
+  })
+  const data = (await res.json().catch(() => null)) as { job?: PublicDelivery; error?: string } | null
+  if (!res.ok || !data?.job) throw new Error(data?.error || '택배를 다시 등록하지 못했어요.')
   return data.job
 }
 

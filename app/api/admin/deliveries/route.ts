@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
 import { adminActor } from '@/lib/admin-auth'
-import { listAllDeliveries } from '@/lib/delivery-dispatch'
+import { listAllDeliveries, sweepExpiredDeliveries } from '@/lib/delivery-dispatch'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
  * 관리자 택배 이력 조회 — 상태 무관하게 전체 레코드를 날짜/상태/검색어로 필터한다.
- * from·to: YYYY-MM-DD (KST 하루 경계), status: requested|assigned|in_transit|completed,
+ * from·to: YYYY-MM-DD (KST 하루 경계), status: requested|assigned|in_transit|completed|expired,
  * q: 주소·연락처·기사명·id 부분 일치.
  */
 export async function GET(request: Request) {
@@ -15,6 +15,8 @@ export async function GET(request: Request) {
   if (!actor) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
+  // 조회 시점에 기한 지난 미배차 건을 만료로 갱신 — 현황이 항상 최신 상태로 보인다.
+  await sweepExpiredDeliveries().catch(() => undefined)
   const params = new URL(request.url).searchParams
   const from = params.get('from')?.trim() || ''
   const to = params.get('to')?.trim() || ''

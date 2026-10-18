@@ -14,7 +14,7 @@ type AdminDelivery = {
   packageSize: string | null
   fare: number
   scheduledAt: string | null
-  status: 'requested' | 'assigned' | 'in_transit' | 'completed'
+  status: 'requested' | 'assigned' | 'in_transit' | 'completed' | 'expired'
   senderPhone: string
   recipientPhone: string
   driverId: string | null
@@ -32,7 +32,7 @@ type AdminDelivery = {
 
 /** 단계 순서 — 현황판 배지와 동일하게 등록→수락→수행→완료. */
 const STAGES = ['등록', '수락', '수행', '완료'] as const
-const STAGE_INDEX: Record<AdminDelivery['status'], number> = { requested: 0, assigned: 1, in_transit: 2, completed: 3 }
+const STAGE_INDEX: Record<AdminDelivery['status'], number> = { requested: 0, assigned: 1, in_transit: 2, completed: 3, expired: 0 }
 const STAGE_COLORS = [
   'bg-[#DBEAFE] text-[#1D4ED8]',
   'bg-[#E8F1FA] text-[#4A82B8]',
@@ -119,6 +119,7 @@ export default function AdminDeliveries() {
           <option value="assigned">수락(배차 완료)</option>
           <option value="in_transit">수행(배송 중)</option>
           <option value="completed">완료</option>
+          <option value="expired">만료</option>
         </select>
         <input
           value={q}
@@ -150,18 +151,22 @@ export default function AdminDeliveries() {
                 >
                   상세보기
                 </button>
-                <div className="flex shrink-0 items-center gap-1">
-                  {STAGES.map((label, index) => (
-                    <span
-                      key={label}
-                      className={`rounded-md px-1.5 py-0.5 text-[9px] font-black ${
-                        index === stage ? STAGE_COLORS[index] : 'bg-[#F1F5F9] text-[#CBD5E1]'
-                      }`}
-                    >
-                      {label}
-                    </span>
-                  ))}
-                </div>
+                {row.status === 'expired' ? (
+                  <span className="shrink-0 rounded-md bg-[#F1F5F9] px-1.5 py-0.5 text-[9px] font-black text-[#64748B]">만료</span>
+                ) : (
+                  <div className="flex shrink-0 items-center gap-1">
+                    {STAGES.map((label, index) => (
+                      <span
+                        key={label}
+                        className={`rounded-md px-1.5 py-0.5 text-[9px] font-black ${
+                          index === stage ? STAGE_COLORS[index] : 'bg-[#F1F5F9] text-[#CBD5E1]'
+                        }`}
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <p className="mt-1 text-[10px] font-bold text-[#64748B]">
                 {fmt(row.createdAt)} · {row.packageLabel} · {row.fare.toFixed(2)} Pi · {payLabel(row)}
@@ -215,16 +220,20 @@ export default function AdminDeliveries() {
               <p className="break-all"><span className="text-[#94A3B8]">ID</span> · {detail.id} · owner {detail.ownerId || '—'}</p>
             </dl>
             <div className="mt-3 flex items-center gap-1.5">
-              {STAGES.map((label, index) => (
-                <span
-                  key={label}
-                  className={`flex-1 rounded-lg py-1.5 text-center text-[10px] font-black ${
-                    index === STAGE_INDEX[detail.status] ? STAGE_COLORS[index] : 'bg-[#F1F5F9] text-[#CBD5E1]'
-                  }`}
-                >
-                  {label}
-                </span>
-              ))}
+              {detail.status === 'expired' ? (
+                <span className="flex-1 rounded-lg bg-[#F1F5F9] py-1.5 text-center text-[10px] font-black text-[#64748B]">만료 — 기사 매칭 시간 경과</span>
+              ) : (
+                STAGES.map((label, index) => (
+                  <span
+                    key={label}
+                    className={`flex-1 rounded-lg py-1.5 text-center text-[10px] font-black ${
+                      index === STAGE_INDEX[detail.status] ? STAGE_COLORS[index] : 'bg-[#F1F5F9] text-[#CBD5E1]'
+                    }`}
+                  >
+                    {label}
+                  </span>
+                ))
+              )}
             </div>
           </div>
         </div>

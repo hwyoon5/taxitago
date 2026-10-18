@@ -43,7 +43,7 @@ import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
 import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, tierBaseFarePi, tierFareRate, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { cancelEvChargeSession, completeEvChargeSession, createEvChargeSession, fetchEvChargeSession, lockEvChargeSession, type EvChargeSession } from '@/lib/ev-charge-client'
 import { DELIVERY_VEHICLES, deliveryDistanceFeePi, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
-import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, progressDelivery, publishDelivery, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
+import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, progressDelivery, publishDelivery, relistDelivery, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
 import { clearMemberProfile, loadMemberProfile, memberPhone, saveMemberPhone } from '@/lib/member-profile'
 import PhoneVerifyForm from '@/components/phone-verify-form'
@@ -3825,6 +3825,18 @@ function ServiceSheet({
     }
     const bump = next
     setFareBump(null)
+    // 만료 건의 요금 올리기는 PATCH가 아니라 '재등록+요금 상향' 한 번에 처리 —
+    // 서버가 같은 내용의 새 요청 건을 올리고 원본은 만료 이력으로 남긴다.
+    if (job.status === 'expired' || job.status === 'completed') {
+      void runDeliveryMutation((ownerId) => relistDelivery(job.id, ownerId, { fare: bump }))
+        .then((relisted) => {
+          upsertMyDelivery(relisted)
+          onNotice(t('svc.delivRelistDone'))
+          refreshMyDeliveries()
+        })
+        .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivRelistErr')))
+      return
+    }
     void runDeliveryMutation((ownerId) => updateDelivery(job.id, ownerId, { fare: bump }))
       .then((updated) => {
         upsertMyDelivery(updated)
@@ -3832,6 +3844,16 @@ function ServiceSheet({
         refreshMyDeliveries()
       })
       .catch((error) => onNotice(error instanceof Error ? error.message : ''))
+  }
+  // 만료 건 재등록 — 주소·물품·사진·연락처를 서버가 복사한 새 요청 건을 올린다.
+  const relistMyDelivery = (job: PublicDelivery) => {
+    void runDeliveryMutation((ownerId) => relistDelivery(job.id, ownerId))
+      .then((relisted) => {
+        upsertMyDelivery(relisted)
+        onNotice(t('svc.delivRelistDone'))
+        refreshMyDeliveries()
+      })
+      .catch((error) => onNotice(error instanceof Error ? error.message : t('svc.delivRelistErr')))
   }
   // 미배차 택시/대리 호출의 요금 상향 — 서버가 본인·상태·상향 여부를 검증하고
   // 상향된 견적은 기사 오퍼·실시간 리스트에 즉시 반영된다.
@@ -5694,7 +5716,9 @@ function ServiceSheet({
                             ? ` · ${t('svc.delivDoing')}`
                             : job.status === 'completed'
                               ? ` · ${t('svc.delivDone')}`
-                              : ''}
+                              : job.status === 'expired'
+                                ? ` · ${t('svc.delivExpired')}`
+                                : ''}
                       </span>
                       <span className="mt-1 flex flex-wrap items-center gap-1.5">
                         {job.photoCount ? (
@@ -5707,6 +5731,9 @@ function ServiceSheet({
                         ) : null}
                       </span>
                       {job.scheduledAt && job.status === 'requested' ? <DeliveryCountdown at={job.scheduledAt} className="mt-1 text-[11px] font-black text-[#4A82B8]" /> : null}
+                      {job.status === 'expired' ? (
+                        <span className="mt-1 inline-block rounded-full bg-[#F1F5F9] px-2 py-0.5 text-[10px] font-black text-[#64748B]">{t('svc.delivExpiredHint')}</span>
+                      ) : null}
                     </button>
                     {job.driverNote ? (
                       <p className="mt-1.5 rounded-xl bg-[#F8FAFC] px-2.5 py-1.5 text-[11px] font-bold leading-4 text-[#475569]">{job.driverNote}</p>
@@ -5733,6 +5760,63 @@ function ServiceSheet({
                             className="flex-1 rounded-xl bg-[#4A82B8] py-2 text-xs font-black text-white"
                           >
                             {t('svc.delivEdit')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFareBump({ id: job.id, value: (job.fare + 0.5).toFixed(2) })}
+                            className="flex-1 rounded-xl border-2 border-[#BFDBFE] bg-white py-2 text-xs font-black text-[#4A82B8]"
+                          >
+                            {t('svc.delivFareUp')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeMyDelivery(job)}
+                            className="flex-1 rounded-xl border-2 border-[#FCA5A5] bg-white py-2 text-xs font-black text-[#DC2626]"
+                          >
+                            {t('svc.delivDelete')}
+                          </button>
+                        </div>
+                        {fareBump?.id === job.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              step="0.1"
+                              min={job.fare}
+                              value={fareBump.value}
+                              onChange={(event) => setFareBump({ id: job.id, value: event.target.value })}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault()
+                                  submitFareBump(job)
+                                }
+                              }}
+                              placeholder={t('svc.delivFareUpPh')}
+                              aria-label={t('svc.delivFareUp')}
+                              className="w-24 rounded-lg border-2 border-[#BFDBFE] bg-white px-2 py-1.5 text-center text-sm font-black text-[#0F172A] outline-none"
+                            />
+                            <button
+                              type="button"
+                              disabled={!fareBump.value.trim()}
+                              onClick={() => submitFareBump(job)}
+                              className="rounded-lg bg-[#4A82B8] px-3 py-1.5 text-[11px] font-black text-white disabled:opacity-60"
+                            >
+                              {t('common.ok')}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {/* 만료 건 — 같은 내용 재등록 또는 요금 올려 재등록. 이력은 삭제 가능. */}
+                    {job.status === 'expired' ? (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => relistMyDelivery(job)}
+                            className="flex-1 rounded-xl bg-[#4A82B8] py-2 text-xs font-black text-white"
+                          >
+                            {t('svc.delivRelist')}
                           </button>
                           <button
                             type="button"
@@ -5836,7 +5920,9 @@ function ServiceSheet({
                     ? t('svc.delivDoing')
                     : deliveryDetail.status === 'completed'
                       ? t('svc.delivDone')
-                      : t('svc.delivWaiting')}
+                      : deliveryDetail.status === 'expired'
+                        ? t('svc.delivExpired')
+                        : t('svc.delivWaiting')}
               </p>
               {deliveryDetail.senderPhone ? <p><span className="text-[#94A3B8]">{t('svc.sender')}</span> · {deliveryDetail.senderPhone}</p> : null}
               {deliveryDetail.recipientPhone ? <p><span className="text-[#94A3B8]">{t('svc.recipient')}</span> · {deliveryDetail.recipientPhone}</p> : null}
@@ -5891,6 +5977,23 @@ function ServiceSheet({
                     {t('svc.delivQrPay')}
                   </button>
                 ) : null
+              ) : deliveryDetail.status === 'expired' ? (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { relistMyDelivery(deliveryDetail); setDeliveryDetail(null) }}
+                    className="flex-1 rounded-xl bg-[#4A82B8] py-2.5 text-xs font-black text-white"
+                  >
+                    {t('svc.delivRelist')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setFareBump({ id: deliveryDetail.id, value: (deliveryDetail.fare + 0.5).toFixed(2) }); setDeliveryDetail(null) }}
+                    className="flex-1 rounded-xl border-2 border-[#BFDBFE] bg-white py-2.5 text-xs font-black text-[#4A82B8]"
+                  >
+                    {t('svc.delivFareUp')}
+                  </button>
+                </div>
               ) : (
                 <span className="inline-block rounded-full bg-[#F1F5F9] px-3 py-1 text-[11px] font-black text-[#64748B]">{t('svc.delivWaiting')}</span>
               )}
@@ -11230,6 +11333,8 @@ export default function HomeScreen() {
                 showNotice(t('svc.delivPickupNotice'))
               } else if (job.status === 'completed') {
                 showNotice(t('svc.delivDoneNotice'))
+              } else if (job.status === 'expired') {
+                showNotice(t('svc.delivExpiredNotice'))
               }
             }
             deliveryStatusSeen.current.set(job.id, job.status)

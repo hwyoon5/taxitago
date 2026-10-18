@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server'
-import { createDeliveryDispatch, listAssignedByDriver, listDeliveriesByOwner, listOpenDeliveries, publicDelivery, setDeliveryPhotoCount } from '@/lib/delivery-dispatch'
+import { createDeliveryDispatch, listAssignedByDriver, listDeliveriesByOwner, listOpenDeliveries, publicDelivery, setDeliveryPhotoCount, sweepExpiredDeliveries } from '@/lib/delivery-dispatch'
 import { sanitizeAttachments, saveAttachments } from '@/lib/attachment-store'
-import { listDrivers, syncDispatchFromDisk } from '@/lib/dispatch-store'
-import { haversineKm } from '@/lib/dispatch-geo'
-import { sendDriverPush } from '@/lib/driver-push'
+import { notifyNearbyDeliveryDrivers } from '@/lib/delivery-push'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
+  // 매칭 마감이 지난 미배차 건을 먼저 만료 처리 — 목록은 항상 최신 상태로 내린다.
+  await sweepExpiredDeliveries().catch(() => undefined)
   const params = new URL(request.url).searchParams
   const ownerId = params.get('ownerId')?.trim()
   // 기사에게 배정된 건 — 발신·수신 연락처가 함께 내려간다(publicDelivery viewer=기사).
@@ -63,27 +63,6 @@ export async function POST(request: Request) {
   // 등록 즉시 수거지 근거리 온라인 택배 기사에게 웹 푸시 — 앱이 꺼져 있거나
   // 백그라운드여도 서비스 워커가 OS 알림으로 띄운다. 구독이 없는 기사는
   // sendDriverPush 내부에서 자동으로 건너뛴다.
-  const DELIVERY_PUSH_NEAR_KM = 8
-  if (job.pickupLat != null && job.pickupLng != null) {
-    try {
-      syncDispatchFromDisk()
-      const pickup = { lat: Number(job.pickupLat), lng: Number(job.pickupLng) }
-      for (const driver of listDrivers()) {
-        if (driver.status !== 'online' || driver.serviceType !== '택배' || driver.virtual) continue
-        if (!Number.isFinite(driver.lat) || haversineKm(driver, pickup) > DELIVERY_PUSH_NEAR_KM) continue
-        void sendDriverPush(driver.id, {
-          type: 'delivery',
-          title: '새 택배 배송 등록',
-          body: `${job.pickupAddress} → ${job.destAddress} · ${job.fare.toFixed(1)} Pi`,
-          tag: `taxitago-delivery-${job.id}`,
-          url: '/?driver=1',
-          rideId: job.id,
-          expiresAt: job.scheduledAt ?? undefined,
-        }).catch(() => undefined)
-      }
-    } catch (error) {
-      console.warn('[deliveries] near-driver push failed', error)
-    }
-  }
+  notifyNearbyDeliveryDrivers(job)
   return NextResponse.json({ ok: true, job: publicDelivery(job) })
 }
