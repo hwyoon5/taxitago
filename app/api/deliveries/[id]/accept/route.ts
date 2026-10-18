@@ -6,6 +6,7 @@ import { getRegistryUser } from '@/lib/user-registry'
 import { driverDeliveryEligible, partnerServesDelivery } from '@/lib/partner-services'
 import { complianceGate } from '@/lib/compliance-store'
 import { sendSmsText } from '@/lib/sms-notify'
+import { notifyDeliveryMatched } from '@/lib/push-events'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,7 +53,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: result.error }, { status: result.error === 'not_found' ? 404 : 409 })
   }
   const job = result.job
-  // 발신인 SMS/알림톡 통보 — 공급자 미설정이면 로그만 남기고 응답은 지연 없이 반환.
+  // 발신인 웹 푸시 + SMS/알림톡 통보 — 공급자·구독 미설정이면 로그만 남기고
+  // 응답은 지연 없이 반환.
+  void notifyDeliveryMatched(job).catch(() => undefined)
   void sendSmsText(
     job.senderPhone,
     `[TaxiTago] 택배 배차가 완료됐어요. ${job.driverName ?? '기사'} 기사(${job.driverVehicle ?? ''} ${job.driverPlate ?? ''})${job.driverPhone ? ` · ${job.driverPhone}` : ''}`,

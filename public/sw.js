@@ -33,7 +33,7 @@ self.addEventListener('push', (event) => {
       data: notice,
     })
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    const channel = payload.type === 'delivery' ? 'delivery-offer' : 'driver-offer'
+    const channel = payload.type === 'delivery' ? 'delivery-offer' : payload.type === 'user' ? 'user-notify' : 'driver-offer'
     for (const client of windows) client.postMessage({ type: channel, offer: payload })
   })())
 })
@@ -50,8 +50,12 @@ self.addEventListener('message', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
+  const offer = event.notification.data?.offer || lastOffer
+  // 기사 콜 알림만 기사 콘솔로 라우팅 — 이용자 이벤트('user')는 페이로드의
+  // url을 그대로 열어 승객 화면에 머물게 한다.
+  const isDriverCall = offer?.type === 'ride' || offer?.type === 'delivery'
   const target = new URL(event.notification.data?.url || '/', self.location.origin)
-  target.searchParams.set('driver', '1')
+  if (isDriverCall) target.searchParams.set('driver', '1')
   const href = target.href
 
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (windowClients) => {
@@ -65,8 +69,7 @@ self.addEventListener('notificationclick', (event) => {
     for (const client of appClients) {
       try {
         const next = typeof client.navigate === 'function' ? (await client.navigate(href)) || client : client
-        const offer = event.notification.data?.offer || lastOffer
-        next.postMessage({ type: offer?.type === 'delivery' ? 'delivery-offer' : 'driver-offer', offer })
+        next.postMessage({ type: offer?.type === 'delivery' ? 'delivery-offer' : offer?.type === 'user' ? 'user-notify' : 'driver-offer', offer })
         await next.focus()
         return
       } catch {

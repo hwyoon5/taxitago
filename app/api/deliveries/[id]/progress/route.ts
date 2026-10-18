@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { progressDeliveryDispatch, publicDelivery } from '@/lib/delivery-dispatch'
+import { notifyDeliveryProgress } from '@/lib/push-events'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,5 +22,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const status = result.error === 'not_found' ? 404 : result.error === 'forbidden' ? 403 : 409
     return NextResponse.json({ error: result.error }, { status })
   }
+  // 발신인 상태 알림 — 수거 완료(배송 시작)/배송 완료 시점에 웹 푸시.
+  void notifyDeliveryProgress(result.job, next === 'in_transit' ? 'picked_up' : 'delivered').catch(() => undefined)
   return NextResponse.json({ ok: true, job: publicDelivery(result.job, driverId) })
 }

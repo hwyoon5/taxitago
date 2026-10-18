@@ -19,6 +19,7 @@ import {
   syncDispatchFromDisk,
 } from '@/lib/dispatch-store'
 import { sendDriverPush } from '@/lib/driver-push'
+import { notifyPassengerRideMatched } from '@/lib/push-events'
 import { recordZoneOutcome } from '@/lib/avoid-zone-store'
 import { resolveNetworkMode } from '@/lib/pi-sandbox'
 import { driverServesTier, normalizeRideTier, normalizeVehicleTiers } from '@/lib/ride-tiers'
@@ -238,7 +239,7 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
       tollPi: ride.tollPi ?? 0,
       tollKrw: ride.tollKrw ?? null,
     },
-  })
+  }, 'offer')
   return ride
 }
 
@@ -658,6 +659,8 @@ export function respondToOffer(rideId: string, driverId: string, action: 'accept
   openEscrowForRide(ride.id)
   void openRideComms(ride.id)
   startLiveDriverTracking(ride.id)
+  // 승객에게 배정 성사 웹 푸시 — 구독이 없으면 로그만 남고 흐름은 그대로.
+  void notifyPassengerRideMatched(ride, driver).catch(() => undefined)
   return { ok: true as const, ride }
 }
 

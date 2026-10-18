@@ -81,7 +81,7 @@ import {
   subscribeRideLive,
   type PresenceComplianceBlock,
 } from '@/lib/dispatch-client'
-import { enableDriverPush, showDriverOfferNotification } from '@/lib/driver-notify-client'
+import { enableDriverPush, enableUserPush, showDriverOfferNotification } from '@/lib/driver-notify-client'
 import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, releaseDriverWakeLock, stopDriverOfferAlarm } from '@/lib/driver-alert'
 import { playCommsAlert, primeCommsAlertAudio } from '@/lib/alert-sound'
 import DriverLostWatcher from '@/components/driver-lost-watcher'
@@ -2701,6 +2701,8 @@ function TaxiMatchingSheet({
   const startNewRide = (pickedTier: RideTier = tier) => {
     const pickup = live.origin ?? { lat: pickupLat, lng: pickupLng, address: pickupAddress }
     const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
+    // 호출 시점에 알림 권한을 요청해 매칭·결제 푸시를 받을 수 있게 한다.
+    void enableUserPush(passengerIdRef.current, true).catch(() => undefined)
     return createRideRequest({
       passengerId: passengerIdRef.current,
       passengerPhone: memberPhone(),
@@ -4404,8 +4406,9 @@ function ServiceSheet({
     onNotice(t(selfServe ? 'svc.noticeUseStart' : 'svc.noticeCallStart', { name: translateService(locale, service) }))
   }
 
-  const startNewDaeriRide = () =>
-    createRideRequest({
+  const startNewDaeriRide = () => {
+    void enableUserPush(daeriPassengerIdRef.current, true).catch(() => undefined)
+    return createRideRequest({
       passengerId: daeriPassengerIdRef.current,
       passengerPhone: memberPhone(),
       kind: 'daeri',
@@ -4422,6 +4425,7 @@ function ServiceSheet({
       estimatedFare: daeriTrip?.fare ?? daeriFareCfg.daeri.base,
       waitMinutes: daeriTrip?.waitMinutes,
     })
+  }
 
   useEffect(() => {
     if (!ride || (phase !== 'matching' && phase !== 'assigned')) return
@@ -11456,6 +11460,11 @@ export default function HomeScreen() {
         '주차': cfg.flatBase.parking,
       })
     }).catch(() => undefined)
+  }, [])
+  // 알림 권한을 이미 허용한 이용자는 재접속 시 푸시 구독을 조용히 복구한다 —
+  // 권한이 없으면 아무것도 하지 않는다(호출 시점에 별도로 요청).
+  useEffect(() => {
+    void enableUserPush(localPassengerId()).catch(() => undefined)
   }, [])
   const [driverMode, setDriverMode] = useState(false)
   const [driverOnline, setDriverOnline] = useState(true)

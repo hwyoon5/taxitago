@@ -6,7 +6,7 @@ function urlBase64ToUint8Array(value: string) {
   return Uint8Array.from(raw, (char) => char.charCodeAt(0))
 }
 
-export async function enableDriverPush(driverId: string, requestPermission = false) {
+async function enablePush(ownerId: string, role: 'driver' | 'user', requestPermission: boolean) {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window) || !('PushManager' in window)) return false
   if (Notification.permission === 'denied') return false
   const permission = Notification.permission === 'granted'
@@ -28,9 +28,18 @@ export async function enableDriverPush(driverId: string, requestPermission = fal
   const saved = await apiFetch('/api/push/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ driverId, subscription }),
+    body: JSON.stringify({ ownerId, role, subscription }),
   })
   return saved.ok
+}
+
+export async function enableDriverPush(driverId: string, requestPermission = false) {
+  return enablePush(driverId, 'driver', requestPermission)
+}
+
+/** 이용자(승객·발신인) 푸시 구독 — 매칭·결제·배송 상태 알림 수신용. */
+export async function enableUserPush(ownerId: string, requestPermission = false) {
+  return enablePush(ownerId, 'user', requestPermission)
 }
 
 export async function showDriverOfferNotification(rideId: string, body: string) {

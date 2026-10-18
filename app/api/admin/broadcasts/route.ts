@@ -30,20 +30,31 @@ function targetLabel(target: BroadcastTarget) {
           : '전체'
 }
 
-/** 기사 푸시 구독자에게 방송 알림을 최선형으로 발송 — 실패해도 공지 등록은 성공시킨다. */
+/** 푸시 구독자에게 방송 알림을 최선형으로 발송 — 실패해도 공지 등록은 성공시킨다. */
 async function pushToDrivers(entry: BroadcastEntry) {
-  if (entry.target === 'passenger' || entry.target === 'partner') return
-  const ids = subscribedDriverIds()
+  // 승객·파트너 공지는 이용자('user') 구독으로, 기사·스태프는 기사('driver')
+  // 구독으로 보낸다 — 'all'은 양쪽 모두.
+  const roles =
+    entry.target === 'passenger' || entry.target === 'partner'
+      ? (['user'] as const)
+      : entry.target === 'all'
+        ? (['driver', 'user'] as const)
+        : (['driver'] as const)
   await Promise.all(
-    ids.map((driverId) =>
-      sendDriverPush(driverId, {
-        title: `공지 · ${entry.title}`,
-        body: entry.body.slice(0, 120),
-        tag: `broadcast-${entry.id}`,
-        url: '/',
-        rideId: '',
-      }).catch(() => undefined),
-    ),
+    roles.map(async (role) => {
+      const ids = await subscribedDriverIds(role).catch(() => [] as string[])
+      await Promise.all(
+        ids.map((ownerId) =>
+          sendDriverPush(ownerId, {
+            type: role === 'driver' ? 'ride' : 'user',
+            title: `공지 · ${entry.title}`,
+            body: entry.body.slice(0, 120),
+            tag: `broadcast-${entry.id}`,
+            url: role === 'driver' ? '/?driver=1' : '/',
+          }, 'broadcast').catch(() => undefined),
+        ),
+      )
+    }),
   )
 }
 

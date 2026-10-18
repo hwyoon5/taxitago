@@ -41,7 +41,7 @@ export async function notifyNearbyDeliveryDrivers(job: DeliveryDispatch) {
         url: '/?driver=1',
         rideId: job.id,
         expiresAt: job.scheduledAt ?? undefined,
-      }).catch(() => undefined)
+      }, 'offer').catch(() => undefined)
     }
   } catch (error) {
     console.warn('[deliveries] near-driver push failed', error)

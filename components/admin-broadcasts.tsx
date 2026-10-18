@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import type { BroadcastEntry, BroadcastTarget } from '@/lib/broadcast-store'
+import type { PushLogEntry } from '@/lib/push-store'
 import { BROADCAST_REGIONS, broadcastRegionLabel, type BroadcastRegion } from '@/lib/broadcast-regions'
 
 const TARGET_META: Record<BroadcastTarget, { label: string; cls: string }> = {
@@ -20,6 +21,101 @@ const fmtDate = (iso: string) => {
 
 type FormState = { title: string; body: string; target: BroadcastTarget; region: BroadcastRegion; banner: boolean }
 const emptyForm: FormState = { title: '', body: '', target: 'all', region: 'nation', banner: true }
+
+type PushLogStats = { driverSubscriptions: number; userSubscriptions: number; vapidConfigured: boolean; smsFallback: boolean }
+
+const PUSH_KIND_LABEL: Record<string, string> = {
+  'ride-matched': '기사 배정',
+  'delivery-matched': '택배 배차',
+  'delivery-progress': '배송 진행',
+  payment: '결제 완료',
+  settlement: '정산 완료',
+  'sms-fallback': 'SMS 대체',
+  offer: '콜 오퍼',
+  broadcast: '공지 방송',
+}
+
+const PUSH_STATUS_META: Record<string, { label: string; cls: string }> = {
+  sent: { label: '발송됨', cls: 'bg-[#DCFCE7] text-[#15803D]' },
+  'sms-sent': { label: 'SMS 발송', cls: 'bg-[#DCFCE7] text-[#15803D]' },
+  'no-subscription': { label: '구독 없음', cls: 'bg-[#F1F5F9] text-[#64748B]' },
+  failed: { label: '실패', cls: 'bg-[#FEF2F2] text-[#B91C1C]' },
+  'sms-failed': { label: 'SMS 실패', cls: 'bg-[#FEF2F2] text-[#B91C1C]' },
+}
+
+/** 푸시 발송 로그 모니터링 — 이벤트 발송 성공/실패·구독 현황. */
+function PushLogPanel() {
+  const [entries, setEntries] = useState<PushLogEntry[]>([])
+  const [stats, setStats] = useState<PushLogStats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    const res = await fetch('/api/admin/push-log?limit=100', { headers: adminHeaders(), cache: 'no-store' }).catch(() => null)
+    const data = (await res?.json().catch(() => null)) as { entries?: PushLogEntry[]; stats?: PushLogStats } | null
+    if (data?.entries) setEntries(data.entries)
+    if (data?.stats) setStats(data.stats)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    void load()
+    const timer = window.setInterval(() => void load(), 15_000)
+    return () => window.clearInterval(timer)
+  }, [load])
+
+  return (
+    <section className="rounded-2xl border-2 border-[#E2E8F0] bg-white p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-black text-[#334155]">푸시 발송 로그</p>
+          <p className="mt-0.5 text-[10px] font-bold text-[#94A3B8]">매칭·수거·결제·정산 이벤트의 실시간 발송 결과입니다.</p>
+        </div>
+        <button type="button" onClick={() => void load()} className="rounded-full bg-[#F1F5F9] px-3 py-1.5 text-[10px] font-black text-[#475569]">
+          새로고침
+        </button>
+      </div>
+      {stats ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <span className="rounded-full bg-[#E8F1FA] px-2.5 py-1 text-[10px] font-black text-[#4A82B8]">기사 구독 {stats.driverSubscriptions}</span>
+          <span className="rounded-full bg-[#E8F1FA] px-2.5 py-1 text-[10px] font-black text-[#4A82B8]">이용자 구독 {stats.userSubscriptions}</span>
+          <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${stats.vapidConfigured ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEF2F2] text-[#B91C1C]'}`}>
+            VAPID {stats.vapidConfigured ? '설정됨' : '자동 생성'}
+          </span>
+          <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${stats.smsFallback ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>
+            SMS 대체 {stats.smsFallback ? 'ON' : 'OFF'}
+          </span>
+        </div>
+      ) : null}
+      <ul className="mt-3 space-y-1.5">
+        {loading ? (
+          <li className="rounded-xl bg-[#F8FAFC] px-3 py-4 text-center text-[11px] font-bold text-[#94A3B8]">로그를 불러오는 중…</li>
+        ) : !entries.length ? (
+          <li className="rounded-xl border-2 border-dashed border-[#E2E8F0] px-3 py-5 text-center text-[11px] font-bold text-[#94A3B8]">
+            아직 발송 기록이 없습니다.
+          </li>
+        ) : (
+          entries.map((entry) => {
+            const meta = PUSH_STATUS_META[entry.status] ?? { label: entry.status, cls: 'bg-[#F1F5F9] text-[#64748B]' }
+            return (
+              <li key={entry.id} className="flex items-start gap-2 rounded-xl bg-[#F8FAFC] px-3 py-2">
+                <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black ${meta.cls}`}>{meta.label}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px] font-black text-[#0F172A]">
+                    {PUSH_KIND_LABEL[entry.kind] ?? entry.kind} · {entry.title}
+                  </p>
+                  {entry.detail ? <p className="truncate text-[10px] font-bold text-[#64748B]">{entry.detail}</p> : null}
+                  <p className="text-[9px] font-bold text-[#94A3B8]">
+                    {fmtDate(entry.at)} · {entry.ownerId.slice(0, 14)}{entry.ownerId.length > 14 ? '…' : ''}
+                  </p>
+                </div>
+              </li>
+            )
+          })
+        )}
+      </ul>
+    </section>
+  )
+}
 
 /** 관리자 공지 방송 — 대상 그룹별 공지 등록·수정·삭제 + 앱 배너 노출 제어. */
 export default function AdminBroadcasts() {
@@ -260,6 +356,8 @@ export default function AdminBroadcasts() {
           })
         )}
       </ul>
+
+      <PushLogPanel />
     </div>
   )
 }

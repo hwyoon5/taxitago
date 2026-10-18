@@ -20,6 +20,7 @@ import {
   syncEscrowFromDisk,
 } from '@/lib/escrow-store'
 import type { DriverEarning, DriverEarningsStats, EarningsPeriodRow, EscrowRecord, PublicEscrow, SettlementReceipt } from '@/lib/escrow-types'
+import { notifyDriverSettled } from '@/lib/push-events'
 
 function stamp(record: EscrowRecord) {
   record.updatedAt = nowIso()
@@ -391,6 +392,10 @@ export async function releaseEscrow(
   // 이용자 잔액 장부 — 잔액 결제 건은 차액을 대사하고, 결제 없이 잠긴 건
   // (테스트넷 모의 잠금)은 정산 시점에 최종 요금을 차감한다.
   await settleRideSpend(ride, escrow.lockTxid, settleAmount)
+  // 기사 정산 완료 웹 푸시 — 에스크로가 해제돼 장부가 마감된 시점에 알린다.
+  if (settleEntry) {
+    void notifyDriverSettled(driverId, receipt.route || '운행', settleEntry.net).catch(() => undefined)
+  }
   return { ok: true as const, escrow, receipt }
   } finally {
     releasingRides.delete(rideId)
