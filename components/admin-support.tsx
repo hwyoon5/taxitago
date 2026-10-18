@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { Activity, Headset, Wallet } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useAdminAuth } from '@/components/admin-guard'
 import { getAdminKey } from '@/lib/admin-key'
@@ -53,6 +54,69 @@ const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned',
 
 const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'partners', 'devices', 'fare', 'ledger', 'receivable', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
+
+const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
+  live: '실시간 현황',
+  report: '리포트',
+  inbox: '문의 관리',
+  users: '가입자',
+  sanction: '블랙리스트',
+  partners: '기사·파트너',
+  devices: '기기 관리',
+  fare: '수수료 설정',
+  ledger: '정산 내역',
+  receivable: '미수금',
+  payouts: '출금 요청',
+  coupons: '쿠폰 관리',
+  notice: '공지 방송',
+  staff: '직원 관리',
+  audit: '업무 기록',
+  memo: '메모장',
+  shift: '인수인계',
+}
+
+/** 메뉴 그룹 — 성격별 카테고리 카드와 고유 색상 톤. */
+const ADMIN_MENU_GROUPS: {
+  id: string
+  label: string
+  desc: string
+  icon: typeof Activity
+  card: string
+  heading: string
+  active: string
+  tabs: AdminView[]
+}[] = [
+  {
+    id: 'ops',
+    label: '운영 · 모니터링',
+    desc: '현황·기사·기기·근무',
+    icon: Activity,
+    card: 'border-[#BFDBFE] bg-[#E8F1FA]',
+    heading: 'text-[#1D4ED8]',
+    active: 'bg-[#4A82B8] text-white shadow-[0_6px_14px_rgba(74,130,184,0.35)]',
+    tabs: ['live', 'report', 'partners', 'devices', 'shift'],
+  },
+  {
+    id: 'finance',
+    label: '정산 · 금융',
+    desc: '수수료·정산·미수·출금',
+    icon: Wallet,
+    card: 'border-[#BBF7D0] bg-[#F0FDF4]',
+    heading: 'text-[#15803D]',
+    active: 'bg-[#15803D] text-white shadow-[0_6px_14px_rgba(21,128,61,0.3)]',
+    tabs: ['fare', 'ledger', 'receivable', 'payouts'],
+  },
+  {
+    id: 'support',
+    label: '고객관리 · 운영지원',
+    desc: '문의·회원·공지·기록',
+    icon: Headset,
+    card: 'border-[#FDE68A] bg-[#FFFBEB]',
+    heading: 'text-[#B45309]',
+    active: 'bg-[#D97706] text-white shadow-[0_6px_14px_rgba(217,119,6,0.3)]',
+    tabs: ['inbox', 'users', 'sanction', 'coupons', 'notice', 'staff', 'audit', 'memo'],
+  },
+]
 
 /** URL 해시(#ledger) 또는 ?view= 쿼리에서 탭을 복원 — 리마운트·새로고침 시에도 마지막 메뉴를 유지한다. */
 function viewFromLocation(): AdminView {
@@ -498,50 +562,37 @@ export default function AdminSupportDesk() {
       <div className="mt-3">
         <AdminPresence />
       </div>
-      <div className="mt-4 grid grid-cols-5 gap-2 rounded-2xl bg-[#EDE9FE] p-1">
-        {ADMIN_VIEWS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => selectView(tab)}
-            className={`rounded-xl py-2 text-xs font-black ${view === tab ? 'bg-white text-[#4C1FB8] shadow-sm' : 'text-[#64748B]'}`}
-          >
-            {tab === 'live'
-              ? '실시간 현황'
-              : tab === 'report'
-                ? '리포트'
-                : tab === 'inbox'
-              ? '문의 관리'
-              : tab === 'users'
-                ? '가입자'
-                : tab === 'sanction'
-                  ? '블랙리스트'
-                  : tab === 'partners'
-                  ? '기사·파트너'
-                : tab === 'devices'
-                  ? '기기 관리'
-                : tab === 'fare'
-                  ? '수수료 설정'
-                  : tab === 'ledger'
-                    ? '정산 내역'
-                    : tab === 'receivable'
-                      ? '미수금'
-                    : tab === 'payouts'
-                      ? '출금 요청'
-                      : tab === 'coupons'
-                        ? '쿠폰 관리'
-                        : tab === 'notice'
-                        ? '공지 방송'
-                        : tab === 'staff'
-                      ? '직원 관리'
-                      : tab === 'memo'
-                        ? '메모장'
-                        : tab === 'shift'
-                          ? '인수인계'
-                          : '업무 기록'}
-          </button>
-        ))}
-      </div>
+      {/* 메뉴 — 성격별 3개 카테고리 카드. 모바일은 세로 스택, md 이상은 3단. */}
+      <nav className="mt-4 grid gap-3 md:grid-cols-3" aria-label="관리자 메뉴">
+        {ADMIN_MENU_GROUPS.map((group) => {
+          const Icon = group.icon
+          return (
+            <section key={group.id} className={`rounded-2xl border-2 p-3 ${group.card}`}>
+              <header className="flex items-center justify-between gap-2">
+                <p className={`flex items-center gap-1.5 text-xs font-black ${group.heading}`}>
+                  <Icon className="h-4 w-4" strokeWidth={2.5} />
+                  {group.label}
+                </p>
+                <span className={`text-[10px] font-bold ${group.heading} opacity-70`}>{group.desc}</span>
+              </header>
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {group.tabs.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => selectView(tab)}
+                    className={`rounded-full px-3 py-1.5 text-[11px] font-black transition-colors ${
+                      view === tab ? group.active : 'bg-white/80 text-[#475569] ring-1 ring-black/5 hover:bg-white'
+                    }`}
+                  >
+                    {ADMIN_VIEW_LABEL[tab]}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )
+        })}
+      </nav>
       {view === 'live' ? (
         <AdminLiveDashboard />
       ) : view === 'report' ? (
