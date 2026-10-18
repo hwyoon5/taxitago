@@ -2,6 +2,7 @@ import { apiFetch, localEventSourceUrl } from '@/lib/app-origin'
 import { isUsableCoord } from '@/lib/ride-session'
 import type { DriverPenaltyInfo, PublicRide } from '@/lib/dispatch-types'
 import type { DriverEarningsStats, SettlementReceipt } from '@/lib/escrow-types'
+import type { PartnerInsights } from '@/lib/partner-insights'
 
 async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T
@@ -549,6 +550,13 @@ export async function fetchDriverEarnings(driverId: string, altDriverId?: string
   const data = await readJson<{ stats?: DriverEarningsStats; error?: string }>(res)
   if (!res.ok || !data.stats) return null
   return data.stats
+}
+
+export async function fetchDriverInsights(driverId: string, altDriverId?: string, days = 30) {
+  const res = await apiFetch(`/api/drivers/insights/?driverId=${encodeURIComponent(driverId)}${aliasQuery(driverId, altDriverId)}&days=${days}`, { cache: 'no-store' })
+  const data = await readJson<{ insights?: PartnerInsights; error?: string }>(res)
+  if (!res.ok || !data.insights) return null
+  return data.insights
 }
 
 export async function fetchRideReceipt(rideId: string) {

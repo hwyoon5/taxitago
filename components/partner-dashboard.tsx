@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Briefcase, CircleAlert, FileSpreadsheet, Link2, MonitorSmartphone, RefreshCw, Store, Trash2 } from 'lucide-react'
+import { BarChart3, Briefcase, CircleAlert, FileSpreadsheet, Link2, MonitorSmartphone, RefreshCw, Store, Trash2 } from 'lucide-react'
 import PartnerStatSheet from '@/components/partner-stat-sheet'
+import PartnerInsightsSheet from '@/components/partner-insights-sheet'
 import { MobilityDeviceFormModal } from '@/components/mobility-device-form'
 import { PartnerFeedsPanel } from '@/components/partner-feeds-panel'
 import { SafeBoundary } from '@/components/safe-boundary'
@@ -118,6 +119,19 @@ export function PartnerDashboard({
   const [editDevice, setEditDevice] = useState<MobilityDevice | null>(null)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
   const [payoutOpen, setPayoutOpen] = useState(false)
+  const [insightsOpen, setInsightsOpen] = useState(false)
+  const [driverAlias, setDriverAlias] = useState('')
+
+  // uid 로그인 이전 단말기 발급 기사 id — 수익 장부가 두 id에 나뉘어 쌓였을 수
+  // 있으므로 인사이트 조회 시 별칭으로 함께 넘긴다.
+  useEffect(() => {
+    try {
+      const legacy = window.localStorage.getItem('taxitago-driver-id')?.trim() || ''
+      setDriverAlias(legacy && legacy !== uid ? legacy : '')
+    } catch {
+      setDriverAlias('')
+    }
+  }, [uid])
 
   const fetchData = useCallback(async () => {
     const [d, f, r] = await Promise.allSettled([fetchMyMobilityDevices(uid), fetchMyPartnerFeeds(uid), fetchPartnerReceivables(uid)])
@@ -370,6 +384,14 @@ export function PartnerDashboard({
         </div>
         <button
           type="button"
+          onClick={() => setInsightsOpen(true)}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-2xl border-2 border-[#BFDBFE] bg-white py-2.5 text-xs font-black text-[#4A82B8]"
+        >
+          <BarChart3 className="h-3.5 w-3.5" />
+          {t('insights.open')}
+        </button>
+        <button
+          type="button"
           onClick={() => setPayoutOpen(true)}
           className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-white py-2.5 text-xs font-black text-[#4A82B8]"
         >
@@ -618,6 +640,9 @@ export function PartnerDashboard({
         />
       ) : null}
       {statSheet ? <PartnerStatSheet key={`${statSheet}-${dataVersion}`} kind={statSheet} onClose={() => setStatSheet(null)} /> : null}
+      {insightsOpen ? (
+        <PartnerInsightsSheet driverId={uid} altDriverId={driverAlias} onClose={() => setInsightsOpen(false)} />
+      ) : null}
       {payoutOpen ? (
         <PayoutRequestSheet
           applicantId={uid}

@@ -114,6 +114,10 @@ const nextConfig = {
           source: '/api/drivers/earnings',
           destination: '/api/drivers/earnings/',
         },
+        {
+          source: '/api/drivers/insights',
+          destination: '/api/drivers/insights/',
+        },
       ],
     }
   },
