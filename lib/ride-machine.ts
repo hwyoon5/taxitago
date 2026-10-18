@@ -22,6 +22,7 @@ import { processPassengerRefund, releaseEscrow, settlePassengerCancelFee, toPubl
 import { archiveRideComms } from '@/lib/comms-engine'
 import { recordAudit } from '@/lib/audit-store'
 import type { PublicRide, RideRequestRecord } from '@/lib/dispatch-types'
+import { normalizeRideTier } from '@/lib/ride-tiers'
 import type { PublicEscrow, SettlementReceipt } from '@/lib/escrow-types'
 
 /**
@@ -138,6 +139,7 @@ export async function transitionRide(input: {
     tollKrw?: unknown
     expectedMinutes?: unknown
     kind?: unknown
+    tier?: unknown
     boardedAt?: unknown
     readyToSettleAt?: unknown
     driverId?: unknown
@@ -177,6 +179,7 @@ async function applyTransition(input: {
     tollKrw?: unknown
     expectedMinutes?: unknown
     kind?: unknown
+    tier?: unknown
     boardedAt?: unknown
     readyToSettleAt?: unknown
     driverId?: unknown
@@ -197,6 +200,7 @@ async function applyTransition(input: {
         tollKrw: typeof snapshot.tollKrw === 'number' && Number.isFinite(snapshot.tollKrw) ? snapshot.tollKrw : undefined,
         expectedMinutes: typeof snapshot.expectedMinutes === 'number' && Number.isFinite(snapshot.expectedMinutes) ? snapshot.expectedMinutes : undefined,
         kind: snapshot.kind === 'daeri' ? ('daeri' as const) : undefined,
+        tier: normalizeRideTier(snapshot.tier),
         boardedAt: typeof snapshot.boardedAt === 'string' ? snapshot.boardedAt : null,
         readyToSettleAt: typeof snapshot.readyToSettleAt === 'string' ? snapshot.readyToSettleAt : null,
         driverId: typeof snapshot.driverId === 'string' ? snapshot.driverId : null,

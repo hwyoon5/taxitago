@@ -21,6 +21,7 @@ import {
 import { sendDriverPush } from '@/lib/driver-push'
 import { recordZoneOutcome } from '@/lib/avoid-zone-store'
 import { resolveNetworkMode } from '@/lib/pi-sandbox'
+import { driverServesTier, normalizeRideTier, normalizeVehicleTiers } from '@/lib/ride-tiers'
 import { presenceLocation } from '@/lib/presence-store'
 import {
   AUTO_BOARD_DEBOUNCE_MS,
@@ -78,6 +79,7 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
           }
         : null,
     kind: ride.kind === 'daeri' ? 'daeri' : 'taxi',
+    tier: ride.tier,
     assignedDriver: assigned
       ? {
           id: assigned.id,
@@ -122,6 +124,9 @@ function driverMatchesRideKind(driver: DriverRecord, kind: RideRequestRecord['ki
 
 function isDriverEligible(driver: DriverRecord, ride: RideRequestRecord, now: number) {
   if (!driverMatchesRideKind(driver, ride.kind)) return false
+  // 차량 등급 필터 — 승객이 고른 티어를 기사가 제공해야 매칭 후보가 된다.
+  // '일반'/미지정 콜은 모두에게 열리고, 모범·대형·펫동반은 등록 등급 필요.
+  if (!driverServesTier(driver.vehicleTiers, ride.tier)) return false
   if (driver.status === 'offline') return false
   // 본인 호출 원천 차단 — 등록 기사/파트너가 승객으로 부른 콜이 자기
   // 단말기(기사 id 또는 piUid가 같은 레코드)로 배정되지 않게 한다.
@@ -219,6 +224,7 @@ function offerToDriver(ride: RideRequestRecord, driver: DriverRecord, km: number
       id: ride.id,
       passengerId: ride.passengerId,
       kind: ride.kind === 'daeri' ? 'daeri' : 'taxi',
+      tier: ride.tier,
       pickup: ride.pickup,
       waypoints: ride.waypoints,
       dest: ride.dest,
@@ -332,6 +338,7 @@ export function refreshRideTimers(ride: RideRequestRecord) {
 export function createRideAndMatch(input: {
   id: string
   kind?: RideRequestRecord['kind']
+  tier?: string
   passengerId: string
   passengerUid?: string
   passengerPhone?: string
@@ -350,6 +357,7 @@ export function createRideAndMatch(input: {
   const ride = saveRide({
     ...input,
     kind: input.kind === 'daeri' ? 'daeri' : 'taxi',
+    tier: normalizeRideTier(input.tier),
     avoidSurchargePi: input.avoidSurchargePi ?? 0,
     tollPi: input.tollPi ?? 0,
     tollKrw: input.tollKrw ?? null,
@@ -412,6 +420,7 @@ export function markRideProgress(
     tollKrw?: number | null
     expectedMinutes?: number | null
     kind?: RideRequestRecord['kind']
+    tier?: string
     boardedAt?: string | null
     driverId?: string | null
   },
@@ -423,6 +432,7 @@ export function markRideProgress(
     ride = saveRide({
       id: rideId,
       kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
+      tier: normalizeRideTier(snapshot.tier),
       passengerId,
       pickup: snapshot.pickup,
       waypoints: snapshot.waypoints?.slice(0, 2),
@@ -524,6 +534,7 @@ export function restorePendingOffer(
     tollKrw?: number | null
     expectedMinutes?: number | null
     kind?: RideRequestRecord['kind']
+    tier?: string
   },
 ) {
   syncDispatchFromDisk()
@@ -657,6 +668,7 @@ export function confirmMatchOnDevice(
     tollKrw?: number | null
     expectedMinutes?: number | null
     kind?: RideRequestRecord['kind']
+    tier?: string
   },
   deviceDriverId?: string,
 ) {
@@ -667,6 +679,7 @@ export function confirmMatchOnDevice(
     ride = saveRide({
       id: rideId,
       kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
+      tier: normalizeRideTier(snapshot.tier),
       passengerId: snapshot.passengerId,
       pickup: snapshot.pickup,
       waypoints: snapshot.waypoints?.slice(0, 2),
@@ -770,6 +783,7 @@ export function ensureRideForCompletion(
     tollKrw?: number | null
     expectedMinutes?: number | null
     kind?: RideRequestRecord['kind']
+    tier?: string
     boardedAt?: string | null
     readyToSettleAt?: string | null
   },
@@ -787,6 +801,7 @@ export function ensureRideForCompletion(
   const ride = saveRide({
     id: rideId,
     kind: snapshot.kind === 'daeri' ? 'daeri' : 'taxi',
+    tier: normalizeRideTier(snapshot.tier),
     passengerId: snapshot.passengerId,
     pickup: snapshot.pickup,
     waypoints: snapshot.waypoints?.slice(0, 2),
@@ -862,18 +877,20 @@ export function getDriverOffer(driverId: string) {
   return matched
 }
 
-export function rememberDriverVehicle(driverId: string, info: { name?: string; vehicle?: string; plate?: string }) {
+export function rememberDriverVehicle(driverId: string, info: { name?: string; vehicle?: string; plate?: string; vehicleTiers?: string[] }) {
   const current = getDriver(driverId)
   if (!current) return null
   const name = info.name?.trim()
   const vehicle = info.vehicle?.trim()
   const plate = info.plate?.trim()
-  if (!name && !vehicle && !plate) return current
+  const vehicleTiers = info.vehicleTiers !== undefined ? normalizeVehicleTiers(info.vehicleTiers) : undefined
+  if (!name && !vehicle && !plate && vehicleTiers === undefined) return current
   return saveDriver({
     ...current,
     name: name || current.name,
     vehicle: vehicle || current.vehicle,
     plate: plate || current.plate,
+    ...(vehicleTiers !== undefined ? { vehicleTiers } : {}),
     lastSeenAt: nowIso(),
   })
 }
@@ -954,6 +971,7 @@ export function upsertDriverPresence(input: {
   phone?: string
   altDriverId?: string
   serviceType?: string
+  vehicleTiers?: string[]
 }) {
   syncDispatchFromDisk()
   const current = getDriver(input.id)
@@ -1001,6 +1019,8 @@ export function upsertDriverPresence(input: {
     piUid: input.piUid?.trim() || current?.piUid,
     phone: input.phone?.trim() || current?.phone,
     serviceType: input.serviceType?.trim() || current?.serviceType,
+    // 등급은 배열 필드 — 비트가 값을 실어오면 교체하고, 없으면 기존 등록값 유지.
+    vehicleTiers: input.vehicleTiers !== undefined ? normalizeVehicleTiers(input.vehicleTiers) : current?.vehicleTiers,
   }
   const saved = saveDriver(next)
   // 온라인으로 돌아온 기사가 대기 중인 콜의 후보가 될 수 있으니 대기열을 즉시 다시 스캔한다.

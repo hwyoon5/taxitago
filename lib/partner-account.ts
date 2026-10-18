@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/app-origin'
 import { updateDriverProfile } from '@/lib/dispatch-client'
+import { normalizeVehicleTiers } from '@/lib/ride-tiers'
 
 export type PiIdentity = {
   uid: string
@@ -28,6 +29,8 @@ export type PartnerProfile = PiIdentity & {
   detail: string
   region: string
   serviceType?: string
+  /** 택시 기사가 추가로 제공 가능한 차량 등급('모범'·'대형'·'펫동반') — '일반'은 기본 포함. */
+  vehicleTiers?: string[]
   vehicle?: string
   plate?: string
   insuranceCompany?: string
@@ -133,6 +136,7 @@ export function loadPartnerProfile(): PartnerProfile | null {
     detail: textOf(raw.detail),
     region: textOf(raw.region),
     serviceType: textOf(raw.serviceType),
+    vehicleTiers: normalizeVehicleTiers(raw.vehicleTiers),
     vehicle: textOf(raw.vehicle),
     plate: textOf(raw.plate),
     insuranceCompany: textOf(raw.insuranceCompany),
@@ -322,6 +326,7 @@ export async function syncPartnerLink(profile: PartnerProfile) {
         plate: profile.plate,
         region: profile.region,
         serviceType: profile.serviceType,
+        vehicleTiers: normalizeVehicleTiers(profile.vehicleTiers),
         insuranceCompany: profile.insuranceCompany,
         insurancePolicyNo: profile.insurancePolicyNo,
         insuranceExpiresAt: profile.insuranceExpiresAt,
@@ -344,6 +349,7 @@ export type PartnerProfilePatch = {
   detail: string
   vehicle?: string
   plate?: string
+  vehicleTiers?: string[]
   insuranceCompany?: string
   insurancePolicyNo?: string
   insuranceExpiresAt?: string
@@ -366,6 +372,7 @@ export async function updatePartnerProfile(patch: PartnerProfilePatch): Promise<
     detail: patch.detail.trim(),
     vehicle: patch.vehicle?.trim() ?? current.vehicle,
     plate: patch.plate?.trim() ?? current.plate,
+    vehicleTiers: patch.vehicleTiers !== undefined ? normalizeVehicleTiers(patch.vehicleTiers) : current.vehicleTiers,
     insuranceCompany: patch.insuranceCompany?.trim() ?? current.insuranceCompany,
     insurancePolicyNo: patch.insurancePolicyNo?.trim() ?? current.insurancePolicyNo,
     insuranceExpiresAt: patch.insuranceExpiresAt?.trim() ?? current.insuranceExpiresAt,
@@ -376,7 +383,7 @@ export async function updatePartnerProfile(patch: PartnerProfilePatch): Promise<
   const fleet = partnerVehicle(next)
   await Promise.all([
     syncPartnerLink(next),
-    updateDriverProfile({ driverId: next.uid, name: next.name, vehicle: fleet.vehicle, plate: fleet.plate }),
+    updateDriverProfile({ driverId: next.uid, name: next.name, vehicle: fleet.vehicle, plate: fleet.plate, vehicleTiers: next.vehicleTiers }),
   ])
   return next
 }

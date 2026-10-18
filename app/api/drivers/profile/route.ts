@@ -10,6 +10,7 @@ export async function POST(request: Request) {
     name?: unknown
     vehicle?: unknown
     plate?: unknown
+    vehicleTiers?: unknown
   } | null
   const driverId = typeof body?.driverId === 'string' ? body.driverId.trim() : ''
   if (!driverId) {
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
     name: typeof body?.name === 'string' ? body.name : undefined,
     vehicle: typeof body?.vehicle === 'string' ? body.vehicle : undefined,
     plate: typeof body?.plate === 'string' ? body.plate : undefined,
+    vehicleTiers: Array.isArray(body?.vehicleTiers) ? (body.vehicleTiers as string[]) : undefined,
   })
   return NextResponse.json({ ok: true, driver })
 }

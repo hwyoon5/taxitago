@@ -3,6 +3,7 @@ import path from 'path'
 import { BUSAN_CITY_HALL } from '@/lib/user-location'
 import type { DriverPenaltyInfo, DriverRecord, DriverReputation, RideRequestRecord } from '@/lib/dispatch-types'
 import { REJECT_PENALTY_SCORE, REJECT_WARN_SCORE } from '@/lib/dispatch-types'
+import { EXTRA_VEHICLE_TIERS } from '@/lib/ride-tiers'
 import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
 
 type LiveListener = (payload: string) => void
@@ -260,6 +261,8 @@ const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
     heading: 140,
     virtual: true,
     serviceType: '택시',
+    // 테스트넷 시드는 모든 등급을 소화 — 모범/대형/펫동반 콜 매칭이 끊기지 않게.
+    vehicleTiers: [...EXTRA_VEHICLE_TIERS],
   },
   {
     id: 'virtual-park',
@@ -272,6 +275,7 @@ const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
     heading: 40,
     virtual: true,
     serviceType: '택시',
+    vehicleTiers: [...EXTRA_VEHICLE_TIERS],
   },
   {
     id: 'virtual-lee',
@@ -284,11 +288,20 @@ const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
     heading: 220,
     virtual: true,
     serviceType: '택시',
+    vehicleTiers: [...EXTRA_VEHICLE_TIERS],
   },
 ]
 
 export function ensureSeedDrivers() {
   const store = db()
+  // 영속본 백필 — 등급 필드가 없는 기존 가상 기사는 전체 티어를 부여해
+  // 테스트넷 티어 콜 매칭이 끊기지 않게 한다.
+  for (const driver of store.drivers.values()) {
+    if (driver.virtual && driver.serviceType === '택시' && driver.vehicleTiers === undefined) {
+      driver.vehicleTiers = [...EXTRA_VEHICLE_TIERS]
+      persist()
+    }
+  }
   if (store.seeded) return
   const now = new Date().toISOString()
   for (const driver of SEED_DRIVERS) {

@@ -21,6 +21,8 @@ type PushPayload = {
     id: string
     passengerId: string
     kind?: 'taxi' | 'daeri'
+    /** 승객이 고른 차량 등급 — 기사 오퍼 카드의 티어 배지에 표시. */
+    tier?: string
     pickup: { lat: number; lng: number; address?: string; label?: string }
     waypoints?: { lat: number; lng: number; address?: string; label?: string }[]
     dest: { lat: number; lng: number; address?: string; label?: string }

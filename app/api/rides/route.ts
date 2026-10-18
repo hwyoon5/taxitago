@@ -12,6 +12,7 @@ import { piRound } from '@/lib/pi-format'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 import { isUserLocked } from '@/lib/user-registry'
+import { normalizeRideTier } from '@/lib/ride-tiers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -155,6 +156,7 @@ export async function POST(request: Request) {
   const ride = createRideAndMatch({
     id: crypto.randomUUID(),
     kind,
+    tier: normalizeRideTier(body?.tier),
     passengerId,
     passengerUid: piUid,
     passengerPhone: passengerPhone || undefined,

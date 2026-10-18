@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { kvCommand, kvConfigured } from '@/lib/kv'
+import { normalizeVehicleTiers } from '@/lib/ride-tiers'
 
 /**
  * 가입자 레지스트리 — Pi uid 기준의 영속 사용자 디렉터리.
@@ -20,6 +21,8 @@ export type RegistryUser = {
   plate?: string
   region?: string
   serviceType?: string
+  /** 기사가 제공 가능한 차량 등급 목록('모범'·'대형'·'펫동반') — 매칭 티어 필터의 근거. */
+  vehicleTiers?: string[]
   insuranceCompany?: string
   insurancePolicyNo?: string
   insuranceExpiresAt?: string
@@ -116,6 +119,7 @@ export async function upsertRegistryUser(input: {
   plate?: string
   region?: string
   serviceType?: string
+  vehicleTiers?: string[]
   insuranceCompany?: string
   insurancePolicyNo?: string
   insuranceExpiresAt?: string
@@ -139,6 +143,7 @@ export async function upsertRegistryUser(input: {
     plate: text(input.plate, prev?.plate),
     region: text(input.region, prev?.region),
     serviceType: text(input.serviceType, prev?.serviceType),
+    vehicleTiers: normalizeVehicleTiers(input.vehicleTiers !== undefined ? input.vehicleTiers : prev?.vehicleTiers),
     insuranceCompany: text(input.insuranceCompany, prev?.insuranceCompany),
     insurancePolicyNo: text(input.insurancePolicyNo, prev?.insurancePolicyNo),
     insuranceExpiresAt: text(input.insuranceExpiresAt, prev?.insuranceExpiresAt),

@@ -53,6 +53,7 @@ import { DeliveryChatSheet, DeliveryContactCard } from '@/components/delivery-co
 import { isRidePayLabel, settleMidTripCancelFee } from '@/lib/ride-fare'
 import { resolvePiSandbox } from '@/lib/pi-sandbox'
 import { haversineKm, LONG_DISTANCE_CALL_KM, longDistanceCheck, routeChainKm } from '@/lib/dispatch-geo'
+import { BASE_RIDE_TIER, EXTRA_VEHICLE_TIERS, RIDE_TIERS, type RideTier } from '@/lib/ride-tiers'
 import { listNearbyServiceSpots, nearbyKindFromService, partnerListingFromProfile, type RegisteredNearbyPartner } from '@/lib/nearby-services'
 import { findDeviceBySpotId, isDeviceRentable, MOBILITY_DEVICES_EVENT, MOBILITY_STATUS_LABEL, mobilityPartnersForService, refreshMobilityDevices, rentMobilityDevice, rentalLastError, returnMobilityDevice } from '@/lib/mobility-devices'
 import {
@@ -2527,6 +2528,14 @@ class MatchingMapBoundary extends Component<{ children: ReactNode }, { failed: b
   }
 }
 
+/** 차량 등급 → 로케일 키 — 선택 단계와 매칭 화면 배지에서 공통으로 쓴다. */
+const RIDE_TIER_KEYS: Record<RideTier, MessageKey> = {
+  일반: 'match.tier.normal',
+  모범: 'match.tier.deluxe',
+  대형: 'match.tier.large',
+  펫동반: 'match.tier.pet',
+}
+
 function TaxiMatchingSheet({
   destination,
   pickupLat,
@@ -2569,6 +2578,9 @@ function TaxiMatchingSheet({
   const [callOpen, setCallOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [ride, setRide] = useState<PublicRide | null>(null)
+  // 호출 전 차량 등급 선택 — 복원 세션(기존 rideId)은 이미 티어가 정해져 있어 건너뛴다.
+  const [tier, setTier] = useState<RideTier>(BASE_RIDE_TIER)
+  const [tierPicked, setTierPicked] = useState(false)
   const [matchError, setMatchError] = useState('')
   const passengerIdRef = useRef('')
   const rideIdRef = useRef(taxiSheetRideId)
@@ -2681,13 +2693,14 @@ function TaxiMatchingSheet({
     }
   }, [destination, destLat, destLng, pickupAddress])
 
-  const startNewRide = () => {
+  const startNewRide = (pickedTier: RideTier = tier) => {
     const pickup = live.origin ?? { lat: pickupLat, lng: pickupLng, address: pickupAddress }
     const drop = resolvedDest ?? live.dest ?? { lat: destLat, lng: destLng, address: destAddress, label: dest }
     return createRideRequest({
       passengerId: passengerIdRef.current,
       passengerPhone: memberPhone(),
       kind: 'taxi',
+      tier: pickedTier,
       pickupLat: pickup.lat,
       pickupLng: pickup.lng,
       pickupAddress: pickup.address,
@@ -2749,11 +2762,13 @@ function TaxiMatchingSheet({
         cancelled = true
       }
     }
-    createNew()
+    // 신규 호출은 이용자가 차량 등급을 고른 뒤에만 시작한다 — 등급이 콜 레코드에
+    // 실려야 매칭 필터가 해당 등급 제공 기사만 후보로 뽑는다.
+    if (tierPicked) createNew()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [tierPicked])
 
   useEffect(() => {
     const rideId = ride?.id || rideIdRef.current
@@ -3137,10 +3152,44 @@ function TaxiMatchingSheet({
       <section className="relative mx-auto flex h-[calc(100dvh-var(--app-header-offset))] max-h-[calc(100dvh-var(--app-header-offset))] w-full max-w-md flex-col overflow-hidden rounded-t-[32px] bg-white shadow-[0_-18px_40px_rgba(36,27,56,0.22)]">
         <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-5 pb-4 pt-3">
         <div className="pointer-events-none mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#ddd7e7]" aria-hidden />
-        {showMatching ? (
+        {!tierPicked && !ride && !rideIdRef.current ? (
+          <div className="pb-4 pt-2">
+            <p className="text-xs font-black text-[#4A82B8]">CALL SETUP</p>
+            <h2 className="mt-2 text-2xl font-black text-[#0F172A]">{t('match.tier.pick')}</h2>
+            <p className="mt-2 text-sm font-bold text-[#64748B]">{route}</p>
+            <p className="mt-1 text-[11px] font-bold text-[#8b8495]">{t('match.tier.hint')}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {RIDE_TIERS.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setTier(item)}
+                  className={`rounded-2xl border-2 py-3.5 text-sm font-black transition active:scale-[0.98] ${tier === item ? 'border-[#4A82B8] bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
+                >
+                  {t(RIDE_TIER_KEYS[item])}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setTierPicked(true)}
+              className="mt-4 w-full rounded-2xl bg-[#4A82B8] py-4 font-black text-white shadow-[0_12px_24px_rgba(74,130,184,0.35)] transition active:scale-[0.99]"
+            >
+              {t('match.callBtn', { name: t(RIDE_TIER_KEYS[tier]) })}
+            </button>
+            <button type="button" onClick={onClose} className="mt-2 w-full py-2.5 text-sm font-black text-[#64748B]">
+              {t('match.cancel')}
+            </button>
+          </div>
+        ) : showMatching ? (
           <div className="pb-4 pt-2 text-center">
             <p className="text-xs font-black text-[#4C1FB8]">LIVE MATCHING</p>
             <h2 className="mt-2 text-2xl font-black text-[#0F172A]">{t('match.waiting')}</h2>
+            {ride?.tier && ride.tier !== BASE_RIDE_TIER ? (
+              <p className="mt-1 inline-block rounded-full bg-[#E8F1FA] px-3 py-1 text-[11px] font-black text-[#4A82B8]">
+                {t('match.tier.note', { tier: t(RIDE_TIER_KEYS[ride.tier as RideTier] || 'match.tier.normal') })}
+              </p>
+            ) : null}
             <p className="mt-2 text-sm font-bold text-[#64748B]">{route}</p>
             {ride ? <p className="mt-1 text-xs font-black text-[#4C1FB8]">{t('match.estFare', { v: ride.estimatedFare.toFixed(7) })}</p> : null}
             {Number(ride?.avoidSurchargePi || 0) > 0 ? (
@@ -7810,6 +7859,8 @@ function PartnerSignupModal({
   const [phoneVerified, setPhoneVerified] = useState(false)
   const [vehicleName, setVehicleName] = useState('')
   const [plateNumber, setPlateNumber] = useState('')
+  // 택시 기사가 추가로 제공 가능한 차량 등급 — '일반'은 기본 포함이라 목록에 없다.
+  const [vehicleTiers, setVehicleTiers] = useState<string[]>([])
   const [region, setRegion] = useState('서울')
   const [photo, setPhoto] = useState<string | null>(null)
   const [insuranceCompany, setInsuranceCompany] = useState('')
@@ -7884,6 +7935,7 @@ function PartnerSignupModal({
       plate: role === '기사' && skipVehicle ? '' : plateNumber.trim(),
       region: region.trim() || '서울',
       serviceType: role === '기사' ? serviceType : facilityType,
+      vehicleTiers: role === '기사' && serviceType === '택시' ? vehicleTiers : [],
       insuranceCompany: insuranceCompany.trim(),
       insurancePolicyNo: insurancePolicyNo.trim(),
       insuranceExpiresAt: insuranceExpiresAt.trim(),
@@ -8109,6 +8161,27 @@ function PartnerSignupModal({
                   />
                 </label>
                 {skipVehicle ? <p className="text-[11px] font-bold text-[#8b8495]">* 대리운전은 차량 정보 입력 제외</p> : null}
+                {serviceType === '택시' ? (
+                  <div className="rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-3">
+                    <p className="text-xs font-black text-[#334155]">차량 등급 · 제공 가능 서비스</p>
+                    <p className="mt-1 text-[11px] font-bold text-[#8b8495]">일반 콜은 기본 포함입니다. 해당하는 등급을 모두 선택해 주세요 — 승객이 등급을 지정해 호출하면 이 조건에 맞는 기사에게만 배차됩니다.</p>
+                    <div className="mt-2 grid grid-cols-3 gap-2">
+                      {EXTRA_VEHICLE_TIERS.map((tier) => {
+                        const checked = vehicleTiers.includes(tier)
+                        return (
+                          <button
+                            key={tier}
+                            type="button"
+                            onClick={() => setVehicleTiers((prev) => (checked ? prev.filter((item) => item !== tier) : [...prev, tier]))}
+                            className={`rounded-xl border-2 py-2.5 text-xs font-black ${checked ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
+                          >
+                            {tier}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : (
             <div className="mt-3 grid grid-cols-1 gap-3">
@@ -8931,6 +9004,7 @@ function DriverOfferWatcher({
         piUid: partner?.uid,
         phone: partner?.phone || memberPhone(),
         serviceType: partner?.serviceType,
+        vehicleTiers: partner?.vehicleTiers,
       }).then(() => {
         delay = document.visibilityState === 'visible' ? 12000 : 20000
       }).catch(() => {
@@ -9072,6 +9146,11 @@ function DriverOfferWatcher({
             <p className="text-xs font-bold text-[#4A82B8]">새로운 운행 요청</p>
             <span className="animate-pulse rounded-full bg-[#4A82B8] px-2 py-1 text-[10px] font-bold text-white">우선 배차</span>
           </div>
+          {incoming.tier && incoming.tier !== BASE_RIDE_TIER ? (
+            <p className="mt-2 rounded-lg bg-[#E8F1FA] px-2.5 py-1.5 text-[11px] font-black text-[#4A82B8]">
+              {incoming.tier} 등급 지정 콜 — 승객이 이 등급을 선택했습니다.
+            </p>
+          ) : null}
           <LongDistanceCallBadge ride={incoming} />
           {activeRide ? (
             <p className="mt-2 rounded-lg bg-[#DBEAFE] px-2.5 py-1.5 text-[11px] font-black text-[#1D4ED8]">
@@ -9429,6 +9508,7 @@ function DriverDashboard({
         piUid: partner?.uid,
         phone: partner?.phone || memberPhone(),
         serviceType: partner?.serviceType,
+        vehicleTiers: partner?.vehicleTiers,
       }).then(() => {
         delay = document.visibilityState === 'visible' ? 12000 : 20000
       }).catch(() => {

@@ -5,6 +5,7 @@ import { driverPenaltyInfo, flushDispatchPersist, hydrateDispatchFromKv } from '
 import { flushEscrowPersist, hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { hydrateAvoidFromKv } from '@/lib/avoid-zone-store'
 import { rideTransitionErrorMessage, transitionRide } from '@/lib/ride-machine'
+import { normalizeRideTier } from '@/lib/ride-tiers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -48,6 +49,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       tollKrw?: unknown
       expectedMinutes?: unknown
       kind?: unknown
+      tier?: unknown
     }
   } | null
   const action = body?.action === 'accept' || body?.action === 'reject' || body?.action === 'device-accept' ? body.action : null
@@ -68,6 +70,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         tollKrw: typeof body?.ride?.tollKrw === 'number' ? body.ride.tollKrw : undefined,
         expectedMinutes: typeof body?.ride?.expectedMinutes === 'number' ? body.ride.expectedMinutes : undefined,
         kind: body?.ride?.kind === 'daeri' ? 'daeri' : 'taxi',
+        tier: normalizeRideTier(body?.ride?.tier),
       },
       typeof body?.driverId === 'string' ? body.driverId.trim() : undefined,
     )
@@ -102,6 +105,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           tollKrw: body.ride.tollKrw,
           expectedMinutes: body.ride.expectedMinutes,
           kind: body.ride.kind,
+          tier: body.ride.tier,
         }
       : undefined,
   })

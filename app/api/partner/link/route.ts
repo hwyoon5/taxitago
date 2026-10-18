@@ -6,6 +6,7 @@ import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 import { removeDriverPushSubscription } from '@/lib/driver-push'
 import { recordAudit } from '@/lib/audit-store'
+import { normalizeVehicleTiers } from '@/lib/ride-tiers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
     plate?: unknown
     region?: unknown
     serviceType?: unknown
+    vehicleTiers?: unknown
     insuranceCompany?: unknown
     insurancePolicyNo?: unknown
     insuranceExpiresAt?: unknown
@@ -94,6 +96,10 @@ export async function POST(request: Request) {
     plate: text(body?.plate, previous?.plate),
     region: text(body?.region, previous?.region),
     serviceType: text(body?.serviceType, previous?.serviceType),
+    // 차량 등급은 배열 필드 — 클라이언트가 명시적으로 보냈을 때만 교체하고,
+    // 미전송(구형 클라이언트)이면 이전 등록값을 보존한다.
+    vehicleTiers:
+      body?.vehicleTiers !== undefined ? normalizeVehicleTiers(body.vehicleTiers) : normalizeVehicleTiers(previous?.vehicleTiers),
     insuranceCompany: text(body?.insuranceCompany, previous?.insuranceCompany),
     insurancePolicyNo: text(body?.insurancePolicyNo, previous?.insurancePolicyNo),
     insuranceExpiresAt: text(body?.insuranceExpiresAt, previous?.insuranceExpiresAt),

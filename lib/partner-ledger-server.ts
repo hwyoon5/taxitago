@@ -10,6 +10,8 @@ export type PartnerLinkRecord = {
   plate?: string
   region?: string
   serviceType?: string
+  /** 택시 기사가 추가로 제공 가능한 차량 등급('모범'·'대형'·'펫동반') — '일반'은 기본 포함. */
+  vehicleTiers?: string[]
   insuranceCompany?: string
   insurancePolicyNo?: string
   insuranceExpiresAt?: string

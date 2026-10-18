@@ -36,6 +36,11 @@ export async function POST(request: Request) {
       )
     }
   }
+  // 서비스 자격·차량 등급은 레지스트리(등록 정보)를 우선 — 클라이언트 힌트는
+  // 레지스트리에 등록이 없을 때만 쓴다(임의 위장 방지).
+  const registeredUser = await getRegistryUser(
+    (typeof body?.piUid === 'string' ? body.piUid.trim() : '') || driverId,
+  ).catch(() => null)
   const driver = upsertDriverPresence({
     id: driverId,
     lat: Number(lat),
@@ -48,13 +53,8 @@ export async function POST(request: Request) {
     piUid: typeof body?.piUid === 'string' ? body.piUid : undefined,
     phone: typeof body?.phone === 'string' ? body.phone : undefined,
     altDriverId: typeof body?.altDriverId === 'string' ? body.altDriverId.trim() : undefined,
-    // 서비스 자격은 레지스트리(등록 정보)를 우선 — 클라이언트 힌트는
-    // 레지스트리에 등록이 없을 때만 쓴다(임의 위장 방지).
-    serviceType:
-      (await getRegistryUser(
-        (typeof body?.piUid === 'string' ? body.piUid.trim() : '') || driverId,
-      ).then((user) => user?.serviceType).catch(() => undefined)) ||
-      (typeof body?.serviceType === 'string' ? body.serviceType.trim() : undefined),
+    serviceType: registeredUser?.serviceType || (typeof body?.serviceType === 'string' ? body.serviceType.trim() : undefined),
+    vehicleTiers: registeredUser?.vehicleTiers ?? (Array.isArray(body?.vehicleTiers) ? (body.vehicleTiers as string[]) : undefined),
   })
   await flushDispatchPersist()
   return NextResponse.json({ ok: true, driver })

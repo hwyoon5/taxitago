@@ -5,6 +5,7 @@ import { Check, X } from 'lucide-react'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
 import { partnerVehicle, updatePartnerProfile, uploadInsuranceDoc, type PartnerProfile } from '@/lib/partner-account'
 import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-services'
+import { EXTRA_VEHICLE_TIERS, normalizeVehicleTiers } from '@/lib/ride-tiers'
 import { facilityTypeToDeviceKind, type DeviceSpec, type DeviceTelemetry } from '@/lib/device-types'
 import FacilitySpecForm from '@/components/facility-spec-form'
 import { SafeBoundary } from '@/components/safe-boundary'
@@ -36,6 +37,8 @@ function PartnerProfileEditForm({
   const [phone, setPhone] = useState(str(profile.phone))
   const [vehicleName, setVehicleName] = useState(initialFleet.vehicle)
   const [plateNumber, setPlateNumber] = useState(initialFleet.plate)
+  // 추가 제공 등급 — 택시 기사만 해당. '일반' 콜은 등급 무관하게 기본 배차.
+  const [vehicleTiers, setVehicleTiers] = useState<string[]>(() => normalizeVehicleTiers(profile.vehicleTiers))
   const [region, setRegion] = useState(str(profile.region))
   const [insuranceCompany, setInsuranceCompany] = useState(profile.insuranceCompany ?? '')
   const [insurancePolicyNo, setInsurancePolicyNo] = useState(profile.insurancePolicyNo ?? '')
@@ -120,6 +123,7 @@ function PartnerProfileEditForm({
         detail,
         vehicle: isDriver ? (needsVehicle ? vehicleName.trim() : '') : vehicleName.trim(),
         plate: isDriver ? (needsVehicle ? plateNumber.trim() : '') : plateNumber.trim(),
+        vehicleTiers: isDriver && profile.serviceType === '택시' ? vehicleTiers : [],
         insuranceCompany: insuranceCompany.trim(),
         insurancePolicyNo: insurancePolicyNo.trim(),
         insuranceExpiresAt: insuranceExpiresAt.trim(),
@@ -214,7 +218,29 @@ function PartnerProfileEditForm({
               ) : (
                 <p className="mt-3 text-[11px] font-bold text-[#8b8495]">* 대리운전 기사는 차량 정보 없이 활동합니다.</p>
               )
-            ) : (
+            ) : null}
+            {isDriver && profile.serviceType === '택시' ? (
+              <div className="mt-3 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-3">
+                <p className="text-xs font-black text-[#334155]">차량 등급 · 제공 가능 서비스</p>
+                <p className="mt-1 text-[11px] font-bold text-[#8b8495]">일반 콜은 기본 포함입니다. 제공 가능한 등급을 모두 선택해 주세요 — 등급 지정 콜은 조건에 맞는 기사에게만 배차됩니다.</p>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {EXTRA_VEHICLE_TIERS.map((tier) => {
+                    const checked = vehicleTiers.includes(tier)
+                    return (
+                      <button
+                        key={tier}
+                        type="button"
+                        onClick={() => setVehicleTiers((prev) => (checked ? prev.filter((item) => item !== tier) : [...prev, tier]))}
+                        className={`rounded-xl border-2 py-2.5 text-xs font-black ${checked ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
+                      >
+                        {tier}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+            {!isDriver ? (
               <div className="mt-3 grid grid-cols-1 gap-3">
                 <label className="block">
                   <span className="text-xs font-black text-[#334155]">업체/가맹점명</span>
@@ -228,7 +254,7 @@ function PartnerProfileEditForm({
                   <FacilitySpecForm serviceType={str(profile.serviceType)} spec={facilitySpec} onChange={setFacilitySpec} />
                 </SafeBoundary>
               </div>
-            )}
+            ) : null}
             <label className="mt-3 block">
               <span className="text-xs font-black text-[#334155]">활동 지역</span>
               <input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="서울" className="mt-2 w-full rounded-2xl border-2 border-[#BFDBFE] bg-[#E8F1FA] px-4 py-3 text-sm font-bold outline-none focus:border-[#4A82B8]" />

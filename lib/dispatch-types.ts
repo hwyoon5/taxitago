@@ -23,6 +23,9 @@ export type GeoPoint = {
 export type RideRequestRecord = {
   id: string
   kind: RideKind
+  /** 승객이 호출 시 고른 차량 등급('일반'·'모범'·'대형'·'펫동반') —
+   *  없음이면 '일반'. 해당 등급을 제공하는 기사만 매칭 후보가 된다. */
+  tier?: string
   passengerId: string
   /** 호출한 이용자의 Pi uid — 등록 기사/파트너가 승객으로 호출했을 때
    *  자기 기사 단말기로 콜이 가지 않도록 매칭 후보에서 제외하는 키. */
@@ -129,6 +132,9 @@ export type DriverRecord = {
   /** 등록 서비스 자격('택시'·'대리운전'·'택배'·시설형) — 콜 kind와 비교해
    *  자격 없는 기사에게는 오퍼를 보내지 않는다. 미설정(레거시)은 택시로 간주. */
   serviceType?: string
+  /** 기사가 추가로 제공 가능한 차량 등급('모범'·'대형'·'펫동반') —
+   *  '일반'은 모든 택시 기사가 기본 제공. 미설정(레거시)은 일반 콜만 매칭. */
+  vehicleTiers?: string[]
 }
 
 export type PublicDriver = {
@@ -159,6 +165,8 @@ export type PublicEscrow = {
 export type PublicRide = {
   id: string
   kind: RideKind
+  /** 호출 시 선택한 차량 등급 — 없음이면 '일반'. */
+  tier?: string
   passengerId: string
   passengerPhone?: string
   pickup: GeoPoint

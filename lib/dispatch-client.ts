@@ -36,6 +36,8 @@ export async function createRideRequest(input: {
   passengerId: string
   passengerPhone?: string
   kind?: 'taxi' | 'daeri'
+  /** 승객이 고른 차량 등급('일반'·'모범'·'대형'·'펫동반') — 없음이면 '일반'. */
+  tier?: string
   pickupLat: number
   pickupLng: number
   pickupAddress?: string
@@ -247,6 +249,7 @@ export async function sendDriverPresence(input: {
   phone?: string
   altDriverId?: string
   serviceType?: string
+  vehicleTiers?: string[]
 }) {
   if (!isUsableCoord(input.lat, input.lng)) return
   await apiFetch('/api/drivers/presence', {
@@ -256,7 +259,7 @@ export async function sendDriverPresence(input: {
   })
 }
 
-export async function updateDriverProfile(input: { driverId: string; name?: string; vehicle?: string; plate?: string }) {
+export async function updateDriverProfile(input: { driverId: string; name?: string; vehicle?: string; plate?: string; vehicleTiers?: string[] }) {
   const driverId = input.driverId.trim()
   if (!driverId) return null
   try {
@@ -280,6 +283,7 @@ export type PushedDriverOffer = {
     id?: string
     passengerId?: string
     kind?: string
+    tier?: string
     pickup?: { lat?: number; lng?: number; address?: string; label?: string }
     waypoints?: { lat?: number; lng?: number; address?: string; label?: string }[]
     dest?: { lat?: number; lng?: number; address?: string; label?: string }
@@ -317,6 +321,7 @@ export function rideFromPushedOffer(payload: PushedDriverOffer | null | undefine
     id,
     passengerId: payload?.ride?.passengerId || '',
     kind: payload?.ride?.kind === 'daeri' ? 'daeri' : 'taxi',
+    tier: typeof payload?.ride?.tier === 'string' ? payload.ride.tier : undefined,
     pickup,
     waypoints,
     dest,
@@ -359,7 +364,7 @@ export async function respondToRideOffer(
   rideId: string,
   driverId: string,
   action: 'accept' | 'reject',
-  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'tollPi' | 'tollKrw' | 'expectedMinutes' | 'kind'>,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'tollPi' | 'tollKrw' | 'expectedMinutes' | 'kind' | 'tier'>,
   driver?: { name?: string; vehicle?: string; plate?: string },
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond`, {
@@ -374,7 +379,7 @@ export async function respondToRideOffer(
 
 export async function acceptRideOnDevice(
   rideId: string,
-  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'tollPi' | 'tollKrw' | 'expectedMinutes' | 'kind'>,
+  ride?: Pick<PublicRide, 'passengerId' | 'pickup' | 'waypoints' | 'dest' | 'estimatedFare' | 'tollPi' | 'tollKrw' | 'expectedMinutes' | 'kind' | 'tier'>,
   driverId?: string,
 ) {
   const res = await apiFetch(`/api/rides/${encodeURIComponent(rideId)}/respond/`, {
