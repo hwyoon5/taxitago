@@ -925,5 +925,6 @@
   "svc.delivPickupBtn": "수거 완료",
   "svc.delivCompleteBtn": "배송 완료",
   "svc.delivPickupNotice": "택배 수거 완료 — 배송 중이에요",
-  "svc.delivDoneNotice": "택배 배송이 완료됐어요"
+  "svc.delivDoneNotice": "택배 배송이 완료됐어요",
+  "svc.delivLiveWait": "기사 위치 신호를 기다리는 중이에요"
 }

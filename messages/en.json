@@ -925,5 +925,6 @@
   "svc.delivPickupBtn": "Picked up",
   "svc.delivCompleteBtn": "Delivered",
   "svc.delivPickupNotice": "Picked up — now in transit",
-  "svc.delivDoneNotice": "Delivery completed"
+  "svc.delivDoneNotice": "Delivery completed",
+  "svc.delivLiveWait": "Waiting for the driver's location signal"
 }

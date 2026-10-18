@@ -3,6 +3,7 @@ import { adminActor } from '@/lib/admin-auth'
 import { presenceCounts, presenceDetails } from '@/lib/presence-store'
 import { ensureSeedDrivers, getDriver, hydrateDispatchFromKv, listDrivers, listRides } from '@/lib/dispatch-store'
 import { listDevices } from '@/lib/device-store'
+import { listAllDeliveries } from '@/lib/delivery-dispatch'
 import { DRIVER_STALE_MS } from '@/lib/dispatch-types'
 
 export const runtime = 'nodejs'
@@ -43,6 +44,11 @@ export async function GET(request: Request) {
       dest: ride.dest.address || ride.dest.label || '',
       estimatedFare: ride.estimatedFare,
       driver: driver ? { id: driver.id, name: driver.name, vehicle: driver.vehicle, plate: driver.plate } : null,
+      // 관제 지도의 경로 폴리라인·선택 상세용 — 활성 건만 목록에 오르므로 좌표 포함.
+      driverId,
+      pickupPoint: { lat: ride.pickup.lat, lng: ride.pickup.lng },
+      destPoint: { lat: ride.dest.lat, lng: ride.dest.lng },
+      waypointPoints: (ride.waypoints ?? []).map((point) => ({ lat: point.lat, lng: point.lng })),
       offerExpiresAt: ride.currentOffer?.decision === 'pending' ? ride.currentOffer.expiresAt : null,
       createdAt: ride.createdAt,
       updatedAt: ride.updatedAt,
@@ -104,6 +110,20 @@ export async function GET(request: Request) {
     })
     .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt))
 
+  // 진행 중 택배(수거 이동·배송 중) — 관제 지도에서 기사 핀 선택 시 수거지→목적지 경로 표시.
+  const deliveries = (await listAllDeliveries().catch(() => [] as Awaited<ReturnType<typeof listAllDeliveries>>))
+    .filter((job) => job.status === 'assigned' || job.status === 'in_transit')
+    .map((job) => ({
+      id: job.id,
+      status: job.status,
+      pickup: job.pickupAddress,
+      dest: job.destAddress,
+      pickupPoint: { lat: job.pickupLat ?? null, lng: job.pickupLng ?? null },
+      destPoint: { lat: job.destLat ?? null, lng: job.destLng ?? null },
+      driverId: job.driverId,
+      driverName: job.driverName,
+    }))
+
   const bucket = () => ({ total: 0, rented: 0, idle: 0, active: 0, other: 0 })
   const mobility: Record<'bicycle' | 'kickboard', ReturnType<typeof bucket>> = { bicycle: bucket(), kickboard: bucket() }
   for (const device of devices) {
@@ -123,6 +143,7 @@ export async function GET(request: Request) {
     presence,
     matching,
     rides,
+    deliveries,
     tracking: { drivers: trackingDrivers, users: trackingUsers },
     mobility,
     presenceWindowMs: 90_000,

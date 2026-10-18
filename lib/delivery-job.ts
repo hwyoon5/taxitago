@@ -116,6 +116,8 @@ export type PublicDelivery = {
   driverPlate: string | null
   /** 배정 후에만 당사자에게 노출되는 연락처. */
   driverPhone?: string
+  /** 배정·배송 중 기사 실시간 위치 — 당사자(기사·발신인)에게만, 완료·만료·stale이면 null. */
+  driverLive?: { lat: number; lng: number; heading: number; at: string } | null
   senderPhone?: string
   photoCount?: number
   paymentMethod?: 'prepay_pi' | 'onsite_qr' | null

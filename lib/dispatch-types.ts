@@ -149,9 +149,11 @@ export type PublicDriver = {
   rating: string
   etaMinutes: number
   pickupDistanceKm: number
-  lat: number
-  lng: number
-  heading: number
+  /** 실시간 위치 — 활성 매칭('assigned') 상태에서만 채워진다.
+   *  완료·취소·미배정 종료 후에는 null로 마스킹해 추적 세션을 끊는다. */
+  lat: number | null
+  lng: number | null
+  heading: number | null
   updatedAt: string
   phone?: string
 }

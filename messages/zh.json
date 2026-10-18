@@ -925,5 +925,6 @@
   "svc.delivPickupBtn": "已取件",
   "svc.delivCompleteBtn": "送达完成",
   "svc.delivPickupNotice": "已取件，配送中",
-  "svc.delivDoneNotice": "配送已完成"
+  "svc.delivDoneNotice": "配送已完成",
+  "svc.delivLiveWait": "正在等待司机的位置信号"
 }

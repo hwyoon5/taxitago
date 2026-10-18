@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { kvCommand, kvConfigured, netFilePath, netKey } from '@/lib/kv'
+import { getDriver } from '@/lib/dispatch-store'
+import { DRIVER_STALE_MS } from '@/lib/dispatch-types'
 
 /** 등록 → 수락 → 수행(수거 완료·배송 중) → 완료 — 관리자 현황판의 4단계와 동일 순서.
  *  'expired'는 미매칭 만료 — 매칭 마감(expiresAt)까지 수락 기사가 없으면 자동 전환된다. */
@@ -404,6 +406,15 @@ export async function relistDeliveryDispatch(
 export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
   const mine = Boolean(viewerId && job.driverId === viewerId)
   const owner = Boolean(viewerId && job.ownerId === viewerId)
+  // 기사 실시간 위치 — 수거 이동(assigned)·배송 중(in_transit)인 활성 건에서만
+  // 당사자(배정 기사·발신인)에게 노출한다. 완료·만료·미배정 건과 하트비트가
+  // 끊긴(stale) 기사는 null로 마스킹해 추적 세션을 끊는다.
+  const liveStatus = job.status === 'assigned' || job.status === 'in_transit'
+  const driver = liveStatus && (mine || owner) && job.driverId ? getDriver(job.driverId) : null
+  const driverLive =
+    driver && Date.now() - Date.parse(driver.lastSeenAt || '') <= DRIVER_STALE_MS
+      ? { lat: driver.lat, lng: driver.lng, heading: driver.heading ?? 0, at: driver.lastSeenAt }
+      : null
   return {
     id: job.id,
     pickupAddress: job.pickupAddress,
@@ -432,6 +443,7 @@ export function publicDelivery(job: DeliveryDispatch, viewerId?: string) {
     recipientPhone: (job.status !== 'requested' && mine) || owner ? job.recipientPhone : '',
     // 기사 연락처 — 배정 후 당사자(기사 또는 발신인)에게만 노출.
     driverPhone: job.status !== 'requested' && (mine || owner) ? (job.driverPhone ?? '') : '',
+    driverLive,
     createdAt: job.createdAt,
   }
 }

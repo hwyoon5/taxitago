@@ -259,8 +259,10 @@ function localDriverId(partnerUid?: string) {
 
 function liveVehicleFromRide(ride: PublicRide | null | undefined) {
   const driver = ride?.assignedDriver
-  if (!driver || !Number.isFinite(driver.lat) || !Number.isFinite(driver.lng)) return {}
-  return { vehicleLat: driver.lat, vehicleLng: driver.lng, vehicleHeading: driver.heading }
+  const lat = driver?.lat
+  const lng = driver?.lng
+  if (!driver || typeof lat !== 'number' || !Number.isFinite(lat) || typeof lng !== 'number' || !Number.isFinite(lng)) return {}
+  return { vehicleLat: lat, vehicleLng: lng, vehicleHeading: driver.heading ?? 0 }
 }
 
 type ServiceLabel = keyof typeof serviceIllustrations
@@ -3752,11 +3754,22 @@ function ServiceSheet({
     if (myDeliveriesOpen) refreshMyDeliveries()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myDeliveriesOpen])
+  // ownerId 후보로 순회 조회 — owner로 인식된 응답(실시간 위치·연락처 포함)을 우선 쓴다.
+  const fetchDeliveryDetail = async (id: string) => {
+    let fallback: PublicDelivery | null = null
+    for (const oid of deliveryOwnerIds()) {
+      const job = await fetchDelivery(id, oid).catch(() => null)
+      if (!job) continue
+      if (!fallback) fallback = job
+      if (job.driverLive || job.driverPhone) return job
+    }
+    return fallback
+  }
   // 항목 터치 → 목록 스냅샷을 먼저 띄우고 서버 전체 레코드로 덮어쓴다.
   const openDeliveryDetail = (job: PublicDelivery) => {
     setDeliveryDetail(job)
     setDeliveryDetailPhotos([])
-    void fetchDelivery(job.id, deliveryOwnerId())
+    void fetchDeliveryDetail(job.id)
       .then((full) => { if (full) setDeliveryDetail(full) })
       .catch(() => undefined)
     if (job.photoCount) {
@@ -3765,6 +3778,22 @@ function ServiceSheet({
         .catch(() => undefined)
     }
   }
+  // 활성 배송(수거 이동·배송 중) 상세가 열려 있는 동안 기사 실시간 위치를
+  // 8초 간격으로 갱신 — 완료·만료 전이 시 폴링이 멈추고 지도도 함께 사라진다.
+  useEffect(() => {
+    const id = deliveryDetail?.id
+    const active = deliveryDetail?.status === 'assigned' || deliveryDetail?.status === 'in_transit'
+    if (!id || !active) return
+    const timer = window.setInterval(() => {
+      void fetchDeliveryDetail(id)
+        .then((job) => {
+          if (job) setDeliveryDetail((cur) => (cur?.id === id ? job : cur))
+        })
+        .catch(() => undefined)
+    }, 8000)
+    return () => window.clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deliveryDetail?.id, deliveryDetail?.status])
   const loadDeliveryIntoForm = (job: PublicDelivery) => {
     setDeliveryPickup(job.pickupAddress)
     setDeliveryDest(job.destAddress)
@@ -5934,6 +5963,33 @@ function ServiceSheet({
             </div>
             {deliveryDetail.scheduledAt && deliveryDetail.status === 'requested' ? (
               <DeliveryCountdown at={deliveryDetail.scheduledAt} className="mt-2 text-xs font-black text-[#4A82B8]" />
+            ) : null}
+            {/* 활성 배송 라이브 트래킹 — 기사 실시간 마커 + 수거지→목적지 경로 폴리라인. */}
+            {(deliveryDetail.status === 'assigned' || deliveryDetail.status === 'in_transit') &&
+            Number.isFinite(deliveryDetail.pickupLat) &&
+            Number.isFinite(deliveryDetail.pickupLng) &&
+            Number.isFinite(deliveryDetail.destLat) &&
+            Number.isFinite(deliveryDetail.destLng) ? (
+              <div className="mt-3">
+                <TaxiLiveMap
+                  phase={deliveryDetail.status === 'in_transit' ? 'moving' : 'arriving'}
+                  routeLabel=""
+                  statusLabel={deliveryDetail.status === 'in_transit' ? t('svc.delivDoing') : t('svc.delivAssigned')}
+                  originLat={deliveryDetail.pickupLat as number}
+                  originLng={deliveryDetail.pickupLng as number}
+                  destLat={deliveryDetail.destLat as number}
+                  destLng={deliveryDetail.destLng as number}
+                  originLabel={deliveryDetail.pickupAddress}
+                  destLabel={deliveryDetail.destAddress}
+                  vehicleLat={deliveryDetail.driverLive?.lat}
+                  vehicleLng={deliveryDetail.driverLive?.lng}
+                  vehicleHeading={deliveryDetail.driverLive?.heading}
+                  className="h-52"
+                />
+                {!deliveryDetail.driverLive ? (
+                  <p className="mt-1.5 text-center text-[10px] font-bold text-[#94A3B8]">{t('svc.delivLiveWait')}</p>
+                ) : null}
+              </div>
             ) : null}
             {deliveryDetail.status !== 'requested' && deliveryDetail.driverName ? (
               <div className="mt-3 rounded-2xl bg-[#E8F1FA] p-3">
@@ -10018,7 +10074,11 @@ function DriverDashboard({
         vehicleTiers: partner?.vehicleTiers,
       }).then((block) => {
         setComplianceBlock(block)
-        delay = document.visibilityState === 'visible' ? 12000 : 20000
+        // 활성 운행(배차된 택시·수행 중 택배)에는 하트비트를 5초로 좁혀
+        // 승객·관제 지도의 기사 위치가 끊기지 않고 매끄럽게 갱신되게 한다.
+        const job = deliveryJob ?? localDelivery
+        const tracking = Boolean(activeRide) || Boolean(job && job.status !== 'completed')
+        delay = document.visibilityState === 'visible' ? (tracking ? 5000 : 12000) : (tracking ? 10000 : 20000)
       }).catch(() => {
         delay = Math.min(delay * 2, 30000)
       }).finally(() => {
@@ -10055,7 +10115,7 @@ function DriverDashboard({
       window.removeEventListener('online', wake)
       document.removeEventListener('visibilitychange', wake)
     }
-  }, [driverId, lat, lng, online, partner?.name, partner?.vehicle, partner?.plate, partner?.detail, partner?.wallet, partner?.uid])
+  }, [driverId, lat, lng, online, activeRide, deliveryJob, localDelivery, partner?.name, partner?.vehicle, partner?.plate, partner?.detail, partner?.wallet, partner?.uid])
 
   useEffect(() => {
     primeDriverAlertAudio()

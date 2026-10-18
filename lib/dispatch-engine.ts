@@ -90,9 +90,11 @@ export function toPublicRide(ride: RideRequestRecord): PublicRide {
           rating: assigned.rating,
           etaMinutes: etaMinutesFromKm(pickupKm),
           pickupDistanceKm: Math.round(pickupKm * 10) / 10,
-          lat: assigned.lat,
-          lng: assigned.lng,
-          heading: assigned.heading ?? 0,
+          // 실시간 좌표는 활성 매칭('assigned') 동안만 노출 — 운행 종료·취소
+          // 후에도 기사 위치가 승객·스트림에 계속 흐르지 않도록 마스킹한다.
+          lat: ride.status === 'assigned' ? assigned.lat : null,
+          lng: ride.status === 'assigned' ? assigned.lng : null,
+          heading: ride.status === 'assigned' ? (assigned.heading ?? 0) : null,
           updatedAt: assigned.lastSeenAt,
           phone: assigned.phone,
         }

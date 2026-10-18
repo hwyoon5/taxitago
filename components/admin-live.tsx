@@ -12,6 +12,7 @@ import {
   type NaverMapInstance,
   type NaverMapsSdk,
   type NaverMarker,
+  type NaverPolyline,
 } from '@/lib/naver-maps'
 
 type Presence = { passenger: number; driver: number; partner: number }
@@ -25,9 +26,26 @@ type LiveRide = {
   dest: string
   estimatedFare: number
   driver: { id: string; name: string; vehicle: string; plate: string } | null
+  /** 경로 폴리라인·기사 핀 연결용 좌표 — 활성 건만 목록에 오른다. */
+  driverId: string | null
+  pickupPoint: { lat: number | null; lng: number | null }
+  destPoint: { lat: number | null; lng: number | null }
+  waypointPoints: { lat: number | null; lng: number | null }[]
   offerExpiresAt: string | null
   createdAt: string
   updatedAt: string
+}
+
+/** 진행 중 택배(수거 이동·배송 중) — 관제 지도의 기사 경로 표시용. */
+type LiveDelivery = {
+  id: string
+  status: string
+  pickup: string
+  dest: string
+  pickupPoint: { lat: number | null; lng: number | null }
+  destPoint: { lat: number | null; lng: number | null }
+  driverId: string | null
+  driverName: string | null
 }
 
 type MobilityBucket = { total: number; rented: number; idle: number; active: number; other: number }
@@ -67,6 +85,7 @@ type LiveSnapshot = {
     driversBusy: number
   }
   rides: LiveRide[]
+  deliveries: LiveDelivery[]
   tracking: { drivers: TrackedDriver[]; users: TrackedUser[] }
   mobility: { bicycle: MobilityBucket; kickboard: MobilityBucket }
   presenceWindowMs: number
@@ -287,12 +306,16 @@ function pinElement(style: { dot: string; ring: string }, label?: string) {
 function TrackingMap({
   drivers,
   users,
+  rides,
+  deliveries,
   region,
   onRegionChange,
   areaOf,
 }: {
   drivers: TrackedDriver[]
   users: TrackedUser[]
+  rides: LiveRide[]
+  deliveries: LiveDelivery[]
   region: RegionKey
   onRegionChange: (key: RegionKey) => void
   areaOf: (lat: number | null | undefined, lng: number | null | undefined) => string
@@ -301,6 +324,7 @@ function TrackingMap({
   const mapRef = useRef<NaverMapInstance | null>(null)
   const sdkRef = useRef<NaverMapsSdk | null>(null)
   const markersRef = useRef<Map<string, { marker: NaverMarker; el: HTMLElement }>>(new Map())
+  const routesRef = useRef<Map<string, NaverPolyline>>(new Map())
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
   const [selected, setSelected] = useState<SelectedPin | null>(null)
@@ -331,6 +355,8 @@ function TrackingMap({
       alive = false
       for (const { marker } of markersRef.current.values()) marker.setMap(null)
       markersRef.current.clear()
+      for (const line of routesRef.current.values()) line.setMap(null)
+      routesRef.current.clear()
       mapRef.current = null
     }
   }, [])
@@ -379,7 +405,61 @@ function TrackingMap({
         markers.delete(key)
       }
     }
-  }, [drivers, users, ready])
+    // 활성 운행·배송의 출발→목적지 경로 폴리라인 — 선택한 기사 핀의 건은 굵게 강조.
+    const routes = routesRef.current
+    const routeSeen = new Set<string>()
+    const upsertRoute = (
+      key: string,
+      points: { lat: number | null; lng: number | null }[],
+      color: string,
+      highlight: boolean,
+    ) => {
+      const path = points
+        .filter((p): p is { lat: number; lng: number } => typeof p.lat === 'number' && typeof p.lng === 'number' && Number.isFinite(p.lat) && Number.isFinite(p.lng))
+        .map((p) => createNaverLatLng(sdk, p.lat, p.lng))
+        .filter(Boolean)
+      if (path.length < 2) return
+      routeSeen.add(key)
+      const style = { strokeColor: color, strokeWeight: highlight ? 6 : 3, strokeOpacity: highlight ? 0.95 : 0.4 }
+      const existing = routes.get(key)
+      if (existing) {
+        existing.setPath(path)
+        existing.setOptions?.(style)
+        return
+      }
+      routes.set(
+        key,
+        new sdk.Polyline({
+          map,
+          path,
+          clickable: false,
+          zIndex: highlight ? 90 : 60,
+          strokeStyle: 'solid',
+          strokeLineCap: 'round',
+          strokeLineJoin: 'round',
+          ...style,
+        }),
+      )
+    }
+    for (const ride of rides) {
+      if (ride.status !== 'assigned') continue
+      upsertRoute(
+        `r-${ride.id}`,
+        [ride.pickupPoint, ...(ride.waypointPoints ?? []), ride.destPoint],
+        '#4A82B8',
+        selected?.kind === 'driver' && ride.driverId === selected.id,
+      )
+    }
+    for (const job of deliveries) {
+      upsertRoute(`d-${job.id}`, [job.pickupPoint, job.destPoint], '#D97706', selected?.kind === 'driver' && job.driverId === selected.id)
+    }
+    for (const [key, line] of routes) {
+      if (!routeSeen.has(key)) {
+        line.setMap(null)
+        routes.delete(key)
+      }
+    }
+  }, [drivers, users, rides, deliveries, ready, selected])
 
   const fitAll = () => {
     const sdk = sdkRef.current
@@ -484,6 +564,8 @@ function TrackingMap({
         <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#15803D]" />기사 운행 {drivers.filter((d) => d.duty === 'busy').length}</span>
         <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#4A82B8]" />승객 {users.filter((u) => u.role !== 'partner').length}</span>
         <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#D97706]" />파트너 {users.filter((u) => u.role === 'partner').length}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-1 w-4 rounded-full bg-[#4A82B8]" />운행 경로</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-1 w-4 rounded-full bg-[#D97706]" />택배 경로</span>
         <span className="ml-auto">지도 드래그·줌으로 이동/확대 · 마커 클릭 시 상세</span>
       </div>
     </div>
@@ -695,7 +777,15 @@ export default function AdminLiveDashboard() {
               </span>
             </div>
             <div className="mt-2">
-              <TrackingMap drivers={trackDrivers} users={trackUsers} region={region} onRegionChange={setRegion} areaOf={areaLabel} />
+              <TrackingMap
+                drivers={trackDrivers}
+                users={trackUsers}
+                rides={snap?.rides ?? []}
+                deliveries={snap?.deliveries ?? []}
+                region={region}
+                onRegionChange={setRegion}
+                areaOf={areaLabel}
+              />
             </div>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               <div className="space-y-2">

@@ -925,5 +925,6 @@
   "svc.delivPickupBtn": "集荷完了",
   "svc.delivCompleteBtn": "配達完了",
   "svc.delivPickupNotice": "集荷完了 — 配送中です",
-  "svc.delivDoneNotice": "配達が完了しました"
+  "svc.delivDoneNotice": "配達が完了しました",
+  "svc.delivLiveWait": "ドライバーの位置信号を待っています"
 }

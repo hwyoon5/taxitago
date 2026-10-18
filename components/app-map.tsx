@@ -1826,13 +1826,43 @@ export function TaxiLiveMap({
     return origin && dest ? vehicleOnRide(phase, origin, dest, phase === 'boarding' ? 1 : 0, via) : { lat: 0, lng: 0, angle: 0 }
   })
 
+  const taxiRef = useRef(taxi)
+  taxiRef.current = taxi
+
+  // 실측 GPS 좌표 갱신 — 즉시 점프하지 않고 이전 위치에서 새 위치로
+  // ease-out 보간해 차량 마커가 지도 위를 부드럽게 미끄러지게 한다.
   useEffect(() => {
     if (!isUsableCoord(vehicleLat, vehicleLng)) return
-    setTaxi((prev) => ({
-      lat: vehicleLat as number,
-      lng: vehicleLng as number,
-      angle: Number.isFinite(vehicleHeading) ? compassToScreenAngle(vehicleHeading as number) : prev.angle,
-    }))
+    const targetLat = vehicleLat as number
+    const targetLng = vehicleLng as number
+    const start = taxiRef.current
+    const endAngle = Number.isFinite(vehicleHeading) ? compassToScreenAngle(vehicleHeading as number) : start.angle
+    // 첫 유효 좌표거나 2km 이상 순간이동(재연결·잘못된 샘플)이면 보간 없이 즉시 배치.
+    if (
+      !isUsableCoord(start.lat, start.lng) ||
+      haversineKm({ lat: start.lat, lng: start.lng }, { lat: targetLat, lng: targetLng }) > 2
+    ) {
+      setTaxi({ lat: targetLat, lng: targetLng, angle: endAngle })
+      return
+    }
+    const startAngle = start.angle
+    // 회전각은 최단 방향으로 보간 — 350°→10°가 -340°로 돌지 않게 한다.
+    const deltaAngle = ((endAngle - startAngle + 540) % 360) - 180
+    const duration = 1200
+    const t0 = performance.now()
+    let frame = 0
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - t0) / duration)
+      const ease = 1 - (1 - k) * (1 - k)
+      setTaxi({
+        lat: start.lat + (targetLat - start.lat) * ease,
+        lng: start.lng + (targetLng - start.lng) * ease,
+        angle: startAngle + deltaAngle * ease,
+      })
+      if (k < 1) frame = window.requestAnimationFrame(tick)
+    }
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
   }, [vehicleLat, vehicleLng, vehicleHeading])
 
   useEffect(() => {
