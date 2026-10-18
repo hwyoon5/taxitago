@@ -9961,8 +9961,8 @@ function PartnerTrialDemo({ onClose, onNotice, onRequireLogin }: { onClose: () =
 type PassengerTrialKind = 'taxi' | 'daeri'
 
 const PASSENGER_TRIAL = {
-  pickups: ['해운대 해수욕장', '광안리 해변로', '부산역 KTX'],
-  dests: ['서면 롯데백화점', '김해국제공항', '남포동 BIFF 광장'],
+  pickups: ['서울역 KTX', '강남역', '홍대입구역'],
+  dests: ['명동 롯데백화점', '김포국제공항', '잠실 롯데월드'],
 }
 
 function PassengerTrialDemo({ kind, onClose, onRequireLogin }: { kind: PassengerTrialKind; onClose: () => void; onRequireLogin: () => void }) {
@@ -9971,8 +9971,8 @@ function PassengerTrialDemo({ kind, onClose, onRequireLogin }: { kind: Passenger
   const [pickup, setPickup] = useState(PASSENGER_TRIAL.pickups[0])
   const [dest, setDest] = useState(PASSENGER_TRIAL.dests[0])
   const [loginGate, setLoginGate] = useState(false)
-  const km = 7.4
-  const eta = 21
+  const km = 6.2
+  const eta = 18
   const fare = daeri ? 4.6 : 3.8
 
   useEffect(() => {
@@ -10067,7 +10067,7 @@ function PassengerTrialDemo({ kind, onClose, onRequireLogin }: { kind: Passenger
                   <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#DBEAFE] text-lg font-black text-[#1D4ED8]">{daeri ? '김' : '박'}</span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-black text-[#0F172A]">{daeri ? '김도현 대리 기사' : '박민수 기사'} · 평점 4.9</p>
-                    <p className="mt-0.5 text-xs font-bold text-[#64748B]">{daeri ? '도보 접근 중 · 고객님 차량 운행' : '쏘나타 · 부산 12가 3456'}</p>
+                    <p className="mt-0.5 text-xs font-bold text-[#64748B]">{daeri ? '도보 접근 중 · 고객님 차량 운행' : '쏘나타 · 서울 12가 3456'}</p>
                   </div>
                   <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-[#15803D] shadow-sm">3분 도착</span>
                 </div>
@@ -10102,7 +10102,7 @@ function PassengerTrialDemo({ kind, onClose, onRequireLogin }: { kind: Passenger
               </div>
               <div className="relative mt-3 overflow-hidden rounded-2xl border-2 border-[#334155] bg-[#0F172A] p-3.5 text-white">
                 <p className="text-[10px] font-black tracking-wide text-[#93C5FD]">경로 미리보기 · 체험</p>
-                <p className="mt-2 text-sm font-black">해운대해변로 → 수영로 → 가야대로</p>
+                <p className="mt-2 text-sm font-black">한강대로 → 남대문로 → 명동길</p>
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15">
                   <div className="h-full w-1/4 rounded-full bg-[#38BDF8]" />
                 </div>
