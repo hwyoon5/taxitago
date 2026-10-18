@@ -3,6 +3,7 @@ import { upsertDriverPresence } from '@/lib/dispatch-engine'
 import { ensureSeedDrivers, flushDispatchPersist } from '@/lib/dispatch-store'
 import { isUsableCoord } from '@/lib/ride-session'
 import { getRegistryUser, isUserLocked } from '@/lib/user-registry'
+import { complianceGate } from '@/lib/compliance-store'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
@@ -41,6 +42,27 @@ export async function POST(request: Request) {
   const registeredUser = await getRegistryUser(
     (typeof body?.piUid === 'string' ? body.piUid.trim() : '') || driverId,
   ).catch(() => null)
+  // 자격 인증 게이트 — 등록 기사는 필수 증빙(운전면허·차량 등록증·택배 역할은
+  // 화물운송종사자 자격증)이 모두 승인돼야 온라인 전환을 허용한다. 미등록
+  // 테스트넷 uid는 여기서 예외로 둔다(테스트넷 자유 콜 호환).
+  if (online && registeredUser && !registeredUser.withdrawnAt) {
+    const gate = await complianceGate(registeredUser).catch(() => null)
+    if (gate && !gate.ok) {
+      return NextResponse.json(
+        {
+          error:
+            gate.status === 'rejected'
+              ? '자격 인증 서류가 반려됐습니다. 서류를 다시 제출해 주세요.'
+              : '자격 인증 서류 심사가 완료돼야 온라인으로 전환할 수 있습니다.',
+          complianceRequired: true,
+          complianceStatus: gate.status,
+          missing: gate.missing,
+          rejected: gate.rejected,
+        },
+        { status: 403 },
+      )
+    }
+  }
   const driver = upsertDriverPresence({
     id: driverId,
     lat: Number(lat),

@@ -22,6 +22,7 @@ import AdminCoupons from '@/components/admin-coupons'
 import AdminAnalytics from '@/components/admin-analytics'
 import AdminLiveDashboard from '@/components/admin-live'
 import AdminReceivables from '@/components/admin-receivables'
+import AdminCompliance from '@/components/admin-compliance'
 import AttachmentGallery from '@/components/photo-gallery'
 import { positionDisplayLabel } from '@/lib/staff-positions'
 import {
@@ -52,7 +53,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'partners', 'devices', 'fare', 'ledger', 'receivable', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
+const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'partners', 'compliance', 'devices', 'fare', 'ledger', 'receivable', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
@@ -62,6 +63,7 @@ const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
   users: '가입자',
   sanction: '블랙리스트',
   partners: '기사·파트너',
+  compliance: '자격 인증',
   devices: '기기 관리',
   fare: '수수료 설정',
   ledger: '정산 내역',
@@ -94,7 +96,7 @@ const ADMIN_MENU_GROUPS: {
     card: 'border-[#BFDBFE] bg-[#E8F1FA]',
     heading: 'text-[#1D4ED8]',
     active: 'bg-[#4A82B8] text-white shadow-[0_6px_14px_rgba(74,130,184,0.35)]',
-    tabs: ['live', 'report', 'partners', 'devices', 'shift'],
+    tabs: ['live', 'report', 'partners', 'compliance', 'devices', 'shift'],
   },
   {
     id: 'finance',
@@ -601,6 +603,8 @@ export default function AdminSupportDesk() {
         <div className="mt-4">
           <AdminPartners />
         </div>
+      ) : view === 'compliance' ? (
+        <AdminCompliance />
       ) : view === 'users' ? (
         <AdminUsers />
       ) : view === 'devices' ? (

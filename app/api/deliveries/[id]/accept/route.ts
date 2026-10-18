@@ -4,6 +4,7 @@ import { recordSettlement } from '@/lib/settlement-store'
 import { driverPayoutTarget } from '@/lib/escrow-engine'
 import { getRegistryUser } from '@/lib/user-registry'
 import { driverDeliveryEligible, partnerServesDelivery } from '@/lib/partner-services'
+import { complianceGate } from '@/lib/compliance-store'
 import { sendSmsText } from '@/lib/sms-notify'
 
 export const runtime = 'nodejs'
@@ -30,6 +31,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!job) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!driverDeliveryEligible(registryUser, job)) {
       return NextResponse.json({ error: '수행 가능한 차량 체급·화물 규격이 아닙니다.' }, { status: 403 })
+    }
+    // 자격 인증 미완료·반려 계정은 수락 자체를 차단한다.
+    const gate = await complianceGate(registryUser).catch(() => null)
+    if (gate && !gate.ok) {
+      return NextResponse.json(
+        { error: '자격 인증이 완료돼야 콜을 수락할 수 있습니다.', complianceRequired: true },
+        { status: 403 },
+      )
     }
   }
   const result = await acceptDeliveryDispatch(id, {

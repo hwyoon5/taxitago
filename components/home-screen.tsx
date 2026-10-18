@@ -34,9 +34,10 @@ import {
   savePartnerProfile,
   savePiIdentity,
   syncPartnerLink,
+  uploadComplianceDoc,
   uploadInsuranceDoc,
 } from '@/lib/partner-account'
-import { facilityUnitLabel, facilityUnitPlaceholder, normalizeServiceRoles, partnerServesDelivery } from '@/lib/partner-services'
+import { COMPLIANCE_DOC_LABEL, facilityUnitLabel, facilityUnitPlaceholder, normalizeServiceRoles, partnerServesDelivery, requiredComplianceDocs, type ComplianceDocType } from '@/lib/partner-services'
 import { facilityTypeToDeviceKind, type DeviceSpec } from '@/lib/device-types'
 import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
@@ -78,6 +79,7 @@ import {
   acceptRideOnDevice,
   sendDriverPresence,
   subscribeRideLive,
+  type PresenceComplianceBlock,
 } from '@/lib/dispatch-client'
 import { enableDriverPush, showDriverOfferNotification } from '@/lib/driver-notify-client'
 import { acquireDriverWakeLock, alertDriverOffer, primeDriverAlertAudio, releaseDriverWakeLock, stopDriverOfferAlarm } from '@/lib/driver-alert'
@@ -8241,10 +8243,14 @@ function PartnerSignupModal({
   const [insurancePolicyNo, setInsurancePolicyNo] = useState('')
   const [insuranceExpiresAt, setInsuranceExpiresAt] = useState('')
   const [insuranceDoc, setInsuranceDoc] = useState<{ name: string; mime: string; dataUrl: string } | null>(null)
+  // 자격 인증 증빙 — 수행 역할이 요구하는 서류(운전면허·화물운송 자격·차량 등록)의 첨부 파일.
+  const [complianceDocs, setComplianceDocs] = useState<Partial<Record<ComplianceDocType, { name: string; mime: string; dataUrl: string }>>>({})
+  const [compliancePick, setCompliancePick] = useState<ComplianceDocType | null>(null)
   const [formError, setFormError] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const photoInput = useRef<HTMLInputElement>(null)
   const insuranceDocInput = useRef<HTMLInputElement>(null)
+  const complianceDocInput = useRef<HTMLInputElement>(null)
   // 택배를 수행하는 기사(주 서비스 또는 겸직)는 배송 차량 정보가 필요하다 —
   // 대리운전이라도 택배 겸직이면 차량명·번호를 입력받는다.
   const skipVehicle = role === '기사' && serviceType === '대리운전' && !extraRoles.includes('택배')
@@ -8252,7 +8258,10 @@ function PartnerSignupModal({
   // signInWithPi가 이미 차단하지만, 토큰 없는 구형 저장 세션으로 폼에
   // 진입한 경우를 여기서 한 번 더 막는다. 테스트넷은 uid만 있으면 통과.
   const sessionQualified = Boolean(session) && (PI_SANDBOX || (hasPiCallCredential(session) && session?.walletVerified === true))
-  const canSubmit = sessionQualified && name.trim() && phoneVerified && (role === '기사' ? skipVehicle || (vehicleName.trim() && plateNumber.trim()) : vehicleName.trim())
+  // 필수 증빙 — 수행 역할(주 서비스 + 겸직)이 요구하는 서류 전부가 첨부돼야 제출된다.
+  const requiredDocs = role === '기사' ? requiredComplianceDocs({ serviceType, serviceRoles: normalizeServiceRoles(extraRoles, serviceType) }) : []
+  const docsReady = requiredDocs.every((type) => complianceDocs[type])
+  const canSubmit = sessionQualified && name.trim() && phoneVerified && docsReady && (role === '기사' ? skipVehicle || (vehicleName.trim() && plateNumber.trim()) : vehicleName.trim())
 
   const startPiLogin = async () => {
     if (signing) return
@@ -8344,6 +8353,11 @@ function PartnerSignupModal({
       }
     }
     if (insuranceDoc) void uploadInsuranceDoc(session.uid, insuranceDoc).catch(() => undefined)
+    // 자격 인증 증빙 업로드 — 필수 서류 전부를 심사 대기 상태로 등록한다.
+    for (const type of requiredDocs) {
+      const doc = complianceDocs[type]
+      if (doc) void uploadComplianceDoc(session.uid, type, doc).catch(() => undefined)
+    }
     setSubmitted(true)
     onRegistered(role, session)
     window.setTimeout(() => {
@@ -8373,6 +8387,28 @@ function PartnerSignupModal({
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         setInsuranceDoc({ name: file.name, mime: file.type, dataUrl: reader.result })
+        setFormError('')
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+  const onComplianceDoc = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const type = compliancePick
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!type || !file) return
+    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
+      setFormError('증빙 서류는 이미지 또는 PDF 파일만 첨부할 수 있어요.')
+      return
+    }
+    if (file.size > 2.5 * 1024 * 1024) {
+      setFormError('파일이 너무 큽니다. 2.5MB 이하 파일을 올려 주세요.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setComplianceDocs((prev) => ({ ...prev, [type]: { name: file.name, mime: file.type, dataUrl: reader.result as string } }))
         setFormError('')
       }
     }
@@ -8668,6 +8704,42 @@ function PartnerSignupModal({
                 </button>
               </div>
             </div>
+            {role === '기사' && requiredDocs.length ? (
+              <div className="mt-4 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
+                <p className="text-xs font-black text-[#334155]">자격 인증 서류 (필수)</p>
+                <p className="mt-1 text-[11px] font-bold text-[#8b8495]">
+                  수행 서비스에 필요한 증빙을 올려 주세요. 관리자 승인 전까지는 콜 매칭이 제한됩니다.
+                </p>
+                <input ref={complianceDocInput} type="file" accept="image/*,application/pdf" className="hidden" onChange={onComplianceDoc} />
+                <div className="mt-3 space-y-2.5">
+                  {requiredDocs.map((type) => {
+                    const doc = complianceDocs[type]
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => {
+                          setCompliancePick(type)
+                          window.setTimeout(() => complianceDocInput.current?.click(), 0)
+                        }}
+                        className="w-full rounded-2xl border-2 border-dashed border-[#4A82B8] bg-[#E8F1FA] px-4 py-3 text-left text-xs font-bold text-[#64748B]"
+                      >
+                        <span className="flex items-center justify-between gap-2">
+                          <span>
+                            <span className="block text-[11px] font-black text-[#334155]">{COMPLIANCE_DOC_LABEL[type]} <span className="text-[#DC2626]">*</span></span>
+                            <span className="mt-0.5 block text-[10px]">이미지 또는 PDF · 최대 2.5MB</span>
+                          </span>
+                          <span className={doc ? 'shrink-0 rounded-full bg-[#15803D] px-2.5 py-1 text-[10px] font-black text-white' : 'shrink-0 rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-[#4A82B8]'}>
+                            {doc ? `첨부됨 · ${doc.name}` : '파일 선택'}
+                          </span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+                {!docsReady ? <p className="mt-2 text-[11px] font-bold text-[#B91C1C]">모든 필수 서류를 첨부해야 등록할 수 있습니다.</p> : null}
+              </div>
+            ) : null}
             {session && !sessionQualified ? (
               <div className="mt-3 rounded-2xl border-2 border-[#F59E0B]/40 bg-[#FFFBEB] p-3 text-xs font-bold leading-5 text-[#92400E]">
                 메인넷에서는 KYC 인증이 완료된 Pi 계정만 등록할 수 있습니다. Pi 로그인을 다시 진행해 주세요.
@@ -9714,6 +9786,8 @@ function DriverDashboard({
   // 서버가 내려주는 거절 누적 패널티 — 경고 배너 표시와 회복 감지에 쓴다.
   const [driverPenalty, setDriverPenalty] = useState<DriverPenaltyInfo | null>(null)
   const penaltyLevelRef = useRef<DriverPenaltyInfo['level']>('ok')
+  // 자격 인증 미승인·반려 — 서버 presence 게이트가 내려주는 차단 상태.
+  const [complianceBlock, setComplianceBlock] = useState<PresenceComplianceBlock | null>(null)
   const [busy, setBusy] = useState(false)
   const [statSheet, setStatSheet] = useState<'revenue' | 'trips' | null>(null)
   const [payoutOpen, setPayoutOpen] = useState(false)
@@ -9942,7 +10016,8 @@ function DriverDashboard({
         serviceRoles: partner?.serviceRoles,
         deliveryVehicles: partner?.deliveryVehicles,
         vehicleTiers: partner?.vehicleTiers,
-      }).then(() => {
+      }).then((block) => {
+        setComplianceBlock(block)
         delay = document.visibilityState === 'visible' ? 12000 : 20000
       }).catch(() => {
         delay = Math.min(delay * 2, 30000)
@@ -9957,6 +10032,7 @@ function DriverDashboard({
       beat()
     }
     if (!online) {
+      setComplianceBlock(null)
       void sendDriverPresence({
         driverId,
         altDriverId: driverAliasRef.current,
@@ -10513,6 +10589,20 @@ function DriverDashboard({
           </span>
         </button>
       </section>
+      {complianceBlock ? (
+        <section className="mt-2 rounded-xl border-2 border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2.5">
+          <p className="text-[11px] font-black text-[#B91C1C]">
+            {complianceBlock.complianceStatus === 'rejected' ? '자격 인증 서류가 반려됐어요' : '자격 인증 서류 심사가 진행 중이에요'}
+          </p>
+          <p className="mt-0.5 text-[10px] font-bold leading-4 text-[#64748B]">
+            {[
+              ...complianceBlock.missing.map((type) => `${COMPLIANCE_DOC_LABEL[type as ComplianceDocType] ?? type} 미제출`),
+              ...complianceBlock.rejected.map((type) => `${COMPLIANCE_DOC_LABEL[type as ComplianceDocType] ?? type} 반려`),
+            ].join(' · ') || '필수 증빙 심사 대기'}
+            {' '}— 관리자 승인 전까지 콜 매칭이 제한됩니다. 프로필 수정에서 서류를 확인·재제출해 주세요.
+          </p>
+        </section>
+      ) : null}
       {partner ? (
         <section className="mt-2 flex items-center gap-2 rounded-xl border border-[#BFDBFE] bg-[#E8F1FA] px-2.5 py-1">
           <p className="shrink-0 text-[9px] font-bold leading-none text-[#4A82B8]">Pi 정산</p>

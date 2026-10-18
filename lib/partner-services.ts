@@ -102,6 +102,38 @@ export function driverDeliveryEligible(
   return (SMALL_PARCEL_SIZES as readonly string[]).includes((job.packageSize ?? '').trim())
 }
 
+/* ── 자격 인증(컴플라이언스) 증빙 서류 ─────────────────────────────── */
+
+/** 제출 가능한 증빙 서류 — 'license' 운전면허증, 'freight' 화물운송종사자 자격증, 'vehicle' 차량 등록증. */
+export const COMPLIANCE_DOC_TYPES = ['license', 'freight', 'vehicle'] as const
+export type ComplianceDocType = (typeof COMPLIANCE_DOC_TYPES)[number]
+
+export const COMPLIANCE_DOC_LABEL: Record<ComplianceDocType, string> = {
+  license: '운전면허증',
+  freight: '화물운송종사자 자격증',
+  vehicle: '차량 등록증',
+}
+
+export function isComplianceDocType(value: unknown): value is ComplianceDocType {
+  return (COMPLIANCE_DOC_TYPES as readonly string[]).includes(value as string)
+}
+
+/**
+ * 수행 역할에 따른 필수 증빙 — 운전면허증은 기사 서비스 전부에 필수,
+ * 택배(화물운송) 역할이 있으면 화물운송종사자 자격증과 차량 등록증이 추가된다.
+ * 택시 역할도 차량 등록증이 필요하다. 대리운전 단독은 고객 차량 운행이라 등록증 면제.
+ * 시설형 파트너(기사 역할 없음)는 필수 서류가 없다.
+ */
+export function requiredComplianceDocs(source: ServiceRoleSource): ComplianceDocType[] {
+  const roles = effectiveServiceRoles(source)
+  if (!roles.length) return []
+  const docs: ComplianceDocType[] = ['license']
+  const delivery = roles.includes('택배')
+  if (delivery) docs.push('freight')
+  if (roles.includes('택시') || delivery) docs.push('vehicle')
+  return docs
+}
+
 /** 차량명·차량번호가 필수인 서비스 — 대리운전·시설 서비스는 차량 정보를 입력하지 않는다. */
 export function vehicleRequiredFor(serviceType?: string | null) {
   return serviceType === '택시' || serviceType === '택배'

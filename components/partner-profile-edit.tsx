@@ -3,14 +3,25 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { formatKoreanPhone, isValidKoreanPhone } from '@/lib/phone'
-import { partnerVehicle, updatePartnerProfile, uploadInsuranceDoc, type PartnerProfile } from '@/lib/partner-account'
 import {
+  fetchComplianceDocs,
+  partnerVehicle,
+  updatePartnerProfile,
+  uploadComplianceDoc,
+  uploadInsuranceDoc,
+  type ComplianceDocMeta,
+  type PartnerProfile,
+} from '@/lib/partner-account'
+import {
+  COMPLIANCE_DOC_LABEL,
   DRIVER_SERVICE_TYPES,
   deliveryVehicleAllowance,
   effectiveServiceRoles,
   facilityUnitLabel,
   facilityUnitPlaceholder,
   normalizeServiceRoles,
+  requiredComplianceDocs,
+  type ComplianceDocType,
 } from '@/lib/partner-services'
 import { DELIVERY_VEHICLES } from '@/lib/delivery-fare'
 import { EXTRA_VEHICLE_TIERS, normalizeVehicleTiers } from '@/lib/ride-tiers'
@@ -63,6 +74,48 @@ function PartnerProfileEditForm({
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
   const [facilitySpec, setFacilitySpec] = useState<DeviceSpec | null>(null)
+  // 자격 인증 서류 — 심사 상태(미제출/심사 중/승인/반려)와 재제출을 관리한다.
+  const [complianceDocs, setComplianceDocs] = useState<Partial<Record<ComplianceDocType, ComplianceDocMeta>>>({})
+  const [compliancePick, setCompliancePick] = useState<ComplianceDocType | null>(null)
+  const [complianceNote, setComplianceNote] = useState('')
+  const complianceInput = useRef<HTMLInputElement>(null)
+
+  const refreshCompliance = () => {
+    if (!profile.uid) return
+    void fetchComplianceDocs(profile.uid).then(setComplianceDocs).catch(() => undefined)
+  }
+  useEffect(refreshCompliance, [profile.uid])
+
+  // 편집 중인 겸직 선택을 반영한 필수 서류 — 택배 겸직을 켜면 자격증이 즉시 요구된다.
+  const requiredDocs = isDriver
+    ? requiredComplianceDocs({ serviceType: profile.serviceType, serviceRoles: normalizeServiceRoles(extraRoles, profile.serviceType) })
+    : []
+
+  const onComplianceFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const type = compliancePick
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!type || !file) return
+    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
+      setError('증빙 서류는 이미지 또는 PDF 파일만 첨부할 수 있어요.')
+      return
+    }
+    if (file.size > DOC_MAX_BYTES) {
+      setError('파일이 너무 큽니다. 2.5MB 이하 파일을 올려 주세요.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') return
+      void uploadComplianceDoc(profile.uid, type, { name: file.name, mime: file.type, dataUrl: reader.result })
+        .then(() => {
+          setComplianceNote(`${COMPLIANCE_DOC_LABEL[type]} 제출 완료 — 관리자 승인 후 콜 매칭이 가능해집니다.`)
+          refreshCompliance()
+        })
+        .catch((err) => setComplianceNote(err instanceof Error ? err.message : '서류 업로드에 실패했어요.'))
+    }
+    reader.readAsDataURL(file)
+  }
 
   const deviceKind = isDriver ? '' : facilityTypeToDeviceKind(profile.serviceType)
   // 등록된 시설 스펙을 미리 채운다 — 서버 레지스트리에 저장된 값이 있으면 그대로 편집.
@@ -359,6 +412,58 @@ function PartnerProfileEditForm({
                 </button>
               </div>
             </div>
+            {isDriver && requiredDocs.length ? (
+              <div className="mt-4 rounded-2xl border-2 border-[#BFDBFE] bg-[#F8FAFC] p-4">
+                <p className="text-xs font-black text-[#334155]">자격 인증 서류 (필수)</p>
+                <p className="mt-1 text-[11px] font-bold text-[#8b8495]">
+                  수행 서비스에 필요한 증빙입니다. 모든 서류가 관리자 승인을 받아야 콜 매칭이 가능합니다.
+                </p>
+                <input ref={complianceInput} type="file" accept="image/*,application/pdf" className="hidden" onChange={onComplianceFile} />
+                <div className="mt-3 space-y-2.5">
+                  {requiredDocs.map((type) => {
+                    const meta = complianceDocs[type]
+                    const status = meta?.status ?? 'missing'
+                    const chip =
+                      status === 'approved'
+                        ? { label: '승인됨', cls: 'bg-[#15803D] text-white' }
+                        : status === 'rejected'
+                          ? { label: '반려됨', cls: 'bg-[#DC2626] text-white' }
+                          : status === 'pending'
+                            ? { label: '심사 중', cls: 'bg-[#D97706] text-white' }
+                            : { label: '미제출', cls: 'bg-white text-[#64748B] ring-1 ring-[#CBD5E1]' }
+                    return (
+                      <div key={type} className="rounded-2xl border-2 border-dashed border-[#4A82B8] bg-[#E8F1FA] px-4 py-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-black text-[#334155]">
+                              {COMPLIANCE_DOC_LABEL[type]} <span className="text-[#DC2626]">*</span>
+                            </p>
+                            <p className="mt-0.5 truncate text-[10px] font-bold text-[#64748B]">
+                              {meta ? `${meta.name} · ${meta.uploadedAt.slice(0, 10)}` : '이미지 또는 PDF · 최대 2.5MB'}
+                            </p>
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black ${chip.cls}`}>{chip.label}</span>
+                        </div>
+                        {status === 'rejected' && meta?.reviewNote ? (
+                          <p className="mt-1.5 text-[11px] font-bold leading-4 text-[#B91C1C]">반려 사유: {meta.reviewNote}</p>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCompliancePick(type)
+                            window.setTimeout(() => complianceInput.current?.click(), 0)
+                          }}
+                          className="mt-2 w-full rounded-xl bg-[#4A82B8] py-2 text-[11px] font-black text-white"
+                        >
+                          {status === 'missing' ? '서류 제출' : status === 'rejected' ? '다시 제출' : '서류 교체'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+                {complianceNote ? <p className="mt-2 text-[11px] font-bold text-[#4A82B8]">{complianceNote}</p> : null}
+              </div>
+            ) : null}
             {error ? <p className="mt-3 text-sm font-bold text-[#B91C1C]">{error}</p> : null}
             <button type="button" onClick={() => void submit()} disabled={!canSubmit || saving} className="mt-5 w-full rounded-2xl bg-[#4A82B8] py-3.5 font-black text-white shadow-[0_12px_24px_rgba(74,130,184,0.35)] disabled:cursor-not-allowed disabled:opacity-40">
               {saving ? '저장 중…' : '변경 사항 저장'}

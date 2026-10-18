@@ -4,6 +4,7 @@ import { sanitizeAttachments, saveAttachments } from '@/lib/attachment-store'
 import { notifyNearbyDeliveryDrivers } from '@/lib/delivery-push'
 import { driverDeliveryEligible } from '@/lib/partner-services'
 import { getRegistryUser } from '@/lib/user-registry'
+import { complianceGate } from '@/lib/compliance-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,6 +28,9 @@ export async function GET(request: Request) {
   const forDriver = params.get('forDriver')?.trim()
   if (forDriver) {
     const user = await getRegistryUser(forDriver).catch(() => null)
+    // 자격 인증 미완료·반려 계정은 매칭 풀이 비어 내려간다.
+    const gate = user && !user.withdrawnAt ? await complianceGate(user).catch(() => null) : null
+    if (gate && !gate.ok) return NextResponse.json({ ok: true, jobs: [] })
     const jobs = (await listOpenDeliveries()).filter((job) => (user ? driverDeliveryEligible(user, job) : true))
     return NextResponse.json({ ok: true, jobs: jobs.map((job) => publicDelivery(job)) })
   }

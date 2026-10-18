@@ -236,6 +236,13 @@ export async function cancelRideRequest(rideId: string, passengerId: string, opt
   return data.ride
 }
 
+/** presence 게이트가 거절한 자격 인증 상태 — 기사 화면의 안내 배너에 쓴다. */
+export type PresenceComplianceBlock = {
+  complianceStatus: 'pending' | 'rejected'
+  missing: string[]
+  rejected: string[]
+}
+
 export async function sendDriverPresence(input: {
   driverId: string
   lat: number
@@ -252,13 +259,29 @@ export async function sendDriverPresence(input: {
   serviceRoles?: string[]
   deliveryVehicles?: string[]
   vehicleTiers?: string[]
-}) {
-  if (!isUsableCoord(input.lat, input.lng)) return
-  await apiFetch('/api/drivers/presence', {
+}): Promise<PresenceComplianceBlock | null> {
+  if (!isUsableCoord(input.lat, input.lng)) return null
+  const res = await apiFetch('/api/drivers/presence', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   })
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as {
+      complianceRequired?: boolean
+      complianceStatus?: string
+      missing?: unknown
+      rejected?: unknown
+    } | null
+    if (data?.complianceRequired) {
+      return {
+        complianceStatus: data.complianceStatus === 'rejected' ? 'rejected' : 'pending',
+        missing: Array.isArray(data.missing) ? (data.missing as string[]) : [],
+        rejected: Array.isArray(data.rejected) ? (data.rejected as string[]) : [],
+      }
+    }
+  }
+  return null
 }
 
 export async function updateDriverProfile(input: {

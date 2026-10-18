@@ -422,3 +422,34 @@ export async function uploadInsuranceDoc(uid: string, doc: { name: string; mime:
   }
   return data.doc
 }
+
+/** 자격 인증 증빙(운전면허증·화물운송종사자 자격증·차량 등록증)을 업로드한다 — 새 제출은 항상 심사 대기(pending)가 된다. */
+export async function uploadComplianceDoc(uid: string, type: string, doc: { name: string; mime: string; dataUrl: string }) {
+  const res = await apiFetch('/api/partner/compliance-doc/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid, type, name: doc.name, mime: doc.mime, dataUrl: doc.dataUrl }),
+  })
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; doc?: { status?: string }; error?: string } | null
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || '증빙 서류 업로드에 실패했습니다.')
+  }
+  return data.doc
+}
+
+/** uid의 자격 인증 서류 상태 묶음(메타만 — 이미지 원본은 포함되지 않는다). */
+export type ComplianceDocMeta = {
+  name: string
+  uploadedAt: string
+  status: 'pending' | 'approved' | 'rejected'
+  reviewedBy?: string
+  reviewedAt?: string
+  reviewNote?: string
+}
+
+export async function fetchComplianceDocs(uid: string) {
+  const res = await apiFetch(`/api/partner/compliance-doc/?uid=${encodeURIComponent(uid)}`, { cache: 'no-store' })
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; docs?: Record<string, ComplianceDocMeta> } | null
+  if (!res.ok || !data?.ok) return {}
+  return data.docs ?? {}
+}
