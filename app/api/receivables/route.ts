@@ -76,6 +76,17 @@ export async function POST(request: Request) {
   if (!result) {
     return NextResponse.json({ error: 'invalid_fields' }, { status: 400 })
   }
+  // FDS 시그널 — 단시간 반복 결제 실패는 자동 정지 룰의 입력이다.
+  const reportedUid = typeof body.userId === 'string' ? body.userId.trim() : ''
+  if (reportedUid) {
+    const { recordFdsSignal } = await import('@/lib/fds-store')
+    void recordFdsSignal('payment-fail', {
+      actorId: reportedUid,
+      refId: typeof body.deviceId === 'string' ? body.deviceId : undefined,
+      amount: typeof body.amount === 'number' ? body.amount : undefined,
+      detail: typeof body.service === 'string' ? body.service : '',
+    }).catch(() => undefined)
+  }
   const restricted =
     result.penalty?.restrictedUntil && Date.parse(result.penalty.restrictedUntil) > Date.now()
       ? result.penalty.restrictedUntil

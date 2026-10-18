@@ -4,6 +4,7 @@ import { ensureSeedDrivers, flushDispatchPersist } from '@/lib/dispatch-store'
 import { isUsableCoord } from '@/lib/ride-session'
 import { getRegistryUser, isUserLocked } from '@/lib/user-registry'
 import { complianceGate } from '@/lib/compliance-store'
+import { fdsBlockStatus } from '@/lib/fds-store'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 
 export const runtime = 'nodejs'
@@ -22,6 +23,13 @@ export async function POST(request: Request) {
   // 이용 정지(Lock) 기사는 온라인 전환을 차단한다 — 오프라인 전환은 허용.
   if (online && (await isUserLocked(driverId).catch(() => false))) {
     return NextResponse.json({ error: '관리자에 의해 이용이 정지된 계정입니다.' }, { status: 403 })
+  }
+  // FDS 자동 차단 — 이상 매칭·취소 패턴으로 정지된 기사는 온라인 전환 불가.
+  if (online && (await fdsBlockStatus(driverId).catch(() => null))?.blocked) {
+    return NextResponse.json(
+      { error: '비정상 이용 패턴이 감지되어 일시적으로 제한됐습니다.', fdsBlocked: true },
+      { status: 403 },
+    )
   }
   // 메인넷은 Pi 인증+KYC 가입을 마친 등록 기사만 온라인 전환할 수 있다 —
   // 레지스트리 등록 여부로 확인한다(가입 시점 /api/partner/link POST가

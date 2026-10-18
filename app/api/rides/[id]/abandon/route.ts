@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { rideTransitionErrorMessage, transitionRide } from '@/lib/ride-machine'
+import { recordFdsSignal } from '@/lib/fds-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -15,6 +16,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       { error: rideTransitionErrorMessage(result.error) },
       { status: result.error === 'not_found' ? 404 : 409 },
     )
+  }
+  // FDS 시그널 — 기사의 배차 후 포기도 쌍 단위 churn과 연속 취소로 집계한다.
+  void recordFdsSignal('cancel-streak', { actorId: driverId, refId: id, detail: '기사 배차 후 포기' }).catch(() => undefined)
+  const passengerId = result.ride?.passengerId
+  if (passengerId) {
+    void recordFdsSignal('match-churn', {
+      actorId: driverId,
+      groupId: `pair:${driverId}|${passengerId}`,
+      refId: id,
+      detail: `기사 배차 후 포기 · 승객 ${passengerId}`,
+    }).catch(() => undefined)
   }
   return NextResponse.json({ ok: true, ride: result.ride })
 }

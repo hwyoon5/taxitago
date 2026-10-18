@@ -19,6 +19,7 @@ import AdminShiftBoard from '@/components/admin-shift-board'
 import AdminAuditLog from '@/components/admin-audit-log'
 import AdminDevices from '@/components/admin-devices'
 import AdminBlacklist from '@/components/admin-blacklist'
+import AdminFds from '@/components/admin-fds'
 import AdminCoupons from '@/components/admin-coupons'
 import AdminAnalytics from '@/components/admin-analytics'
 import AdminLiveDashboard from '@/components/admin-live'
@@ -54,7 +55,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'partners', 'compliance', 'devices', 'fare', 'ledger', 'assets', 'receivable', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
+const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'fds', 'partners', 'compliance', 'devices', 'fare', 'ledger', 'assets', 'receivable', 'payouts', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
@@ -63,6 +64,7 @@ const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
   inbox: '문의 관리',
   users: '가입자',
   sanction: '블랙리스트',
+  fds: '이상 탐지',
   partners: '기사·파트너',
   compliance: '자격 인증',
   devices: '기기 관리',
@@ -118,7 +120,7 @@ const ADMIN_MENU_GROUPS: {
     card: 'border-[#FDE68A] bg-[#FFFBEB]',
     heading: 'text-[#B45309]',
     active: 'bg-[#D97706] text-white shadow-[0_6px_14px_rgba(217,119,6,0.3)]',
-    tabs: ['inbox', 'users', 'sanction', 'coupons', 'notice', 'staff', 'audit', 'memo'],
+    tabs: ['inbox', 'users', 'sanction', 'fds', 'coupons', 'notice', 'staff', 'audit', 'memo'],
   },
 ]
 
@@ -635,6 +637,8 @@ export default function AdminSupportDesk() {
         <AdminShiftBoard />
       ) : view === 'sanction' ? (
         <AdminBlacklist />
+      ) : view === 'fds' ? (
+        <AdminFds />
       ) : (
       <>
       {storage === 'file' ? (

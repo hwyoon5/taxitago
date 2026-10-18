@@ -21,6 +21,7 @@ import {
 } from '@/lib/escrow-store'
 import type { DriverEarning, DriverEarningsStats, EarningsPeriodRow, EscrowRecord, PublicEscrow, SettlementReceipt } from '@/lib/escrow-types'
 import { notifyDriverSettled } from '@/lib/push-events'
+import { FDS_SMALL_ESCROW_PI, recordFdsSignal } from '@/lib/fds-store'
 
 function stamp(record: EscrowRecord) {
   record.updatedAt = nowIso()
@@ -112,6 +113,15 @@ export function lockEscrow(input: {
   escrow.lockPaymentId = paymentId
   escrow.lockTxid = txid
   escrow.heldAt = nowIso()
+  // FDS 시그널 — 소액 에스크로의 단시간 다건 예치는 어뷰징 패턴으로 집계한다.
+  if (escrow.amount < FDS_SMALL_ESCROW_PI) {
+    void recordFdsSignal('escrow-small', {
+      actorId: input.passengerId,
+      refId: ride.id,
+      amount: escrow.amount,
+      detail: `예치 ${escrow.amount.toFixed(2)} Pi`,
+    }).catch(() => undefined)
+  }
   return { ok: true as const, escrow: stamp(escrow) }
 }
 

@@ -12,6 +12,7 @@ import { piRound } from '@/lib/pi-format'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
 import { isUserLocked } from '@/lib/user-registry'
+import { fdsBlockStatus, recordFdsSignal } from '@/lib/fds-store'
 import { normalizeRideTier } from '@/lib/ride-tiers'
 
 export const runtime = 'nodejs'
@@ -96,6 +97,16 @@ export async function POST(request: Request) {
   if (!pickup || !dest || !passengerId) {
     return NextResponse.json({ error: 'passengerId, pickup, dest required' }, { status: 400 })
   }
+  // FDS 차단 게이트 — 자동·수동 이상 탐지 차단 중이면 호출을 거부한다.
+  const fds = await fdsBlockStatus(passengerId).catch(() => null)
+  if (fds?.blocked) {
+    return NextResponse.json(
+      { error: '비정상 이용 패턴이 감지되어 일시적으로 제한됐습니다.', fdsBlocked: true, until: fds.until },
+      { status: 403 },
+    )
+  }
+  // 호출 시도 자체를 시그널로 적재 — 단시간 반복 호출(콜 플러드) 룰이 평가한다.
+  void recordFdsSignal('ride-flood', { actorId: passengerId, detail: `${pickup.address || ''} → ${dest.address || ''}` }).catch(() => undefined)
   await Promise.all([hydrateDispatchFromKv(), hydrateEscrowFromKv(), hydrateAvoidFromKv()])
   const existing = listRides().find(
     (ride) =>

@@ -5,6 +5,7 @@ import { notifyNearbyDeliveryDrivers } from '@/lib/delivery-push'
 import { driverDeliveryEligible } from '@/lib/partner-services'
 import { getRegistryUser } from '@/lib/user-registry'
 import { complianceGate } from '@/lib/compliance-store'
+import { fdsBlockStatus, recordFdsSignal } from '@/lib/fds-store'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -43,6 +44,18 @@ export async function POST(request: Request) {
   const destAddress = typeof body?.destAddress === 'string' ? body.destAddress.trim() : ''
   if (!pickupAddress || !destAddress) {
     return NextResponse.json({ error: 'pickupAddress and destAddress required' }, { status: 400 })
+  }
+  // FDS — 차단 계정은 등록 불가, 반복 등록은 콜 플러드 룰로 집계한다.
+  const ownerIdRaw = typeof body?.ownerId === 'string' ? body.ownerId.trim() : ''
+  if (ownerIdRaw) {
+    const fds = await fdsBlockStatus(ownerIdRaw).catch(() => null)
+    if (fds?.blocked) {
+      return NextResponse.json(
+        { error: '비정상 이용 패턴이 감지되어 일시적으로 제한됐습니다.', fdsBlocked: true, until: fds.until },
+        { status: 403 },
+      )
+    }
+    void recordFdsSignal('ride-flood', { actorId: ownerIdRaw, detail: `택배 등록 · ${pickupAddress} → ${destAddress}` }).catch(() => undefined)
   }
   const createdAt = new Date().toISOString()
   const job = await createDeliveryDispatch({
