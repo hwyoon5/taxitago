@@ -10,7 +10,8 @@ import { applyThemeMode, loadThemeMode, saveThemeMode, type ThemeMode } from '@/
 import { localizedText, translateService } from '@/lib/i18n'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/contact-info'
 import { loadPiIdentity } from '@/lib/partner-account'
-import { DEFAULT_FARE_CONFIG, fetchFareConfig, type FareConfig } from '@/lib/fare-config'
+import { DEFAULT_FARE_CONFIG, fetchFareConfig, tierBaseFarePi, tierFareRate, type FareConfig } from '@/lib/fare-config'
+import { RIDE_TIERS, type RideTier } from '@/lib/ride-tiers'
 
 const THEME_LABEL: Record<ThemeMode, MessageKey> = {
   light: 'settings.theme.light',
@@ -107,6 +108,46 @@ function CancelFeePolicyCard() {
   )
 }
 
+/** 택시 차량 등급(서비스 티어)별 요금표 — 관리자 설정값을 실시간 반영한다. */
+const TIER_LABEL_KEYS: Record<RideTier, MessageKey> = {
+  '일반': 'match.tier.normal',
+  '모범': 'match.tier.deluxe',
+  '대형': 'match.tier.large',
+  '펫동반': 'match.tier.pet',
+}
+
+function TierFareCard() {
+  const { t } = useLocale()
+  const [fareCfg, setFareCfg] = useState<FareConfig>(DEFAULT_FARE_CONFIG)
+  useEffect(() => {
+    void fetchFareConfig().then(setFareCfg).catch(() => undefined)
+  }, [])
+  return (
+    <div className="overflow-hidden rounded-2xl border-2 border-[#BFDBFE] bg-white shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+      <div className="bg-[#E8F1FA] px-4 py-2.5">
+        <p className="text-sm font-black text-[#1D4ED8]">{t('fares.tier.title')}</p>
+        <p className="mt-0.5 text-[10px] font-bold leading-4 text-[#3F74A8]">{t('fares.tier.caption')}</p>
+      </div>
+      {RIDE_TIERS.map((tierKey) => {
+        const ratePct = Math.round(tierFareRate(fareCfg, tierKey) * 100)
+        return (
+          <div key={tierKey} className="flex items-center justify-between gap-3 border-t border-[#E2E8F0] px-4 py-2.5">
+            <p className="text-sm font-black text-[#0F172A]">{t(TIER_LABEL_KEYS[tierKey])}</p>
+            <div className="text-right">
+              <p className="text-sm font-black text-[#4A82B8]">
+                {t('fares.tier.base', { fare: tierBaseFarePi(fareCfg, tierKey).toFixed(2) })}
+              </p>
+              <p className="text-[10px] font-bold text-[#94A3B8]">
+                {ratePct === 100 ? t('fares.tier.standard') : t('fares.tier.extra', { rate: String(ratePct - 100) })}
+              </p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function FaresView({ onBack }: { onBack: () => void }) {
   const { t, locale } = useLocale()
   const rows: { name: string; fare: string; noteKey: MessageKey }[] = [
@@ -130,6 +171,9 @@ export function FaresView({ onBack }: { onBack: () => void }) {
             <p className="shrink-0 text-sm font-black text-[#4C1FB8]">{row.fare}</p>
           </div>
         ))}
+      </div>
+      <div className="mt-3">
+        <TierFareCard />
       </div>
       <div className="mt-3">
         <CancelFeePolicyCard />

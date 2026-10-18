@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { adminHeaders } from '@/lib/admin-key'
 import { useAdminAuth } from '@/components/admin-guard'
 import { DEFAULT_RATES, type CommissionRates, type SettlementService } from '@/lib/settlement-types'
-import { DEFAULT_FARE_CONFIG, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
+import { DEFAULT_FARE_CONFIG, FLAT_SERVICE_LABEL, tierBaseFarePi, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
+import { RIDE_TIERS, type RideTier } from '@/lib/ride-tiers'
 import { settleMidTripCancelFee } from '@/lib/ride-fare'
 import { isPiWalletAddress, piWalletError, PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { ADMIN_PRIVILEGED_POSITIONS } from '@/lib/staff-positions'
@@ -24,6 +25,13 @@ const SERVICE_LABEL: Record<SettlementService, string> = {
   kickboard: '킥보드',
   ev: 'EV충전',
   parking: '주차',
+}
+
+const TIER_DESC: Record<RideTier, string> = {
+  '일반': '표준 택시 · 모든 기사',
+  '모범': '모범운전자 · 우대 서비스',
+  '대형': '대형/승합 차량',
+  '펫동반': '반려동물 동승 가능',
 }
 
 export default function AdminFareSettings() {
@@ -412,6 +420,77 @@ export default function AdminFareSettings() {
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {ruleEditor('택시', 'taxi')}
           {ruleEditor('대리운전', 'daeri')}
+        </div>
+        <div className="mt-2 rounded-xl border-2 border-[#BFDBFE] bg-[#E8F1FA] p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-black text-[#1D4ED8]">차량 등급별 요금 (택시)</span>
+            <span className="text-[10px] font-bold text-[#4A82B8]">승객이 고른 등급에 배율·기본요금 적용</span>
+          </div>
+          <div className="mt-1.5 space-y-1.5">
+            {RIDE_TIERS.map((tierKey) => {
+              const tierCfg = fareDraft.tiers?.[tierKey] ?? { rate: 100 }
+              const autoBase = (fareDraft.taxi.base * (tierCfg.rate || 100)) / 100
+              return (
+                <div key={tierKey} className="rounded-lg border border-[#BFDBFE] bg-white px-2.5 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-black text-[#0F172A]">
+                      {tierKey} <span className="font-bold text-[#94A3B8]">· {TIER_DESC[tierKey]}</span>
+                    </p>
+                    <span className="text-[10px] font-black text-[#4A82B8]">
+                      기본 {tierBaseFarePi(fareDraft, tierKey).toFixed(2)} Pi
+                    </span>
+                  </div>
+                  <div className="mt-1 grid grid-cols-2 gap-1.5">
+                    <label className="block">
+                      <span className="text-[10px] font-bold text-[#3F74A8]">할증 배율</span>
+                      <div className="mt-0.5 flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={500}
+                          step={5}
+                          disabled={!canEdit}
+                          value={tierCfg.rate}
+                          onChange={(event) =>
+                            setFareDraft((prev) => ({
+                              ...prev,
+                              tiers: { ...prev.tiers, [tierKey]: { ...prev.tiers?.[tierKey], rate: Number(event.target.value) } },
+                            }))
+                          }
+                          className="w-full rounded-lg border border-[#BFDBFE] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4A82B8]"
+                        />
+                        <span className="shrink-0 text-xs font-black text-[#3F74A8]">%</span>
+                      </div>
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-bold text-[#3F74A8]">전용 기본요금(비우면 배율 자동)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        disabled={!canEdit}
+                        value={tierCfg.base ?? ''}
+                        placeholder={autoBase.toFixed(2)}
+                        onChange={(event) =>
+                          setFareDraft((prev) => {
+                            const raw = event.target.value
+                            const base = raw.trim() === '' ? undefined : Number(raw)
+                            const next: { rate: number; base?: number } = { rate: prev.tiers?.[tierKey]?.rate ?? 100 }
+                            if (base != null && Number.isFinite(base) && base > 0) next.base = base
+                            return { ...prev, tiers: { ...prev.tiers, [tierKey]: next } }
+                          })
+                        }
+                        className="mt-0.5 w-full rounded-lg border border-[#BFDBFE] px-2 py-1.5 text-xs font-black outline-none focus:border-[#4A82B8]"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <p className="mt-1.5 text-[10px] font-bold leading-4 text-[#3F74A8]">
+            등급별 배율은 택시 기본·거리·시간 요율과 경유지·정체 할증에 함께 곱해집니다. 대리운전·플랫 서비스에는 적용되지 않습니다.
+          </p>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
           {(Object.keys(FLAT_SERVICE_LABEL) as FlatServiceId[]).map((key) => (

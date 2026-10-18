@@ -1,4 +1,4 @@
-import { DEFAULT_FARE_CONFIG, type FareConfig } from '@/lib/fare-config'
+import { DEFAULT_FARE_CONFIG, tierBaseFarePi, tierFareRate, type FareConfig } from '@/lib/fare-config'
 import { piRound } from '@/lib/pi-format'
 import { inferRegion, regionDisplayName } from '@/lib/region-destinations'
 
@@ -22,10 +22,13 @@ export function haversineKm(
   return 2 * EARTH_KM * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
-export function estimateTaxiFarePi(distanceKm: number, config: FareConfig = DEFAULT_FARE_CONFIG, kind: 'taxi' | 'daeri' = 'taxi') {
+export function estimateTaxiFarePi(distanceKm: number, config: FareConfig = DEFAULT_FARE_CONFIG, kind: 'taxi' | 'daeri' = 'taxi', tier?: string | null) {
   const rule = kind === 'daeri' ? config.daeri : config.taxi
-  const quoted = rule.base + Math.max(0, distanceKm) * rule.perKm + (Math.max(0, distanceKm) / 0.35) * rule.perMin
-  return piRound(Math.max(rule.base, quoted))
+  // 차량 등급(티어) 할증 — 택시에만 적용, 등급별 배율이 거리·시간 요율에 곱해진다.
+  const tierRate = kind === 'taxi' ? tierFareRate(config, tier) : 1
+  const base = kind === 'taxi' ? tierBaseFarePi(config, tier) : rule.base
+  const quoted = base + Math.max(0, distanceKm) * rule.perKm * tierRate + (Math.max(0, distanceKm) / 0.35) * rule.perMin * tierRate
+  return piRound(Math.max(base, quoted))
 }
 
 // 경유지가 직행 경로 위에 놓여 있어도 지오코딩·도로 스냅 오차로 수십~수백 m의
@@ -107,9 +110,10 @@ export function waypointRouteQuote(
 
 // 우회 거리에 비례하는 추가 요금(기본요금 제외, 거리 + 시간 요금만).
 // estimateTaxiFarePi와 동일한 요율을 쓰되 base는 빼서 "우회분만" 과금한다.
-export function waypointSurchargePi(detourKm: number, config: FareConfig = DEFAULT_FARE_CONFIG, kind: 'taxi' | 'daeri' = 'taxi') {
+export function waypointSurchargePi(detourKm: number, config: FareConfig = DEFAULT_FARE_CONFIG, kind: 'taxi' | 'daeri' = 'taxi', tier?: string | null) {
   const rule = kind === 'daeri' ? config.daeri : config.taxi
-  const extra = Math.max(0, detourKm) * rule.perKm + (Math.max(0, detourKm) / 0.35) * rule.perMin
+  const tierRate = kind === 'taxi' ? tierFareRate(config, tier) : 1
+  const extra = (Math.max(0, detourKm) * rule.perKm + (Math.max(0, detourKm) / 0.35) * rule.perMin) * tierRate
   return piRound(Math.max(0, extra))
 }
 
@@ -121,10 +125,11 @@ export function trafficDelayMinutes(actualMinutes: number, expectedMinutes: numb
   return Math.max(0, Math.max(0, actualMinutes) - Math.max(0, expectedMinutes))
 }
 
-export function trafficDelaySurchargePi(delayMinutes: number, config: FareConfig = DEFAULT_FARE_CONFIG, kind: 'taxi' | 'daeri' = 'taxi') {
+export function trafficDelaySurchargePi(delayMinutes: number, config: FareConfig = DEFAULT_FARE_CONFIG, kind: 'taxi' | 'daeri' = 'taxi', tier?: string | null) {
   const rule = kind === 'daeri' ? config.daeri : config.taxi
+  const tierRate = kind === 'taxi' ? tierFareRate(config, tier) : 1
   const billable = Math.max(0, delayMinutes - TRAFFIC_DELAY_FREE_MINUTES)
-  return piRound(billable * rule.congestionPerMin)
+  return piRound(billable * rule.congestionPerMin * tierRate)
 }
 
 export function etaMinutesFromKm(distanceKm: number) {

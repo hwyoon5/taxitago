@@ -40,7 +40,7 @@ import { facilityUnitLabel, facilityUnitPlaceholder } from '@/lib/partner-servic
 import { facilityTypeToDeviceKind, type DeviceSpec } from '@/lib/device-types'
 import FacilitySpecForm from '@/components/facility-spec-form'
 import { getPaymentPolicy, setPolicyBaseOverrides } from '@/lib/payment-policy'
-import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
+import { DEFAULT_FARE_CONFIG, fetchFareConfig, FLAT_SERVICE_LABEL, tierBaseFarePi, tierFareRate, type FareConfig, type FlatServiceId } from '@/lib/fare-config'
 import { DELIVERY_VEHICLES, deliveryDistanceFeePi, estimateDeliveryFare, formatDeliveryFare, getPackageSize, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
 import { acceptDelivery, deleteDelivery, fetchAcceptedDeliveries, fetchDelivery, fetchMyDeliveries, fetchOpenDeliveries, loadDeliveryJob, progressDelivery, publishDelivery, updateDelivery, type DeliveryChatPeer, type DeliveryJob, type PublicDelivery } from '@/lib/delivery-job'
 import { formatKoreanPhone, isValidKoreanPhone, telHref } from '@/lib/phone'
@@ -3159,16 +3159,23 @@ function TaxiMatchingSheet({
             <p className="mt-2 text-sm font-bold text-[#64748B]">{route}</p>
             <p className="mt-1 text-[11px] font-bold text-[#8b8495]">{t('match.tier.hint')}</p>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              {RIDE_TIERS.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setTier(item)}
-                  className={`rounded-2xl border-2 py-3.5 text-sm font-black transition active:scale-[0.98] ${tier === item ? 'border-[#4A82B8] bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
-                >
-                  {t(RIDE_TIER_KEYS[item])}
-                </button>
-              ))}
+              {RIDE_TIERS.map((item) => {
+                const ratePct = Math.round(tierFareRate(fareCfg, item) * 100)
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setTier(item)}
+                    className={`rounded-2xl border-2 px-3 py-3 text-left transition active:scale-[0.98] ${tier === item ? 'border-[#4A82B8] bg-[#4A82B8] text-white shadow-[0_8px_16px_rgba(74,130,184,0.28)]' : 'border-[#BFDBFE] bg-[#E8F1FA] text-[#4A82B8]'}`}
+                  >
+                    <span className="block text-sm font-black">{t(RIDE_TIER_KEYS[item])}</span>
+                    <span className={`mt-0.5 block text-[10px] font-bold ${tier === item ? 'text-white/85' : 'text-[#64748B]'}`}>
+                      {t('match.tier.fare', { fare: tierBaseFarePi(fareCfg, item).toFixed(2) })}
+                      {ratePct !== 100 ? ` · +${ratePct - 100}%` : ''}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
             <button
               type="button"

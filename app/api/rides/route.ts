@@ -7,7 +7,7 @@ import { hydrateEscrowFromKv } from '@/lib/escrow-store'
 import { avoidSurchargePi, avoidZoneScore, hydrateAvoidFromKv } from '@/lib/avoid-zone-store'
 import { isUsableCoord } from '@/lib/ride-session'
 import { getFareConfig } from '@/lib/fare-config-server'
-import { timeSurchargeRate, tollFareToPi } from '@/lib/fare-config'
+import { timeSurchargeRate, tierBaseFarePi, tierFareRate, tollFareToPi } from '@/lib/fare-config'
 import { piRound } from '@/lib/pi-format'
 import { inspectPiAccessToken } from '@/lib/pi-platform'
 import { isPiSandboxRequest } from '@/lib/pi-sandbox'
@@ -104,6 +104,8 @@ export async function POST(request: Request) {
   )
   if (existing) return NextResponse.json({ ok: true, ride: toPublicRide(existing), deduped: true })
   const kind = body?.kind === 'daeri' ? 'daeri' : 'taxi'
+  // 차량 등급(티어) — 택시 호출에만 적용. 미인식 값은 일반 콜로 취급한다.
+  const tier = kind === 'taxi' ? normalizeRideTier(body?.tier) : undefined
   // 승객이 고른 기사 응답 대기 시간 — 5분/10분 선택지만 허용한다.
   const waitMinutesRaw = Number(body?.waitMinutes)
   const waitMinutes = waitMinutesRaw === 5 || waitMinutesRaw === 10 ? waitMinutesRaw : null
@@ -115,10 +117,14 @@ export async function POST(request: Request) {
   // 우회 경유지는 추가되는 거리·시간에 비례해 surcharge를 붙인다.
   const fareQuote = waypointRouteQuote(pickup, dest, waypoints)
   const config = await getFareConfig()
+  // 등급별 할증 — 승객이 고른 티어의 배율이 서버·클라이언트 견적 양쪽에 적용된다.
+  // 클라이언트가 보낸 예상 요금을 쓰는 경로도 배율을 곱하고 등급 기본요금을 하한으로 둔다.
+  const tierRate = tierFareRate(config, tier)
+  const tierBase = tierBaseFarePi(config, tier)
   const baseQuoted =
     typeof body?.estimatedFare === 'number' && Number.isFinite(body.estimatedFare)
-      ? piRound(Math.max(0, body.estimatedFare) + waypointSurchargePi(fareQuote.chargeableDetourKm, config, kind))
-      : estimateTaxiFarePi(fareQuote.chargeableKm, config, kind)
+      ? piRound(Math.max(tierBase, piRound(Math.max(0, body.estimatedFare) * tierRate)) + waypointSurchargePi(fareQuote.chargeableDetourKm, config, kind, tier))
+      : estimateTaxiFarePi(fareQuote.chargeableKm, config, kind, tier)
   // 시간대별 할증 — 관리자 설정(기본 심야 0~4시 +20%)을 호출 견적에 반영한다.
   const nightRate = timeSurchargeRate(config)
   const quoted = nightRate > 0 ? piRound(baseQuoted * (1 + nightRate)) : baseQuoted
@@ -156,7 +162,7 @@ export async function POST(request: Request) {
   const ride = createRideAndMatch({
     id: crypto.randomUUID(),
     kind,
-    tier: normalizeRideTier(body?.tier),
+    tier,
     passengerId,
     passengerUid: piUid,
     passengerPhone: passengerPhone || undefined,

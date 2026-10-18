@@ -281,7 +281,7 @@ export async function releaseEscrow(
       ? Math.max(0, (Date.parse(ride.readyToSettleAt) - Date.parse(ride.boardedAt)) / 60000)
       : 0
   const delayMin = trafficDelayMinutes(actualMin, expectedMin)
-  const trafficSurcharge = trafficDelaySurchargePi(delayMin, fareConfig, ride.kind)
+  const trafficSurcharge = trafficDelaySurchargePi(delayMin, fareConfig, ride.kind, ride.tier)
   // 시간대별 할증 — 실측 거리로 재산정할 때도 승차 시각 기준 할증률을 곱한다.
   // 실측이 없어 예상 요금을 그대로 쓰는 경우에는 견적 산정 시 이미 반영돼 있다.
   const nightRate = timeSurchargeRate(fareConfig, ride.boardedAt ? new Date(ride.boardedAt) : new Date())
@@ -292,7 +292,7 @@ export async function releaseEscrow(
   const tollPi = Number.isFinite(ride.tollPi) && (ride.tollPi ?? 0) > 0 ? Number(ride.tollPi) : 0
   const baseAmount =
     validMeasured != null
-      ? piRound(estimateTaxiFarePi(validMeasured, fareConfig, ride.kind) * (1 + nightRate) + tollPi)
+      ? piRound(estimateTaxiFarePi(validMeasured, fareConfig, ride.kind, ride.tier) * (1 + nightRate) + tollPi)
       : escrow.amount
   const settleAmount = piRound(baseAmount + trafficSurcharge)
   // 기본 운임 부분 — 총액에서 통행료를 뺀 값(정체·기피 할증은 운임에 포함).

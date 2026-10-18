@@ -1,4 +1,5 @@
 import { piRound } from '@/lib/pi-format'
+import { normalizeRideTier, RIDE_TIERS, type RideTier } from '@/lib/ride-tiers'
 
 export type FareRule = {
   base: number
@@ -28,6 +29,14 @@ export type TollPolicy = {
   krwPerPi: number
 }
 
+/** 차량 등급(서비스 티어)별 요금 정책 — 택시 요율에 곱하는 할증 배율 + 선택적 전용 기본요금. */
+export type TierRate = {
+  /** 할증 배율 % — 100이면 일반 택시 요율과 동일, 120이면 1.2배. */
+  rate: number
+  /** 등급 전용 기본요금(Pi) — 미설정이면 taxi.base × rate/100으로 자동 환산된다. */
+  base?: number
+}
+
 export type FareConfig = {
   taxi: FareRule
   daeri: FareRule
@@ -35,6 +44,8 @@ export type FareConfig = {
   cancel: CancelFeePolicy
   night: SurchargeWindow
   toll: TollPolicy
+  /** 택시 호출 시 승객이 고른 등급별 할증 — 대리운전·플랫 서비스에는 미적용. */
+  tiers: Record<RideTier, TierRate>
 }
 
 export const DEFAULT_FARE_CONFIG: FareConfig = {
@@ -47,6 +58,13 @@ export const DEFAULT_FARE_CONFIG: FareConfig = {
   // 기본요금 2.1 Pi ≈ 택시 기본요금 4,800원 기준으로 1 Pi ≈ 2,300원 가정.
   // 실제 환율이 달라지면 관리자 설정에서 조정한다.
   toll: { krwPerPi: 2300 },
+  // 승객이 고르는 차량 등급별 할증 — 일반은 기본 요율, 특별 등급은 할증.
+  tiers: {
+    '일반': { rate: 100 },
+    '모범': { rate: 120 },
+    '대형': { rate: 130 },
+    '펫동반': { rate: 110 },
+  },
 }
 
 export const FLAT_SERVICE_LABEL: Record<FlatServiceId, string> = {
@@ -69,10 +87,21 @@ export function normalizeFareConfig(input: Partial<FareConfig> | null | undefine
   for (const key of Object.keys(DEFAULT_FARE_CONFIG.flatBase) as FlatServiceId[]) {
     flat[key] = Math.max(0, num(input?.flatBase?.[key], DEFAULT_FARE_CONFIG.flatBase[key]))
   }
+  const tiers = {} as Record<RideTier, TierRate>
+  for (const key of RIDE_TIERS) {
+    const raw = input?.tiers?.[key]
+    const fallback = DEFAULT_FARE_CONFIG.tiers[key]
+    const base = num(raw?.base, NaN)
+    tiers[key] = {
+      rate: Math.min(500, Math.max(0, num(raw?.rate, fallback.rate))),
+      ...(Number.isFinite(base) && base > 0 ? { base } : {}),
+    }
+  }
   return {
     taxi: rule(input?.taxi, DEFAULT_FARE_CONFIG.taxi),
     daeri: rule(input?.daeri, DEFAULT_FARE_CONFIG.daeri),
     flatBase: flat,
+    tiers,
     cancel: {
       rate: Math.min(100, Math.max(0, num(input?.cancel?.rate, DEFAULT_FARE_CONFIG.cancel.rate))),
       min: Math.max(0, num(input?.cancel?.min, DEFAULT_FARE_CONFIG.cancel.min)),
@@ -87,6 +116,21 @@ export function normalizeFareConfig(input: Partial<FareConfig> | null | undefine
       krwPerPi: Math.max(1, num(input?.toll?.krwPerPi, DEFAULT_FARE_CONFIG.toll.krwPerPi)),
     },
   }
+}
+
+/** 등급별 할증 배율(소수 — 1.2 = 1.2배). 미인식·미설정 등급은 1(일반 요율). */
+export function tierFareRate(config: FareConfig, tier?: string | null): number {
+  const key = normalizeRideTier(tier)
+  const rate = key ? config.tiers?.[key]?.rate : undefined
+  return Number.isFinite(rate) && Number(rate) > 0 ? Number(rate) / 100 : 1
+}
+
+/** 등급별 기본요금(Pi) — 전용 base가 있으면 그 값, 없으면 taxi.base × 배율. */
+export function tierBaseFarePi(config: FareConfig, tier?: string | null): number {
+  const key = normalizeRideTier(tier)
+  const base = key ? config.tiers?.[key]?.base : undefined
+  if (Number.isFinite(base) && Number(base) > 0) return piRound(Number(base))
+  return piRound(config.taxi.base * tierFareRate(config, key ?? tier))
 }
 
 /** 원화 통행료(길찾기 API tollFare)를 Pi로 환산한다. */
