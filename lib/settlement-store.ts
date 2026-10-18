@@ -156,6 +156,8 @@ export async function recordSettlement(input: {
   tollPi?: number
   tollKrw?: number
   channel?: SettlementEntry['channel']
+  /** 호출부가 미리 적용한 이월 수수료 — 생략 시 여기서 자동 적용한다. */
+  carryFee?: number
 }): Promise<SettlementEntry | null> {
   if (!input.refId || !Number.isFinite(input.gross) || input.gross <= 0) return null
   const entries = await readEntries()
@@ -168,6 +170,19 @@ export async function recordSettlement(input: {
     console.warn('[settlement-store] zero commission rate at record time', { refId: input.refId, service: input.service, gross: input.gross })
   }
   const commission = piRound(input.gross * rate / 100)
+  // 타 결제 완료로 미입금된 과거 수수료를 이월·합산 차감한다 — manual 채널은
+  // 기사가 이미 현금을 수령해 플랫폼이 net을 지급하지 않으므로 차감 대상이 아니다.
+  // 호출부가 실제 송금액을 정하기 전에 선차감했다면 carryFee로 넘겨 중복 차감을 막는다.
+  const baseNet = piRound(input.gross - commission)
+  const carryFee =
+    input.carryFee !== undefined
+      ? piRound(Math.max(0, Math.min(input.carryFee, baseNet)))
+      : input.channel === 'manual' || !input.driverId
+        ? 0
+        : await import('@/lib/altpay-store')
+            .then((mod) => mod.applyAltPayCarryover(input.driverId, baseNet))
+            .then((result) => result.recovered)
+            .catch(() => 0)
   const entry: SettlementEntry = {
     id: crypto.randomUUID(),
     refId: input.refId,
@@ -175,13 +190,14 @@ export async function recordSettlement(input: {
     driverId: input.driverId,
     driverName: input.driverName,
     passengerId: input.passengerId || '',
-    memo: input.memo,
+    memo: carryFee > 0 ? `${input.memo} · 이월 수수료 ${piRound(carryFee)} Pi 차감` : input.memo,
     adminWallet,
     driverWallet: input.driverWallet?.trim() || '',
     gross: input.gross,
     rate,
     commission,
-    net: piRound(input.gross - commission),
+    carryFee: carryFee > 0 ? carryFee : undefined,
+    net: piRound(baseNet - carryFee),
     tollPi: Number.isFinite(input.tollPi) && (input.tollPi ?? 0) > 0 ? input.tollPi : undefined,
     tollKrw: Number.isFinite(input.tollKrw) && (input.tollKrw ?? 0) > 0 ? input.tollKrw : undefined,
     status: 'pending',
@@ -220,7 +236,7 @@ export async function updateSettlementEntry(id: string, patch: {
     if (!Number.isFinite(patch.gross) || patch.gross <= 0) return null
     entry.gross = piRound(patch.gross)
     entry.commission = piRound(entry.gross * entry.rate / 100)
-    entry.net = piRound(entry.gross - entry.commission)
+    entry.net = piRound(entry.gross - entry.commission - (entry.carryFee ?? 0))
   }
   if (typeof patch.memo === 'string' && patch.memo.trim()) entry.memo = patch.memo.trim()
   if (typeof patch.driverId === 'string' && patch.driverId.trim()) entry.driverId = patch.driverId.trim()
@@ -247,7 +263,7 @@ export async function healZeroCommissionEntries(rates: CommissionRates): Promise
     if (entry.commission > 0) continue
     entry.rate = expected
     entry.commission = piRound(entry.gross * expected / 100)
-    entry.net = piRound(entry.gross - entry.commission)
+    entry.net = piRound(entry.gross - entry.commission - (entry.carryFee ?? 0))
     healed += 1
   }
   if (healed) await writeEntries(entries)

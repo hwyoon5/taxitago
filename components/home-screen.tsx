@@ -2557,6 +2557,7 @@ function TaxiMatchingSheet({
   onClose,
   onNotice,
   onSettle,
+  onAltSettle,
   onAskReview,
   onReceipt,
   onActivity,
@@ -2575,6 +2576,8 @@ function TaxiMatchingSheet({
   onClose: () => void
   onNotice: (message: string) => void
   onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string, refund?: { amount: number; txid: string; label: string }) => void
+  /** 타 결제 수단 완료의 로컬 장부 기록 — Pi 증명 대신 'altpay:<method>:<id>' 마커. */
+  onAltSettle?: (amount: number, place: string, label: string, estimated: number | undefined, marker: string, rideId?: string) => void
   onAskReview: (target: RideReviewTarget) => void
   onReceipt: (ride: RideReceipt) => void
   onActivity?: (label: string, detail: string) => void
@@ -3036,6 +3039,87 @@ function TaxiMatchingSheet({
       .finally(() => setAccepting(false))
   }
 
+  // 타 결제 수단 완료 — Pi 결제 실패가 지정 조건(잔액 부족 1회·통신 오류 2회)을
+  // 채우면 노출된다. 서버가 현장 수동 정산으로 마감하고 onsitePayId를 돌려준다.
+  const [altPayRide, setAltPayRide] = useState<{ amount: number; reason: string } | null>(null)
+  const [altPayBusy, setAltPayBusy] = useState(false)
+
+  const reportTaxiPayFail = (error: unknown) => {
+    const rideId = ride?.id || rideIdRef.current
+    if (!rideId) return
+    const userId = passengerIdRef.current || loadPiIdentity()?.uid || localPassengerId()
+    const amount = phase === 'moving' ? billed.actual : fare
+    void fetch('/api/altpay/fail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        service: ride?.kind === 'daeri' ? 'daeri' : 'taxi',
+        refId: rideId,
+        amount,
+        reason: error instanceof Error ? error.message : String(error ?? ''),
+        detail: describePiUserMessage(error),
+      }),
+      cache: 'no-store',
+    })
+      .then((res) => res.json().catch(() => null))
+      .then((data: { eligibility?: { allowed?: boolean; reason?: string } } | null) => {
+        if (data?.eligibility?.allowed) {
+          setAltPayRide({ amount, reason: data.eligibility.reason || '결제 실패 조건 충족' })
+        }
+      })
+      .catch(() => undefined)
+  }
+
+  const completeTaxiAltPay = async (method: 'card' | 'cash' | 'bank') => {
+    const rideId = ride?.id || rideIdRef.current
+    const driverId = ride?.assignedDriver?.id
+    const offer = altPayRide
+    if (!rideId || !driverId || !offer || altPayBusy) return
+    setAltPayBusy(true)
+    try {
+      const userId = passengerIdRef.current || loadPiIdentity()?.uid || localPassengerId()
+      const res = await fetch('/api/altpay/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, kind: 'ride', refId: rideId, method }),
+        cache: 'no-store',
+      })
+      const data = (await res.json().catch(() => null)) as { onsitePayId?: string; record?: { id: string }; error?: string } | null
+      if (!res.ok || !data?.onsitePayId) {
+        onNotice(t('altpay.failNotice'))
+        return
+      }
+      setAltPayRide(null)
+      const finished = await completeRideTrip(rideId, driverId, ride ?? undefined, { onsitePayId: data.onsitePayId })
+      if (finished.ride) setRide(finished.ride)
+      if (!settledRef.current) {
+        settledRef.current = true
+        onAltSettle?.(
+          finished.receipt?.amount && finished.receipt.amount > 0 ? finished.receipt.amount : offer.amount,
+          route,
+          '택시 결제',
+          billed.estimate,
+          `altpay:${method}:${data.record?.id || ''}`,
+          rideId,
+        )
+      }
+      onAskReview({
+        rideId,
+        raterId: passengerIdRef.current || localPassengerId(),
+        raterRole: 'passenger',
+        targetName: assigned?.name || '기사',
+        vehicle: assigned?.vehicle,
+        plate: assigned?.plate,
+      })
+      onNotice(t('altpay.doneNotice'))
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : t('altpay.fail'))
+    } finally {
+      setAltPayBusy(false)
+    }
+  }
+
   const finishPassengerTrip = () => {
     if (accepting || payingRef.current || settledRef.current) return
     if (!ride?.readyToSettleAt) {
@@ -3079,10 +3163,14 @@ function TaxiMatchingSheet({
       if (!ride.b2bBilled && ride.escrow?.status !== 'held' && ride.escrow?.status !== 'released') {
         // 이용 종료 시점 Pi SDK 직결제 — 승객 지갑에서 플랫폼 에스크로로 결제되고,
         // 서버가 완료 검증 후 수수료 공제·기사 정산을 기록한다.
+        // 결제 자체 실패는 타 결제 자격 집계에 신고한 뒤 상위 catch로 올린다.
         proof = await startPiCheckout({
           amount,
           memo: `택시 요금 ${amount} Pi`.slice(0, 25),
           metadata: { kind: 'escrow-lock', rideId: ride.id, label: '택시 이용' },
+        }).catch((payError) => {
+          reportTaxiPayFail(payError)
+          throw payError
         })
       }
       const result = await completeRideTrip(
@@ -3424,6 +3512,31 @@ function TaxiMatchingSheet({
                 <button type="button" disabled={accepting || !ride?.readyToSettleAt} aria-busy={accepting} onClick={finishPassengerTrip} className="pointer-events-auto w-full rounded-2xl bg-[#047857] py-4 text-lg font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
                   {accepting ? t('match.paying') : ride?.readyToSettleAt ? t('match.complete') : ride?.boardedAt ? t('match.completeWaitArrive') : t('match.completeWaitBoard')}
                 </button>
+                {altPayRide ? (
+                  <div className="rounded-2xl border-2 border-[#99F6E4] bg-[#F0FDFA] p-3">
+                    <p className="text-[11px] font-black text-[#0F766E]">{t('altpay.available', { reason: altPayRide.reason })}</p>
+                    <p className="mt-0.5 text-[10px] font-bold text-[#475569]">{t('altpay.driverHint')}</p>
+                    <div className="mt-2 grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          ['card', t('altpay.card')],
+                          ['cash', t('altpay.cash')],
+                          ['bank', t('altpay.bank')],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          disabled={altPayBusy}
+                          onClick={() => void completeTaxiAltPay(id)}
+                          className="rounded-xl bg-[#0F766E] py-2 text-[11px] font-black text-white disabled:opacity-60"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </RideCompleteCancelBar>
             )}
           </div>
@@ -3587,6 +3700,7 @@ function ServiceSheet({
   onNotice,
   onPay,
   onSettle,
+  onAltSettle,
   onAskReview,
   initialPhase = 'idle',
   daeriTrip,
@@ -3607,6 +3721,8 @@ function ServiceSheet({
   onNotice: (message: string) => void
   onPay: (amount: number, place: string, label: string, estimated?: number) => boolean | Promise<boolean>
   onSettle: (amount: number, place: string, label: string, estimated: number | undefined, proof: { paymentId: string; txid: string }, rideId?: string, refund?: { amount: number; txid: string; label: string }) => void
+  /** 타 결제 수단 완료의 로컬 장부 기록 — Pi 증명 대신 'altpay:<method>:<id>' 마커. */
+  onAltSettle?: (amount: number, place: string, label: string, estimated: number | undefined, marker: string, rideId?: string) => void
   onAskReview: (driver: { name: string; vehicle: string; plate: string }) => void
   initialPhase?: 'idle' | 'matching' | 'assigned'
   daeriTrip?: DaeriTrip | null
@@ -4147,6 +4263,120 @@ function ServiceSheet({
         }
       })
       .catch(() => undefined)
+    // 미수 신고는 서버에서 타 결제 자격 집계에도 반영된다 — 자격이 생겼으면
+    // 안내 시트에 '타 결제 수단으로 이용 완료' 버튼을 표시한다.
+    void fetch(`/api/altpay/status?uid=${encodeURIComponent(identity?.uid || daeriPassengerIdRef.current || localPassengerId())}`, { cache: 'no-store' })
+      .then((res) => res.json().catch(() => null))
+      .then((data: { eligibility?: { allowed?: boolean; reason?: string } } | null) => {
+        if (data?.eligibility?.allowed && data.eligibility.reason) {
+          setReceivableNotice((prev) => (prev ? { ...prev, altPayReason: data.eligibility!.reason } : prev))
+        }
+      })
+      .catch(() => undefined)
+  }
+
+  /**
+   * 타 결제 수단 이용 완료(셀프 서비스) — 자격 조건을 통과한 결제 실패 건만
+   * 서버가 받아들인다. 수수료는 제공자의 미입금 장부로 이월되고, 이용자 측은
+   * 실결제 txid 대신 altpay: 마커로 이용 내역을 기록한다.
+   */
+  const completeAltPayService = async (method: 'card' | 'cash' | 'bank') => {
+    const identity = loadPiIdentity()
+    const userId = identity?.uid || daeriPassengerIdRef.current || localPassengerId()
+    const res = await fetch('/api/altpay/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        kind: 'service',
+        service: settleServiceKey,
+        deviceId: selectedDevice?.serial || rentalSerialRef.current || '',
+        providerId: selectedDevice?.ownerUid || '',
+        providerName: selectedDevice?.ownerName || '',
+        amount: chargeAmount,
+        method,
+      }),
+      cache: 'no-store',
+    }).catch(() => null)
+    const data = (await res?.json().catch(() => null)) as { record?: { id: string }; locked?: boolean; error?: string } | null
+    if (!res?.ok || !data?.record) {
+      onNotice(t('altpay.failNotice'))
+      return
+    }
+    setReceivableNotice(null)
+    if (vehicle) releaseRental()
+    onNotice(t('altpay.doneNotice'))
+    onAltSettle?.(
+      chargeAmount,
+      place,
+      `${service} 이용`,
+      ride ? billed.estimate : undefined,
+      `altpay:${method}:${data.record.id}`,
+      dispatchRide?.id || daeriRideIdRef.current || undefined,
+    )
+  }
+
+  /**
+   * 배차된 운행(대리/택시 호출)의 승객 결제 실패 — 서버에 실패를 적재하고
+   * 자격(잔액 부족 1회·통신 오류 2회)이 충족되면 '타 결제로 이용 완료'를 띄운다.
+   */
+  const [altPayRide, setAltPayRide] = useState<{ rideId: string; driverId: string; amount: number; reason: string } | null>(null)
+  const [altPayRideBusy, setAltPayRideBusy] = useState(false)
+
+  const reportRidePayFail = (error: unknown, rideId: string, driverId: string, amount: number) => {
+    onNotice(describePiUserMessage(error))
+    const userId = loadPiIdentity()?.uid || daeriPassengerIdRef.current || localPassengerId()
+    void fetch('/api/altpay/fail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        service: settleServiceKey,
+        refId: rideId,
+        amount,
+        reason: error instanceof Error ? error.message : String(error ?? ''),
+        detail: describePiUserMessage(error),
+      }),
+      cache: 'no-store',
+    })
+      .then((res) => res.json().catch(() => null))
+      .then((data: { eligibility?: { allowed?: boolean; reason?: string } } | null) => {
+        if (data?.eligibility?.allowed) {
+          setAltPayRide({ rideId, driverId, amount, reason: data.eligibility.reason || '결제 실패 조건 충족' })
+        }
+      })
+      .catch(() => undefined)
+  }
+
+  /** 배차 운행의 타 결제 완료 — 서버가 현장 수동 정산(manual-pay)으로 마감하고
+   *  반환된 onsitePayId로 기존 운행 완료 경로를 탄다(에스크로 없이 완료). */
+  const completeRideAltPay = async (method: 'card' | 'cash' | 'bank') => {
+    const offer = altPayRide
+    if (!offer || altPayRideBusy) return
+    setAltPayRideBusy(true)
+    try {
+      const userId = loadPiIdentity()?.uid || daeriPassengerIdRef.current || localPassengerId()
+      const res = await fetch('/api/altpay/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, kind: 'ride', refId: offer.rideId, method }),
+        cache: 'no-store',
+      })
+      const data = (await res.json().catch(() => null)) as { onsitePayId?: string; record?: { id: string }; error?: string } | null
+      if (!res.ok || !data?.onsitePayId) {
+        onNotice(t('altpay.failNotice'))
+        return
+      }
+      setAltPayRide(null)
+      const finished = await completeRideTrip(offer.rideId, offer.driverId, dispatchRide ?? undefined, { onsitePayId: data.onsitePayId }).catch(() => null)
+      if (finished?.ride) setDispatchRide(finished.ride)
+      daeriSheetRideId = ''
+      onNotice(t('altpay.doneNotice'))
+      onAltSettle?.(offer.amount, place, `${service} 이용`, billed.estimate, `altpay:${method}:${data.record?.id || ''}`, offer.rideId)
+      onAskReview(partner)
+    } finally {
+      setAltPayRideBusy(false)
+    }
   }
   /**
    * EV 충전 선결제 예치 세션 생성 — 예치금·단가는 서버가 요금 설정과
@@ -5297,11 +5527,44 @@ function ServiceSheet({
                     onSettle(paid, place, `${service} 이용`, billed.estimate, result, rideId)
                     onAskReview(partner)
                   }}
-                  onFailed={(error) => onNotice(describePiUserMessage(error))}
+                  onFailed={(error) => {
+                    const failRideId = dispatchRide?.id || daeriRideIdRef.current
+                    const failDriverId = dispatchRide?.assignedDriver?.id || ''
+                    if (failRideId && failDriverId) {
+                      reportRidePayFail(error, failRideId, failDriverId, rideStage === 'moving' ? billed.actual : fare)
+                    } else {
+                      onNotice(describePiUserMessage(error))
+                    }
+                  }}
                 >
                   {t('match.complete')}
                 </PiCheckoutButton>
                 )}
+                {altPayRide ? (
+                  <div className="rounded-2xl border-2 border-[#99F6E4] bg-[#F0FDFA] p-3">
+                    <p className="text-[11px] font-black text-[#0F766E]">{t('altpay.available', { reason: altPayRide.reason })}</p>
+                    <p className="mt-0.5 text-[10px] font-bold text-[#475569]">{t('altpay.driverHint')}</p>
+                    <div className="mt-2 grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          ['card', t('altpay.card')],
+                          ['cash', t('altpay.cash')],
+                          ['bank', t('altpay.bank')],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          disabled={altPayRideBusy}
+                          onClick={() => void completeRideAltPay(id)}
+                          className="rounded-xl bg-[#0F766E] py-2 text-[11px] font-black text-white disabled:opacity-60"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </RideCompleteCancelBar>
               )
             ) : (
@@ -5709,7 +5972,9 @@ function ServiceSheet({
           }}
         />
       ) : null}
-      {receivableNotice ? <ReceivableNoticeSheet notice={receivableNotice} onClose={() => setReceivableNotice(null)} /> : null}
+      {receivableNotice ? (
+        <ReceivableNoticeSheet notice={receivableNotice} onClose={() => setReceivableNotice(null)} onAltPay={completeAltPayService} />
+      ) : null}
       {cancelConfirmOpen && ride ? (
         <InTripCancelConfirmModal
           quoted={cancelSettlement.quoted}
@@ -12265,6 +12530,44 @@ export default function HomeScreen() {
       setRecentUse(next)
     }
   }
+  /**
+   * 타 결제 수단 완료의 로컬 장부 기록 — Pi 증명(paymentId/txid)이 아니라
+   * 'altpay:<method>:<recordId>' 마커로만 남겨 실결제 txid와 섞이지 않게 한다.
+   * 서버 장부(altpay-records·manual-pay·정산)는 /api/altpay/complete가 기록하며
+   * 여기서는 이용자 화면의 영수증·최근 이용만 갱신한다.
+   */
+  const noteAltPayLedger = (
+    amount: number,
+    place: string,
+    label: string,
+    estimated: number | undefined,
+    marker: string,
+    rideId?: string,
+  ) => {
+    if (!marker || isSettledPayment(marker)) return
+    markSettledPayment(marker)
+    if (rideId) markSettledRide(rideId)
+    const at = formatPiTime()
+    const ts = Date.now()
+    setTransactions((items) => [{ label, amount: -amount, detail: `${place} · ${at} · 타 결제 수단`, place, at, ts, estimated, txid: marker }, ...items])
+    recordActivity('타 결제 완료', `${label} · ${amount.toFixed(7)} Pi · ${place}`)
+    setPaymentDone({ amount, place, estimated, paymentId: marker, txid: marker })
+    emitLedgerChange()
+    const from = origin.address.trim() || '현재 위치'
+    const tripDest = (destPlace?.address || destPlace?.label || destination).trim()
+    let route = place.trim()
+    if (!route.includes('→')) route = `${from} → ${route || tripDest || label}`
+    const next: RecentUse = {
+      route,
+      fare: amount,
+      service: `${label.replace(/\s*(이용|결제)$/, '').trim() || label}(타 결제)`,
+      at,
+      paymentId: marker,
+      txid: marker,
+    }
+    saveRecentUse(next)
+    setRecentUse(next)
+  }
   // 기사가 먼저 정산했거나 앱을 다시 연 뒤 완료가 확인된 운행도 홈 '최근 이용'과
   // 활동 기록/지갑 내역에 동기화한다. 수동 결제 경로와 rideId 중복 방지를 공유한다.
   const noteCompletedRide = (rideId: string, receipt: SettlementReceipt, label: string) => {
@@ -12982,6 +13285,7 @@ export default function HomeScreen() {
             }}
             onNotice={showNotice}
             onSettle={settlePiLedger}
+            onAltSettle={noteAltPayLedger}
             onAskReview={setRideReview}
             onReceipt={setReceiptRide}
             onActivity={recordActivity}
@@ -13006,6 +13310,7 @@ export default function HomeScreen() {
             onNotice={showNotice}
             onPay={payWithPi}
             onSettle={settlePiLedger}
+            onAltSettle={noteAltPayLedger}
             onAskReview={setDriverReview}
             onSelectService={openService}
             initialPhase={selectedService === '대리운전' && daeriTrip ? 'matching' : 'idle'}

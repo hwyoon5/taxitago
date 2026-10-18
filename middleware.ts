@@ -17,7 +17,11 @@ export function middleware(request: NextRequest) {
     pathname === '/api/partner/link' ||
     pathname === '/api/drivers/active' ||
     pathname === '/api/drivers/earnings' ||
-    pathname === '/api/drivers/insights'
+    pathname === '/api/drivers/insights' ||
+    pathname === '/api/altpay/fail' ||
+    pathname === '/api/altpay/status' ||
+    pathname === '/api/altpay/complete' ||
+    pathname === '/api/admin/altpay'
   ) {
     const url = request.nextUrl.clone()
     url.pathname = `${pathname}/`
@@ -76,5 +80,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/geocode', '/api/pi/approve', '/api/pi/complete', '/api/pi/auth', '/api/escrow/lock', '/api/partner/link', '/api/drivers/active', '/api/drivers/earnings', '/api/drivers/insights', '/api/deliveries', '/api/deliveries/:id', '/api/deliveries/:id/accept', '/api/trips', '/api/trips/:id/activate', '/api/trips/:id/cancel', '/api/rides/:id/cancel', '/api/rides/:id/progress', '/api/rides/:id/abandon', '/api/rides/:id/complete', '/api/naver-maps/upstream/:path*'],
+  matcher: ['/api/geocode', '/api/pi/approve', '/api/pi/complete', '/api/pi/auth', '/api/escrow/lock', '/api/partner/link', '/api/drivers/active', '/api/drivers/earnings', '/api/drivers/insights', '/api/altpay/fail', '/api/altpay/status', '/api/altpay/complete', '/api/admin/altpay', '/api/deliveries', '/api/deliveries/:id', '/api/deliveries/:id/accept', '/api/trips', '/api/trips/:id/activate', '/api/trips/:id/cancel', '/api/rides/:id/cancel', '/api/rides/:id/progress', '/api/rides/:id/abandon', '/api/rides/:id/complete', '/api/naver-maps/upstream/:path*'],
 }

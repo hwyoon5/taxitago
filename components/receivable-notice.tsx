@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { AlertTriangle, Headset, Mail, Phone, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { SUPPORT_EMAIL, SUPPORT_MAILTO, SUPPORT_PHONE, SUPPORT_TEL } from '@/lib/contact-info'
@@ -21,6 +22,8 @@ export type ReceivableNotice = {
   points?: number
   /** 이용 제한 해제 시각 — 제한 중이면 ISO 문자열 */
   restrictedUntil?: string | null
+  /** 타 결제 수단 완료 자격 — '잔액 부족 1회' 또는 '통신·기타 오류 2회' 충족 시 표시 */
+  altPayReason?: string | null
 }
 
 /**
@@ -33,11 +36,16 @@ export type ReceivableNotice = {
 export default function ReceivableNoticeSheet({
   notice,
   onClose,
+  onAltPay,
 }: {
   notice: ReceivableNotice
   onClose: () => void
+  /** 타 결제 수단(카드·현금·계좌이체)으로 이용 완료 처리 — 자격이 있을 때만 버튼이 뜬다 */
+  onAltPay?: (method: 'card' | 'cash' | 'bank') => void | Promise<void>
 }) {
   const { t } = useLocale()
+  const [altMethod, setAltMethod] = useState<'card' | 'cash' | 'bank'>('card')
+  const [altBusy, setAltBusy] = useState(false)
   const insufficient = notice.reason === 'insufficient'
   const title = insufficient ? t('recv.titleInsufficient') : t('recv.titleFailed')
 
@@ -88,6 +96,46 @@ export default function ReceivableNoticeSheet({
               ? `\n${t('recv.restricted', { until: new Date(notice.restrictedUntil).toLocaleDateString() })}`
               : ''}
           </p>
+        ) : null}
+
+        {/* 타 결제 수단 완료 — 지정 조건(잔액 부족 1회·통신 오류 2회) 충족 시에만 노출된다.
+            완료 시 발생하는 수수료는 제공자의 미입금 수수료 장부에 이월된다. */}
+        {notice.altPayReason && onAltPay ? (
+          <div className="mt-3 rounded-2xl border-2 border-[#99F6E4] bg-[#F0FDFA] p-4">
+            <p className="text-[11px] font-black text-[#0F766E]">{t('recv.altpayTitle')}</p>
+            <p className="mt-1 text-[11px] font-bold leading-4 text-[#475569]">
+              {t('recv.altpayDesc', { reason: notice.altPayReason })}
+            </p>
+            <div className="mt-2.5 grid grid-cols-3 gap-1.5">
+              {(
+                [
+                  ['card', t('altpay.card')],
+                  ['cash', t('altpay.cash')],
+                  ['bank', t('altpay.bank')],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setAltMethod(id)}
+                  className={`rounded-xl py-2 text-[12px] font-black ${altMethod === id ? 'bg-[#0F766E] text-white' : 'border border-[#99F6E4] bg-white text-[#0F766E]'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              disabled={altBusy}
+              onClick={() => {
+                setAltBusy(true)
+                void Promise.resolve(onAltPay(altMethod)).finally(() => setAltBusy(false))
+              }}
+              className="mt-2.5 w-full rounded-2xl bg-[#0F766E] py-3 text-sm font-black text-white disabled:opacity-60"
+            >
+              {altBusy ? t('altpay.busy') : t('recv.altpayDone')}
+            </button>
+          </div>
         ) : null}
 
         {/* 제공자·고객센터 연락처 */}

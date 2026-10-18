@@ -86,6 +86,16 @@ export async function POST(request: Request) {
       amount: typeof body.amount === 'number' ? body.amount : undefined,
       detail: typeof body.service === 'string' ? body.service : '',
     }).catch(() => undefined)
+    // 타 결제 수단 자격 집계 — 미수 신고도 결제 실패로 분류해 자격 원천으로 쓴다.
+    const { recordAltPayFail } = await import('@/lib/altpay-store')
+    void recordAltPayFail({
+      userId: reportedUid,
+      service: typeof body.serviceKey === 'string' ? body.serviceKey : typeof body.service === 'string' ? body.service : '',
+      refId: typeof body.deviceId === 'string' ? body.deviceId : '',
+      amount: typeof body.amount === 'number' ? body.amount : null,
+      reason: typeof body.reason === 'string' ? body.reason : '',
+      detail: typeof body.detail === 'string' ? body.detail : '',
+    }).catch(() => undefined)
   }
   const restricted =
     result.penalty?.restrictedUntil && Date.parse(result.penalty.restrictedUntil) > Date.now()

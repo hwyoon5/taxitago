@@ -326,7 +326,15 @@ export async function releaseEscrow(
   const settleService: SettlementService = ride.kind === 'daeri' ? 'daeri' : 'taxi'
   const settleRate = (await getCommissionRates().catch(() => null))?.[settleService] ?? 0
   const commission = piRound(settleAmount * settleRate / 100)
-  const payoutAmount = piRound(settleAmount - commission)
+  // 타 결제 완료로 미입금된 과거 수수료의 이월·합산 차감 — 기사 net에서
+  // 누적 잔액만큼 먼저 회수해 이번 수수료와 함께 플랫폼 몫으로 남긴다.
+  // 실제 A2U 송금액이 정해지기 전에 선차감하고, recordSettlement에는
+  // carryFee로 넘겨 장부 net이 실제 송금액과 정확히 일치하게 한다.
+  const carry = await import('@/lib/altpay-store')
+    .then((mod) => mod.applyAltPayCarryover(driverId, piRound(settleAmount - commission)))
+    .catch(() => ({ recovered: 0, balanceAfter: 0, unlocked: false }))
+  const carryFee = carry.recovered
+  const payoutAmount = piRound(settleAmount - commission - carryFee)
 
   const target = driverPayoutTarget(driverId)
   let payoutTxid = `a2u-${escrow.id.slice(0, 10)}`
@@ -342,6 +350,13 @@ export async function releaseEscrow(
       payoutTxid = payment.transaction?.txid || payment.identifier || payoutTxid
       payoutSent = true
     } catch (error) {
+      // net 송금이 실패해 정산 장부가 남지 않으면 회수한 이월 수수료를 되돌린다 —
+      // 그대로 두면 장부상 회수됐지만 실제 차감은 없는 고아 회수분이 된다.
+      if (!isPiSandboxEnv() && carryFee > 0) {
+        await import('@/lib/altpay-store')
+          .then((mod) => mod.revertAltPayCarryover(driverId, carryFee, carry.unlocked))
+          .catch(() => undefined)
+      }
       if (!isPiSandboxEnv()) throw error
     }
   }
@@ -405,6 +420,7 @@ export async function releaseEscrow(
     tollPi: tollPi || undefined,
     tollKrw: ride.tollKrw ?? undefined,
     channel: 'inapp',
+    carryFee,
   }).catch(() => null)
   // net 송금이 온체인에서 확인됐으면 장부도 즉시 '정산 완료'로 마감하고
   // 송금 txid를 장부에 남겨 기사 net 송금과 수수료 귀속의 증거를 연결한다.

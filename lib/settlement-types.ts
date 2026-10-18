@@ -19,6 +19,8 @@ export type SettlementEntry = {
   net: number
   /** gross에 포함된 유료도로 통행료 항목(Pi) — 0/없음이면 무료 구간. */
   tollPi?: number
+  /** 타 결제 완료로 미입금된 과거 수수료의 이월 차감액 — net = gross - commission - carryFee. */
+  carryFee?: number
   /** 길찾기 API가 산출한 원화 통행료(표시·감사용). */
   tollKrw?: number
   status: 'pending' | 'settled'

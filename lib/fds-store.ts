@@ -49,7 +49,8 @@ export type FdsAlert = {
 
 export type FdsBlock = {
   at: string
-  by: 'fds' | 'admin'
+  /** 차단 출처 — 'fds' 자동 룰, 'admin' 수동, 'altpay' 타 결제 수수료 이월 */
+  by: 'fds' | 'admin' | 'altpay'
   reason: string
   /** 없으면 수동 영구 차단. */
   until?: string
@@ -296,8 +297,35 @@ export async function fdsBlockManually(actorId: string, input: { reason: string;
   return { ok: true as const }
 }
 
-/** 차단 해제 — FDS 블록과 'FDS'가 건 레지스트리 정지를 함께 푼다.
- *  관리자가 별도로 건 정지(lockedBy ≠ FDS)는 건드리지 않는다. */
+/** 외부 시스템 차단 적용 — 타 결제 수수료 이월 같은 별도 룰 엔진이
+ *  기존 게이트(isUserLocked/fdsBlockStatus)를 재사용할 수 있게 한다. */
+export async function fdsBlockApply(actorId: string, input: { by: 'fds' | 'admin' | 'altpay'; reason: string; until?: string }) {
+  const id = actorId.trim()
+  if (!id) return { ok: false as const, error: 'actor_required' }
+  const blocks = await readBlocks()
+  blocks[id] = { at: new Date().toISOString(), by: input.by, reason: input.reason.slice(0, 200), until: input.until }
+  await writeBlocks(blocks)
+  const registryUser = await getRegistryUser(id).catch(() => null)
+  if (registryUser && !registryUser.withdrawnAt) {
+    await setUserLock(id, true, { by: input.by.toUpperCase(), reason: input.reason, until: input.until }).catch(() => undefined)
+  }
+  return { ok: true as const }
+}
+
+/** 출처가 일치하는 블록만 제거 — 타 결제 자동 해제가 FDS/관리자 차단을 건드리지 않게 한다. */
+export async function fdsBlockClearBy(actorId: string, byList: FdsBlock['by'][]) {
+  const id = actorId.trim()
+  const blocks = await readBlocks()
+  const block = blocks[id]
+  if (block && byList.includes(block.by)) {
+    delete blocks[id]
+    await writeBlocks(blocks)
+  }
+  return { ok: true as const }
+}
+
+/** 차단 해제 — FDS 블록과 'FDS'·'ALTPAY'가 건 레지스트리 정지를 함께 푼다.
+ *  관리자가 별도로 건 정지(다른 lockedBy)는 건드리지 않는다. */
 export async function fdsRelease(actorId: string) {
   const id = actorId.trim()
   const blocks = await readBlocks()
@@ -306,7 +334,7 @@ export async function fdsRelease(actorId: string) {
     await writeBlocks(blocks)
   }
   const registryUser = await getRegistryUser(id).catch(() => null)
-  if (registryUser?.lockedAt && registryUser.lockedBy === 'FDS') {
+  if (registryUser?.lockedAt && (registryUser.lockedBy === 'FDS' || registryUser.lockedBy === 'ALTPAY')) {
     await setUserLock(id, false).catch(() => undefined)
   }
   // 해제 직후 남은 시그널로 즉시 재차단되는 것을 막는다 — 대상의 시그널을 정리.

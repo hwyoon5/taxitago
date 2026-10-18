@@ -26,6 +26,7 @@ import AdminCoupons from '@/components/admin-coupons'
 import AdminAnalytics from '@/components/admin-analytics'
 import AdminLiveDashboard from '@/components/admin-live'
 import AdminReceivables from '@/components/admin-receivables'
+import AdminAltPay from '@/components/admin-altpay'
 import AdminCompliance from '@/components/admin-compliance'
 import AttachmentGallery from '@/components/photo-gallery'
 import { positionDisplayLabel } from '@/lib/staff-positions'
@@ -57,7 +58,7 @@ const ADMIN_ID = 'ops-admin'
 const STATUSES: TicketStatus[] = ['received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 const STATUS_FILTERS: (TicketStatus | 'all')[] = ['all', 'received', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed']
 
-const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'fds', 'partners', 'compliance', 'devices', 'ev', 'fare', 'ledger', 'assets', 'receivable', 'payouts', 'b2b', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
+const ADMIN_VIEWS = ['live', 'report', 'inbox', 'users', 'sanction', 'fds', 'partners', 'compliance', 'devices', 'ev', 'fare', 'ledger', 'assets', 'receivable', 'altpay', 'payouts', 'b2b', 'coupons', 'notice', 'staff', 'audit', 'memo', 'shift'] as const
 type AdminView = (typeof ADMIN_VIEWS)[number]
 
 const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
@@ -75,6 +76,7 @@ const ADMIN_VIEW_LABEL: Record<AdminView, string> = {
   ledger: '정산 내역',
   assets: '에스크로·자산',
   receivable: '미수금',
+  altpay: '타 결제·이월',
   payouts: '출금 요청',
   b2b: '법인·B2B',
   coupons: '쿠폰 관리',
@@ -114,7 +116,7 @@ const ADMIN_MENU_GROUPS: {
     card: 'border-[#BBF7D0] bg-[#F0FDF4]',
     heading: 'text-[#15803D]',
     active: 'bg-[#15803D] text-white shadow-[0_6px_14px_rgba(21,128,61,0.3)]',
-    tabs: ['fare', 'ledger', 'assets', 'receivable', 'payouts', 'b2b'],
+    tabs: ['fare', 'ledger', 'assets', 'receivable', 'altpay', 'payouts', 'b2b'],
   },
   {
     id: 'support',
@@ -627,6 +629,8 @@ export default function AdminSupportDesk() {
         <AdminAssets />
       ) : view === 'receivable' ? (
         <AdminReceivables />
+      ) : view === 'altpay' ? (
+        <AdminAltPay />
       ) : view === 'payouts' ? (
         <AdminPayouts />
       ) : view === 'b2b' ? (

@@ -118,6 +118,22 @@ const nextConfig = {
           source: '/api/drivers/insights',
           destination: '/api/drivers/insights/',
         },
+        {
+          source: '/api/altpay/fail',
+          destination: '/api/altpay/fail/',
+        },
+        {
+          source: '/api/altpay/status',
+          destination: '/api/altpay/status/',
+        },
+        {
+          source: '/api/altpay/complete',
+          destination: '/api/altpay/complete/',
+        },
+        {
+          source: '/api/admin/altpay',
+          destination: '/api/admin/altpay/',
+        },
       ],
     }
   },
