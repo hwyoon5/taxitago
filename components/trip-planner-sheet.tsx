@@ -7,6 +7,9 @@ import type { Trip, TripLeg, TripLegStatus } from '@/lib/trip-planner'
 import { searchPlacesFromApi, type SearchedPlace } from '@/lib/geocode-client'
 import { listNearbyServiceSpots } from '@/lib/nearby-services'
 import { piText } from '@/lib/pi-format'
+import { haversineKm } from '@/lib/dispatch-geo'
+import { DELIVERY_VEHICLES, estimateDeliveryFare, PACKAGE_SIZES, type DeliveryVehicle, type PackageSizeId } from '@/lib/delivery-fare'
+import type { MessageKey } from '@/lib/i18n'
 import { useLocale } from '@/components/locale-provider'
 import type { PublicRide } from '@/lib/dispatch-types'
 
@@ -20,6 +23,20 @@ const LEG_TONE: Record<TripLegStatus, string> = {
   completed: 'bg-[#0F172A] text-white',
   cancelled: 'bg-[#F1F5F9] text-[#94A3B8] line-through',
   failed: 'bg-[#FEE2E2] text-[#B91C1C]',
+}
+
+const DELIVERY_VEHICLE_KEYS: Record<DeliveryVehicle, MessageKey> = {
+  오토바이: 'svc.veh.moto',
+  다마스: 'svc.veh.damas',
+  '1톤 트럭': 'svc.veh.truck',
+}
+
+const PACKAGE_SIZE_KEYS: Record<PackageSizeId, { label: MessageKey; hint: MessageKey }> = {
+  document: { label: 'svc.pkg.document', hint: 'svc.pkg.documentHint' },
+  small: { label: 'svc.pkg.small', hint: 'svc.pkg.smallHint' },
+  medium: { label: 'svc.pkg.medium', hint: 'svc.pkg.mediumHint' },
+  large: { label: 'svc.pkg.large', hint: 'svc.pkg.largeHint' },
+  xlarge: { label: 'svc.pkg.xlarge', hint: 'svc.pkg.xlargeHint' },
 }
 
 const fmtTime = (iso?: string | null) => {
@@ -117,6 +134,7 @@ export default function TripPlannerSheet({
 
   // 새 여정 입력 상태
   const [dest, setDest] = useState<PlacePick | null>(null)
+  const [rideKind, setRideKind] = useState<'taxi' | 'daeri'>('taxi')
   const [departIn, setDepartIn] = useState(0) // 분
   const [addEv, setAddEv] = useState(false)
   const [evStationId, setEvStationId] = useState('')
@@ -126,6 +144,15 @@ export default function TripPlannerSheet({
   const [delivLabel, setDelivLabel] = useState('')
   const [delivFare, setDelivFare] = useState('3')
   const [delivPickup, setDelivPickup] = useState<'depart' | 'arrival'>('depart')
+  const [delivVehicle, setDelivVehicle] = useState<DeliveryVehicle>('오토바이')
+  const [delivPkg, setDelivPkg] = useState<PackageSizeId>('small')
+  // 차량·규격·배송지가 바뀌면 단독 택배와 같은 견적식으로 요금 제안값을 채운다.
+  const [fareTouched, setFareTouched] = useState(false)
+  useEffect(() => {
+    if (!addDelivery || !delivDest || fareTouched) return
+    const km = haversineKm({ lat: originLat, lng: originLng }, { lat: delivDest.lat, lng: delivDest.lng })
+    setDelivFare(estimateDeliveryFare(delivVehicle, delivPkg, km).toFixed(2))
+  }, [addDelivery, delivDest, delivVehicle, delivPkg, fareTouched, originLat, originLng])
   const [planned, setPlanned] = useState<Trip | null>(null)
 
   const evSpots = useMemo(
@@ -160,6 +187,7 @@ export default function TripPlannerSheet({
       const legs: Partial<TripLeg>[] = [
         {
           kind: 'ride',
+          rideKind,
           pickup: { lat: originLat, lng: originLng, address: originAddress },
           dest: dest ? { lat: dest.lat, lng: dest.lng, address: dest.address, label: dest.label } : undefined,
         },
@@ -184,6 +212,8 @@ export default function TripPlannerSheet({
           destLat: delivDest.lat,
           destLng: delivDest.lng,
           packageLabel: delivLabel || '소포',
+          packageSize: delivPkg,
+          vehicle: delivVehicle,
           fare: Number(delivFare) || 0,
           // 'arrival' 선택 시 scheduledAt을 비워 서버 제안값(도착 시각)을 쓴다.
           scheduledAt: delivPickup === 'arrival' ? undefined : new Date(Date.now() + departIn * 60_000).toISOString(),
@@ -356,6 +386,22 @@ export default function TripPlannerSheet({
                 </p>
               ) : null}
 
+              {/* 이동 수단 — 택시/대리운전 */}
+              <div className="flex items-center gap-1.5">
+                <CarFront className="h-3.5 w-3.5 shrink-0 text-[#64748B]" />
+                <span className="text-[10px] font-black text-[#64748B]">{t('trip.mobility')}</span>
+                {(['taxi', 'daeri'] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => setRideKind(kind)}
+                    className={`rounded-full px-3 py-1.5 text-[10px] font-black ${rideKind === kind ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}
+                  >
+                    {kind === 'taxi' ? t('service.taxi') : t('service.daeri')}
+                  </button>
+                ))}
+              </div>
+
               {/* 출발 시각 */}
               <div className="flex items-center gap-1.5">
                 <Clock3 className="h-3.5 w-3.5 shrink-0 text-[#64748B]" />
@@ -426,11 +472,47 @@ export default function TripPlannerSheet({
                     />
                     <input
                       value={delivFare}
-                      onChange={(event) => setDelivFare(event.target.value)}
+                      onChange={(event) => {
+                        setFareTouched(true)
+                        setDelivFare(event.target.value)
+                      }}
                       inputMode="decimal"
                       placeholder="Pi"
                       className="w-20 rounded-lg border border-[#CBD5E1] bg-white px-2.5 py-2 text-right text-[12px] font-bold tabular-nums text-[#0F172A]"
                     />
+                  </div>
+                  {/* 차량 선택 — 단독 택배 화면과 동일한 차종 */}
+                  <div>
+                    <p className="mb-1 text-[10px] font-black text-[#64748B]">{t('svc.vehiclePick')}</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {DELIVERY_VEHICLES.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setDelivVehicle(item)}
+                          className={`rounded-xl border px-2 py-2 text-[11px] font-black ${delivVehicle === item ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#E2E8F0] bg-white text-[#475569]'}`}
+                        >
+                          {t(DELIVERY_VEHICLE_KEYS[item])}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* 물품 크기/종류 — 단독 택배 화면과 동일한 규격 */}
+                  <div>
+                    <p className="mb-1 text-[10px] font-black text-[#64748B]">{t('svc.pkgSize')}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PACKAGE_SIZES.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setDelivPkg(item.id)}
+                          className={`rounded-full border px-2.5 py-1.5 text-[10px] font-black ${delivPkg === item.id ? 'border-[#4A82B8] bg-[#4A82B8] text-white' : 'border-[#E2E8F0] bg-white text-[#475569]'}`}
+                        >
+                          {t(PACKAGE_SIZE_KEYS[item.id].label)}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[9px] font-bold text-[#94A3B8]">{t(PACKAGE_SIZE_KEYS[delivPkg].hint)}</p>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] font-black text-[#64748B]">{t('trip.pickupWhen')}</span>

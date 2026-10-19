@@ -91,6 +91,7 @@
   "trip.minUnit": "分",
   "trip.pickupAt": "集荷",
   "trip.est": "予定",
+  "trip.mobility": "移動手段",
   "trip.addEv": "EV充電を経由",
   "trip.chargeTime": "充電時間",
   "trip.evHint": "充電所がルートの経由地として自動登録され、到着予想時刻に合わせて充電が予約されます。",

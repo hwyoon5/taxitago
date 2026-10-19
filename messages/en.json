@@ -91,6 +91,7 @@
   "trip.minUnit": "min",
   "trip.pickupAt": "pickup",
   "trip.est": "est.",
+  "trip.mobility": "Transport",
   "trip.addEv": "EV charge en route",
   "trip.chargeTime": "Charge time",
   "trip.evHint": "The station is added as a waypoint on your route and charging is booked around your ETA.",

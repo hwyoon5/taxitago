@@ -91,6 +91,7 @@
   "trip.minUnit": "分钟",
   "trip.pickupAt": "取件",
   "trip.est": "预估",
+  "trip.mobility": "出行方式",
   "trip.addEv": "途经EV充电",
   "trip.chargeTime": "充电时长",
   "trip.evHint": "充电站将自动设为路线途经点，并按预计到达时间预约充电。",

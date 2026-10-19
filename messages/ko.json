@@ -91,6 +91,7 @@
   "trip.minUnit": "분",
   "trip.pickupAt": "수거",
   "trip.est": "예상",
+  "trip.mobility": "이동 수단",
   "trip.addEv": "EV 충전 경유",
   "trip.chargeTime": "충전 시간",
   "trip.evHint": "충전소가 이동 경로의 경유지로 자동 등록되고, 도착 예상 시각에 맞춰 충전이 예약됩니다.",
