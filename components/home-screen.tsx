@@ -18,7 +18,7 @@ import { NearbyServiceMap } from '@/components/nearby-service-map'
 import { MobilityDeviceFormModal } from '@/components/mobility-device-form'
 import { PlacePickerScreen } from '@/components/place-picker-map'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
-import { lookupSuggestedPlace, suggestedDestinationsFor } from '@/lib/region-destinations'
+import { lookupSuggestedPlace, suggestedDestinationsFor, suggestedPlaceName } from '@/lib/region-destinations'
 import { searchPlacesFromApi, type SearchedPlace } from '@/lib/geocode-client'
 import { PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { detectTextLang, translateForSearch } from '@/lib/text-lang'
@@ -7436,7 +7436,7 @@ function Home({
   /** QR 현장 결제 완료 — 루트의 settlePiLedger로 지갑 차감·내역을 기록한다. */
   onQrPaid?: (record: { driverName: string; amount: number; memo: string }, proof: { paymentId: string; txid: string }) => void
 }) {
-  const { t } = useLocale()
+  const { locale, t } = useLocale()
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchSeed, setSearchSeed] = useState('')
   const [voiceDestOpen, setVoiceDestOpen] = useState(false)
@@ -7619,7 +7619,7 @@ function Home({
                   active ? 'bg-[#4C1FB8] text-white shadow-[0_6px_12px_rgba(76,31,184,0.24)]' : 'bg-[#F1F5F9] text-[#1E293B]'
                 }`}
               >
-                {place.name}
+                {suggestedPlaceName(place, locale)}
               </button>
             )
           })}
