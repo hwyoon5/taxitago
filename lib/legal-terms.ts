@@ -76,6 +76,50 @@ const docs: Record<LegalTermId, LegalTermDoc> = {
         body: '이 약관은 대한민국 법령을 준거법으로 하며, 분쟁은 민사소송법상 관할 법원에 제기합니다.',
       },
     ],
+    translations: {
+      en: {
+        title: 'Terms of Service',
+        subtitle: 'TaxiTago Terms of Service',
+        sections: [
+          {
+            heading: 'Article 1 (Purpose)',
+            body: 'These Terms of Service set forth the conditions of use and the rights and obligations of TaxiTago (the "Company") and its users in connection with the taxi-hailing, designated-driver, parking, micromobility, and related ancillary services (the "Services") provided by the Company.',
+          },
+          {
+            heading: 'Article 2 (Definitions)',
+            body: '"User" means members and non-members who access the app and use the Services under these Terms. "Driver/Partner" means a person who provides transportation or on-site services in partnership with the Company. "Pi" means the unit of digital asset displayed as the settlement method within the Services.',
+          },
+          {
+            heading: 'Article 3 (Effectiveness and Amendment)',
+            body: 'The Company may amend these Terms to the extent permitted by applicable law. Upon amendment, the Company will announce the effective date and the revised content via in-app notice or notification. Users who do not consent to the amended Terms may discontinue use of the Services.',
+          },
+          {
+            heading: 'Article 4 (Provision of Services)',
+            body: 'The Company provides origin and destination setting, fare guidance, dispatch brokerage, trip status, payment and receipts, and customer support. Dispatch or certain features may be delayed or limited due to unavoidable circumstances such as weather, traffic, driver availability, or network failures.',
+          },
+          {
+            heading: 'Article 5 (User Obligations)',
+            body: 'Users must provide accurate pickup and destination information and must not engage in conduct that violates the law or endangers driving safety. Accounts, Pi wallets, and payment information are managed by the user and may not be transferred to others. Fraudulent hailing, obstruction of boarding, verbal abuse, or assault may result in restricted use.',
+          },
+          {
+            heading: 'Article 6 (Fares and Cancellation)',
+            body: 'Estimated fares may vary by distance, time, and demand; the final amount is confirmed upon trip completion or at an agreed settlement point. Cancellation after dispatch may incur a cancellation fee under the Operating Policy.',
+          },
+          {
+            heading: 'Article 7 (Status as an Electronic Commerce Broker)',
+            body: 'For micromobility devices such as bicycles and kickboards, the Company is not the direct lessor but an electronic commerce broker (platform intermediary) connecting users with partners (device suppliers) that register and supply devices. The rental agreement is formed between the user and the relevant partner, which determines and is responsible for rental fees, terms of use, and device maintenance. The Company provides the brokerage system, processes payments and settlements, and displays device information registered by partners.',
+          },
+          {
+            heading: 'Article 8 (Limitation of Liability)',
+            body: 'As a brokerage platform, the Company places primary responsibility for the safety and legal compliance of transportation provided by drivers and partners on the respective provider. As an electronic commerce broker, the Company is not liable for defects, poor maintenance, malfunction, or theft of rented devices such as bicycles and kickboards; for inaccuracies in device information registered by partners (location, battery, availability, etc.); or for safety or traffic accidents during device use and the resulting personal or property damage, which fall within the responsibility of the parties to the rental agreement. However, the Company is liable under applicable law for damages caused to users by its willful misconduct or gross negligence.',
+          },
+          {
+            heading: 'Article 9 (Governing Law)',
+            body: 'These Terms are governed by the laws of the Republic of Korea, and disputes shall be brought before the court of competent jurisdiction under the Civil Procedure Act.',
+          },
+        ],
+      },
+    },
   },
   location: {
     id: 'location',
@@ -104,6 +148,34 @@ const docs: Record<LegalTermId, LegalTermDoc> = {
         body: '배차된 기사·파트너에게는 호출 수행에 필요한 최소 위치(탑승 지점, 목적지)를 제공합니다. 수사기관의 적법한 요청 등 법령에 따른 경우를 제외하고 동의 없이 제3자에게 제공하지 않습니다.',
       },
     ],
+    translations: {
+      en: {
+        title: 'Location-Based Service Terms',
+        subtitle: 'Terms on the use of location data',
+        sections: [
+          {
+            heading: 'Article 1 (Purpose)',
+            body: 'These Terms set the conditions under which the Company provides location-based services, including hailing, dispatch, route guidance, and safety features that utilize location data.',
+          },
+          {
+            heading: 'Article 2 (Use of Location Data)',
+            body: 'The Company may collect and use device location data to automatically set pickup points, search for nearby drivers, compute estimated arrival times, display trip routes, and relay emergency SOS alerts. Location data is used only to the extent necessary to provide the Services.',
+          },
+          {
+            heading: 'Article 3 (Consent and Refusal)',
+            body: 'Location-based services are provided only after user consent. Revoking location permission in device or app settings may limit features such as hailing and dispatch.',
+          },
+          {
+            heading: 'Article 4 (Retention and Destruction)',
+            body: 'Location records required for settlement, dispute handling, or statutory retention after trip completion are kept for the period prescribed by applicable law and destroyed without delay once the purpose is fulfilled. Emergency records such as SOS alerts are deleted under internal standards after operational handling ends.',
+          },
+          {
+            heading: 'Article 5 (Provision to Third Parties)',
+            body: 'The minimum location data required to perform the hail (pickup point and destination) is provided to the assigned driver or partner. Location data is not shared with third parties without consent, except as required by law such as lawful requests by investigative authorities.',
+          },
+        ],
+      },
+    },
   },
   efinance: {
     id: 'efinance',
@@ -136,6 +208,38 @@ const docs: Record<LegalTermId, LegalTermDoc> = {
         body: '이용자 본인의 비밀번호·지갑 관리 소홀로 발생한 손해는 이용자에게 책임이 있습니다. 회사 시스템의 중대한 과실로 잘못된 출금·이중 결제가 발생한 경우 회사가 조사 후 정정합니다.',
       },
     ],
+    translations: {
+      en: {
+        title: 'Electronic Finance Terms',
+        subtitle: 'Pi payments and electronic financial transactions',
+        sections: [
+          {
+            heading: 'Article 1 (Purpose)',
+            body: 'These Terms govern electronic financial transactions in which users pay, top up, and settle fares through a Pi wallet in the TaxiTago app.',
+          },
+          {
+            heading: 'Article 2 (Formation of Transaction)',
+            body: 'An electronic financial transaction is formed when the user confirms the amount on the payment screen and completes Pi network approval. A transaction may fail due to network delay, insufficient balance, or declined authorization.',
+          },
+          {
+            heading: 'Article 3 (Service Hours)',
+            body: 'Electronic financial transactions are provided year-round in principle but may be temporarily suspended during maintenance of the blockchain network or payment processing systems. Suspensions are announced in the app.',
+          },
+          {
+            heading: 'Article 4 (Error Correction)',
+            body: 'A user who becomes aware of an error in a transaction may request correction through customer support. If the claim is justified after investigation, the Company processes settlement or refund in accordance with applicable law and the Operating Policy.',
+          },
+          {
+            heading: 'Article 5 (Transaction Records)',
+            body: 'The Company retains electronic financial transaction records (payment identifier, amount, timestamp, and target service) for the period required by the Electronic Financial Transactions Act. Users can review key records in the app\'s trip history and receipts.',
+          },
+          {
+            heading: 'Article 6 (Liability)',
+            body: 'Users are liable for damage arising from their own negligent management of passwords or wallets. Where an erroneous withdrawal or duplicate payment is caused by gross negligence of the Company\'s systems, the Company will correct it after investigation.',
+          },
+        ],
+      },
+    },
   },
   operation: {
     id: 'operation',
@@ -164,6 +268,34 @@ const docs: Record<LegalTermId, LegalTermDoc> = {
         body: '요금 문의, 분실물, 운행 이슈는 더보기 > 고객센터 또는 대표 이메일(grace837100@gmail.com)로 접수합니다. 분실물은 해당 운행 기록을 통해 기사와 연결되며, 회사는 중개 범위에서 협조합니다.',
       },
     ],
+    translations: {
+      en: {
+        title: 'Operating Policy',
+        subtitle: 'Dispatch, settlement & sanctions policy',
+        sections: [
+          {
+            heading: '1. Hailing and Dispatch',
+            body: 'Users must specify an accurate pickup point. Repeated fraudulent hailing, unauthorized cancellation after dispatch, or failure to board beyond the driver\'s wait time may lead to restricted use. Drivers and partners must not decline assigned requests without just cause.',
+          },
+          {
+            heading: '2. Fares and Cancellation Fees',
+            body: 'Cancellation before driver assignment is free. If a user cancels after assignment, the cancellation fee shown on the confirmation screen (a percentage of the estimated fare with a minimum — see More > Fare Guide and the cancellation screen for current standards) is automatically deducted and paid to the driver, and the remainder is refunded. Tapping [Pay cancellation fee and cancel] constitutes consent to this policy. No fee applies to cancellations caused by the driver.',
+          },
+          {
+            heading: '3. Safety and Conduct',
+            body: 'Verbal abuse, sexual harassment, assault, alcohol- or drug-related dangerous behavior, or failure to declare pets or cargo may result in immediate suspension. In emergencies, please use the in-app SOS together with public reporting channels (e.g., 112).',
+          },
+          {
+            heading: '4. Ratings and Sanctions',
+            body: 'Post-trip ratings are used for service quality management. Verified fraudulent ratings, retaliatory reports, or legal violations may result in graduated sanctions: warning, temporary suspension, or permanent restriction.',
+          },
+          {
+            heading: '5. Customer Support',
+            body: 'Fare inquiries, lost items, and trip issues can be filed via More > Customer Support or the primary email (grace837100@gmail.com). Lost items are connected with the driver through the trip record, and the Company assists within the scope of brokerage.',
+          },
+        ],
+      },
+    },
   },
   privacy: {
     id: 'privacy',
@@ -192,6 +324,34 @@ const docs: Record<LegalTermId, LegalTermDoc> = {
         body: '회사는 접근 권한 제한, 전송 구간 보호, 로그 관리 등 합리적 보호 조치를 시행합니다. 개인정보 보호 관련 문의는 앱 고객센터 또는 대표 이메일(grace837100@gmail.com)로 접수해 주세요.',
       },
     ],
+    translations: {
+      en: {
+        title: 'Privacy Policy',
+        subtitle: 'Collection and use of personal data',
+        sections: [
+          {
+            heading: '1. Data Collected',
+            body: 'The Company may collect member identification (nickname, linked Pi account), usage records (pickup and drop-off addresses, timestamps, fares), device information (app version, OS), and customer support inquiries. Identifiers required for payment authorization are limited to payment processing purposes.',
+          },
+          {
+            heading: '2. Purposes of Use',
+            body: 'Collected information is used for member management, hailing and dispatch, fare settlement, customer support, fraud prevention, and service improvement statistics. Marketing notifications are sent only with separate consent.',
+          },
+          {
+            heading: '3. Retention Period',
+            body: 'In principle, personal data is destroyed without delay upon account withdrawal, except for records that must be retained under e-commerce, electronic finance, or tax laws for the statutory period.',
+          },
+          {
+            heading: '4. User Rights',
+            body: 'Users may request access, correction, deletion, or suspension of processing of personal data through customer support. The Company acts without delay to the extent permitted by law.',
+          },
+          {
+            heading: '5. Safeguards',
+            body: 'The Company implements reasonable protective measures including access controls, transport-layer protection, and log management. Privacy inquiries may be submitted via in-app customer support or the primary email (grace837100@gmail.com).',
+          },
+        ],
+      },
+    },
   },
   'location-privacy': {
     id: 'location-privacy',
@@ -220,6 +380,34 @@ const docs: Record<LegalTermId, LegalTermDoc> = {
         body: '위치정보 이용 동의는 앱 설정 또는 단말기 권한에서 철회할 수 있습니다. 철회 이후에도 이미 완료된 운행의 정산·분쟁 기록은 법정 보존 기간 동안 남을 수 있습니다.',
       },
     ],
+    translations: {
+      en: {
+        title: 'Location Privacy Policy',
+        subtitle: 'Handling and protection of location data',
+        sections: [
+          {
+            heading: '1. Location Data Processed',
+            body: 'The Company may process GPS and network-based coordinates, pickup and drop-off coordinates designated on the map and their derived addresses, and route coordinates during trips.',
+          },
+          {
+            heading: '2. Purposes of Processing',
+            body: 'Location data is used for location-based pickup setting, nearby driver matching, fare and ETA computation, real-time trip location sharing, emergency SOS relay, and route verification in disputes.',
+          },
+          {
+            heading: '3. Scope of Disclosure',
+            body: 'The assigned driver or partner receives the pickup point and destination. Operational staff may view only the minimum location data needed to handle reports and SOS alerts.',
+          },
+          {
+            heading: '4. Destruction',
+            body: 'Real-time location is deleted or de-identified once the service purpose is fulfilled after trip completion. Trip records requiring statutory retention are destroyed when that period ends.',
+          },
+          {
+            heading: '5. Withdrawal of Consent',
+            body: 'Consent to location data use may be withdrawn in app settings or device permissions. Settlement and dispute records of completed trips may remain for the statutory retention period after withdrawal.',
+          },
+        ],
+      },
+    },
   },
   opensource: {
     id: 'opensource',
@@ -240,6 +428,26 @@ const docs: Record<LegalTermId, LegalTermDoc> = {
         body: '오픈소스 고지 사본이 필요하면 고객센터 1:1 문의 또는 대표 이메일(grace837100@gmail.com)로 요청해 주세요. 회사는 해당 라이선스가 요구하는 범위에서 고지를 유지합니다.',
       },
     ],
+    translations: {
+      en: {
+        title: 'Open Source Licenses',
+        subtitle: 'Open source attributions',
+        sections: [
+          {
+            heading: 'Notice',
+            body: 'TaxiTago uses open source software including the components below. The terms of each license follow the notices of the respective projects.',
+          },
+          {
+            heading: 'Key Components',
+            body: 'Next.js (MIT) · React / React DOM (MIT) · lucide-react (ISC) · Tailwind CSS-related tools (MIT) · class-variance-authority (Apache-2.0) · date-fns (MIT) · Sentry SDK (MIT) · Vercel Analytics (respective package license). Map display is subject to the terms of Naver Cloud Platform Maps and fallback tile providers.',
+          },
+          {
+            heading: 'Inquiries',
+            body: 'To request a copy of the open source notices, contact 1:1 support or the primary email (grace837100@gmail.com). The Company maintains attributions to the extent required by each license.',
+          },
+        ],
+      },
+    },
   },
 }
 
