@@ -7677,13 +7677,13 @@ function Home({
             <button
               type="button"
               onClick={onOpenPlanner}
-              className="mt-2 flex w-full items-center justify-between rounded-[22px] bg-[#333333] px-4 py-3 text-left shadow-[0_8px_16px_rgba(15,23,42,0.18)] transition active:scale-[0.99]"
+              className="mt-2 flex w-full items-center justify-between rounded-[22px] bg-[#52525B] px-4 py-3 text-left shadow-[0_8px_16px_rgba(15,23,42,0.18)] transition active:scale-[0.99]"
             >
               <span>
                 <span className="block text-[12px] font-black text-white">{t('trip.open')}</span>
-                <span className="mt-0.5 block text-[10px] font-bold text-[#C7C7C7]">{t('trip.openDesc')}</span>
+                <span className="mt-0.5 block text-[10px] font-bold text-[#E4E4E7]">{t('trip.openDesc')}</span>
               </span>
-              <Route className="h-5 w-5 shrink-0 text-[#C7C7C7]" />
+              <Route className="h-5 w-5 shrink-0 text-[#E4E4E7]" />
             </button>
           ) : null}
           {onOpenTrial ? (
