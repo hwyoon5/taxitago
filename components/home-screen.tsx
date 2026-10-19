@@ -1,7 +1,7 @@
 'use client'
 
 import { Component, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, FileSpreadsheet, Gift, House, Languages, LayoutGrid, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, Route, ScanLine, Search, Share2, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, X } from 'lucide-react'
+import { Bell, Bike, Briefcase, Building2, Camera, Car, Check, ChevronLeft, ChevronRight, ChevronUp, CircleUserRound, Clock, FileSpreadsheet, Gift, House, Languages, LayoutGrid, LocateFixed, MapPin, MessageCircle, Mic, Minus, Navigation, Phone, PhoneOff, Plus, Route, ScanLine, Search, Share2, ShieldAlert, ShieldCheck, Sparkles, SquareParking, Star, ToggleRight, UserRound, X } from 'lucide-react'
 import { useLocale } from '@/components/locale-provider'
 import { APP_LOCALES, localizedText, translateDeviceStatus, translateService, type AppLocale, type MessageKey } from '@/lib/i18n'
 import { notices, type Notice } from '@/lib/notices'
@@ -99,6 +99,7 @@ import { PartnerTabScreen } from '@/components/partner-dashboard'
 import EarningsStatSheet from '@/components/partner-stat-sheet'
 import PartnerInsightsSheet from '@/components/partner-insights-sheet'
 import TripPlannerSheet from '@/components/trip-planner-sheet'
+import HackathonDemoModal from '@/components/hackathon-demo'
 import PayoutRequestSheet from '@/components/payout-request-sheet'
 import RideSafeCall from '@/components/ride-safe-call'
 import RideChat from '@/components/ride-chat'
@@ -7404,6 +7405,7 @@ function Home({
   recentUse = null,
   onOpenPlanner,
   onOpenTrial,
+  onOpenDemo,
   onQrPaid,
 }: {
   destination: string
@@ -7429,6 +7431,8 @@ function Home({
   onOpenPlanner?: () => void
   /** 이용자 체험판(택시/대리) — 루트가 PassengerTrialDemo를 띄운다. */
   onOpenTrial?: (kind: PassengerTrialKind) => void
+  /** 해커톤 데모 모드 — 루트가 영문 HackathonDemoModal을 띄운다(시연 전용, 장부 무접촉). */
+  onOpenDemo?: () => void
   /** QR 현장 결제 완료 — 루트의 settlePiLedger로 지갑 차감·내역을 기록한다. */
   onQrPaid?: (record: { driverName: string; amount: number; memo: string }, proof: { paymentId: string; txid: string }) => void
 }) {
@@ -7705,6 +7709,19 @@ function Home({
                 </button>
               </div>
             </div>
+          ) : null}
+          {onOpenDemo ? (
+            <button
+              type="button"
+              onClick={onOpenDemo}
+              className="mt-2 flex w-full items-center justify-between rounded-[22px] bg-[#0F172A] px-4 py-3 text-left shadow-[0_8px_16px_rgba(15,23,42,0.18)] transition active:scale-[0.99]"
+            >
+              <span>
+                <span className="block text-[12px] font-black text-white">🚀 Hackathon Demo Mode</span>
+                <span className="mt-0.5 block text-[10px] font-bold text-[#93C5FD]">Judge walkthrough — Scenario A: Journey Planner · Scenario B: Alt-Pay &amp; FDS</span>
+              </span>
+              <ShieldAlert className="h-5 w-5 shrink-0 text-[#38BDF8]" />
+            </button>
           ) : null}
         </section>
         {recentUse ? (
@@ -12215,6 +12232,7 @@ export default function HomeScreen() {
   const [partnerSignupOpen, setPartnerSignupOpen] = useState(false)
   const [partnerTrialOpen, setPartnerTrialOpen] = useState(false)
   const [passengerTrial, setPassengerTrial] = useState<PassengerTrialKind | null>(null)
+  const [hackathonDemoOpen, setHackathonDemoOpen] = useState(false)
   const [driverGateOpen, setDriverGateOpen] = useState(false)
   const [isDriverRegistered, setIsDriverRegistered] = useState(false)
   const [isPartnerRegistered, setIsPartnerRegistered] = useState(false)
@@ -13068,6 +13086,7 @@ export default function HomeScreen() {
             onOpenMap={openPickupMap}
             onOpenPlanner={() => setPlannerOpen(true)}
             onOpenTrial={setPassengerTrial}
+            onOpenDemo={() => setHackathonDemoOpen(true)}
             destSearchTick={destSearchTick}
             recentUse={recentUse}
             onQrPaid={(record, proof) =>
@@ -13185,6 +13204,7 @@ export default function HomeScreen() {
         )}
         {partnerTrialOpen ? <PartnerTrialDemo onClose={() => setPartnerTrialOpen(false)} onNotice={showNotice} onRequireLogin={runTrialLogin} /> : null}
         {passengerTrial ? <PassengerTrialDemo kind={passengerTrial} onClose={() => setPassengerTrial(null)} onRequireLogin={runTrialLogin} /> : null}
+        {hackathonDemoOpen ? <HackathonDemoModal onClose={() => setHackathonDemoOpen(false)} /> : null}
         {driverGateOpen ? (
           <DriverNeedSignupModal
             onClose={() => setDriverGateOpen(false)}
