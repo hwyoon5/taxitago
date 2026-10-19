@@ -19,6 +19,7 @@ import { MobilityDeviceFormModal } from '@/components/mobility-device-form'
 import { PlacePickerScreen } from '@/components/place-picker-map'
 import { InviteLaunchModal } from '@/components/invite-launch-modal'
 import { lookupSuggestedPlace, suggestedDestinationsFor, suggestedPlaceName } from '@/lib/region-destinations'
+import { displayAddress, displayRoute, hasHangul } from '@/lib/romanize'
 import { searchPlacesFromApi, type SearchedPlace } from '@/lib/geocode-client'
 import { PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { detectTextLang, translateForSearch } from '@/lib/text-lang'
@@ -7519,6 +7520,9 @@ function Home({
                 aria-label={`${t('home.pickup')} ${pickup}`}
                 className="mt-0.5 block w-full bg-transparent pr-1 text-[13px] font-black leading-4 text-[#0F172A] outline-none placeholder:font-bold placeholder:text-[#94A3B8]"
               />
+              {locale === 'en' && hasHangul(pickup) ? (
+                <span className="mt-0.5 block truncate text-[10px] font-bold leading-3 text-[#94A3B8]">{displayAddress(pickup, locale)}</span>
+              ) : null}
               {pickupHint ? <span className="mt-0.5 block truncate text-[10px] font-bold leading-3 text-[#64748B]">{pickupHint}</span> : null}
             </span>
             <button
@@ -7595,6 +7599,9 @@ function Home({
                     className="min-w-0 flex-1 bg-transparent pr-1 text-sm font-black leading-4 text-[#0F172A] outline-none placeholder:text-[#94A3B8]"
                   />
                 </span>
+                {locale === 'en' && hasHangul(destination) ? (
+                  <span className="block truncate pl-8 text-[10px] font-bold leading-3 text-[#94A3B8]">{displayAddress(destination, locale)}</span>
+                ) : null}
               </span>
               <button
                 type="button"
@@ -7728,7 +7735,7 @@ function Home({
           <button type="button" onClick={() => onReceipt(receiptFromRecent(recentUse))} className="mt-3 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 py-2.5 text-left shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
             <p className="text-[10px] font-bold text-[#64748B]">{t('home.recent')}</p>
             <p className="line-clamp-2 text-[13px] font-black leading-tight">
-              {recentUse.route} · {formatRecentFare(recentUse.fare)}
+              {displayRoute(recentUse.route, locale)} · {formatRecentFare(recentUse.fare)}
             </p>
           </button>
         ) : (
