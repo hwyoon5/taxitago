@@ -7291,7 +7291,7 @@ const HOME_PARTNER_BANNERS: {
     name: 'BaroOnda',
     subtitleKey: 'promo.storeSub',
     ctaKey: 'promo.storeCta',
-    href: 'https://apppistorekoreay8282.pinet.com',
+    href: 'https://test.baroonda.store',
     logoSrc: '/ads/baroonda-logo.svg?v=cart-pi',
   },
 ]
