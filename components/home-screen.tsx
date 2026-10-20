@@ -7283,6 +7283,7 @@ const HOME_PARTNER_BANNERS: {
   name: string
   subtitleKey: MessageKey
   ctaKey: MessageKey
+  tagKey?: MessageKey
   href: string | null
   logoSrc: string
 }[] = [
@@ -7291,6 +7292,7 @@ const HOME_PARTNER_BANNERS: {
     name: 'BaroOnda',
     subtitleKey: 'promo.storeSub',
     ctaKey: 'promo.storeCta',
+    tagKey: 'promo.storeTag',
     href: 'https://test.baroonda.store',
     logoSrc: '/ads/baroonda-logo.svg?v=cart-pi',
   },
@@ -7323,7 +7325,12 @@ function HomePartnerBanners() {
             aria-label={`${banner.name} ${t(banner.subtitleKey)}`}
           >
             <img src={banner.logoSrc} alt="BaroOnda" className="h-12 w-auto max-w-full object-contain object-left" />
-            <p className="mt-2 text-[15px] font-black leading-snug tracking-tight">{banner.name}</p>
+            <div className="mt-2 flex items-center gap-1.5">
+              <p className="text-[15px] font-black leading-snug tracking-tight">{banner.name}</p>
+              {banner.tagKey ? (
+                <span className="rounded-full bg-[#EDE9FE] px-1.5 py-0.5 text-[9px] font-black text-[#4C1FB8]">{t(banner.tagKey)}</span>
+              ) : null}
+            </div>
             <p className="mt-1 text-[12px] font-bold leading-5 text-[#64748B]">{t(banner.subtitleKey)}</p>
             <span className="mt-2 inline-flex items-center gap-0.5 text-[12px] font-black text-[#4C1FB8]">
               {t(banner.ctaKey)}
