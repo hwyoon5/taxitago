@@ -25,8 +25,10 @@ function resumeContext() {
 
 // Call from any user gesture (or on driver-mode mount) so the alarm is
 // allowed to play later even after the page sat idle/backgrounded.
+// Creating the AudioContext eagerly logs Chrome's autoplay warning, so the
+// context is only resumed when it exists — the gesture handler creates it.
 export function primeDriverAlertAudio() {
-  resumeContext()
+  if (audioContext) resumeContext()
   if (unlockBound || typeof window === 'undefined') return
   unlockBound = true
   const handler = () => resumeContext()
