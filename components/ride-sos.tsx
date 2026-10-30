@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Siren, X } from 'lucide-react'
 import { raiseSos } from '@/lib/support-client'
+import { geolocationPermitted } from '@/lib/user-location'
 import type { SupportActor } from '@/lib/support-types'
 
 function readGps(fallback: { lat: number; lng: number }) {
@@ -11,11 +12,17 @@ function readGps(fallback: { lat: number; lng: number }) {
       resolve({ ...fallback, accuracyM: null })
       return
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyM: pos.coords.accuracy }),
-      () => resolve({ ...fallback, accuracyM: null }),
-      { enableHighAccuracy: true, timeout: 4000, maximumAge: 5000 },
-    )
+    void geolocationPermitted().then((ok) => {
+      if (!ok) {
+        resolve({ ...fallback, accuracyM: null })
+        return
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyM: pos.coords.accuracy }),
+        () => resolve({ ...fallback, accuracyM: null }),
+        { enableHighAccuracy: true, timeout: 4000, maximumAge: 5000 },
+      )
+    })
   })
 }
 

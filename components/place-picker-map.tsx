@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, LocateFixed, MapPin } from 'lucide-react'
 import { ADDRESS_LOADING, fallbackCoordAddress, requestAddressLookup } from '@/lib/geocode-client'
+import { geolocationPermitted } from '@/lib/user-location'
 import { loadNaverMaps, refreshNaverMap, waitForMapSize, type NaverMapInstance, type NaverMapsSdk } from '@/lib/naver-maps'
 import { watchMapSettle } from '@/lib/watch-map-settle'
 
@@ -134,28 +135,31 @@ export function PlacePickerScreen({
     const sdk = mapsRef.current
     const map = mapRef.current
     if (!sdk || !map || typeof navigator === 'undefined' || !navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const nextLat = position.coords.latitude
-        const nextLng = position.coords.longitude
-        try {
-          map.panTo(new sdk.LatLng(nextLat, nextLng))
-        } catch {
-          undefined
-        }
-        const requestId = ++lookupIdRef.current
-        setLooking(true)
-        setLabel(ADDRESS_LOADING)
-        requestAddressLookup(nextLat, nextLng, (nextAddress) => {
-          if (requestId !== lookupIdRef.current) return
-          centerRef.current = { lat: nextLat, lng: nextLng }
-          setLabel(nextAddress)
-          setLooking(false)
-        })
-      },
-      () => undefined,
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-    )
+    void geolocationPermitted().then((ok) => {
+      if (!ok) return
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const nextLat = position.coords.latitude
+          const nextLng = position.coords.longitude
+          try {
+            map.panTo(new sdk.LatLng(nextLat, nextLng))
+          } catch {
+            undefined
+          }
+          const requestId = ++lookupIdRef.current
+          setLooking(true)
+          setLabel(ADDRESS_LOADING)
+          requestAddressLookup(nextLat, nextLng, (nextAddress) => {
+            if (requestId !== lookupIdRef.current) return
+            centerRef.current = { lat: nextLat, lng: nextLng }
+            setLabel(nextAddress)
+            setLooking(false)
+          })
+        },
+        () => undefined,
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      )
+    })
   }
 
   const confirm = () => {

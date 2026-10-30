@@ -5,7 +5,7 @@ import { adminHeaders } from '@/lib/admin-key'
 import AdminDeliveries from '@/components/admin-deliveries'
 import AdminRentals from '@/components/admin-rentals'
 import AdminRides from '@/components/admin-rides'
-import { BUSAN_CITY_HALL } from '@/lib/user-location'
+import { DEFAULT_BASE_COORD } from '@/lib/user-location'
 import {
   createNaverLatLng,
   loadNaverMaps,
@@ -339,7 +339,7 @@ function TrackingMap({
         return
       }
       sdkRef.current = sdk
-      const center = createNaverLatLng(sdk, BUSAN_CITY_HALL.lat, BUSAN_CITY_HALL.lng)
+      const center = createNaverLatLng(sdk, DEFAULT_BASE_COORD.lat, DEFAULT_BASE_COORD.lng)
       mapRef.current = new sdk.Map(canvasRef.current, {
         center,
         zoom: 12,

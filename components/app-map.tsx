@@ -25,6 +25,7 @@ import {
 import { resolveLiveRidePoints, isUsableCoord } from '@/lib/ride-session'
 import { haversineKm } from '@/lib/dispatch-geo'
 import { ADDRESS_LOADING, createLiveAddressLookup, fetchDrivingPath, requestAddressLookup } from '@/lib/geocode-client'
+import { geolocationPermitted } from '@/lib/user-location'
 import { watchMapSettle, createSettleDebounce } from '@/lib/watch-map-settle'
 
 const TILE_SIZE = 256
@@ -617,8 +618,8 @@ function worldToLatLng(x: number, y: number, zoom: number) {
   return { lat: (latRad * 180) / Math.PI, lng }
 }
 
-function readLiveDevicePosition() {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null)
+async function readLiveDevicePosition() {
+  if (!(await geolocationPermitted())) return null
   return new Promise<{ lat: number; lng: number } | null>((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),

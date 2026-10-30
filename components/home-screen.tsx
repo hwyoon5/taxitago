@@ -23,7 +23,7 @@ import { displayAddress, displayRoute, hasHangul } from '@/lib/romanize'
 import { searchPlacesFromApi, type SearchedPlace } from '@/lib/geocode-client'
 import { PLATFORM_DEPOSIT_WALLET } from '@/lib/pi-wallet'
 import { detectTextLang, translateForSearch } from '@/lib/text-lang'
-import { BUSAN_CITY_HALL, failedReverseAddress, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
+import { DEFAULT_BASE_COORD, failedReverseAddress, geolocationPermitted, requestBrowserPosition, resolveFlexibleFallback, resolveRidePlace, reverseGeocode, type RidePlace } from '@/lib/user-location'
 import { isUsableCoord, resolveLiveRidePoints, writeRideSession } from '@/lib/ride-session'
 import {
   appendSettlementEntry,
@@ -621,8 +621,8 @@ function finiteCoord(value: number | undefined, fallback: number) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
-function isCityHallCoord(nextLat: number, nextLng: number) {
-  return Math.abs(nextLat - BUSAN_CITY_HALL.lat) < 1e-4 && Math.abs(nextLng - BUSAN_CITY_HALL.lng) < 1e-4
+function isDefaultBaseCoord(nextLat: number, nextLng: number) {
+  return Math.abs(nextLat - DEFAULT_BASE_COORD.lat) < 1e-4 && Math.abs(nextLng - DEFAULT_BASE_COORD.lng) < 1e-4
 }
 
 function usableMapAddress(value?: string | null) {
@@ -648,8 +648,8 @@ function LocationMapModal({
 }) {
   const { t } = useLocale()
   const start = {
-    lat: Number.isFinite(initialLat) ? (initialLat as number) : BUSAN_CITY_HALL.lat,
-    lng: Number.isFinite(initialLng) ? (initialLng as number) : BUSAN_CITY_HALL.lng,
+    lat: Number.isFinite(initialLat) ? (initialLat as number) : DEFAULT_BASE_COORD.lat,
+    lng: Number.isFinite(initialLng) ? (initialLng as number) : DEFAULT_BASE_COORD.lng,
   }
   const [gpsPending, setGpsPending] = useState(true)
   const [addressPending, setAddressPending] = useState(!initialAddress)
@@ -762,11 +762,14 @@ function LocationMapModal({
             onLocate={() => {
               userMovedRef.current = false
               if (typeof navigator === 'undefined' || !navigator.geolocation) return
-              navigator.geolocation.getCurrentPosition(
-                (position) => applyPoint(position.coords.latitude, position.coords.longitude, 'gps', true),
-                () => undefined,
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-              )
+              void geolocationPermitted().then((ok) => {
+                if (!ok) return
+                navigator.geolocation.getCurrentPosition(
+                  (position) => applyPoint(position.coords.latitude, position.coords.longitude, 'gps', true),
+                  () => undefined,
+                  { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+                )
+              })
             }}
           />
           <div className="pointer-events-none absolute inset-x-3 top-3">
@@ -1394,8 +1397,8 @@ function DestinationSearchModal({
     onClose()
   }
 
-  const mapLat = finiteCoord(originLat, BUSAN_CITY_HALL.lat)
-  const mapLng = finiteCoord(originLng, BUSAN_CITY_HALL.lng)
+  const mapLat = finiteCoord(originLat, DEFAULT_BASE_COORD.lat)
+  const mapLng = finiteCoord(originLng, DEFAULT_BASE_COORD.lng)
 
   return (
     <div className="fixed inset-0 z-[88] flex justify-center bg-[#E2E8F0]">
@@ -12238,8 +12241,8 @@ export default function HomeScreen() {
   const [gps, setGps] = useState<GpsFix>({
     status: 'pending',
     address: '현재 위치를 확인하는 중',
-    lat: BUSAN_CITY_HALL.lat,
-    lng: BUSAN_CITY_HALL.lng,
+    lat: DEFAULT_BASE_COORD.lat,
+    lng: DEFAULT_BASE_COORD.lng,
   })
   const [walletReady, setWalletReady] = useState(false)
   const [headerModal, setHeaderModal] = useState<'account' | null>(null)

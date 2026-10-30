@@ -1,6 +1,6 @@
 import { haversineKm } from '@/lib/dispatch-geo'
 import { isUsableCoord } from '@/lib/ride-session'
-import { BUSAN_CITY_HALL } from '@/lib/user-location'
+import { DEFAULT_BASE_COORD } from '@/lib/user-location'
 
 export type NearbyServiceKind = 'parking' | 'ev' | 'bike' | 'scooter'
 
@@ -143,7 +143,7 @@ export function listNearbyServiceSpots(
   limit = 6,
   partners: RegisteredNearbyPartner[] = [],
 ): NearbyServiceSpot[] {
-  const origin = isUsableCoord(lat, lng) ? { lat, lng } : BUSAN_CITY_HALL
+  const origin = isUsableCoord(lat, lng) ? { lat, lng } : DEFAULT_BASE_COORD
   const count = Math.min(7, Math.max(5, limit))
   // 자전거·킥보드는 데모 시드가 비어 있어 SEEDS[kind][0]이 undefined —
   // 파트너가 rate를 누락해도 기본 요금으로 수렴해 렌더를 막지 않는다.

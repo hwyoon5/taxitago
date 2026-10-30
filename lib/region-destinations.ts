@@ -46,7 +46,7 @@ const REGION_CENTERS: { id: RegionId; lat: number; lng: number }[] = [
   { id: 'seoul', lat: 37.5665, lng: 126.978 },
   { id: 'incheon', lat: 37.4563, lng: 126.7052 },
   { id: 'gyeonggi', lat: 37.4138, lng: 127.5183 },
-  { id: 'busan', lat: 35.1796, lng: 129.0756 },
+  { id: 'busan', lat: 35.194, lng: 129.004 },
   { id: 'daegu', lat: 35.8714, lng: 128.6014 },
   { id: 'daejeon', lat: 36.3504, lng: 127.3845 },
   { id: 'gwangju', lat: 35.1595, lng: 126.8526 },

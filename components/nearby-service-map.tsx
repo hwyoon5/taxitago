@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { LocateFixed, Minus, Plus } from 'lucide-react'
 import { loadNaverMaps, type NaverMapInstance, type NaverMarker } from '@/lib/naver-maps'
 import { isUsableCoord } from '@/lib/ride-session'
-import { BUSAN_CITY_HALL } from '@/lib/user-location'
+import { DEFAULT_BASE_COORD, geolocationPermitted } from '@/lib/user-location'
 
 export type NearbyMapSpot = {
   id: string
@@ -80,15 +80,15 @@ export function NearbyServiceMap({
   const selectedRef = useRef(selectedId)
   const selectRef = useRef(onSelect)
   const originRef = useRef({
-    lat: isUsableCoord(originLat, originLng) ? originLat : BUSAN_CITY_HALL.lat,
-    lng: isUsableCoord(originLat, originLng) ? originLng : BUSAN_CITY_HALL.lng,
+    lat: isUsableCoord(originLat, originLng) ? originLat : DEFAULT_BASE_COORD.lat,
+    lng: isUsableCoord(originLat, originLng) ? originLng : DEFAULT_BASE_COORD.lng,
   })
   spotsRef.current = spots
   selectedRef.current = selectedId
   selectRef.current = onSelect
   originRef.current = {
-    lat: isUsableCoord(originLat, originLng) ? originLat : BUSAN_CITY_HALL.lat,
-    lng: isUsableCoord(originLat, originLng) ? originLng : BUSAN_CITY_HALL.lng,
+    lat: isUsableCoord(originLat, originLng) ? originLat : DEFAULT_BASE_COORD.lat,
+    lng: isUsableCoord(originLat, originLng) ? originLng : DEFAULT_BASE_COORD.lng,
   }
 
   const clearMarkers = () => {
@@ -281,14 +281,17 @@ export function NearbyServiceMap({
             const map = mapRef.current
             const maps = naverMapsApi()
             if (!map || !maps?.LatLng || typeof navigator === 'undefined' || !navigator.geolocation) return
-            navigator.geolocation.getCurrentPosition(
-              (position) => {
-                map.panTo(new maps.LatLng(position.coords.latitude, position.coords.longitude))
-                forceMapResize(map, containerRef.current)
-              },
-              () => undefined,
-              { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-            )
+            void geolocationPermitted().then((ok) => {
+              if (!ok) return
+              navigator.geolocation.getCurrentPosition(
+                (position) => {
+                  map.panTo(new maps.LatLng(position.coords.latitude, position.coords.longitude))
+                  forceMapResize(map, containerRef.current)
+                },
+                () => undefined,
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+              )
+            })
           }}
         >
           <LocateFixed className="h-4 w-4" />

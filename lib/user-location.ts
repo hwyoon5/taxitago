@@ -1,7 +1,8 @@
 import { lookupAddressFromApi, searchPlacesFromApi } from '@/lib/geocode-client'
 import { centerForRegion, lookupSuggestedPlace, regionFromAccessText, resolveRegion } from '@/lib/region-destinations'
 
-export const BUSAN_CITY_HALL = { lat: 35.179554, lng: 129.075641 }
+// 서비스 기준 좌표 — 부산광역시 북구 구포동. GPS·IP 위치를 모두 쓸 수 없을 때의 최종 기본값.
+export const DEFAULT_BASE_COORD = { lat: 35.194, lng: 129.004 }
 
 export const REGION_FALLBACK_LABEL: Record<string, string> = {
   seoul: '서울특별시',
@@ -39,8 +40,30 @@ export function failedReverseAddress(lat: number, lng: number) {
   return `주소를 찾을 수 없습니다 (${lat.toFixed(5)}, ${lng.toFixed(5)})`
 }
 
-export function requestBrowserPosition(): Promise<GeoPoint | null> {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null)
+/**
+ * Permissions API로 geolocation 상태를 먼저 확인한다. iframe 미리보기나
+ * Permissions-Policy로 차단된 컨텍스트에서 getCurrentPosition을 호출하면
+ * 브라우저가 콘솔 에러를 남기므로, denied가 확실하면 아예 호출하지 않는다.
+ */
+export function geolocationPermitted(): Promise<boolean> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(false)
+  return (async () => {
+    try {
+      const query = navigator.permissions?.query
+      if (typeof query !== 'function') return true
+      const status = await Promise.race([
+        query.call(navigator.permissions, { name: 'geolocation' as PermissionName }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200)),
+      ])
+      return status ? status.state !== 'denied' : true
+    } catch {
+      return true
+    }
+  })()
+}
+
+export async function requestBrowserPosition(): Promise<GeoPoint | null> {
+  if (!(await geolocationPermitted())) return null
 
   const read = (options: PositionOptions) =>
     new Promise<GeoPoint | null>((resolve) => {

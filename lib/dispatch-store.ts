@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
-import { BUSAN_CITY_HALL } from '@/lib/user-location'
+import { DEFAULT_BASE_COORD } from '@/lib/user-location'
 import type { DriverPenaltyInfo, DriverRecord, DriverReputation, RideRequestRecord } from '@/lib/dispatch-types'
 import { REJECT_PENALTY_SCORE, REJECT_WARN_SCORE } from '@/lib/dispatch-types'
 import { EXTRA_VEHICLE_TIERS } from '@/lib/ride-tiers'
@@ -256,8 +256,8 @@ const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
     vehicle: '현대 아슬란',
     plate: '서울 31바 1842',
     rating: '4.97',
-    lat: BUSAN_CITY_HALL.lat + 0.006,
-    lng: BUSAN_CITY_HALL.lng + 0.004,
+    lat: DEFAULT_BASE_COORD.lat + 0.006,
+    lng: DEFAULT_BASE_COORD.lng + 0.004,
     heading: 140,
     virtual: true,
     serviceType: '택시',
@@ -270,8 +270,8 @@ const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
     vehicle: '기아 K5',
     plate: '부산 12너 5521',
     rating: '4.91',
-    lat: BUSAN_CITY_HALL.lat - 0.01,
-    lng: BUSAN_CITY_HALL.lng + 0.008,
+    lat: DEFAULT_BASE_COORD.lat - 0.01,
+    lng: DEFAULT_BASE_COORD.lng + 0.008,
     heading: 40,
     virtual: true,
     serviceType: '택시',
@@ -283,8 +283,8 @@ const SEED_DRIVERS: Omit<DriverRecord, 'lastSeenAt' | 'status'>[] = [
     vehicle: '현대 소나타',
     plate: '경남 88다 3309',
     rating: '4.88',
-    lat: BUSAN_CITY_HALL.lat + 0.014,
-    lng: BUSAN_CITY_HALL.lng - 0.007,
+    lat: DEFAULT_BASE_COORD.lat + 0.014,
+    lng: DEFAULT_BASE_COORD.lng - 0.007,
     heading: 220,
     virtual: true,
     serviceType: '택시',
