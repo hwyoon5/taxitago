@@ -77,7 +77,7 @@ export function naverRefererCandidates(request?: Request) {
     .split(/[, \n]+/)
     .map((item) => item.trim())
     .filter(Boolean)
-  const fallbacks = ['https://taxitago.co.kr', 'http://localhost', 'http://127.0.0.1', 'http://localhost:3000', 'http://127.0.0.1:3000']
+  const fallbacks = ['https://taxitago.co.kr', 'https://test.taxitago.co.kr', 'http://localhost', 'http://127.0.0.1', 'http://localhost:3000', 'http://127.0.0.1:3000']
   const ordered: string[] = []
   const seen = new Set<string>()
   const liveIsPrivate = live ? isLoopbackOrPrivateHost(new URL(live).hostname) : false
@@ -102,8 +102,9 @@ export function isAllowedNaverAssetHost(hostname: string) {
   return false
 }
 
-export async function fetchNaverWithFlexibleHost(url: string, init: RequestInit, request?: Request) {
-  const headerSets: Array<Record<string, string>> = naverRefererCandidates(request).map((origin) => ({
+export async function fetchNaverWithFlexibleHost(url: string, init: RequestInit, request?: Request, refererOrigins?: string[]) {
+  const candidates = refererOrigins?.length ? refererOrigins : naverRefererCandidates(request)
+  const headerSets: Array<Record<string, string>> = candidates.map((origin) => ({
     Referer: `${origin}/`,
     Origin: origin,
   }))
@@ -140,21 +141,69 @@ export function naverMapsAuthPageUrl() {
   return `${origin}/`
 }
 
+/** Origins registered in NCP console > Application > Web service URL (env list + primary auth page). */
+export function naverRegisteredOrigins() {
+  const listed = (process.env.NAVER_MAP_WEB_SERVICE_URL || process.env.NEXT_PUBLIC_SITE_URL || '')
+    .split(/[, \n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  listed.push(naverMapsAuthPageUrl())
+  const seen = new Set<string>()
+  const origins: string[] = []
+  for (const item of listed) {
+    const origin = originFromUrl(item)
+    if (origin && !seen.has(origin)) {
+      seen.add(origin)
+      origins.push(origin)
+    }
+  }
+  return origins
+}
+
+/**
+ * Auth endpoints (v3/auth, v1/validatev3) carry the page URL as url=/uri=.
+ * When that origin is not registered in the NCP console, swap in the primary
+ * registered page URL so the check passes on any host (test domain, previews,
+ * localhost) — the upstream call is then made with the matching Referer.
+ */
+export function rewriteNaverAuthTarget(target: string) {
+  try {
+    const url = new URL(target)
+    if (!/\/(?:v3\/auth|v1\/validatev3)\/?$/i.test(url.pathname)) return { target, authEndpoint: false }
+    const registered = new Set(naverRegisteredOrigins())
+    const authPage = naverMapsAuthPageUrl()
+    for (const key of ['url', 'uri']) {
+      const value = url.searchParams.get(key)
+      if (!value) continue
+      const origin = originFromUrl(value)
+      if (!origin || !registered.has(origin)) url.searchParams.set(key, authPage)
+    }
+    return { target: url.toString(), authEndpoint: true }
+  } catch {
+    return { target, authEndpoint: false }
+  }
+}
+
 export function rewriteNaverSdkUrls(body: string) {
   const authPage = JSON.stringify(naverMapsAuthPageUrl())
+  const registered = JSON.stringify(naverRegisteredOrigins())
   return body
-    .replaceAll('(et?"https":"http")+"://oapi.map.naver.com', '"/api/naver-maps/upstream/oapi.map.naver.com')
-    .replaceAll('(et?"https":"http")+"://openapi.map.naver.com', '"/api/naver-maps/upstream/openapi.map.naver.com')
-    .replaceAll('/api/naver-maps/upstream/oapi.map.naver.com/v3/auth"', '/api/naver-maps/upstream/oapi.map.naver.com/v3/auth/"')
-    .replaceAll('/api/naver-maps/upstream/oapi.map.naver.com/v1/validatev3"', '/api/naver-maps/upstream/oapi.map.naver.com/v1/validatev3/"')
-    .replaceAll('/api/naver-maps/upstream/openapi.map.naver.com/v3/auth"', '/api/naver-maps/upstream/openapi.map.naver.com/v3/auth/"')
-    .replaceAll('/api/naver-maps/upstream/openapi.map.naver.com/v1/validatev3"', '/api/naver-maps/upstream/openapi.map.naver.com/v1/validatev3/"')
+    // Route the auth endpoints through the same-origin proxy. The minified
+    // scheme-chooser identifier changes between SDK builds — match any name.
     .replace(
-      'k=/(o|open)api\\.map\\.naver\\.com\\/openapi\\/v3\\/maps\\.js\\b/',
-      'k=/(?:(?:o|open)api\\.map\\.naver\\.com\\/openapi\\/v3\\/maps\\.js|naver-maps\\/sdk)\\b/',
+      /\([\w$]+\?"https":"http"\)\+":\/\/(oapi|openapi)\.map\.naver\.com(\/v(?:3\/auth|1\/validatev3))"/g,
+      '"/api/naver-maps/upstream/$1.map.naver.com$2/"',
     )
+    // The SDK only reads credentials from a <script> whose src matches this
+    // regex; widen it so the proxied /api/naver-maps/sdk URL is recognized.
     .replace(
-      /D=\(t\.location\.href\+""\)/g,
-      `D=(function(){var h=String(t.location.href||"");try{var u=new URL(h);if(/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/i.test(u.hostname)||/^(10|192\\.168)\\.|172\\.(1[6-9]|2\\d|3[0-1])\\./.test(u.hostname))return ${authPage}}catch(e){}return h})()`,
+      /\(o\|open\)api\\\.map\\\.naver\\\.com\\\/openapi\\\/v3\\\/maps\\\.js\\b/g,
+      '(?:(?:o|open)api\\.map\\.naver\\.com\\/openapi\\/v3\\/maps\\.js|naver-maps\\/sdk)\\b',
+    )
+    // Auth posts the page URL as url=/uri= — substitute a registered origin
+    // when this host is not in the registered Web service URL list.
+    .replace(
+      /([\w$]+)\.location\.href\+""/g,
+      `(function(){var h=String($1.location.href||"");try{var o=new URL(h).origin;if(${registered}.indexOf(o)>=0)return h}catch(e){}return ${authPage}})()`,
     )
 }

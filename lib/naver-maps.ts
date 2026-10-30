@@ -70,6 +70,7 @@ const PLACEHOLDER_IDS = new Set([
   'client id',
   'client%20id',
   'ncpclientid',
+  '[sensitive]',
 ])
 
 function normalizeClientId(value?: string | null) {
@@ -86,7 +87,14 @@ function normalizeClientId(value?: string | null) {
 const NAVER_MAP_CLIENT_ID = 'svhbb5mbpy'
 
 export function resolveNaverMapClientId() {
-  return NAVER_MAP_CLIENT_ID
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env || {}
+  return (
+    normalizeClientId(env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID) ||
+    normalizeClientId(env.NEXT_PUBLIC_NAVER_MAP_NCP_KEY_ID) ||
+    normalizeClientId(env.NAVER_MAP_CLIENT_ID) ||
+    normalizeClientId(env.NAVER_MAP_NCP_KEY_ID) ||
+    NAVER_MAP_CLIENT_ID
+  )
 }
 
 export function getNaverMapClientId() {

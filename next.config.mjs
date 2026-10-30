@@ -1,6 +1,6 @@
 import { withSentryConfig } from '@sentry/nextjs/config'
 
-const PLACEHOLDER_IDS = new Set(['', 'YOUR_CLIENT_ID', 'your_client_id', 'undefined', 'null'])
+const PLACEHOLDER_IDS = new Set(['', 'YOUR_CLIENT_ID', 'your_client_id', 'undefined', 'null', '[SENSITIVE]', '[sensitive]'])
 
 const rawNaverMapClientId = (
   process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID ||

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { fetchNaverWithFlexibleHost, isAllowedNaverAssetHost, rewriteNaverSdkUrls } from '@/lib/naver-host'
+import { fetchNaverWithFlexibleHost, isAllowedNaverAssetHost, naverRegisteredOrigins, rewriteNaverAuthTarget, rewriteNaverSdkUrls } from '@/lib/naver-host'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,7 +37,13 @@ export async function GET(request: Request) {
   if (!isAllowedNaverAssetHost(host)) {
     return NextResponse.json({ error: 'host not allowed' }, { status: 400 })
   }
-  const response = await fetchNaverWithFlexibleHost(parsed.toString(), { signal: AbortSignal.timeout(8000) }, request)
+  const upstream = rewriteNaverAuthTarget(parsed.toString())
+  const response = await fetchNaverWithFlexibleHost(
+    upstream.target,
+    { signal: AbortSignal.timeout(8000) },
+    request,
+    upstream.authEndpoint ? naverRegisteredOrigins() : undefined,
+  )
   if (!response) return NextResponse.json({ error: 'asset unavailable' }, { status: 502 })
   const contentType = response.headers.get('content-type') || 'application/octet-stream'
   if (/javascript|json|text\//i.test(contentType)) {

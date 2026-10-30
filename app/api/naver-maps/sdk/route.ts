@@ -48,6 +48,9 @@ export async function GET(request: Request) {
         )
         .replace(/https?:\/\/[^"' \n]+\/maps-(?:geocoder|gc-js|gc)\.js/gi, '/api/naver-maps/stub'),
     )
+    if (!stripped.includes('naver-maps/upstream') || !stripped.includes('naver-maps\\/sdk')) {
+      console.warn('[naver-maps] sdk rewrite did not match upstream bundle — ncpKeyId may not be parsed')
+    }
     return new NextResponse(stripped, {
       status: 200,
       headers: {
